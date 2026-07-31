@@ -1,15 +1,15 @@
-import { eq } from 'drizzle-orm';
+import { eq, isNull } from 'drizzle-orm';
 import { getDb } from '../../../../infrastructure/database/connection';
 import { documents } from '../../../../infrastructure/database/schema';
-import { Document } from '../../domain/entities/document';
-import { DocumentRepository } from '../../domain/ports/document.repository';
+import type { Document } from '../../domain/entities/document';
+import type { DocumentRepository } from '../../domain/ports/document.repository';
 
 export class DrizzleDocumentRepository implements DocumentRepository {
   async save(document: Document): Promise<void> {
     const db = getDb();
-    await db.insert(documents).values(document).onConflictDoUpdate({
+    await db.insert(documents).values(toPersistence(document)).onConflictDoUpdate({
       target: documents.id,
-      set: document,
+      set: toPersistence(document),
     });
   }
 
@@ -19,14 +19,34 @@ export class DrizzleDocumentRepository implements DocumentRepository {
 
   async findById(id: string): Promise<Document | null> {
     const db = getDb();
-    const result = await db.select().from(documents).where(eq(documents.id, id)).get();
-    if (!result) return null;
-    return result as Document;
+    const row = await db.select().from(documents)
+      .where(eq(documents.id, id))
+      .where(isNull(documents.deletedAt))
+      .get();
+    return row ? toDomain(row) : null;
   }
 
   async findByEmployee(employeeId: string): Promise<Document[]> {
     const db = getDb();
-    const result = await db.select().from(documents).where(eq(documents.employeeId, employeeId));
-    return result as Document[];
+    const rows = await db.select().from(documents)
+      .where(eq(documents.employeeId, employeeId))
+      .where(isNull(documents.deletedAt));
+    return rows.map(toDomain);
   }
+
+  async delete(id: string): Promise<void> {
+    const db = getDb();
+    await db.update(documents)
+      .set({ deletedAt: new Date().toISOString() } as any)
+      .where(eq(documents.id, id));
+  }
+}
+
+// Mappers (à adapter selon la vraie entité Document)
+function toDomain(row: typeof documents.$inferSelect): Document {
+  return row as unknown as Document;
+}
+
+function toPersistence(doc: Document): typeof documents.$inferInsert {
+  return doc as unknown as typeof documents.$inferInsert;
 }

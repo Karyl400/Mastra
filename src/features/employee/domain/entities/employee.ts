@@ -14,10 +14,10 @@ export interface Employee extends Timestamps {
 
 export function createEmployee(data: Omit<Employee, keyof Timestamps | 'status'>): Employee {
   const now = new Date().toISOString();
-  return {
+  return Object.freeze({
     ...data,
     status: EmployeeStatus.Pending,
     createdAt: now,
     updatedAt: now,
-  };
+  });
 }

@@ -5,6 +5,4 @@ data/
 *.db
 *.db-journal
 .mastra/
-*.md
 .vscode
-.env.example

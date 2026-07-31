@@ -32,3 +32,33 @@ export class NotificationError extends AppError {
     super(`Notification failed on ${channel}: ${reason}`, 'NOTIFICATION_ERROR', 500);
   }
 }
+
+export class DomainError extends AppError {
+  constructor(message: string, code: string = 'DOMAIN_ERROR') {
+    super(message, code, 400);
+  }
+}
+
+export class DatabaseError extends AppError {
+  constructor(message: string) {
+    super(message, 'DATABASE_ERROR', 500);
+  }
+}
+
+export class SecurityBlockError extends AppError {
+  constructor(message: string) {
+    super(message, 'SECURITY_BLOCK', 403);
+  }
+}
+
+export class ServiceUnavailableError extends AppError {
+  constructor(message: string) {
+    super(message, 'SERVICE_UNAVAILABLE', 503);
+  }
+}
+
+export class InjectionAttemptError extends AppError {
+  constructor(message: string) {
+    super(message, 'INJECTION_ATTEMPT', 400);
+  }
+}

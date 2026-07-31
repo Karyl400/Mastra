@@ -23,7 +23,7 @@ export function makeGenerateQuestionnaire(repo: QuestionnaireRepository) {
         id: crypto.randomUUID(),
         title: data.title,
         description: data.description ?? '',
-        questions: data.questions.map(q => ({ ...q, text: q.label })),
+        questions: data.questions.map((q: any) => ({ ...q, text: q.label })),
       });
       const published = { ...questionnaire, status: QuestionnaireStatus.Published, updatedAt: new Date().toISOString() };
       await repo.save(published);
