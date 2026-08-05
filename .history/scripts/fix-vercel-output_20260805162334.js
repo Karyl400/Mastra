@@ -30,8 +30,7 @@ async function fixOutput() {
       '@mastra/core',
       '@mastra/schema-compat',
       'pdfmake',
-      'pdfkit',
-      'resend'
+      'pdfkit'
     ];
 
     for (const mod of modulesToCopy) {
