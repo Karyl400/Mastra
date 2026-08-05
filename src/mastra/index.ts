@@ -106,6 +106,7 @@ const employeeOnboardingWorkflow = createEmployeeOnboardingWorkflow({
 });
 
 export const mastra = new Mastra({
+  deployer: new VercelDeployer(),
   agents: {
     onboardingOrchestrator,
     questionnaireEngine,

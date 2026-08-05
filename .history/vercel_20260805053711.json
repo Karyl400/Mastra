@@ -1,7 +1,12 @@
 {
   "buildCommand": "npm run build:prod",
-  "outputDirectory": ".vercel/output",
+  "outputDirectory": ".mastra",
   "framework": null,
+  "functions": {
+    "api/**": {
+      "maxDuration": 60
+    }
+  },
   "env": {
     "NODE_ENV": "production"
   },

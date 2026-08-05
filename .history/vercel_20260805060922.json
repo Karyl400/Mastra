@@ -1,0 +1,18 @@
+{
+  "buildCommand": "npx mastra build && npx mastra deploy --skip-build --env production --yes",
+  "outputDirectory": ".mastra/output",
+  "framework": null,
+  "functions": {
+    "api/**": {
+      "maxDuration": 60
+    }
+  },
+  "env": {
+    "NODE_ENV": "production"
+  },
+  "build": {
+    "env": {
+      "NODE_VERSION": "22"
+    }
+  }
+}
