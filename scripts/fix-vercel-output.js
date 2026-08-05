@@ -14,8 +14,10 @@ async function fixOutput() {
     await mkdir(join(root, '.vercel'), { recursive: true });
     await cp(source, target, { recursive: true });
     console.log('✅ Sortie Mastra copiée vers .vercel/output avec succès');
+  } else if (existsSync(target)) {
+    console.log('✅ Le dossier .vercel/output existe déjà. Le VercelDeployer a fonctionné.');
   } else {
-    console.error('❌ Erreur: Le dossier .mastra/output n\'existe pas. Le build Mastra a échoué.');
+    console.error('❌ Erreur: Ni .mastra/output ni .vercel/output n\'existent. Le build Mastra a échoué.');
     process.exit(1);
   }
 }
