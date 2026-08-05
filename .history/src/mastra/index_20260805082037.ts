@@ -105,11 +105,6 @@ const employeeOnboardingWorkflow = createEmployeeOnboardingWorkflow({
   slackProvider: slackWorkspace,
 });
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
-  throw new Error('CRITICAL: DATABASE_URL is required in production environment.');
-}
-
 export const mastra = new Mastra({
   deployer: new VercelDeployer(),
   agents: {
@@ -125,7 +120,7 @@ export const mastra = new Mastra({
   },
   storage: new LibSQLStore({
     id: 'mastra-store',
-    url: databaseUrl,
+    url: process.env.DATABASE_URL || 'file:./data/mastra.db',
     authToken: process.env.DATABASE_AUTH_TOKEN,
   }),
 });

@@ -10,3 +10,6 @@ venv/
 __pycache__/
 *.pyc
 .vercel
+
+# Local Netlify folder
+.netlify
