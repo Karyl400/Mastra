@@ -34,7 +34,8 @@ const VALIDATION_CONSTRAINTS = {
     MAX_LENGTH: 100,
     // Supporte les noms internationaux (accents, apostrophes, tirets)
     // Bloque explicitement les caractères HTML et scripts
-    PATTERN: /^[\p{L}\p{M}'\-\s]+$/u,
+    // Simplified regex for JSON Schema compatibility (removes \p{L} etc)
+    PATTERN: /^[a-zA-ZÀ-ÿ\s'-]+$/,
     MESSAGE: 'Name must contain only letters, accents, spaces, hyphens, and apostrophes',
   },
   EMAIL: {
@@ -88,7 +89,7 @@ function sanitizeRichText(value: string): string {
 function sanitizeName(value: string): string {
   return sanitizeHtml(value.trim())
     .replace(/<[^>]*>/g, '') // Supprime tout HTML résiduel
-    .replace(/[^\p{L}\p{M}'\-\s]/gu, '') // Garde uniquement les caractères autorisés
+    .replace(/[^a-zA-ZÀ-ÿ\s'-]/g, '') // Garde uniquement les caractères autorisés
     .replace(/\s+/g, ' ') // Normalise les espaces
     .trim();
 }
