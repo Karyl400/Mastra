@@ -1,0 +1,164 @@
+
+> kisso-onboarding@0.1.0 lint
+> eslint . --ext .ts
+
+
+/home/karyl/mastra/src/features/document/application/tools/generate-document.ts
+  20:27  warning  '_ctx' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/karyl/mastra/src/features/document/infrastructure/repositories/drizzle-document.repository.ts
+  38:55  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/karyl/mastra/src/features/document/infrastructure/services/pdfmake.service.ts
+  210:10  warning  Found existsSync from package "fs" with non literal argument at index 0     security/detect-non-literal-fs-filename
+  211:7   warning  Found mkdirSync from package "fs" with non literal argument at index 0      security/detect-non-literal-fs-filename
+  217:5   warning  Found writeFileSync from package "fs" with non literal argument at index 0  security/detect-non-literal-fs-filename
+
+/home/karyl/mastra/src/features/employee/application/dtos/employee.dto.ts
+    3:1   warning  Import validator methods from subpaths such as "validator/es/lib/isEmail" to avoid importing more code than needed  sonarjs/no-default-utility-imports
+  100:7   warning  'managerValidationSchema' is assigned a value but never used                                                        @typescript-eslint/no-unused-vars
+  106:5   warning  Replace this if-then-else flow by a single return statement                                                         sonarjs/prefer-single-boolean-return
+  118:5   warning  Replace this if-then-else flow by a single return statement                                                         sonarjs/prefer-single-boolean-return
+  140:6   warning  'email' is defined but never used                                                                                   @typescript-eslint/no-unused-vars
+  191:9   warning  Replace this if-then-else flow by a single return statement                                                         sonarjs/prefer-single-boolean-return
+  203:9   warning  Replace this if-then-else flow by a single return statement                                                         sonarjs/prefer-single-boolean-return
+  387:39  error    Extract this nested ternary operation into an independent statement                                                 sonarjs/no-nested-conditional
+
+/home/karyl/mastra/src/features/employee/application/dtos/task.dto.ts
+  137:13  warning  'now' is assigned a value but never used                          @typescript-eslint/no-unused-vars
+  137:13  error    Remove the declaration of the unused 'now' variable               sonarjs/no-unused-vars
+  137:13  error    Remove this useless assignment to variable "now"                  sonarjs/no-dead-store
+  263:7   warning  'temporalCoherenceRefinement' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  410:32  warning  Variable Assigned to Object Injection Sink                        security/detect-object-injection
+  455:39  warning  'taskId' is defined but never used                                @typescript-eslint/no-unused-vars
+  522:23  warning  'task' is defined but never used                                  @typescript-eslint/no-unused-vars
+
+/home/karyl/mastra/src/features/employee/application/tools/create-employee.ts
+    4:42  warning  'context' is defined but never used                                                                             @typescript-eslint/no-unused-vars
+    4:42  warning  Remove this unused import of 'context'                                                                          sonarjs/unused-import
+    4:51  warning  'propagation' is defined but never used                                                                         @typescript-eslint/no-unused-vars
+    4:51  warning  Remove this unused import of 'propagation'                                                                      sonarjs/unused-import
+   11:15  warning  'Employee' is defined but never used                                                                            @typescript-eslint/no-unused-vars
+   11:15  warning  Remove this unused import of 'Employee'                                                                         sonarjs/unused-import
+   27:3   warning  'DomainError' is defined but never used                                                                         @typescript-eslint/no-unused-vars
+   27:3   warning  Remove this unused import of 'DomainError'                                                                      sonarjs/unused-import
+   30:23  warning  'employeeDtoSchema' is defined but never used                                                                   @typescript-eslint/no-unused-vars
+   30:23  warning  Remove this unused import of 'employeeDtoSchema'                                                                sonarjs/unused-import
+  157:18  warning  Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking  sonarjs/super-linear-regex
+  283:15  warning  'now' is assigned a value but never used                                                                        @typescript-eslint/no-unused-vars
+  283:15  error    Remove the declaration of the unused 'now' variable                                                             sonarjs/no-unused-vars
+  283:15  error    Remove this useless assignment to variable "now"                                                                sonarjs/no-dead-store
+  605:33  warning  Unexpected any. Specify a different type                                                                        @typescript-eslint/no-explicit-any
+
+/home/karyl/mastra/src/features/employee/application/tools/get-employee-profile.ts
+  20:27  warning  '_ctx' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/karyl/mastra/src/features/employee/application/tools/get-task-list.ts
+  15:27  warning  '_ctx' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/karyl/mastra/src/features/employee/domain/value-objects/email.ts
+  1:10  warning  'z' is defined but never used     @typescript-eslint/no-unused-vars
+  1:10  warning  Remove this unused import of 'z'  sonarjs/unused-import
+
+/home/karyl/mastra/src/features/notification/application/tools/discover-slack-workspace.ts
+  38:27  warning  '_ctx' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/karyl/mastra/src/features/notification/application/tools/get-notification-history.ts
+  15:27  warning  '_ctx' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/karyl/mastra/src/features/notification/application/tools/schedule-reminder.ts
+  21:27  warning  '_ctx' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/karyl/mastra/src/features/notification/application/tools/send-notification.ts
+  28:27  warning  '_ctx' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/karyl/mastra/src/features/onboarding/application/tools/update-onboarding-status.ts
+  18:27  warning  '_ctx' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/karyl/mastra/src/features/questionnaire/application/tools/evaluate-response.ts
+  23:27  warning  '_ctx' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/karyl/mastra/src/features/questionnaire/application/tools/generate-questionnaire.ts
+  22:27  warning  '_ctx' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/karyl/mastra/src/features/questionnaire/infrastructure/repositories/drizzle-questionnaire.repository.ts
+   4:25  warning  'Question' is defined but never used      @typescript-eslint/no-unused-vars
+   4:25  warning  Remove this unused import of 'Question'   sonarjs/unused-import
+  12:56  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  17:58  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/karyl/mastra/src/features/questionnaire/infrastructure/repositories/drizzle-response.repository.ts
+  12:47  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  17:49  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/karyl/mastra/src/infrastructure/database/connection.ts
+  219:24  warning  Found existsSync from package "fs" with non literal argument at index 0  security/detect-non-literal-fs-filename
+  221:26  warning  Found statSync from package "fs" with non literal argument at index 0    security/detect-non-literal-fs-filename
+  221:26  warning  A `require()` style import is forbidden                                  @typescript-eslint/no-require-imports
+  225:13  warning  Found existsSync from package "fs" with non literal argument at index 0  security/detect-non-literal-fs-filename
+  226:32  warning  Found statSync from package "fs" with non literal argument at index 0    security/detect-non-literal-fs-filename
+  226:32  warning  A `require()` style import is forbidden                                  @typescript-eslint/no-require-imports
+  260:12  warning  Found existsSync from package "fs" with non literal argument at index 0  security/detect-non-literal-fs-filename
+  261:9   warning  Found mkdirSync from package "fs" with non literal argument at index 0   security/detect-non-literal-fs-filename
+
+/home/karyl/mastra/src/mastra/index.ts
+  12:10  warning  'getDb' is defined but never used     @typescript-eslint/no-unused-vars
+  12:10  warning  Remove this unused import of 'getDb'  sonarjs/unused-import
+
+/home/karyl/mastra/src/shared/logger.ts
+    6:26  warning  'propagation' is defined but never used                                              @typescript-eslint/no-unused-vars
+    6:26  warning  Remove this unused import of 'propagation'                                           sonarjs/unused-import
+    6:39  warning  'SpanStatusCode' is defined but never used                                           @typescript-eslint/no-unused-vars
+    6:39  warning  Remove this unused import of 'SpanStatusCode'                                        sonarjs/unused-import
+  141:10  warning  'hasCircularReference' is defined but never used                                     @typescript-eslint/no-unused-vars
+  162:10  warning  Refactor this function to reduce its Cognitive Complexity from 30 to the 15 allowed  sonarjs/cognitive-complexity
+  237:30  warning  Make sure that using this pseudorandom number generator is safe here                 sonarjs/pseudo-random
+  245:9   warning  Generic Object Injection Sink                                                        security/detect-object-injection
+  251:9   warning  Generic Object Injection Sink                                                        security/detect-object-injection
+  256:7   warning  Generic Object Injection Sink                                                        security/detect-object-injection
+  278:45  warning  'keyPath' is defined but never used                                                  @typescript-eslint/no-unused-vars
+  453:9   warning  Generic Object Injection Sink                                                        security/detect-object-injection
+
+/home/karyl/mastra/src/shared/retry.ts
+  140:60  warning  This branch's code block is the same as the block for the branch on line 138         sonarjs/no-duplicated-branches
+  204:40  warning  Make sure that using this pseudorandom number generator is safe here                 sonarjs/pseudo-random
+  206:27  warning  Make sure that using this pseudorandom number generator is safe here                 sonarjs/pseudo-random
+  215:19  warning  Make sure that using this pseudorandom number generator is safe here                 sonarjs/pseudo-random
+  271:23  warning  Refactor this function to reduce its Cognitive Complexity from 29 to the 15 allowed  sonarjs/cognitive-complexity
+
+/home/karyl/mastra/src/shared/security/llm-guardrail.ts
+   17:30  warning  'ServiceUnavailableError' is defined but never used                                                             @typescript-eslint/no-unused-vars
+   17:30  warning  Remove this unused import of 'ServiceUnavailableError'                                                          sonarjs/unused-import
+  343:58  warning  Refactor the code to avoid using this boolean literal                                                           sonarjs/no-redundant-boolean
+  561:25  warning  Found non-literal argument to RegExp Constructor                                                                security/detect-non-literal-regexp
+  562:26  warning  Found non-literal argument to RegExp Constructor                                                                security/detect-non-literal-regexp
+  571:24  warning  Found non-literal argument to RegExp Constructor                                                                security/detect-non-literal-regexp
+  572:25  warning  Found non-literal argument to RegExp Constructor                                                                security/detect-non-literal-regexp
+  606:5   warning  Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking  sonarjs/super-linear-regex
+  613:5   warning  Unsafe Regular Expression                                                                                       security/detect-unsafe-regex
+  613:5   warning  Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking  sonarjs/super-linear-regex
+  623:24  warning  Found non-literal argument to RegExp Constructor                                                                security/detect-non-literal-regexp
+  624:23  warning  Found non-literal argument to RegExp Constructor                                                                security/detect-non-literal-regexp
+  643:14  warning  Unsafe Regular Expression                                                                                       security/detect-unsafe-regex
+  664:5   warning  Unsafe Regular Expression                                                                                       security/detect-unsafe-regex
+  664:5   warning  Simplify this regular expression to reduce its complexity from 23 to the 20 allowed                             sonarjs/regex-complexity
+  679:14  warning  Unexpected control character(s) in regular expression: \x00, \x08, \x0b, \x0c, \x0e, \x1f                       no-control-regex
+  703:7   warning  Unsafe Regular Expression                                                                                       security/detect-unsafe-regex
+  714:5   warning  Simplify this regular expression to reduce its complexity from 36 to the 20 allowed                             sonarjs/regex-complexity
+  717:5   warning  Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking  sonarjs/super-linear-regex
+
+/home/karyl/mastra/src/shared/types.ts
+  433:10  warning  Generic Object Injection Sink  security/detect-object-injection
+
+/home/karyl/mastra/src/shared/validation.ts
+    8:1   warning  Import validator methods from subpaths such as "validator/es/lib/isEmail" to avoid importing more code than needed  sonarjs/no-default-utility-imports
+   93:14  warning  Simplify this regular expression to reduce its runtime, as it has super-linear performance due to backtracking      sonarjs/super-linear-regex
+  316:7   warning  Replace this if-then-else flow by a single return statement                                                         sonarjs/prefer-single-boolean-return
+  329:7   warning  Replace this if-then-else flow by a single return statement                                                         sonarjs/prefer-single-boolean-return
+  389:5   warning  Replace this if-then-else flow by a single return statement                                                         sonarjs/prefer-single-boolean-return
+  436:5   warning  Replace this if-then-else flow by a single return statement                                                         sonarjs/prefer-single-boolean-return
+  553:7   warning  Replace this if-then-else flow by a single return statement                                                         sonarjs/prefer-single-boolean-return
+  731:30  warning  Variable Assigned to Object Injection Sink                                                                          security/detect-object-injection
+
+✖ 107 problems (5 errors, 102 warnings)
+

@@ -11,12 +11,7 @@ export default defineConfig({
         singleFork: true,
       },
     },
-    exclude: [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/tests/integration/**',
-      '**/tests/unit/infrastructure/**',
-    ],
+    include: ['tests/integration/**/*.test.ts', 'tests/unit/infrastructure/**/*.test.ts'],
     server: {
       deps: {
         inline: [/@mastra\/core/],
