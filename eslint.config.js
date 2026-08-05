@@ -28,6 +28,9 @@ export default defineConfig([
       "sonarjs/regex-complexity": "warn",
       "sonarjs/no-default-utility-imports": "warn",
       "sonarjs/prefer-single-boolean-return": "warn",
+      "sonarjs/no-nested-conditional": "warn",
+      "sonarjs/no-unused-vars": "warn",
+      "sonarjs/no-dead-store": "warn",
       "no-control-regex": "warn",
     },
     settings: {

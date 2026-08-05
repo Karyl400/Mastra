@@ -1,5 +1,5 @@
 import { Mastra } from '@mastra/core';
-import { LibSQLStorage } from '@mastra/libsql';
+import { LibSQLStore } from '@mastra/libsql';
 
 import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
 import { DrizzleTaskRepository } from '../features/employee/infrastructure/repositories/drizzle-task.repository';
@@ -52,12 +52,8 @@ const emailProvider = new ResendAdapter(
   process.env.RESEND_API_KEY ?? '',
   process.env.NOTIFICATION_FROM ?? 'noreply@kisso.com',
 );
-const chatProvider = new SlackAdapter(
-  process.env.SLACK_BOT_TOKEN ?? '',
-);
-const slackWorkspace = new SlackWorkspaceService(
-  process.env.SLACK_BOT_TOKEN ?? '',
-);
+const chatProvider = new SlackAdapter(process.env.SLACK_BOT_TOKEN ?? '');
+const slackWorkspace = new SlackWorkspaceService(process.env.SLACK_BOT_TOKEN ?? '');
 const pdfService = new PdfmakeService();
 
 const createEmployee = makeCreateEmployee(employeeRepo);
@@ -120,7 +116,7 @@ export const mastra = new Mastra({
     notificationCycleWorkflow,
     documentGenerationWorkflow,
   },
-  storage: new LibSQLStorage({
+  storage: new LibSQLStore({
     url: 'file:./data/mastra.db',
   }),
 });
