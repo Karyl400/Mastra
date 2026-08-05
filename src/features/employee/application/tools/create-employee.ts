@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { trace, metrics, SpanStatusCode, context, propagation } from '@opentelemetry/api';
 import { withRetry } from '../../../../shared/retry';
 import { Mutex } from 'async-mutex';
-import DOMPurify from 'isomorphic-dompurify';
+import sanitizeHtml from 'sanitize-html';
 import { createHash } from 'crypto';
 
 import type { EmployeeRepository } from '../../domain/ports/employee.repository';
@@ -139,8 +139,8 @@ export class EmployeeDataSanitizer {
       firstName: this.sanitizeName(input.firstName),
       lastName: this.sanitizeName(input.lastName),
       email: this.sanitizeEmail(input.email),
-      department: DOMPurify.sanitize(input.department.trim()),
-      position: DOMPurify.sanitize(input.position.trim()),
+      department: sanitizeHtml(input.department.trim(), { allowedTags: [], allowedAttributes: {} }),
+      position: sanitizeHtml(input.position.trim(), { allowedTags: [], allowedAttributes: {} }),
       startDate: new Date(input.startDate).toISOString(),
       managerId: input.managerId || null,
       idempotencyKey: input.idempotencyKey,
@@ -149,11 +149,12 @@ export class EmployeeDataSanitizer {
   }
 
   private static sanitizeName(name: string): string {
-    return DOMPurify.sanitize(
+    return sanitizeHtml(
       name
         .trim()
         .replace(/<[^>]*>/g, '') // Supprime les tags HTML
         .replace(/[^\p{L}\p{M}'\-\s]/gu, ''), // Garde uniquement lettres, accents, apostrophes
+      { allowedTags: [], allowedAttributes: {} }
     );
   }
 

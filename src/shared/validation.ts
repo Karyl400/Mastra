@@ -4,7 +4,7 @@
 // ============================================
 
 import { z } from 'zod';
-import DOMPurify from 'isomorphic-dompurify';
+import sanitizeHtml from 'sanitize-html';
 import validator from 'validator';
 import {
   EmployeeStatus,
@@ -72,16 +72,18 @@ const VALIDATION_CONSTRAINTS = {
  * Sanitize un champ texte simple (pas de HTML autorisé)
  */
 function sanitizeText(value: string): string {
-  return DOMPurify.sanitize(value.trim(), { ALLOWED_TAGS: [] });
+  return sanitizeHtml(value.trim(), { allowedTags: [], allowedAttributes: {} });
 }
 
 /**
  * Sanitize un champ texte riche (HTML limité autorisé)
  */
 function sanitizeRichText(value: string): string {
-  return DOMPurify.sanitize(value.trim(), {
-    ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'a', 'p', 'br', 'ul', 'ol', 'li'],
-    ALLOWED_ATTR: ['href', 'target', 'rel'],
+  return sanitizeHtml(value.trim(), {
+    allowedTags: ['b', 'i', 'em', 'strong', 'a', 'p', 'br', 'ul', 'ol', 'li'],
+    allowedAttributes: {
+      a: ['href', 'target', 'rel']
+    },
   });
 }
 
@@ -89,7 +91,7 @@ function sanitizeRichText(value: string): string {
  * Sanitize un nom (lettres, accents, tirets, apostrophes uniquement)
  */
 function sanitizeName(value: string): string {
-  return DOMPurify.sanitize(value.trim())
+  return sanitizeHtml(value.trim(), { allowedTags: [], allowedAttributes: {} })
     .replace(/<[^>]*>/g, '') // Supprime tout HTML résiduel
     .replace(/[^\p{L}\p{M}'\-\s]/gu, '') // Garde uniquement les caractères autorisés
     .replace(/\s+/g, ' ') // Normalise les espaces
