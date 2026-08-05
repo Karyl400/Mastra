@@ -1,13 +1,14 @@
 // employee.validation.ts
 import { z } from 'zod';
 import validator from 'validator';
-import DOMPurify from 'isomorphic-dompurify';
+import { sanitizeHtml } from '@/shared/security/html-sanitizer';
 import { EmployeeStatus, Department, Position } from '../../../../shared/types';
 import { emailSchema, timestampsSchema, uuidSchema } from '../../../../shared/validation';
 
 // ============================================
 // 1. CONSTANTES ET CONFIGURATION
 // ============================================
+
 
 const EMPLOYEE_CONSTRAINTS = {
   NAME: {
@@ -54,7 +55,7 @@ const nameSchema = z
     `Name must not exceed ${EMPLOYEE_CONSTRAINTS.NAME.MAX_LENGTH} characters`,
   )
   .regex(EMPLOYEE_CONSTRAINTS.NAME.PATTERN, EMPLOYEE_CONSTRAINTS.NAME.MESSAGE)
-  .transform((val) => DOMPurify.sanitize(val)) // Protection XSS
+  .transform((val) => sanitizeHtml(val)) // Protection XSS
   .refine(
     (val) => !validator.contains(val, '<script>', { ignoreCase: true }),
     'Name contains potentially unsafe content',
@@ -90,7 +91,7 @@ const departmentSchema = z
   .min(EMPLOYEE_CONSTRAINTS.DEPARTMENT.MIN_LENGTH)
   .max(EMPLOYEE_CONSTRAINTS.DEPARTMENT.MAX_LENGTH)
   .pipe(z.nativeEnum(Department)) // Validation contre l'enum après nettoyage
-  .transform((val) => DOMPurify.sanitize(val));
+  .transform((val) => sanitizeHtml(val));
 
 // ============================================
 // 3. SCHEMAS MÉTIER COMPLEXES
@@ -156,7 +157,7 @@ const baseEmployeeSchema = z.object({
     .min(EMPLOYEE_CONSTRAINTS.POSITION.MIN_LENGTH)
     .max(EMPLOYEE_CONSTRAINTS.POSITION.MAX_LENGTH)
     .pipe(z.nativeEnum(Position))
-    .transform((val) => DOMPurify.sanitize(val)),
+    .transform((val) => sanitizeHtml(val)),
   startDate: startDateSchema,
   status: z.nativeEnum(EmployeeStatus).default(EmployeeStatus.Pending),
 });

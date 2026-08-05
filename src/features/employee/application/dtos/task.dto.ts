@@ -1,6 +1,6 @@
 // task.validation.ts
 import { z } from 'zod';
-import DOMPurify from 'isomorphic-dompurify';
+import { sanitizeHtml } from '@/shared/security/html-sanitizer';
 import { TaskStatus, TaskType, TaskPriority } from '../../../../shared/types';
 import { timestampsSchema, uuidSchema } from '../../../../shared/validation';
 
@@ -22,6 +22,7 @@ const TASK_STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   [TaskStatus.Cancelled]: [TaskStatus.Archived],
   [TaskStatus.Archived]: [], // État final
 };
+
 
 /**
  * Configuration par type de tâche
@@ -100,7 +101,7 @@ const titleSchema = z
     `Title must not exceed ${TASK_CONSTRAINTS.TITLE.MAX_LENGTH} characters`,
   )
   .regex(TASK_CONSTRAINTS.TITLE.PATTERN, 'Title contains invalid characters')
-  .transform((val) => DOMPurify.sanitize(val));
+  .transform((val) => sanitizeHtml(val));
 
 /**
  * Schema de description avec validation de contenu
@@ -108,7 +109,7 @@ const titleSchema = z
 const descriptionSchema = z
   .string()
   .max(TASK_CONSTRAINTS.DESCRIPTION.MAX_LENGTH)
-  .transform((val) => DOMPurify.sanitize(val))
+  .transform((val) => sanitizeHtml(val))
   .default('');
 
 /**

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { trace, metrics, SpanStatusCode, context, propagation } from '@opentelemetry/api';
 import { withRetry } from '../../../../shared/retry';
 import { Mutex } from 'async-mutex';
-import DOMPurify from 'isomorphic-dompurify';
+import { sanitizeHtml } from '@/shared/security/html-sanitizer';
 import { createHash } from 'crypto';
 
 import type { EmployeeRepository } from '../../domain/ports/employee.repository';
@@ -92,6 +92,9 @@ interface ValidatedEmployeeInput {
 /**
  * Schema d'entrée avec validations métier
  */
+
+
+
 const createEmployeeInputSchema = z.object({
   firstName: nameSchema.describe("Prénom de l'employé"),
   lastName: nameSchema.describe("Nom de l'employé"),
@@ -139,8 +142,8 @@ export class EmployeeDataSanitizer {
       firstName: this.sanitizeName(input.firstName),
       lastName: this.sanitizeName(input.lastName),
       email: this.sanitizeEmail(input.email),
-      department: DOMPurify.sanitize(input.department.trim()),
-      position: DOMPurify.sanitize(input.position.trim()),
+      department: sanitizeHtml(input.department.trim()),
+      position: sanitizeHtml(input.position.trim()),
       startDate: new Date(input.startDate).toISOString(),
       managerId: input.managerId || null,
       idempotencyKey: input.idempotencyKey,
@@ -149,7 +152,7 @@ export class EmployeeDataSanitizer {
   }
 
   private static sanitizeName(name: string): string {
-    return DOMPurify.sanitize(
+    return sanitizeHtml(
       name
         .trim()
         .replace(/<[^>]*>/g, '') // Supprime les tags HTML
