@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "mastra dev",
-    "build": "tsc",
+    "build": "mastra build",
     "start": "npx tsx ./src/mastra/index.ts",
     "test": "vitest run",
     "test:unit": "vitest run",
