@@ -3,27 +3,18 @@ import { z } from 'zod';
 import type { SlackWorkspaceProvider } from '../../domain/ports/slack-workspace.port';
 import { logger } from '../../../../shared/logger';
 
-const slackActionSchema = z.discriminatedUnion('action', [
-  z.object({
-    action: z.literal('listChannels'),
-  }),
-  z.object({
-    action: z.literal('listMembers'),
-  }),
-  z.object({
-    action: z.literal('findUserByEmail'),
-    email: z.string().email(),
-  }),
-  z.object({
-    action: z.literal('inviteToChannel'),
-    channelId: z.string(),
-    userId: z.string(),
-  }),
-  z.object({
-    action: z.literal('getChannelMembers'),
-    channelId: z.string(),
-  }),
-]);
+const slackActionSchema = z.object({
+  action: z.enum([
+    'listChannels',
+    'listMembers',
+    'findUserByEmail',
+    'inviteToChannel',
+    'getChannelMembers',
+  ]),
+  email: z.string().email().optional(),
+  channelId: z.string().optional(),
+  userId: z.string().optional(),
+});
 
 export function makeDiscoverSlackWorkspace(provider: SlackWorkspaceProvider) {
   return createTool({
@@ -49,16 +40,17 @@ export function makeDiscoverSlackWorkspace(provider: SlackWorkspaceProvider) {
           return { members: filtered, count: filtered.length };
         }
         case 'findUserByEmail': {
+          if (!data.email) throw new Error('email is required');
           const member = await provider.findUserByEmail(data.email);
-          return member
-            ? { found: true, member }
-            : { found: false, member: null };
+          return member ? { found: true, member } : { found: false, member: null };
         }
         case 'inviteToChannel': {
+          if (!data.channelId || !data.userId) throw new Error('channelId and userId are required');
           await provider.inviteToChannel(data.channelId, data.userId);
           return { success: true, channelId: data.channelId, userId: data.userId };
         }
         case 'getChannelMembers': {
+          if (!data.channelId) throw new Error('channelId is required');
           const memberIds = await provider.getChannelMembers(data.channelId);
           return { channelId: data.channelId, memberIds, count: memberIds.length };
         }
