@@ -40,7 +40,7 @@
     "async-mutex": "^0.5.0",
     "drizzle-orm": "^0.45.2",
     "inngest": "^4.13.0",
-    "isomorphic-dompurify": "^3.19.0",
+    "isomorphic-dompurify": "^2.26.0",
     "lru-cache": "^11.5.2",
     "mastra": "^1.22.0",
     "pdfmake": "^0.3.11",
