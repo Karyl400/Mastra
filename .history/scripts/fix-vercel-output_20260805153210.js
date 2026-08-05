@@ -29,7 +29,7 @@ async function fixOutput() {
     const modulesToCopy = [
       '@mastra/core',
       '@mastra/schema-compat',
-      'pdfmake'
+      
     ];
 
     for (const mod of modulesToCopy) {

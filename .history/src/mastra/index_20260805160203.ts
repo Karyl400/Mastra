@@ -1,9 +1,3 @@
-import dotenv from 'dotenv';
-import path from 'node:path';
-
-dotenv.config({
-  path: path.resolve(process.cwd(), '../../../.env'),
-});
 import { Mastra } from '@mastra/core';
 import { LibSQLStore } from '@mastra/libsql';
 import { VercelDeployer } from '@mastra/deployer-vercel';

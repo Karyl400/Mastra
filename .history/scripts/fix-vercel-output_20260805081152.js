@@ -28,8 +28,7 @@ async function fixOutput() {
   if (existsSync(funcNodeModules)) {
     const modulesToCopy = [
       '@mastra/core',
-      '@mastra/schema-compat',
-      'pdfmake'
+      '@mastra/schema-compat'
     ];
 
     for (const mod of modulesToCopy) {

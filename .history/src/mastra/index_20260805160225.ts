@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import path from 'node:path';
 
 dotenv.config({
-  path: path.resolve(process.cwd(), '../../../.env'),
+  path: path.resolve(process.cwd(), '../../../.e'),
 });
 import { Mastra } from '@mastra/core';
 import { LibSQLStore } from '@mastra/libsql';

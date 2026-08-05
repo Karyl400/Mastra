@@ -1,9 +1,3 @@
-import dotenv from 'dotenv';
-import path from 'node:path';
-
-dotenv.config({
-  path: path.resolve(process.cwd(), '../../../.env'),
-});
 import { Mastra } from '@mastra/core';
 import { LibSQLStore } from '@mastra/libsql';
 import { VercelDeployer } from '@mastra/deployer-vercel';
@@ -54,12 +48,6 @@ const responseRepo = new DrizzleResponseRepository();
 const documentRepo = new DrizzleDocumentRepository();
 const notificationRepo = new DrizzleNotificationRepository();
 const onboardingRepo = new DrizzleOnboardingRepository();
-
-console.log('DEBUG ENV', {
-  cwd: process.cwd(),
-  resend: process.env.RESEND_API_KEY,
-  env: process.env.NODE_ENV,
-});
 
 const emailProvider = new ResendAdapter(
   process.env.RESEND_API_KEY ?? '',
