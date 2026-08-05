@@ -31,7 +31,8 @@ async function fixOutput() {
       '@mastra/schema-compat',
       'pdfmake',
       'pdfkit',
-      'resend'
+      'resend',
+      '@noble/hashes'
     ];
 
     for (const mod of modulesToCopy) {
