@@ -3,11 +3,7 @@ import { z } from 'zod';
 import validator from 'validator';
 import DOMPurify from 'isomorphic-dompurify';
 import { EmployeeStatus, Department, Position } from '../../../../shared/types';
-import { 
-  emailSchema, 
-  timestampsSchema, 
-  uuidSchema,
-} from '../../../../shared/validation';
+import { emailSchema, timestampsSchema, uuidSchema } from '../../../../shared/validation';
 
 // ============================================
 // 1. CONSTANTES ET CONFIGURATION
@@ -49,13 +45,19 @@ const EMPLOYEE_CONSTRAINTS = {
 const nameSchema = z
   .string()
   .trim()
-  .min(EMPLOYEE_CONSTRAINTS.NAME.MIN_LENGTH, `Name must be at least ${EMPLOYEE_CONSTRAINTS.NAME.MIN_LENGTH} character`)
-  .max(EMPLOYEE_CONSTRAINTS.NAME.MAX_LENGTH, `Name must not exceed ${EMPLOYEE_CONSTRAINTS.NAME.MAX_LENGTH} characters`)
+  .min(
+    EMPLOYEE_CONSTRAINTS.NAME.MIN_LENGTH,
+    `Name must be at least ${EMPLOYEE_CONSTRAINTS.NAME.MIN_LENGTH} character`,
+  )
+  .max(
+    EMPLOYEE_CONSTRAINTS.NAME.MAX_LENGTH,
+    `Name must not exceed ${EMPLOYEE_CONSTRAINTS.NAME.MAX_LENGTH} characters`,
+  )
   .regex(EMPLOYEE_CONSTRAINTS.NAME.PATTERN, EMPLOYEE_CONSTRAINTS.NAME.MESSAGE)
   .transform((val) => DOMPurify.sanitize(val)) // Protection XSS
   .refine(
     (val) => !validator.contains(val, '<script>', { ignoreCase: true }),
-    'Name contains potentially unsafe content'
+    'Name contains potentially unsafe content',
   );
 
 /**
@@ -70,12 +72,12 @@ const startDateSchema = z
       const minDate = new Date(EMPLOYEE_CONSTRAINTS.START_DATE.MIN_YEAR, 0, 1);
       const maxDate = new Date();
       maxDate.setDate(maxDate.getDate() + EMPLOYEE_CONSTRAINTS.START_DATE.MAX_FUTURE_DAYS);
-      
+
       return parsed >= minDate && parsed <= maxDate;
     },
     {
       message: `Start date must be between year ${EMPLOYEE_CONSTRAINTS.START_DATE.MIN_YEAR} and ${EMPLOYEE_CONSTRAINTS.START_DATE.MAX_FUTURE_DAYS} days in the future`,
-    }
+    },
   )
   .transform((date) => new Date(date).toISOString()); // Normalisation
 
@@ -97,34 +99,37 @@ const departmentSchema = z
 /**
  * Validation de cohérence manager/employé
  */
-const managerValidationSchema = z.object({
-  managerId: uuidSchema.nullable().optional(),
-  status: z.nativeEnum(EmployeeStatus),
-}).refine(
-  (data) => {
-    // Un employé actif doit avoir un manager
-    if (data.status === EmployeeStatus.Active && !data.managerId) {
-      return false;
-    }
-    return true;
-  },
-  {
-    message: 'Active employees must have a manager assigned',
-    path: ['managerId'],
-  }
-).refine(
-  (data) => {
-    // Un employé en attente ne peut pas avoir de manager
-    if (data.status === EmployeeStatus.Pending && data.managerId) {
-      return false;
-    }
-    return true;
-  },
-  {
-    message: 'Pending employees cannot have a manager assigned',
-    path: ['managerId'],
-  }
-);
+const managerValidationSchema = z
+  .object({
+    managerId: uuidSchema.nullable().optional(),
+    status: z.nativeEnum(EmployeeStatus),
+  })
+  .refine(
+    (data) => {
+      // Un employé actif doit avoir un manager
+      if (data.status === EmployeeStatus.Active && !data.managerId) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Active employees must have a manager assigned',
+      path: ['managerId'],
+    },
+  )
+  .refine(
+    (data) => {
+      // Un employé en attente ne peut pas avoir de manager
+      if (data.status === EmployeeStatus.Pending && data.managerId) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: 'Pending employees cannot have a manager assigned',
+      path: ['managerId'],
+    },
+  );
 
 // ============================================
 // 4. SCHEMA PRINCIPAL AVEC DISCRIMINATED UNIONS
@@ -142,7 +147,7 @@ const baseEmployeeSchema = z.object({
       // return await checkEmailUniqueness(email);
       return true;
     },
-    { message: 'Email already exists in the system' }
+    { message: 'Email already exists in the system' },
   ),
   department: departmentSchema,
   position: z
@@ -159,30 +164,36 @@ const baseEmployeeSchema = z.object({
 /**
  * Schema objet sans les validations globales (pour réutilisation)
  */
-const employeeObjectSchema = baseEmployeeSchema
-  .extend({
-    // Champs additionnels pour la création
-    emergencyContact: z.object({
+const employeeObjectSchema = baseEmployeeSchema.extend({
+  // Champs additionnels pour la création
+  emergencyContact: z
+    .object({
       phone: z.string().min(10).max(20).optional(),
       name: z.string().min(1).max(100),
       relationship: z.string().min(2).max(50),
-    }).optional(),
-    
-    salary: z.object({
+    })
+    .optional(),
+
+  salary: z
+    .object({
       amount: z.number().min(EMPLOYEE_CONSTRAINTS.SALARY.MIN).max(EMPLOYEE_CONSTRAINTS.SALARY.MAX),
       currency: z.string().length(3).default('EUR'),
-    }).optional(),
-    
-    documents: z.array(
+    })
+    .optional(),
+
+  documents: z
+    .array(
       z.object({
         name: z.string().min(1).max(255),
         url: z.string().url(),
         type: z.enum(['contract', 'id', 'certification', 'other']),
-      })
-    ).max(10).optional(),
-    
-    managerId: uuidSchema.nullable().optional(),
-  });
+      }),
+    )
+    .max(10)
+    .optional(),
+
+  managerId: uuidSchema.nullable().optional(),
+});
 
 const applyManagerValidation = <T extends z.ZodTypeAny>(schema: T) => {
   return schema
@@ -196,7 +207,7 @@ const applyManagerValidation = <T extends z.ZodTypeAny>(schema: T) => {
       {
         message: 'Active employees must have a manager assigned',
         path: ['managerId'],
-      }
+      },
     )
     .refine(
       (data: { status?: string; managerId?: string | null }) => {
@@ -208,7 +219,7 @@ const applyManagerValidation = <T extends z.ZodTypeAny>(schema: T) => {
       {
         message: 'Pending employees cannot have a manager assigned',
         path: ['managerId'],
-      }
+      },
     );
 };
 
@@ -221,11 +232,9 @@ export const createEmployeeSchema = applyManagerValidation(employeeObjectSchema)
  * Schema pour la mise à jour (tous les champs optionnels)
  */
 export const updateEmployeeSchema = applyManagerValidation(
-  employeeObjectSchema
-    .partial()
-    .extend({
-      id: uuidSchema, // ID obligatoire pour la mise à jour
-    })
+  employeeObjectSchema.partial().extend({
+    id: uuidSchema, // ID obligatoire pour la mise à jour
+  }),
 );
 
 /**
@@ -236,12 +245,12 @@ export const employeeDtoSchema = applyManagerValidation(
     .extend({
       id: uuidSchema,
       managerId: uuidSchema.nullable().optional(),
-      
+
       // Champs calculés
       fullName: z.string().optional(),
       tenure: z.number().optional(), // Ancienneté en mois
     })
-    .merge(timestampsSchema)
+    .merge(timestampsSchema),
 );
 
 // ============================================
@@ -277,15 +286,12 @@ export class EmployeeValidator {
       return validated;
     } catch (error) {
       if (error instanceof z.ZodError) {
-        throw new EmployeeValidationError(
-          'Invalid employee creation data',
-          error.errors
-        );
+        throw new EmployeeValidationError('Invalid employee creation data', error.errors);
       }
       throw error;
     }
   }
-  
+
   /**
    * Valide les données de mise à jour
    */
@@ -295,15 +301,12 @@ export class EmployeeValidator {
       return validated;
     } catch (error) {
       if (error instanceof z.ZodError) {
-        throw new EmployeeValidationError(
-          'Invalid employee update data',
-          error.errors
-        );
+        throw new EmployeeValidationError('Invalid employee update data', error.errors);
       }
       throw error;
     }
   }
-  
+
   /**
    * Sanitize les données pour la réponse API
    */
@@ -321,26 +324,26 @@ export class EmployeeValidator {
 export class EmployeeValidationError extends Error {
   public readonly code = 'EMPLOYEE_VALIDATION_ERROR';
   public readonly statusCode = 422;
-  
+
   constructor(
     message: string,
-    public readonly details: z.ZodIssue[]
+    public readonly details: z.ZodIssue[],
   ) {
     super(message);
     this.name = 'EmployeeValidationError';
-    
+
     // Capture du stack trace
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, EmployeeValidationError);
     }
   }
-  
+
   toJSON() {
     return {
       error: {
         code: this.code,
         message: this.message,
-        details: this.details.map(detail => ({
+        details: this.details.map((detail) => ({
           field: detail.path.join('.'),
           message: detail.message,
           code: detail.code,
@@ -363,12 +366,12 @@ export const preValidationHooks = {
    */
   normalizeData(data: Record<string, unknown>): Record<string, unknown> {
     const normalized = { ...data };
-    
+
     // Normalisation email : lowercase
     if (typeof normalized.email === 'string') {
       normalized.email = normalized.email.toLowerCase().trim();
     }
-    
+
     // Normalisation noms : capitalisation
     if (typeof normalized.firstName === 'string') {
       normalized.firstName = this.capitalize(normalized.firstName);
@@ -376,15 +379,22 @@ export const preValidationHooks = {
     if (typeof normalized.lastName === 'string') {
       normalized.lastName = this.capitalize(normalized.lastName);
     }
-    
+
     return normalized;
   },
-  
+
   capitalize(str: string): string {
-    return str
-      .split(/[\s-']/)
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(str.includes('-') ? '-' : str.includes("'") ? "'" : ' ');
+    const words = str.split(/[\s-']/);
+    const capitalizedWords = words.map(
+      (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
+    );
+    let separator = ' ';
+    if (str.includes('-')) {
+      separator = '-';
+    } else if (str.includes("'")) {
+      separator = "'";
+    }
+    return capitalizedWords.join(separator);
   },
 };
 
@@ -456,4 +466,3 @@ export const validationTestCases = {
     },
   },
 };
-

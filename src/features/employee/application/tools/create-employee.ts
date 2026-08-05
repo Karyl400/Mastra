@@ -11,21 +11,21 @@ import type { EmployeeRepository } from '../../domain/ports/employee.repository'
 import type { Employee } from '../../domain/entities/employee';
 import { createEmployee } from '../../domain/entities/employee';
 import { EmployeeStatus } from '../../../../shared/types';
-import { 
-  uuidSchema, 
-  emailSchema, 
+import {
+  uuidSchema,
+  emailSchema,
   nameSchema,
   departmentSchema,
   positionSchema,
-  startDateSchema 
+  startDateSchema,
 } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
-import { 
-  ConflictError, 
+import {
+  ConflictError,
   ValidationError,
   DatabaseError,
   DomainError,
-  AppError
+  AppError,
 } from '../../../../shared/errors';
 import { EmployeeDto, employeeDtoSchema } from '../dtos/employee.dto';
 import { EmployeeMapper } from '../mappers/employee.mapper';
@@ -93,34 +93,32 @@ interface ValidatedEmployeeInput {
  * Schema d'entrée avec validations métier
  */
 const createEmployeeInputSchema = z.object({
-  firstName: nameSchema.describe('Prénom de l\'employé'),
-  lastName: nameSchema.describe('Nom de l\'employé'),
+  firstName: nameSchema.describe("Prénom de l'employé"),
+  lastName: nameSchema.describe("Nom de l'employé"),
   email: emailSchema.describe('Email professionnel'),
   department: departmentSchema.describe('Département'),
   position: positionSchema.describe('Poste'),
   startDate: startDateSchema.describe('Date de début (ISO 8601)'),
-  managerId: uuidSchema
-    .nullable()
-    .optional()
-    .describe('ID du manager (optionnel)'),
-  
+  managerId: uuidSchema.nullable().optional().describe('ID du manager (optionnel)'),
+
   // Options d'idempotence
-  idempotencyKey: z.string()
+  idempotencyKey: z
+    .string()
     .uuid()
     .optional()
-    .describe('Clé d\'idempotence pour éviter les doublons'),
-  
+    .describe("Clé d'idempotence pour éviter les doublons"),
+
   // Métadonnées
-  metadata: z.record(z.string(), z.unknown())
-    .optional()
-    .describe('Métadonnées additionnelles'),
-  
+  metadata: z.record(z.string(), z.unknown()).optional().describe('Métadonnées additionnelles'),
+
   // Options de traitement
-  options: z.object({
-    skipUniquenessCheck: z.boolean().default(false),
-    initialStatus: z.nativeEnum(EmployeeStatus)
-      .default(EmployeeStatus.Pending),
-  }).optional().default({}),
+  options: z
+    .object({
+      skipUniquenessCheck: z.boolean().default(false),
+      initialStatus: z.nativeEnum(EmployeeStatus).default(EmployeeStatus.Pending),
+    })
+    .optional()
+    .default({}),
 });
 
 type CreateEmployeeInput = z.infer<typeof createEmployeeInputSchema>;
@@ -149,16 +147,16 @@ export class EmployeeDataSanitizer {
       initialStatus: input.options.initialStatus,
     };
   }
-  
+
   private static sanitizeName(name: string): string {
     return DOMPurify.sanitize(
       name
         .trim()
         .replace(/<[^>]*>/g, '') // Supprime les tags HTML
-        .replace(/[^\p{L}\p{M}'\-\s]/gu, '') // Garde uniquement lettres, accents, apostrophes
+        .replace(/[^\p{L}\p{M}'\-\s]/gu, ''), // Garde uniquement lettres, accents, apostrophes
     );
   }
-  
+
   private static sanitizeEmail(email: string): string {
     return email.toLowerCase().trim();
   }
@@ -173,37 +171,40 @@ export class EmployeeDataSanitizer {
  * Garantit qu'une même opération n'est exécutée qu'une seule fois
  */
 class IdempotencyManager {
-  private static idempotencyCache = new Map<string, { 
-    result: CreateEmployeeResult; 
-    timestamp: number;
-    ttl: number;
-  }>();
-  
+  private static idempotencyCache = new Map<
+    string,
+    {
+      result: CreateEmployeeResult;
+      timestamp: number;
+      ttl: number;
+    }
+  >();
+
   /**
    * Vérifie si une clé d'idempotence existe déjà
    */
   static check(key: string): CreateEmployeeResult | null {
     const cached = this.idempotencyCache.get(key);
-    
+
     if (cached && Date.now() - cached.timestamp < cached.ttl) {
       return cached.result;
     }
-    
+
     // Nettoyer les entrées expirées
     if (cached) {
       this.idempotencyCache.delete(key);
     }
-    
+
     return null;
   }
-  
+
   /**
    * Stocke le résultat d'une opération idempotente
    */
   static store(
-    key: string, 
-    result: CreateEmployeeResult, 
-    ttlMs: number = 3600000 // 1 heure par défaut
+    key: string,
+    result: CreateEmployeeResult,
+    ttlMs: number = 3600000, // 1 heure par défaut
   ): void {
     this.idempotencyCache.set(key, {
       result,
@@ -211,16 +212,18 @@ class IdempotencyManager {
       ttl: ttlMs,
     });
   }
-  
+
   /**
    * Génère une clé d'idempotence déterministe basée sur les données
    */
-  static generateKey(data: Pick<ValidatedEmployeeInput, 'email' | 'firstName' | 'lastName'>): string {
+  static generateKey(
+    data: Pick<ValidatedEmployeeInput, 'email' | 'firstName' | 'lastName'>,
+  ): string {
     const hash = createHash('sha256')
       .update(`${data.email}:${data.firstName}:${data.lastName}`)
       .digest('hex')
       .substring(0, 8);
-    
+
     return `emp-${hash}`;
   }
 }
@@ -239,70 +242,61 @@ class EmployeeBusinessValidator {
   static async validate(
     input: ValidatedEmployeeInput,
     repo: EmployeeRepository,
-    options: CreateEmployeeOptions = {}
+    options: CreateEmployeeOptions = {},
   ): Promise<string[]> {
     const warnings: string[] = [];
     const tracer = trace.getTracer('employee-validator');
-    
+
     return await tracer.startActiveSpan('validate-business-rules', async (span) => {
       try {
         // 1. Vérifier l'unicité de l'email
         if (!options.skipUniquenessCheck) {
           const existingByEmail = await repo.findByEmail(input.email);
           if (existingByEmail) {
-            throw new ConflictError(
-              `Un employé avec l'email ${input.email} existe déjà`,
-              { email: input.email, existingId: existingByEmail.id }
-            );
+            throw new ConflictError(`Un employé avec l'email ${input.email} existe déjà`, {
+              email: input.email,
+              existingId: existingByEmail.id,
+            });
           }
         }
-        
+
         // 2. Vérifier que le manager existe si fourni
         if (input.managerId) {
           const manager = await repo.findById(input.managerId);
           if (!manager) {
-            throw new ValidationError(
-              `Le manager avec l'ID ${input.managerId} n'existe pas`,
-              { managerId: input.managerId }
-            );
+            throw new ValidationError(`Le manager avec l'ID ${input.managerId} n'existe pas`, {
+              managerId: input.managerId,
+            });
           }
-          
+
           // Vérifier que le manager est actif
           if (manager.status !== EmployeeStatus.Active) {
-            warnings.push(
-              `Le manager ${manager.firstName} ${manager.lastName} n'est pas actif`
-            );
+            warnings.push(`Le manager ${manager.firstName} ${manager.lastName} n'est pas actif`);
           }
         }
-        
+
         // 3. Vérifier les doublons par nom (warning seulement)
         // (disabled - repo.findByNames not available)
-        
+
         // 4. Vérifier la date de début
         const startDate = new Date(input.startDate);
-        const now = new Date();
         const maxFutureDate = new Date();
         maxFutureDate.setDate(maxFutureDate.getDate() + 90);
-        
+
         if (startDate > maxFutureDate) {
-          warnings.push(
-            'La date de début est dans plus de 90 jours'
-          );
+          warnings.push('La date de début est dans plus de 90 jours');
         }
-        
+
         if (startDate < new Date('2000-01-01')) {
-          throw new ValidationError(
-            'La date de début ne peut pas être antérieure à l\'an 2000'
-          );
+          throw new ValidationError("La date de début ne peut pas être antérieure à l'an 2000");
         }
-        
+
         span.setStatus({ code: SpanStatusCode.OK });
         return warnings;
-        
       } catch (error) {
-        span.setStatus({ 
-          code: SpanStatusCode.ERROR, 
-          message: error instanceof Error ? error.message : 'Unknown error' 
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: error instanceof Error ? error.message : 'Unknown error',
         });
         throw error;
       } finally {
@@ -323,45 +317,42 @@ class EmployeeBusinessValidator {
 export class CreateEmployeeUseCase {
   private readonly tracer = trace.getTracer('create-employee-usecase');
   private readonly meter = metrics.getMeter('create-employee-metrics');
-  
+
   // Métriques
   private readonly successCounter;
   private readonly failureCounter;
   private readonly durationHistogram;
-  
+
   // Mutex par email pour éviter les race conditions
   private static emailMutexes = new Map<string, Mutex>();
-  
+
   constructor(private readonly repo: EmployeeRepository) {
     // Initialiser les métriques
     this.successCounter = this.meter.createCounter('employee.created.success', {
       description: 'Nombre de créations réussies',
     });
-    
+
     this.failureCounter = this.meter.createCounter('employee.created.failure', {
       description: 'Nombre de créations échouées',
     });
-    
+
     this.durationHistogram = this.meter.createHistogram('employee.created.duration', {
-      description: 'Durée de création d\'employé',
+      description: "Durée de création d'employé",
       unit: 'ms',
     });
   }
-  
+
   /**
    * Exécute la création d'un employé
    */
-  async execute(
-    rawInput: unknown,
-    ctx?: CreateEmployeeContext
-  ): Promise<CreateEmployeeResult> {
+  async execute(rawInput: unknown, ctx?: CreateEmployeeContext): Promise<CreateEmployeeResult> {
     const startTime = Date.now();
-    
+
     return await this.tracer.startActiveSpan('create-employee', async (span) => {
       try {
         // 1. Validation et parsing de l'input
         const input = this.validateAndParseInput(rawInput);
-        
+
         // 2. Ajouter le contexte au span
         span.setAttributes({
           'employee.email': input.email,
@@ -369,7 +360,7 @@ export class CreateEmployeeUseCase {
           'request.id': ctx?.requestId || 'unknown',
           'idempotency.key': input.idempotencyKey || 'none',
         });
-        
+
         // 3. Vérifier l'idempotence
         if (input.idempotencyKey) {
           const idempotentResult = IdempotencyManager.check(input.idempotencyKey);
@@ -378,26 +369,23 @@ export class CreateEmployeeUseCase {
               idempotencyKey: input.idempotencyKey,
               requestId: ctx?.requestId,
             });
-            
+
             span.setAttribute('idempotent', true);
             return idempotentResult;
           }
         }
-        
+
         // 4. Acquérir un mutex par email pour éviter les race conditions
         const mutex = this.getOrCreateEmailMutex(input.email);
         const release = await mutex.acquire();
-        
+
         try {
           // 5. Valider les règles métier
-          const warnings = await EmployeeBusinessValidator.validate(
-            input, 
-            this.repo
-          );
-          
+          const warnings = await EmployeeBusinessValidator.validate(input, this.repo);
+
           // 6. Créer l'entité domaine
           const employee = createEmployee({
-            id: input.idempotencyKey 
+            id: input.idempotencyKey
               ? this.generateDeterministicId(input.idempotencyKey)
               : crypto.randomUUID(),
             firstName: input.firstName,
@@ -408,7 +396,7 @@ export class CreateEmployeeUseCase {
             startDate: input.startDate,
             managerId: input.managerId,
           });
-          
+
           // 7. Sauvegarder avec retry
           await withRetry(
             async () => {
@@ -430,33 +418,32 @@ export class CreateEmployeeUseCase {
               },
               shouldRetry: (error) => {
                 // Ne pas retry sur les erreurs de conflit ou validation
-                return !(error instanceof ConflictError || 
-                        error instanceof ValidationError);
+                return !(error instanceof ConflictError || error instanceof ValidationError);
               },
-            }
+            },
           );
-          
+
           // 8. Convertir en DTO
           const employeeDto = EmployeeMapper.toDto(employee);
-          
+
           // 9. Construire le résultat
           const result: CreateEmployeeResult = {
             employee: employeeDto,
             idempotent: false,
             warnings: warnings.length > 0 ? warnings : undefined,
           };
-          
+
           // 10. Stocker pour idempotence
           if (input.idempotencyKey) {
             IdempotencyManager.store(input.idempotencyKey, result);
           }
-          
+
           // 11. Métriques
           this.successCounter.add(1, {
             department: input.department,
             status: input.initialStatus,
           });
-          
+
           // 12. Logging structuré
           logger.info('Employé créé avec succès', {
             employeeId: employee.id,
@@ -466,27 +453,24 @@ export class CreateEmployeeUseCase {
             duration: Date.now() - startTime,
             warnings,
           });
-          
+
           span.setStatus({ code: SpanStatusCode.OK });
           span.setAttribute('employee.id', employee.id);
-          
+
           return result;
-          
         } finally {
           release(); // Toujours libérer le mutex
         }
-        
       } catch (error) {
         // Gestion d'erreur centralisée
         return this.handleError(error, startTime, ctx);
-        
       } finally {
         span.end();
         this.durationHistogram.record(Date.now() - startTime);
       }
     });
   }
-  
+
   /**
    * Valide et parse l'input brut
    */
@@ -497,89 +481,85 @@ export class CreateEmployeeUseCase {
     } catch (error) {
       if (error instanceof z.ZodError) {
         throw new ValidationError(
-          'Données d\'entrée invalides',
-          error.errors.map(e => ({
+          "Données d'entrée invalides",
+          error.errors.map((e) => ({
             field: e.path.join('.'),
             message: e.message,
             code: e.code,
-          }))
+          })),
         );
       }
       throw error;
     }
   }
-  
+
   /**
    * Génère un ID déterministe basé sur la clé d'idempotence
    */
   private generateDeterministicId(idempotencyKey: string): string {
-    const hash = createHash('sha256')
-      .update(idempotencyKey)
-      .digest('hex');
-    
+    const hash = createHash('sha256').update(idempotencyKey).digest('hex');
+
     // Convertir en UUID v5 format
     return [
       hash.substring(0, 8),
       hash.substring(8, 12),
       '5' + hash.substring(13, 16),
       '8' + hash.substring(17, 20),
-      hash.substring(20, 32)
+      hash.substring(20, 32),
     ].join('-');
   }
-  
+
   /**
    * Gestion centralisée des erreurs
    */
-  private handleError(
-    error: unknown, 
-    startTime: number,
-    ctx?: CreateEmployeeContext
-  ): never {
+  private handleError(error: unknown, startTime: number, ctx?: CreateEmployeeContext): never {
     const duration = Date.now() - startTime;
-    
+
     // Logger l'erreur
-    logger.error('Échec de création d\'employé', {
-      error: error instanceof Error ? {
-        name: error.name,
-        message: error.message,
-        stack: error.stack,
-        ...(error instanceof AppError && { code: error.code }),
-      } : error,
+    logger.error("Échec de création d'employé", {
+      error:
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+              stack: error.stack,
+              ...(error instanceof AppError && { code: error.code }),
+            }
+          : error,
       duration,
       requestId: ctx?.requestId,
     });
-    
+
     // Incrémenter le compteur d'échecs
     this.failureCounter.add(1, {
       errorType: error instanceof Error ? error.constructor.name : 'Unknown',
     });
-    
+
     // Transformer les erreurs inconnues
     if (error instanceof AppError) {
       throw error;
     }
-    
+
     if (error instanceof z.ZodError) {
       throw new ValidationError('Données invalides', error.errors);
     }
-    
+
     // Erreur inconnue -> erreur générique
-    throw new DatabaseError(
-      'Une erreur inattendue est survenue lors de la création de l\'employé',
-      { originalError: error }
-    );
+    throw new DatabaseError("Une erreur inattendue est survenue lors de la création de l'employé", {
+      originalError: error,
+    });
   }
-  
+
   /**
    * Obtient ou crée un mutex pour un email
    */
   private getOrCreateEmailMutex(email: string): Mutex {
     const key = email.toLowerCase();
-    
+
     if (!CreateEmployeeUseCase.emailMutexes.has(key)) {
       CreateEmployeeUseCase.emailMutexes.set(key, new Mutex());
     }
-    
+
     return CreateEmployeeUseCase.emailMutexes.get(key)!;
   }
 }
@@ -594,13 +574,14 @@ export class CreateEmployeeUseCase {
  */
 export function makeCreateEmployee(repo: EmployeeRepository) {
   const useCase = new CreateEmployeeUseCase(repo);
-  
+
   return createTool({
     id: 'createEmployee',
-    description: 'Crée un nouvel employé dans le système d\'onboarding avec validation métier complète',
-    
+    description:
+      "Crée un nouvel employé dans le système d'onboarding avec validation métier complète",
+
     inputSchema: createEmployeeInputSchema,
-    
+
     execute: async (rawInput, toolContext) => {
       const tc = toolContext as any;
       // Extraire le contexte de la requête
@@ -611,27 +592,26 @@ export function makeCreateEmployee(repo: EmployeeRepository) {
         tenantId: tc.tenantId,
         ipAddress: tc.ipAddress,
       };
-      
+
       const validatedInput = createEmployeeInputSchema.parse(rawInput);
-      
+
       // Ajouter le contexte au log (via le payload additionnel)
-      logger.info('Début workflow createEmployee', { 
-        requestId: ctx.requestId, 
+      logger.info('Début workflow createEmployee', {
+        requestId: ctx.requestId,
         correlationId: ctx.correlationId,
-        email: validatedInput.email
+        email: validatedInput.email,
       });
-      
+
       try {
         // Exécuter le use case
         const result = await useCase.execute(rawInput, ctx);
-        
+
         logger.info('Tool exécuté avec succès', {
           employeeId: result.employee.id,
           idempotent: result.idempotent,
         });
-        
+
         return result;
-        
       } catch (error) {
         logger.error('Tool en erreur', { error });
         throw error;
@@ -644,11 +624,10 @@ export function makeCreateEmployee(repo: EmployeeRepository) {
 // 8. TYPES RÉEXPORTÉS
 // ============================================
 
-export type { 
-  CreateEmployeeInput, 
+export type {
+  CreateEmployeeInput,
   CreateEmployeeContext,
   CreateEmployeeOptions,
   CreateEmployeeResult,
   ValidatedEmployeeInput,
 };
-

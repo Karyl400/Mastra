@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Plateforme d'onboarding intelligent pour Kisso Industries",
   "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "mastra dev",
     "build": "tsc",
@@ -20,7 +23,7 @@
     "db:init": "npx drizzle-kit export --dialect=sqlite --schema=./src/infrastructure/database/schema.ts | sqlite3 data/kisso.db",
     "smoke:slack": "node --env-file=.env scripts/smoke-slack.mjs",
     "prepare": "husky",
-    "lint": "eslint . --ext .ts",
+    "lint": "eslint src --ext .ts",
     "format": "prettier --write ."
   },
   "dependencies": {
