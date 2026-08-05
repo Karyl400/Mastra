@@ -1,5 +1,6 @@
 import { Mastra } from '@mastra/core';
 import { LibSQLStore } from '@mastra/libsql';
+import { VercelDeployer } from '@mastra/deployer-vercel';
 
 import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
 import { DrizzleTaskRepository } from '../features/employee/infrastructure/repositories/drizzle-task.repository';
@@ -117,6 +118,9 @@ export const mastra = new Mastra({
     documentGenerationWorkflow,
   },
   storage: new LibSQLStore({
-    url: 'file:./data/mastra.db',
+    id: 'mastra-store',
+    url: process.env.DATABASE_URL || 'file:./data/mastra.db',
+    authToken: process.env.DATABASE_AUTH_TOKEN,
   }),
+  deployer: new VercelDeployer(),
 });

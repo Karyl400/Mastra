@@ -1,14 +1,14 @@
 import { beforeAll, afterAll } from 'vitest';
 import { getDb, closeDb } from '../src/infrastructure/database/connection';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { migrate } from 'drizzle-orm/libsql/migrator';
 import fs from 'fs';
 
 process.env.NODE_ENV = 'test';
 
-beforeAll(() => {
+beforeAll(async () => {
   // Use Drizzle's programmatic migrator instead of CLI to avoid segfaults
   const db = getDb();
-  migrate(db, { migrationsFolder: './drizzle' });
+  await migrate(db, { migrationsFolder: './drizzle' });
 });
 
 afterAll(() => {

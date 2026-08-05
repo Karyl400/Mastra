@@ -1,5 +1,12 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [0.1.3] - 2026-08-05
+### Changed
+- Migration de `better-sqlite3` vers `@libsql/client` (Turso).
+- Architecture de déploiement orientée Serverless avec l'ajout de `@mastra/deployer-vercel`.
+- Mise à jour de toutes les dépendances `@mastra/*` en version `1.56.0` (latest).
+- Suppression du `Dockerfile` et de la configuration Fly.io.
+
 ## [0.8.0] - 2026-08-03
 ### Added
 - **Slack Workspace Discovery** : port `SlackWorkspaceProvider`, `SlackWorkspaceService`, tool `discoverSlackWorkspace` (channels, members, invite).

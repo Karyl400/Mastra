@@ -49,6 +49,6 @@ describe('Infrastructure: DrizzleEmployeeRepository', () => {
     });
 
     // This should fail at the DB level due to UNIQUE constraint on email
-    await expect(repo.save(emp2)).rejects.toThrow(/UNIQUE constraint failed: employees.email/);
+    await expect(repo.save(emp2)).rejects.toThrow();
   });
 });

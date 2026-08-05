@@ -25,8 +25,8 @@ Plateforme d'onboarding intelligent pour Kisso Industries, orchestrant l'intégr
 ## Contraintes Techniques
 - Clean Architecture (Screaming Architecture / Bounded Contexts par "Features").
 - SOLID, TypeScript strict avec types purs (pas de framework dans le domaine).
-- Mastra Agents/Tools/Workflows.
-- SQLite + Drizzle ORM.
+- Mastra Agents/Tools/Workflows déployés sur Vercel (Serverless).
+- Turso (LibSQL) + Drizzle ORM.
 - Validation Zod.
 - Authentification et RBAC prévus pour différencier les accès Employé, HR, Manager.
 

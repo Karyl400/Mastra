@@ -5,6 +5,7 @@ export default defineConfig({
   out: './drizzle',
   dialect: 'sqlite',
   dbCredentials: {
-    url: process.env.NODE_ENV === 'test' ? 'test.db' : (process.env.DATABASE_URL || 'sqlite.db'),
+    url: process.env.DATABASE_URL || 'file:./data/kisso.db',
+    token: process.env.DATABASE_AUTH_TOKEN,
   },
 });
