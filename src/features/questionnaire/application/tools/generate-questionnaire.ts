@@ -6,6 +6,8 @@ import { questionSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { QuestionnaireStatus } from '../../../../shared/types';
 
+type QuestionInput = z.infer<typeof questionSchema>;
+
 const generateQuestionnaireInputSchema = z.object({
   title: z.string().min(1).max(200).describe('Titre du questionnaire'),
   description: z.string().optional().describe('Description du questionnaire'),
@@ -23,7 +25,7 @@ export function makeGenerateQuestionnaire(repo: QuestionnaireRepository) {
         id: crypto.randomUUID(),
         title: data.title,
         description: data.description ?? '',
-        questions: data.questions.map((q: any) => ({ ...q, text: q.label })),
+        questions: data.questions.map((q: QuestionInput) => ({ ...q, text: q.label })),
       });
       const published = { ...questionnaire, status: QuestionnaireStatus.Published, updatedAt: new Date().toISOString() };
       await repo.save(published);

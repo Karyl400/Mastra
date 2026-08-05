@@ -1,4 +1,5 @@
 import { Mastra } from '@mastra/core';
+import { LibSQLStorage } from '@mastra/libsql';
 
 import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
 import { DrizzleTaskRepository } from '../features/employee/infrastructure/repositories/drizzle-task.repository';
@@ -27,11 +28,18 @@ import { makeNotificationAgent } from '../features/notification/application/agen
 
 import { ResendAdapter } from '../features/notification/infrastructure/providers/resend.adapter';
 import { SlackAdapter } from '../features/notification/infrastructure/providers/slack.adapter';
+import { SlackWorkspaceService } from '../features/notification/infrastructure/providers/slack-workspace.service';
+import { makeDiscoverSlackWorkspace } from '../features/notification/application/tools/discover-slack-workspace';
+import { PdfmakeService } from '../features/document/infrastructure/services/pdfmake.service';
 
-// Initialisation de la base de données
-getDb();
+import { createEmployeeOnboardingWorkflow } from '../features/onboarding/application/workflows/employee-onboarding';
+import { questionnaireCycleWorkflow } from '../features/questionnaire/application/workflows/questionnaire-cycle';
+import { notificationCycleWorkflow } from '../features/notification/application/workflows/notification-cycle';
+import { createDocumentWorkflow } from '../features/document/application/workflows/document-generation';
 
-// Initialisation des repositories
+// La connexion DB est établie à la première requête (lazy init via getConnectionManager)
+// getDb() appelé ici forcerait l'ouverture au démarrage — inutile en dev
+
 const employeeRepo = new DrizzleEmployeeRepository();
 const taskRepo = new DrizzleTaskRepository();
 const questionnaireRepo = new DrizzleQuestionnaireRepository();
@@ -40,11 +48,18 @@ const documentRepo = new DrizzleDocumentRepository();
 const notificationRepo = new DrizzleNotificationRepository();
 const onboardingRepo = new DrizzleOnboardingRepository();
 
-// Initialisation des providers
-const emailProvider = new ResendAdapter();
-const chatProvider = new SlackAdapter();
+const emailProvider = new ResendAdapter(
+  process.env.RESEND_API_KEY ?? '',
+  process.env.NOTIFICATION_FROM ?? 'noreply@kisso.com',
+);
+const chatProvider = new SlackAdapter(
+  process.env.SLACK_BOT_TOKEN ?? '',
+);
+const slackWorkspace = new SlackWorkspaceService(
+  process.env.SLACK_BOT_TOKEN ?? '',
+);
+const pdfService = new PdfmakeService();
 
-// Initialisation des outils
 const createEmployee = makeCreateEmployee(employeeRepo);
 const getEmployeeProfile = makeGetEmployeeProfile(employeeRepo, onboardingRepo, taskRepo);
 const updateOnboardingStatus = makeUpdateOnboardingStatus(onboardingRepo);
@@ -55,14 +70,15 @@ const generateDocument = makeGenerateDocument(documentRepo);
 const sendNotification = makeSendNotification(notificationRepo, emailProvider, chatProvider);
 const scheduleReminder = makeScheduleReminder(notificationRepo);
 const getNotificationHistory = makeGetNotificationHistory(notificationRepo);
+const discoverSlackWorkspace = makeDiscoverSlackWorkspace(slackWorkspace);
 
-// Initialisation des agents
 const onboardingOrchestrator = makeOnboardingOrchestrator({
   createEmployee,
   getEmployeeProfile,
   updateOnboardingStatus,
   getTaskList,
   generateDocument,
+  discoverSlackWorkspace,
 });
 
 const questionnaireEngine = makeQuestionnaireEngine({
@@ -76,12 +92,21 @@ const notificationAgent = makeNotificationAgent({
   scheduleReminder,
   getNotificationHistory,
   getEmployeeProfile,
+  discoverSlackWorkspace,
 });
 
-import { employeeOnboardingWorkflow } from '../features/onboarding/application/workflows/employee-onboarding';
-import { questionnaireCycleWorkflow } from '../features/questionnaire/application/workflows/questionnaire-cycle';
-import { notificationCycleWorkflow } from '../features/notification/application/workflows/notification-cycle';
-import { documentGenerationWorkflow } from '../features/document/application/workflows/document-generation';
+const documentGenerationWorkflow = createDocumentWorkflow({
+  employeeRepo,
+  pdfService,
+});
+
+const employeeOnboardingWorkflow = createEmployeeOnboardingWorkflow({
+  employeeRepo,
+  onboardingRepo,
+  notificationRepo,
+  emailProvider,
+  slackProvider: slackWorkspace,
+});
 
 export const mastra = new Mastra({
   agents: {
@@ -95,4 +120,7 @@ export const mastra = new Mastra({
     notificationCycleWorkflow,
     documentGenerationWorkflow,
   },
+  storage: new LibSQLStorage({
+    url: 'file:./data/mastra.db',
+  }),
 });

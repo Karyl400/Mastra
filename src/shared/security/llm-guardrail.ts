@@ -182,7 +182,7 @@ class KeyManager implements IKeyManager {
     
     return {
       version,
-      key: derivedKey,
+      key: Buffer.from(derivedKey),
       createdAt: new Date(),
     };
   }
@@ -998,9 +998,6 @@ export {
   DelimiterGenerator,
   KeyManager,
   SYSTEM_PROMPT_TEMPLATE as SYSTEM_SECURITY_PROMPT,
-  wrapUserInput,
-  wrapExternalData,
-  assembleSecurePrompt,
 };
 
 export type {

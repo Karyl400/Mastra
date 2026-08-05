@@ -60,6 +60,7 @@ export enum Position {
   FrontendDeveloper = 'Frontend Developer',
   FullStackDeveloper = 'Full Stack Developer',
   SeniorDeveloper = 'Senior Developer',
+  Developer = 'Developer',
   StaffEngineer = 'Staff Engineer',
   EngineeringManager = 'Engineering Manager',
   DevOpsEngineer = 'DevOps Engineer',
@@ -133,6 +134,9 @@ export enum TaskType {
   Training = 'training',
   Review = 'review',
   Approval = 'approval',
+  Individual = 'individual',
+  Team = 'team',
+  Onboarding = 'onboarding',
   Custom = 'custom',
   Other = 'other',
 }

@@ -5,7 +5,7 @@ import { logger } from '../../../../shared/logger';
 const notificationInputSchema = z.object({
   recipients: z.array(z.string()),
   messageTemplate: z.string(),
-  context: z.record(z.any()),
+  context: z.record(z.string(), z.unknown()),
 });
 
 const prepareNotificationStep = createStep({

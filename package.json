@@ -12,6 +12,10 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
+    "build:prod": "tsc --noEmit && mastra build",
+    "start:prod": "node .mastra/index.mjs",
+    "db:init": "npx drizzle-kit export --dialect=sqlite --schema=./src/infrastructure/database/schema.ts | sqlite3 data/kisso.db",
+    "smoke:slack": "node --env-file=.env scripts/smoke-slack.mjs",
     "prepare": "husky",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write ."
@@ -19,9 +23,12 @@
   "dependencies": {
     "@ai-sdk/google": "^3.0.102",
     "@ai-sdk/openai": "^3.0.89",
+    "@aws-sdk/client-secrets-manager": "^3.1101.0",
     "@mastra/core": "1.53.0",
+    "@mastra/libsql": "^0.16.4",
     "@opentelemetry/api": "^1.9.1",
     "@slack/web-api": "^8.0.0",
+    "@types/pdfmake": "^0.3.3",
     "async-mutex": "^0.5.0",
     "better-sqlite3": "13.0.1",
     "drizzle-orm": "0.45.2",
@@ -29,6 +36,7 @@
     "isomorphic-dompurify": "^3.19.0",
     "lru-cache": "^11.5.2",
     "mastra": "1.20.2",
+    "pdfmake": "^0.3.11",
     "resend": "^6.18.1",
     "validator": "^13.15.35",
     "zod": "3.25.76"

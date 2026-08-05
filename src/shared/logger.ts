@@ -222,7 +222,7 @@ function maskPii(
   if (Array.isArray(obj)) {
     seen.add(obj as object);
     return obj.map((item, index) =>
-      maskPii(item, { depth: depth + 1, maxDepth, seen: new WeakSet(seen), keyPath: [...keyPath, String(index)] })
+      maskPii(item, { depth: depth + 1, maxDepth, seen: new WeakSet<object>(), keyPath: [...keyPath, String(index)] })
     );
   }
   
@@ -256,7 +256,7 @@ function maskPii(
       masked[key] = maskPii(value, {
         depth: depth + 1,
         maxDepth,
-        seen: new WeakSet(seen),
+        seen: new WeakSet<object>(),
         keyPath: newKeyPath,
       });
     }
@@ -607,4 +607,3 @@ export {
   type ChildLogger,
 };
 
-export default logger;

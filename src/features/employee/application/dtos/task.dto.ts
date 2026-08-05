@@ -26,7 +26,15 @@ const TASK_STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
     TaskStatus.InProgress, 
     TaskStatus.Cancelled
   ],
+  [TaskStatus.InReview]: [
+    TaskStatus.Completed,
+    TaskStatus.InProgress,
+    TaskStatus.Cancelled
+  ],
   [TaskStatus.Completed]: [
+    TaskStatus.Archived
+  ],
+  [TaskStatus.Skipped]: [
     TaskStatus.Archived
   ],
   [TaskStatus.Cancelled]: [
@@ -243,21 +251,7 @@ export const updateTaskSchema = z.object({
     .max(TASK_CONSTRAINTS.TAGS.MAX_COUNT)
     .optional(),
   completedAt: z.string().datetime().nullable().optional(),
-  // Validation de transition de statut
-}).refine(
-  async (data) => {
-    if (data.status) {
-      // Vérifier la transition de statut (nécessite l'état actuel)
-      const currentTask = await getCurrentTaskStatus(data.id);
-      return isValidTransition(currentTask.status, data.status);
-    }
-    return true;
-  },
-  {
-    message: 'Invalid status transition',
-    path: ['status'],
-  }
-);
+});
 
 // ============================================
 // 6. VALIDATION DE COHÉRENCE TEMPORELLE
@@ -451,7 +445,7 @@ export class TaskValidator {
   }
   
   // Méthodes utilitaires
-  private static hasAssignee(task: any): boolean {
+  private static hasAssignee(task: Pick<TaskDto, 'assigneeId'> & { assigneeIds?: string[] }): boolean {
     return !!(
       task.assigneeId || 
       (task.assigneeIds && task.assigneeIds.length > 0)
@@ -571,9 +565,9 @@ export const taskCalculations = {
   getCompletionPercentage(task: TaskDto): number {
     // Logique selon le type de tâche
     if (task.type === TaskType.Onboarding && 'checklist' in task) {
-      const checklist = (task as any).checklist || [];
+      const checklist = (task as TaskDto & { checklist?: Array<{ completed: boolean }> }).checklist ?? [];
       if (checklist.length === 0) return 0;
-      const completed = checklist.filter((item: any) => item.completed).length;
+      const completed = checklist.filter((item: { completed: boolean }) => item.completed).length;
       return Math.round((completed / checklist.length) * 100);
     }
     
@@ -582,23 +576,3 @@ export const taskCalculations = {
   },
 };
 
-// ============================================
-// 13. EXPORT PAR DÉFAUT
-// ============================================
-
-export default {
-  schemas: {
-    create: createTaskSchema,
-    update: updateTaskSchema,
-    dto: taskDtoSchema,
-  },
-  validator: TaskValidator,
-  hooks: taskLifecycleHooks,
-  calculations: taskCalculations,
-  errors: TaskValidationError,
-  constants: {
-    transitions: TASK_STATUS_TRANSITIONS,
-    typeConfig: TASK_TYPE_CONFIG,
-    constraints: TASK_CONSTRAINTS,
-  },
-};

@@ -45,13 +45,13 @@ export function createDocumentWorkflow(deps: {
       templateId: z.string(),
     }),
     outputSchema: z.object({
-      documentUrl: z.string().url(),
+      documentPath: z.string().min(1),
       generatedAt: z.string().datetime(),
     }),
     execute: async ({ inputData }) => {
       logger.info('Generating PDF', { templateId: inputData.templateId });
-      const url = await deps.pdfService.generate(inputData.employeeData, inputData.templateId);
-      return { documentUrl: url, generatedAt: new Date().toISOString() };
+      const path = await deps.pdfService.generate(inputData.employeeData, inputData.templateId);
+      return { documentPath: path, generatedAt: new Date().toISOString() };
     },
   });
 

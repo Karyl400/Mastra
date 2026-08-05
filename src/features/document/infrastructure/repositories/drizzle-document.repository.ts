@@ -1,4 +1,4 @@
-import { eq, isNull } from 'drizzle-orm';
+import { eq, isNull, and } from 'drizzle-orm';
 import { getDb } from '../../../../infrastructure/database/connection';
 import { documents } from '../../../../infrastructure/database/schema';
 import type { Document } from '../../domain/entities/document';
@@ -20,8 +20,7 @@ export class DrizzleDocumentRepository implements DocumentRepository {
   async findById(id: string): Promise<Document | null> {
     const db = getDb();
     const row = await db.select().from(documents)
-      .where(eq(documents.id, id))
-      .where(isNull(documents.deletedAt))
+      .where(and(eq(documents.id, id), isNull(documents.deletedAt)))
       .get();
     return row ? toDomain(row) : null;
   }
@@ -29,8 +28,7 @@ export class DrizzleDocumentRepository implements DocumentRepository {
   async findByEmployee(employeeId: string): Promise<Document[]> {
     const db = getDb();
     const rows = await db.select().from(documents)
-      .where(eq(documents.employeeId, employeeId))
-      .where(isNull(documents.deletedAt));
+      .where(and(eq(documents.employeeId, employeeId), isNull(documents.deletedAt)));
     return rows.map(toDomain);
   }
 

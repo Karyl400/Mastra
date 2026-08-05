@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import winston from 'winston';
+import { logger } from '../shared/logger';
 
 const ConfigSchema = z.object({
-  openai: z.object({ apiKey: z.string().min(32, 'Invalid API key') }).strict(),
+  openai: z.object({ apiKey: z.string().min(1) }).strict(),
   database: z.object({
     url: z.string().refine(u => process.env.NODE_ENV === 'production'
       ? u.startsWith('postgresql://') && u.includes('sslmode=require')
@@ -21,12 +21,6 @@ const ConfigSchema = z.object({
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
-
-const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: winston.format.json(),
-  transports: [new winston.transports.Console()],
-});
 
 let configPromise: Promise<Config> | null = null;
 
@@ -60,20 +54,18 @@ async function loadConfig(): Promise<Config> {
         },
       };
   const cfg = ConfigSchema.parse(raw);
-  if (!cfg.openai.apiKey) logger.warn('OpenAI API key is empty');
-  if (!cfg.notifications.resend.apiKey) logger.warn('Resend API key is empty');
-  logger.info('Config loaded', { env: cfg.app.nodeEnv, hasOpenAI: !!cfg.openai.apiKey });
+  logger.info('Config loaded', { env: cfg.app.nodeEnv });
   return cfg;
 }
 
 async function loadFromSecretsManager(): Promise<unknown> {
   const { SecretsManagerClient, GetSecretValueCommand } = await import('@aws-sdk/client-secrets-manager');
   const client = new SecretsManagerClient({
-    requestHandler: { requestTimeout: 5000 },       // ✅ timeout 5s
+    requestHandler: { requestTimeout: 5000 },
   });
   const { SecretString } = await client.send(
     new GetSecretValueCommand({ SecretId: process.env.AWS_SECRET_ID || 'kisso/config' })
   );
-  try { return JSON.parse(SecretString || '{}'); }  // ✅ parse protégé
+  try { return JSON.parse(SecretString || '{}'); }
   catch { throw new Error('Secret is not valid JSON'); }
 }

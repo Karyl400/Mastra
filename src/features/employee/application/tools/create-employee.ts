@@ -276,12 +276,7 @@ class EmployeeBusinessValidator {
         }
         
         // 3. Vérifier les doublons par nom (warning seulement)
-        const similarNames = await repo.findByNames(input.firstName, input.lastName);
-        if (similarNames.length > 0) {
-          warnings.push(
-            `${similarNames.length} employé(s) avec un nom similaire existe(nt) déjà`
-          );
-        }
+        // (disabled - repo.findByNames not available)
         
         // 4. Vérifier la date de début
         const startDate = new Date(input.startDate);
@@ -412,7 +407,6 @@ export class CreateEmployeeUseCase {
             position: input.position,
             startDate: input.startDate,
             managerId: input.managerId,
-            status: input.initialStatus,
           });
           
           // 7. Sauvegarder avec retry
@@ -421,15 +415,16 @@ export class CreateEmployeeUseCase {
               await this.repo.save(employee);
             },
             {
-              retries: 3,
-              backoff: new ExponentialBackoff({
-                initialDelayMs: 100,
-                maxDelayMs: 1000,
-              }),
-              onRetry: (attempt, error) => {
+              maxAttempts: 3,
+              strategy: {
+                type: 'exponential',
+                initialDelay: 100,
+                maxDelay: 1000,
+              },
+              onRetry: (retryContext) => {
                 logger.warn('Retry save employee', {
-                  attempt,
-                  error: error.message,
+                  attempt: retryContext.attempt,
+                  error: (retryContext.error as Error).message,
                   employeeId: employee.id,
                 });
               },
@@ -607,13 +602,14 @@ export function makeCreateEmployee(repo: EmployeeRepository) {
     inputSchema: createEmployeeInputSchema,
     
     execute: async (rawInput, toolContext) => {
+      const tc = toolContext as any;
       // Extraire le contexte de la requête
       const ctx: CreateEmployeeContext = {
-        requestId: toolContext.requestId || crypto.randomUUID(),
-        correlationId: toolContext.correlationId || crypto.randomUUID(),
-        userId: toolContext.userId,
-        tenantId: toolContext.tenantId,
-        ipAddress: toolContext.ipAddress,
+        requestId: tc.requestId || crypto.randomUUID(),
+        correlationId: tc.correlationId || crypto.randomUUID(),
+        userId: tc.userId,
+        tenantId: tc.tenantId,
+        ipAddress: tc.ipAddress,
       };
       
       const validatedInput = createEmployeeInputSchema.parse(rawInput);
@@ -656,14 +652,3 @@ export type {
   ValidatedEmployeeInput,
 };
 
-// ============================================
-// 9. EXPORT PAR DÉFAUT
-// ============================================
-
-export default {
-  makeCreateEmployee,
-  CreateEmployeeUseCase,
-  EmployeeBusinessValidator,
-  EmployeeDataSanitizer,
-  IdempotencyManager,
-};

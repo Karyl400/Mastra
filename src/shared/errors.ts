@@ -16,13 +16,13 @@ export class NotFoundError extends AppError {
 }
 
 export class ValidationError extends AppError {
-  constructor(message: string) {
+  constructor(message: string, public readonly details?: unknown) {
     super(message, 'VALIDATION_ERROR', 400);
   }
 }
 
 export class ConflictError extends AppError {
-  constructor(message: string) {
+  constructor(message: string, public readonly details?: unknown) {
     super(message, 'CONFLICT', 409);
   }
 }
@@ -40,7 +40,7 @@ export class DomainError extends AppError {
 }
 
 export class DatabaseError extends AppError {
-  constructor(message: string) {
+  constructor(message: string, public readonly details?: unknown) {
     super(message, 'DATABASE_ERROR', 500);
   }
 }

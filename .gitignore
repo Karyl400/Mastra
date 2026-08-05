@@ -6,3 +6,6 @@ data/
 *.db-journal
 .mastra/
 .vscode
+venv/
+__pycache__/
+*.pyc

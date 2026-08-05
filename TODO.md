@@ -74,3 +74,11 @@
 
 ## [10] Bug Fixes & Maintenance
 - [x] Fix TypeError: `.extend()` on ZodEffects in `validation.ts` — extract bare `z.object` bases from `.refine()`-wrapped schemas
+
+## [11] Slack Workspace Discovery & PDF Generation
+- [x] Port `SlackWorkspaceProvider` + `SlackWorkspaceService` (@slack/web-api)
+- [x] Tool `discoverSlackWorkspace` (listChannels, listMembers, findUserByEmail, inviteToChannel, getChannelMembers)
+- [x] Injection agents + workflow `employee-onboarding` (invitation Slack best-effort)
+- [x] `PdfmakeService` (pdfmake 0.3) — templates contrat / welcome_letter / certificate / guide
+- [x] Wiring `document-generation` + remplacement stub dans `mastra/index.ts`
+- [x] Tests unitaires : tool Slack, service Slack, PdfmakeService, workflows onboarding & documents

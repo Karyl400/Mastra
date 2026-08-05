@@ -7,8 +7,6 @@ import {
   emailSchema, 
   timestampsSchema, 
   uuidSchema,
-  phoneSchema,
-  urlSchema 
 } from '../../../../shared/validation';
 
 // ============================================
@@ -165,8 +163,8 @@ const employeeObjectSchema = baseEmployeeSchema
   .extend({
     // Champs additionnels pour la création
     emergencyContact: z.object({
-      name: nameSchema,
-      phone: phoneSchema,
+      phone: z.string().min(10).max(20).optional(),
+      name: z.string().min(1).max(100),
       relationship: z.string().min(2).max(50),
     }).optional(),
     
@@ -178,7 +176,7 @@ const employeeObjectSchema = baseEmployeeSchema
     documents: z.array(
       z.object({
         name: z.string().min(1).max(255),
-        url: urlSchema,
+        url: z.string().url(),
         type: z.enum(['contract', 'id', 'certification', 'other']),
       })
     ).max(10).optional(),
@@ -186,10 +184,10 @@ const employeeObjectSchema = baseEmployeeSchema
     managerId: uuidSchema.nullable().optional(),
   });
 
-const applyManagerValidation = (schema: any) => {
+const applyManagerValidation = <T extends z.ZodTypeAny>(schema: T) => {
   return schema
     .refine(
-      (data: any) => {
+      (data: { status?: string; managerId?: string | null }) => {
         if (data.status === EmployeeStatus.Active && !data.managerId) {
           return false;
         }
@@ -201,7 +199,7 @@ const applyManagerValidation = (schema: any) => {
       }
     )
     .refine(
-      (data: any) => {
+      (data: { status?: string; managerId?: string | null }) => {
         if (data.status === EmployeeStatus.Pending && data.managerId) {
           return false;
         }
@@ -435,7 +433,7 @@ export const validationTestCases = {
       lastName: 'Doe',
       email: 'test@test.com',
       department: Department.Engineering,
-      position: Position.Developer,
+      position: Position.BackendDeveloper,
       startDate: new Date().toISOString(),
     },
     futureDate: {
@@ -443,7 +441,7 @@ export const validationTestCases = {
       lastName: 'Doe',
       email: 'john@test.com',
       department: Department.Engineering,
-      position: Position.Developer,
+      position: Position.BackendDeveloper,
       startDate: '2099-01-01T00:00:00Z',
     },
     noManager: {
@@ -451,7 +449,7 @@ export const validationTestCases = {
       lastName: 'Doe',
       email: 'john@test.com',
       department: Department.Engineering,
-      position: Position.Developer,
+      position: Position.BackendDeveloper,
       startDate: new Date().toISOString(),
       status: EmployeeStatus.Active,
       // Pas de managerId alors que status = Active
@@ -459,18 +457,3 @@ export const validationTestCases = {
   },
 };
 
-// ============================================
-// 10. EXPORT PAR DÉFAUT POUR FACILITÉ D'USAGE
-// ============================================
-
-export default {
-  schemas: {
-    create: createEmployeeSchema,
-    update: updateEmployeeSchema,
-    dto: employeeDtoSchema,
-  },
-  validator: EmployeeValidator,
-  hooks: preValidationHooks,
-  errors: EmployeeValidationError,
-  constraints: EMPLOYEE_CONSTRAINTS,
-};

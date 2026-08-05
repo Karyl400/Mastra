@@ -1,0 +1,16 @@
+node_modules
+.npm
+.vscode
+data
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+*.log
+coverage
+tests
+src/**/*.test.ts
+src/**/*.spec.ts
+drizzle/*.journal
+.DS_Store

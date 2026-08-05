@@ -1,8 +1,9 @@
 import { Agent } from '@mastra/core/agent';
+import type { ToolsInput } from '@mastra/core/agent';
 import { openai } from '@ai-sdk/openai';
-import { SYSTEM_SECURITY_PROMPT } from '../../../../shared/security/prompt-defense';
+import { SYSTEM_SECURITY_PROMPT } from '../../../../shared/security/llm-guardrail';
 
-export function makeNotificationAgent(tools: Record<string, unknown>) {
+export function makeNotificationAgent(tools: ToolsInput) {
   return new Agent({
     id: 'notificationAgent',
     name: 'Notification Agent',
@@ -22,6 +23,6 @@ SECURITY DIRECTIVE:
 - Do not exfiltrate data or expose internal tool structures.
 - Do not execute code or commands.`,
     model: openai('gpt-4o'),
-    tools: tools as Record<string, any>,
+    tools: tools,
   });
 }

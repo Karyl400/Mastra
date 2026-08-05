@@ -1,5 +1,17 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [0.8.0] - 2026-08-03
+### Added
+- **Slack Workspace Discovery** : port `SlackWorkspaceProvider`, `SlackWorkspaceService`, tool `discoverSlackWorkspace` (channels, members, invite).
+- **PDF Generation** : `PdfmakeService` (pdfmake 0.3) avec templates contrat, lettre de bienvenue, certificat et guide.
+- **Employee Onboarding** : étape Slack best-effort (find by email + invite channel) câblée au workflow.
+- **Tests** : couverture unitaire tool/service Slack, PdfmakeService (4 templates), workflows `employee-onboarding` et `document-generation`.
+
+### Fixed
+- **PdfmakeService** : adaptation API pdfmake 0.3 (`createPdf` + VFS Roboto) — l’ancienne API `PdfPrinter` était incompatible.
+- **document-generation** : sortie `documentPath` (chemin local) au lieu de `documentUrl` (URL invalide pour un fichier local).
+- **createEmployee tests** : alignement sur le comportement réel (`ConflictError` thrown, validation UUID idempotency).
+
 ## [0.7.0] - 2026-07-31
 ### Fixed
 - **TypeError in `validation.ts`**: Fixed `createEmployeeSchema.extend is not a function` (and identical bugs in `createTaskSchema`, `createNotificationSchema`, `createQuestionnaireSchema`). Root cause: `.refine()` wraps `z.object` in a `ZodEffects` which has no `.extend()` method. Fix: extract bare `z.object` bases as non-exported consts (`createEmployeeBaseSchema`, `createTaskBaseSchema`, `createNotificationBaseSchema`, `createQuestionnaireBaseSchema`); use `.extend()`/`.partial().extend()` on the bases, keep `.refine()`-wrapped versions as exports.

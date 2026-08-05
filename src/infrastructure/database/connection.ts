@@ -7,7 +7,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import Database from 'better-sqlite3';
 import * as schema from './schema';
-import { logger } from '../shared/logger';
+import { logger } from '../../shared/logger';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import { existsSync, mkdirSync } from 'fs';
@@ -67,6 +67,9 @@ const DEFAULT_CONFIG: ConnectionConfig = {
   migrationsFolder: process.env.DB_MIGRATIONS_FOLDER || './drizzle',
   verbose: process.env.DB_VERBOSE === 'true',
 };
+
+// Flag module-scope pour éviter l'enregistrement multiple des handlers OS
+let dbShutdownHandlersRegistered = false;
 
 // ============================================
 // 3. CONNECTION MANAGER (Serverless-Safe)
@@ -396,19 +399,16 @@ class SqliteConnectionManager implements ConnectionManager {
       try {
         await this.close();
         logger.info('Database connection closed during shutdown');
-        process.exit(0);
       } catch (error) {
         logger.error('Error during database shutdown', { error });
-        process.exit(1);
       }
     };
-    
-    // Enregistrer les handlers une seule fois
-    if (!(global as any).__dbShutdownHandlersRegistered) {
-      process.on('SIGTERM', () => shutdown('SIGTERM'));
-      process.on('SIGINT', () => shutdown('SIGINT'));
-      process.on('SIGQUIT', () => shutdown('SIGQUIT'));
-      (global as any).__dbShutdownHandlersRegistered = true;
+
+    if (!dbShutdownHandlersRegistered) {
+      process.on('SIGTERM', () => { void shutdown('SIGTERM'); });
+      process.on('SIGINT', () => { void shutdown('SIGINT'); });
+      process.on('SIGQUIT', () => { void shutdown('SIGQUIT'); });
+      dbShutdownHandlersRegistered = true;
     }
   }
 }
@@ -523,16 +523,3 @@ export {
   getConnectionManager,
 };
 
-// ============================================
-// 7. EXPORT PAR DÉFAUT
-// ============================================
-
-export default {
-  getDb,
-  closeDb,
-  healthCheck,
-  getDbStats,
-  resetConnection,
-  DatabaseConnectionError,
-  DatabaseMigrationError,
-};

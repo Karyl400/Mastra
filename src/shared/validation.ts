@@ -120,7 +120,7 @@ export const emailSchema = z
   .refine(
     (email) => {
       const domain = email.split('@')[1];
-      return !VALIDATION_CONSTRAINTS.EMAIL.BLOCKED_DOMAINS.includes(domain);
+      return !VALIDATION_CONSTRAINTS.EMAIL.BLOCKED_DOMAINS.includes(domain as unknown as typeof VALIDATION_CONSTRAINTS.EMAIL.BLOCKED_DOMAINS[number]);
     },
     { message: 'Email domain is not allowed' },
   )
@@ -597,7 +597,7 @@ export const submitQuestionnaireResponseSchema = z.object({
     .datetime()
     .default(() => new Date().toISOString()),
   timeSpentSeconds: z.number().int().min(0).optional(),
-  completionStatus: z.nativeEnum(ResponseStatus).default(ResponseStatus.Completed),
+  completionStatus: z.nativeEnum(ResponseStatus).default(ResponseStatus.Reviewed),
 });
 
 // ============================================
@@ -776,45 +776,4 @@ export const taskSchema = createTaskSchema;
 export const notificationSchema = createNotificationSchema;
 export const questionnaireSchema = createQuestionnaireSchema;
 
-// Export par défaut
-export default {
-  // Base
-  uuidSchema,
-  emailSchema,
-  nameSchema,
-  titleSchema,
-  descriptionSchema,
-  departmentSchema,
-  positionSchema,
-  startDateSchema,
-  dueDateSchema,
-  timestampsSchema,
-  paginationSchema,
 
-  // Entities
-  createEmployeeSchema,
-  employeeDtoSchema,
-  updateEmployeeSchema,
-  createTaskSchema,
-  taskDtoSchema,
-  updateTaskSchema,
-  createNotificationSchema,
-  notificationDtoSchema,
-  createQuestionnaireSchema,
-  questionnaireDtoSchema,
-  questionSchema,
-  submitQuestionnaireResponseSchema,
-  createDocumentSchema,
-  documentDtoSchema,
-
-  // Search
-  employeeSearchFiltersSchema,
-  taskSearchFiltersSchema,
-
-  // Utils
-  validateStatusTransition,
-  VALID_TRANSITIONS,
-  sanitizeText,
-  sanitizeRichText,
-  sanitizeName,
-};

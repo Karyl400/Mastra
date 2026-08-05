@@ -19,6 +19,10 @@ export class InMemoryDocumentRepository implements DocumentRepository {
     this.store.set(d.id, { ...d });            // ✅ stocke une copie
   }
 
+  async update(d: Document): Promise<void> {
+    this.store.set(d.id, { ...d });
+  }
+
   async delete(id: string): Promise<void> {    // ✅ ajouté
     this.store.delete(id);
   }
