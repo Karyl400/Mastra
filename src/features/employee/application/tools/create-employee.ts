@@ -153,7 +153,7 @@ export class EmployeeDataSanitizer {
       name
         .trim()
         .replace(/<[^>]*>/g, '') // Supprime les tags HTML
-        .replace(/[^\p{L}\p{M}'\-\s]/gu, ''), // Garde uniquement lettres, accents, apostrophes
+        .replace(/[^a-zA-ZÀ-ÿ\s'-]/g, ''), // Garde uniquement lettres, accents, apostrophes
     );
   }
 

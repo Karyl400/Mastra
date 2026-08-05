@@ -13,7 +13,7 @@ const EMPLOYEE_CONSTRAINTS = {
   NAME: {
     MIN_LENGTH: 1,
     MAX_LENGTH: 100,
-    PATTERN: /^[\p{L}\p{M}'\-\s]+$/u, // Support Unicode pour noms internationaux
+    PATTERN: /^[a-zA-ZÀ-ÿ\s'-]+$/, // Support noms internationaux
     MESSAGE: 'Name must contain only letters, spaces, hyphens, and apostrophes',
   },
   DEPARTMENT: {
