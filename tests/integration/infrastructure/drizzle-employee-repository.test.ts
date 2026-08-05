@@ -6,15 +6,15 @@ import { randomUUID } from 'crypto';
 
 describe('Integration: DrizzleEmployeeRepository', () => {
   let repository: DrizzleEmployeeRepository;
-  
+
   beforeAll(() => {
     // getDb() will use 'test.db' because of NODE_ENV='test' in setup.ts
     const db = getDb();
     repository = new DrizzleEmployeeRepository();
   });
 
-  afterAll(() => {
-    // Connection is closed globally in setup.ts, but we can do local cleanup if needed
+  afterAll(async () => {
+    await closeDb();
   });
 
   it('should save and retrieve an employee', async () => {
@@ -29,7 +29,7 @@ describe('Integration: DrizzleEmployeeRepository', () => {
       startDate: new Date().toISOString(),
       status: EmployeeStatus.Pending,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     // Save
@@ -55,7 +55,7 @@ describe('Integration: DrizzleEmployeeRepository', () => {
       startDate: new Date().toISOString(),
       status: EmployeeStatus.Pending,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     // First save
@@ -65,7 +65,7 @@ describe('Integration: DrizzleEmployeeRepository', () => {
     const updatedEmployee = {
       ...employee,
       status: EmployeeStatus.Active, // Changed status
-      position: 'Lead Tester' // Changed position
+      position: 'Lead Tester', // Changed position
     };
 
     await repository.save(updatedEmployee);

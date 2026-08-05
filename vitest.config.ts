@@ -5,11 +5,16 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     fileParallelism: false,
-    pool: 'forks',
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        singleThread: true,
+      },
+    },
     server: {
       deps: {
-        inline: [/@mastra\/core/]
-      }
-    }
+        inline: [/@mastra\/core/],
+      },
+    },
   },
 });

@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt
 WORKDIR /app
 
 # Copie des fichiers de package
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 
 # Installation complète (inclut devDependencies pour le build TypeScript)
 RUN npm ci
@@ -40,7 +40,7 @@ ENV DB_WAL=true
 RUN mkdir -p /app/data && chown -R node:node /app/data
 
 # Copie des packages
-COPY package.json package-lock.json ./
+COPY package.json package-lock.json .npmrc ./
 
 # Installation stricte des dépendances de prod
 RUN npm ci --omit=dev

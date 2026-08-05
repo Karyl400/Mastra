@@ -1,17 +1,20 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { getDb } from '../../../src/infrastructure/database/connection';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { getDb, closeDb } from '../../../src/infrastructure/database/connection';
 import { DrizzleEmployeeRepository } from '../../../src/features/employee/infrastructure/repositories/drizzle-employee.repository';
 import { createEmployee } from '../../../src/features/employee/domain/entities/employee';
 import { EmployeeStatus } from '../../../src/shared/types';
 import { sql } from 'drizzle-orm';
 
 describe('Infrastructure: DrizzleEmployeeRepository', () => {
-
   const repo = new DrizzleEmployeeRepository();
 
   beforeAll(async () => {
     // Clear the employees table for tests
     // await db.run(sql`DELETE FROM employees`);
+  });
+
+  afterAll(async () => {
+    await closeDb();
   });
 
   it('301. should create an employee in the database', async () => {
@@ -23,7 +26,7 @@ describe('Infrastructure: DrizzleEmployeeRepository', () => {
       department: 'IT',
       position: 'Tester',
       startDate: '2026-08-01',
-      managerId: null
+      managerId: null,
     });
 
     await repo.save(emp);
@@ -42,11 +45,10 @@ describe('Infrastructure: DrizzleEmployeeRepository', () => {
       department: 'IT',
       position: 'Tester',
       startDate: '2026-08-01',
-      managerId: null
+      managerId: null,
     });
 
     // This should fail at the DB level due to UNIQUE constraint on email
     await expect(repo.save(emp2)).rejects.toThrow(/UNIQUE constraint failed: employees.email/);
   });
-
 });
