@@ -4,7 +4,7 @@
 // ============================================
 
 import { z } from 'zod';
-import DOMPurify from 'isomorphic-dompurify';
+import { sanitizeHtml, sanitizeRichHtml } from './security/html-sanitizer.js';
 import validator from 'validator';
 import {
   EmployeeStatus,
@@ -72,24 +72,21 @@ const VALIDATION_CONSTRAINTS = {
  * Sanitize un champ texte simple (pas de HTML autorisé)
  */
 function sanitizeText(value: string): string {
-  return DOMPurify.sanitize(value.trim(), { ALLOWED_TAGS: [] });
+  return sanitizeHtml(value.trim());
 }
 
 /**
  * Sanitize un champ texte riche (HTML limité autorisé)
  */
 function sanitizeRichText(value: string): string {
-  return DOMPurify.sanitize(value.trim(), {
-    ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'a', 'p', 'br', 'ul', 'ol', 'li'],
-    ALLOWED_ATTR: ['href', 'target', 'rel'],
-  });
+  return sanitizeRichHtml(value.trim());
 }
 
 /**
  * Sanitize un nom (lettres, accents, tirets, apostrophes uniquement)
  */
 function sanitizeName(value: string): string {
-  return DOMPurify.sanitize(value.trim())
+  return sanitizeHtml(value.trim())
     .replace(/<[^>]*>/g, '') // Supprime tout HTML résiduel
     .replace(/[^\p{L}\p{M}'\-\s]/gu, '') // Garde uniquement les caractères autorisés
     .replace(/\s+/g, ' ') // Normalise les espaces
@@ -120,7 +117,9 @@ export const emailSchema = z
   .refine(
     (email) => {
       const domain = email.split('@')[1];
-      return !VALIDATION_CONSTRAINTS.EMAIL.BLOCKED_DOMAINS.includes(domain as unknown as typeof VALIDATION_CONSTRAINTS.EMAIL.BLOCKED_DOMAINS[number]);
+      return !VALIDATION_CONSTRAINTS.EMAIL.BLOCKED_DOMAINS.includes(
+        domain as unknown as (typeof VALIDATION_CONSTRAINTS.EMAIL.BLOCKED_DOMAINS)[number],
+      );
     },
     { message: 'Email domain is not allowed' },
   )
@@ -775,5 +774,3 @@ export const employeeSchema = createEmployeeSchema;
 export const taskSchema = createTaskSchema;
 export const notificationSchema = createNotificationSchema;
 export const questionnaireSchema = createQuestionnaireSchema;
-
-

@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { CreateEmployeeUseCase, EmployeeDataSanitizer } from '../../../src/features/employee/application/tools/create-employee';
+import {
+  CreateEmployeeUseCase,
+  EmployeeDataSanitizer,
+} from '../../../src/features/employee/application/tools/create-employee';
 import { EmployeeStatus } from '../../../src/shared/types';
 import { ConflictError, ValidationError } from '../../../src/shared/errors';
 
@@ -12,7 +15,6 @@ const mockRepo = {
 };
 
 describe('Workflows & State Machines: createEmployee', () => {
-
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -27,12 +29,12 @@ describe('Workflows & State Machines: createEmployee', () => {
         position: 'Backend Developer <img src="x" onerror="alert(1)">',
         startDate: '2026-08-01',
         managerId: null,
-        options: { initialStatus: EmployeeStatus.Pending }
+        options: { initialStatus: EmployeeStatus.Pending },
       };
 
       const sanitized = EmployeeDataSanitizer.sanitize(dirtyInput as any);
       expect(sanitized.department).toBe('Engineering');
-      expect(sanitized.position).toBe('Backend Developer <img src="x">');
+      expect(sanitized.position).toBe('Backend Developer ');
     });
   });
 
@@ -40,7 +42,7 @@ describe('Workflows & State Machines: createEmployee', () => {
     it('147. should throw a ConflictError if email already exists', async () => {
       mockRepo.findByEmail.mockResolvedValueOnce({ id: 'emp-existing' });
       const useCase = new CreateEmployeeUseCase(mockRepo as any);
-      
+
       const input = {
         firstName: 'John',
         lastName: 'Doe',
@@ -62,7 +64,7 @@ describe('Workflows & State Machines: createEmployee', () => {
         department: 'Engineering',
         position: 'Backend Developer',
         startDate: '2026-08-01',
-        idempotencyKey: 'invalid-uuid-format-should-fail'
+        idempotencyKey: 'invalid-uuid-format-should-fail',
       };
 
       await expect(useCase.execute(input)).rejects.toBeInstanceOf(ValidationError);
