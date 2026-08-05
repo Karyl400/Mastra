@@ -123,5 +123,4 @@ export const mastra = new Mastra({
     url: process.env.DATABASE_URL || 'file:./data/mastra.db',
     authToken: process.env.DATABASE_AUTH_TOKEN,
   }),
-  deployer: new VercelDeployer(),
 });
