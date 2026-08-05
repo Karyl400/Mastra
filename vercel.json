@@ -1,6 +1,6 @@
 {
   "buildCommand": "npm run build:prod",
-  "outputDirectory": ".mastra",
+  "outputDirectory": ".mastra/output",
   "framework": null,
   "functions": {
     "api/**": {
