@@ -6,6 +6,7 @@ import { wrapAgentInput } from '../../../../shared/security/llm-guardrail';
 import { SlackAdapter, type SlackBlock } from '../providers/slack.adapter';
 import { SlackWorkspaceService } from '../providers/slack-workspace.service';
 import type { SlackWorkspaceProvider } from '../../domain/ports/slack-workspace.port';
+import { encodePrefill, type ProfileModalPrefill } from './profile-modal';
 
 /**
  * Handler des événements Slack (Events API).
@@ -179,6 +180,12 @@ function firstWordOf(fullName: string | undefined): string {
   return (fullName ?? '').trim().split(/\s+/)[0] ?? '';
 }
 
+/** Reste du nom complet — repli quand le profil Slack n'a pas de nom de famille. */
+function restAfterFirstWord(fullName: string | undefined): string {
+  const [, ...rest] = (fullName ?? '').trim().split(/\s+/).filter(Boolean);
+  return rest.join(' ');
+}
+
 /** Salutation, avec ou sans prénom connu. */
 function greet(firstName: string): string {
   return firstName ? `Bienvenue ${firstName} 👋` : 'Bienvenue 👋';
@@ -187,17 +194,20 @@ function greet(firstName: string): string {
 /**
  * DM d'accueil : un mot de bienvenue et le bouton qui ouvrira la modale.
  *
- * `value` transporte l'identifiant Slack de l'arrivant jusqu'à la route
- * d'interactivité, qui n'a pas d'autre moyen de le relier à cet accueil.
+ * Le `value` du bouton transporte tout ce que Slack sait déjà de l'arrivant.
+ * C'est ce qui permet à la route d'interactivité d'ouvrir une modale
+ * pré-remplie **sans aucune E/S** : le `trigger_id` expire en 3 secondes, et
+ * refaire un `users.info` au moment du clic dépenserait ce budget pour une
+ * information déjà en main.
  */
-function buildWelcomeBlocks(firstName: string, userId: string): SlackBlock[] {
+function buildWelcomeBlocks(prefill: ProfileModalPrefill): SlackBlock[] {
   return [
     {
       type: 'section',
       text: {
         type: 'mrkdwn',
         text:
-          `${greet(firstName)}\n\n` +
+          `${greet(prefill.firstName ?? '')}\n\n` +
           "Ravi de t'accueillir chez Kisso. Il me manque quelques informations " +
           'pour préparer ton intégration — deux minutes suffisent.',
       },
@@ -210,7 +220,7 @@ function buildWelcomeBlocks(firstName: string, userId: string): SlackBlock[] {
           action_id: COMPLETE_PROFILE_ACTION_ID,
           style: 'primary',
           text: { type: 'plain_text', text: 'Compléter mon profil' },
-          value: userId,
+          value: encodePrefill(prefill),
         },
       ],
     },
@@ -576,8 +586,8 @@ export class SlackEventsHandler {
 
       await this.chatProvider.sendBlocks(
         user.id,
-        greet(identity.firstName),
-        buildWelcomeBlocks(identity.firstName, user.id),
+        greet(identity.firstName ?? ''),
+        buildWelcomeBlocks(identity),
       );
     } catch (error) {
       logger.error('Unable to send the welcome DM', { error, userId: user.id });
@@ -585,18 +595,18 @@ export class SlackEventsHandler {
   }
 
   /**
-   * Prénom et email de l'arrivant.
+   * Ce que Slack sait déjà de l'arrivant, pour pré-remplir la modale.
    *
    * L'email manque souvent du payload `team_join` tant que le profil n'est pas
    * complété : on ne paie le second aller-retour `users.info` que dans ce cas.
    * Son échec ne bloque pas — le DM part sur l'identifiant Slack et la modale
    * collectera l'email.
    */
-  private async resolveNewcomer(
-    user: SlackTeamJoinUser,
-  ): Promise<{ firstName: string; email: string | null }> {
-    const fromPayload = {
+  private async resolveNewcomer(user: SlackTeamJoinUser): Promise<ProfileModalPrefill> {
+    const fromPayload: ProfileModalPrefill = {
+      slackUserId: user.id ?? '',
       firstName: user.profile?.first_name || firstWordOf(user.real_name),
+      lastName: user.profile?.last_name || restAfterFirstWord(user.real_name),
       email: user.profile?.email ?? null,
     };
 
@@ -606,7 +616,9 @@ export class SlackEventsHandler {
       const member = await this.workspaceProvider.getUserById(user.id);
       if (!member) return fromPayload;
       return {
+        slackUserId: fromPayload.slackUserId,
         firstName: fromPayload.firstName || member.firstName,
+        lastName: fromPayload.lastName || member.lastName,
         email: member.email,
       };
     } catch (error) {

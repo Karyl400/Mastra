@@ -68,6 +68,36 @@ Sous "Event Subscriptions":
   Si `SLACK_SIGNING_SECRET` diffère entre Slack et le déploiement, la réponse sera `401` et Slack
   affichera « Your URL didn't respond with the value of the challenge parameter ».
 
+### 3 bis. Interactivité — REQUIS pour la modale de profil
+
+Le bouton « Compléter mon profil » du DM de bienvenue n'envoie **rien** tant que cette
+page n'est pas renseignée. C'est un écran **distinct** d'Event Subscriptions.
+
+**App Management → Interactivity & Shortcuts :**
+
+1. Activer *Interactivity*.
+2. Request URL : `https://votre-domaine.com/slack/interactions`
+   (⚠️ `/slack/interactions`, pas `/api/…` — le préfixe `/api` est réservé et fait
+   échouer le **démarrage** du serveur, ce n'est pas un 404.)
+3. `Save`.
+
+**Aucun scope supplémentaire n'est nécessaire** : `chat:write` suffit à ouvrir une
+modale, et Socket Mode doit rester **désactivé** — même exclusion mutuelle que pour
+les Events.
+
+> **Comment vérifier que ça marche, sans attendre un vrai clic.** Au `Save`, Slack
+> émet immédiatement un `POST` de contrôle `ssl_check=1` (form-encodé, **sans** champ
+> `payload`). La route y répond `200` avec un corps vide et le journalise
+> (`Slack ssl_check acknowledged`). C'est l'équivalent d'`app_home_opened` pour
+> l'interactivité : gratuit, sans scope, et il prouve la livraison.
+>
+> Si `vercel logs <url> --json` ne montre **aucun** payload après le `Save`, ne
+> cherchez pas côté configuration : **réinstallez l'app**. C'est ce qui avait résolu
+> le blocage précédent, alors que le manifeste était déjà conforme.
+
+Symptôme d'un oubli : le clic sur le bouton ne produit strictement rien — aucun POST,
+aucun log, aucune erreur. Rigoureusement indiscernable d'un bot en panne.
+
 ### 4. Installation du Bot
 
 1. Sous "Basic Information", notez le "Signing Secret"

@@ -20,7 +20,14 @@ import type { ChatProvider } from '../../domain/ports/providers';
 type ChatPostMessageWithBlocks = Extract<ChatPostMessageArguments, { blocks: unknown }>;
 
 export type SlackBlock = ChatPostMessageWithBlocks['blocks'][number];
-export type SlackModalView = ViewsOpenArguments['view'];
+
+/**
+ * `ViewsOpenArguments['view']` est l'union `HomeView | ModalView | WorkflowStepView`.
+ * On la restreint à la modale : `HomeView` ne porte ni `title` ni `submit`, donc
+ * l'union brute rend ces champs inaccessibles au typage alors qu'ils sont
+ * obligatoires ici.
+ */
+export type SlackModalView = Extract<ViewsOpenArguments['view'], { type: 'modal' }>;
 
 /**
  * Teste le code d'erreur brut d'une réponse Slack.

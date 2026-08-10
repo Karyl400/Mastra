@@ -47,6 +47,7 @@ import { notificationCycleWorkflow } from '../features/notification/application/
 import { createDocumentWorkflow } from '../features/document/application/workflows/document-generation';
 
 import { slackEventsRoute } from '../api/slack-events.route';
+import { slackInteractionsRoute } from '../api/slack-interactions.route';
 import { createApiAuthConfig } from '../shared/security/api-auth';
 import { createCallerErrorMiddleware } from '../shared/security/caller-error-mapping';
 import { logger } from '../shared/logger';
@@ -115,7 +116,13 @@ const getTaskList = makeGetTaskList(taskRepo);
 const generateQuestionnaire = makeGenerateQuestionnaire(questionnaireRepo);
 const evaluateResponse = makeEvaluateResponse(questionnaireRepo, responseRepo);
 const generateDocument = makeGenerateDocument(documentRepo);
-const sendNotification = makeSendNotification(notificationRepo, employeeRepo, emailProvider, chatProvider, slackWorkspace);
+const sendNotification = makeSendNotification(
+  notificationRepo,
+  employeeRepo,
+  emailProvider,
+  chatProvider,
+  slackWorkspace,
+);
 const scheduleReminder = makeScheduleReminder(notificationRepo);
 const getNotificationHistory = makeGetNotificationHistory(notificationRepo);
 
@@ -190,7 +197,7 @@ export const mastra = new Mastra({
   // Une route HTTP n'existe QUE si elle est déclarée ici. Les fichiers de `src/api/`
   // ne sont jamais montés automatiquement par Mastra.
   server: {
-    apiRoutes: [slackEventsRoute],
+    apiRoutes: [slackEventsRoute, slackInteractionsRoute],
     // Requalifie en 400 les erreurs de validation d'entrée que Mastra renvoie en 500.
     // Monté sur `/api/*` UNIQUEMENT : `/slack/events` gère ses propres codes et le rejeu
     // de Slack en dépend. Une vraie panne serveur reste un 500 (voir le module).
