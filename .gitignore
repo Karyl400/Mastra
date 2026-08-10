@@ -14,3 +14,6 @@ __pycache__/
 .history
 
 .env*
+ngrok
+ngrok-v3-stable-linux-amd64.tgz
+lint_output.txt
