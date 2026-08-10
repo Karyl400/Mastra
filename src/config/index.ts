@@ -10,7 +10,7 @@ const ConfigSchema = z.object({
       'Invalid database URL')
   }).strict(),
   notifications: z.object({
-    resend: z.object({ apiKey: z.string().min(1) }),
+    brevo: z.object({ apiKey: z.string().min(1) }),
     from: z.string().email(),
     slack: z.object({ botToken: z.string(), signingSecret: z.string() }),
   }).strict(),
@@ -41,7 +41,7 @@ async function loadConfig(): Promise<Config> {
         openai:     { apiKey: process.env.OPENAI_API_KEY ?? '' },
         database:   { url: process.env.DATABASE_URL ?? 'file:./data/kisso.db' },
         notifications: {
-          resend: { apiKey: process.env.RESEND_API_KEY ?? '' },
+          brevo: { apiKey: process.env.BREVO_API_KEY ?? '' },
           from:   process.env.NOTIFICATION_FROM ?? 'noreply@kisso.com',
           slack: {
             botToken:      process.env.SLACK_BOT_TOKEN ?? '',

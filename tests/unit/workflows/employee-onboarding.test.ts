@@ -5,13 +5,14 @@ import type { OnboardingRepository } from '../../../src/features/onboarding/doma
 import type { NotificationRepository } from '../../../src/features/notification/domain/ports/notification.repository';
 import type { EmailProvider } from '../../../src/features/notification/domain/ports/providers';
 import type { SlackWorkspaceProvider } from '../../../src/features/notification/domain/ports/slack-workspace.port';
+import { Department, Position } from '../../../src/shared/types';
 
 const baseInput = {
   firstName: 'Jean',
   lastName: 'Dupont',
   email: 'jean.dupont@kisso.com',
-  department: 'Engineering',
-  position: 'Backend Developer',
+  department: Department.Engineering,
+  position: Position.BackendDeveloper,
   startDate: '2026-08-01T09:00:00.000Z',
   slackChannelId: 'C-ENG',
 };
@@ -190,5 +191,55 @@ describe('Workflow: employee-onboarding', () => {
     expect(result.status).toBe('failed');
     if (result.status !== 'failed') return;
     expect(String(result.error?.message ?? result.error)).toContain('existe déjà');
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Régression : l'allowlist Department/Position doit s'appliquer AUSSI ici.
+  // Le workflow est une seconde porte d'entrée vers `employees`, à côté du tool
+  // `createEmployee`. Il a laissé passer `department: "Wakanda"` en production
+  // (status: 'success', valeur persistée) parce qu'il déclarait z.string().min(1).
+  // ──────────────────────────────────────────────────────────────────────────
+  describe('allowlist Department / Position', () => {
+    it('rejette un département hors allowlist et ne persiste rien', async () => {
+      const deps = makeDeps();
+      const workflow = createEmployeeOnboardingWorkflow(deps);
+      const run = await workflow.createRun();
+
+      // `as never` : on force volontairement une valeur que le type interdit,
+      // pour reproduire un appel HTTP réel qui n'est pas contraint par TypeScript.
+      //
+      // NB : la validation de l'ENTRÉE du workflow (`Run.#validateSchema`) LÈVE,
+      // contrairement à l'échec d'une ÉTAPE qui, lui, retourne { status: 'failed' }.
+      // Deux régimes d'erreur distincts — ne pas les confondre.
+      await expect(
+        run.start({ inputData: { ...baseInput, department: 'Wakanda' as never } })
+      ).rejects.toThrow(/department/i);
+
+      expect(deps.employeeRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejette un poste hors allowlist et ne persiste rien', async () => {
+      const deps = makeDeps();
+      const workflow = createEmployeeOnboardingWorkflow(deps);
+      const run = await workflow.createRun();
+
+      await expect(
+        run.start({ inputData: { ...baseInput, position: 'Grand Manitou' as never } })
+      ).rejects.toThrow(/position/i);
+
+      expect(deps.employeeRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('accepte toutes les valeurs légitimes de l\'allowlist', async () => {
+      const deps = makeDeps();
+      const workflow = createEmployeeOnboardingWorkflow(deps);
+      const run = await workflow.createRun();
+
+      const result = await run.start({
+        inputData: { ...baseInput, department: Department.Finance, position: Position.Director },
+      });
+
+      expect(result.status).toBe('success');
+    });
   });
 });

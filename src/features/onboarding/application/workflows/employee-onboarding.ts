@@ -9,22 +9,41 @@ import type { NotificationRepository } from '../../../notification/domain/ports/
 import type { EmailProvider } from '../../../notification/domain/ports/providers';
 import type { SlackWorkspaceProvider } from '../../../notification/domain/ports/slack-workspace.port';
 import { createNotification } from '../../../notification/domain/entities/notification';
-import { OnboardingStatus, NotificationChannel, NotificationStatus, RecipientType } from '../../../../shared/types';
+import { OnboardingStatus, NotificationChannel, NotificationStatus, RecipientType, Department, Position } from '../../../../shared/types';
 import { ConflictError } from '../../../../shared/errors';
+
 
 // ============================================
 // SCHEMAS
 // ============================================
 
+/**
+ * ⚠️ `department` / `position` DOIVENT réutiliser les schémas partagés.
+ *
+ * Ce workflow constitue une SECONDE porte d'entrée vers `employees`, à côté du tool
+ * `createEmployee`. Tant qu'il déclarait `z.string().min(1)`, l'allowlist n'était
+ * appliquée que sur le chemin agent : un appel direct à
+ * `POST /api/workflows/employeeOnboardingWorkflow/start-async` avec
+ * `department: "Wakanda"` renvoyait `status: 'success'` et persistait la valeur.
+ *
+ * On réutilise les enums `Department` / `Position` (source unique de vérité), et NON
+ * `departmentSchema` / `positionSchema` de `shared/validation` : ces derniers sont bâtis
+ * sur `z.preprocess(...)`, dont le type d'ENTRÉE est `unknown`, ce qui casse l'inférence
+ * de types entre les étapes du workflow (`.then(createEmployeeStep)`).
+ *
+ * Différence assumée avec le chemin tool : pas de `trim` ici. Le tool en a besoin car un
+ * LLM produit des espaces parasites ; ce workflow est appelé par une machine en JSON, où
+ * exiger la valeur exacte est plus sain qu'un nettoyage implicite.
+ */
 const onboardingInputSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   email: z.string().email(),
-  department: z.string().min(1),
-  position: z.string().min(1),
+  department: z.nativeEnum(Department),
+  position: z.nativeEnum(Position),
   startDate: z.string().datetime(),
   managerId: z.string().uuid().nullable().optional(),
-  slackChannelId: z.string().optional().describe('Channel Slack du département (optionnel)'),
+  slackChannelId: z.string().nullable().optional().describe('Channel Slack du département (optionnel)'),
 });
 
 const employeeCreatedSchema = z.object({
@@ -35,7 +54,7 @@ const employeeCreatedSchema = z.object({
   department: z.string(),
   position: z.string(),
   startDate: z.string(),
-  slackChannelId: z.string().optional(),
+  slackChannelId: z.string().nullable().optional(),
 });
 
 const onboardingInitializedSchema = z.object({
@@ -45,7 +64,7 @@ const onboardingInitializedSchema = z.object({
   firstName: z.string(),
   lastName: z.string(),
   department: z.string(),
-  slackChannelId: z.string().optional(),
+  slackChannelId: z.string().nullable().optional(),
 });
 
 const welcomeSentSchema = z.object({
@@ -55,7 +74,7 @@ const welcomeSentSchema = z.object({
   lastName: z.string(),
   department: z.string(),
   emailSent: z.boolean(),
-  slackChannelId: z.string().optional(),
+  slackChannelId: z.string().nullable().optional(),
 });
 
 // ============================================
@@ -89,15 +108,22 @@ export function createEmployeeOnboardingWorkflow(deps: {
         });
       }
 
+      // Normaliser les champs optionnels avec null par défaut
+      const normalizedInput = {
+        ...inputData,
+        managerId: inputData.managerId ?? null,
+        slackChannelId: inputData.slackChannelId ?? null,
+      };
+
       const employee = createEmployee({
         id: crypto.randomUUID(),
-        firstName: inputData.firstName,
-        lastName: inputData.lastName,
-        email: inputData.email,
-        department: inputData.department,
-        position: inputData.position,
-        startDate: inputData.startDate,
-        managerId: inputData.managerId ?? null,
+        firstName: normalizedInput.firstName,
+        lastName: normalizedInput.lastName,
+        email: normalizedInput.email,
+        department: normalizedInput.department,
+        position: normalizedInput.position,
+        startDate: normalizedInput.startDate,
+        managerId: normalizedInput.managerId,
       });
 
       await deps.employeeRepo.save(employee);
@@ -112,7 +138,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
         department: employee.department,
         position: employee.position,
         startDate: employee.startDate,
-        slackChannelId: inputData.slackChannelId,
+        slackChannelId: normalizedInput.slackChannelId,
       };
     },
   });

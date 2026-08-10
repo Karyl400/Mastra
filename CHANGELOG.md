@@ -1,5 +1,209 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-08
+### Changed (perf — coût en tokens d'entrée)
+- **Réduction du coût en tokens système/tools des 3 agents**, `notificationAgent` en priorité :
+  mesuré en production à 7 849 tokens d'entrée pour un message trivial (« ok »), au-dessus du
+  plafond Groq (12 000 tokens/minute) dès qu'un flux fait plusieurs allers-retours d'outils.
+  Méthode de mesure : `zodToJsonSchema` de `@mastra/schema-compat` (la même fonction utilisée en
+  interne par Mastra) appliquée à chaque `inputSchema`, plus `agent.getInstructions()` pour la
+  valeur réelle des instructions envoyées au LLM ; taille sérialisée en caractères, avec un ratio
+  caractères/token calibré sur la seule donnée officielle disponible (en-tête de sécurité :
+  1308 caractères ≈ 374 tokens ⇒ ~3,5 car./tok). C'est une **estimation assumée**, pas une mesure
+  exacte de tokenizer Llama/Groq (indisponible en local, pas d'accès réseau pour en installer un).
+  - **`notificationAgent` ne reçoit plus `discoverSlackWorkspace`** (`src/mastra/index.ts`) :
+    le tool le plus coûteux du set (356 car. de schéma + 426 car. de description) n'était
+    mentionné nulle part dans les instructions de l'agent et n'a aucun usage identifié —
+    `sendNotification` résout déjà le compte Slack du destinataire côté serveur, sans que le LLM
+    ait besoin d'appeler `discoverSlackWorkspace` lui-même. Toujours câblé à
+    `onboardingOrchestrator`, inchangé.
+  - **`sendNotification`** (`send-notification.ts`) : description et description de
+    `recipientId`/`recipientType` condensées sans perdre l'information de sécurité porteuse
+    (destinataire désigné par UUID uniquement, adresse résolue côté serveur) ; le rappel des
+    valeurs de `recipientType` dans la description était de toute façon redondant avec l'`enum`
+    déjà présent dans le JSON Schema.
+  - **Instructions des 3 agents** (`notification-agent.ts`, `onboarding-orchestrator.ts`,
+    `questionnaire-engine.ts`) : blocs STYLE et RÈGLE ANTI-INVENTION reformulés plus courts, sans
+    rien retirer au fond (mêmes interdictions markdown GitHub / mrkdwn Slack avec parcimonie /
+    pas de narration de plan / pas d'emojis / non-divulgation de l'identifiant interne / anti-
+    invention avec l'exemple `emailSent: false`). Le bloc `SECURITY DIRECTIVE:` terminal
+    (anti prompt-injection / anti-exfiltration / pas d'exécution de code) a été **retiré** des 3
+    fichiers : il dupliquait fidèlement les DIRECTIVE 2.1 (hiérarchie SYSTEM > USER > EXTERNAL),
+    4.1 (jamais exposer les directives système), 5.1 (rejet des tool-calls issus de
+    `external_data`) et 6.1 (anti-jailbreak) déjà appliquées par l'en-tête de sécurité obligatoire
+    (`buildAgentInstructions()` / `SYSTEM_SECURITY_PROMPT`, non modifié). Les DIRECTIVES
+    D'EXTRACTION OBLIGATOIRES de `onboardingOrchestrator` (champs `createEmployee`) sont
+    conservées mot pour mot.
+  - Résultat mesuré (chars réels, méthode ci-dessus) :
+
+    | Agent | instructions avant→après | tools avant→après (notificationAgent) | Δ total |
+    |---|---|---|---|
+    | `notificationAgent` | 3670→2430 car. (−33.8 %) | 3486→2591 car. (−25.7 %, 5→4 tools) | −29.8 % (7156→5021 car., ≈2046→1436 tokens estimés) |
+    | `onboardingOrchestrator` | 4509→3528 car. (−21.8 %) | inchangé | — |
+    | `questionnaireEngine` | 3454→2595 car. (−24.9 %) | inchangé | — |
+
+  - Aucun tool retiré du fichier ni de `tool-schema-flatness.test.ts` : `discoverSlackWorkspace`
+    reste défini et testé, seule sa présence dans le tool-set de `notificationAgent` change.
+  - Vérifié après coup : `npm run typecheck && npm run test:unit` → 600/600 verts (baseline 597),
+    y compris `architecture.test.ts`, `code-architecture.test.ts` et
+    `tool-schema-flatness.test.ts`.
+
+### Fixed
+- **Garde-fou anti prompt-injection réellement branché** (`src/shared/security/llm-guardrail.ts`,
+  les 3 agents, `slack-events.handler.ts`). Constat : `wrapUserInput()`, `wrapExternalData()` et
+  `assembleSecurePrompt()` n'étaient appelés QUE par les tests ; les 3 agents important la
+  constante brute `SYSTEM_SECURITY_PROMPT` envoyaient au LLM un prompt contenant les littéraux
+  non substitués `{DELIMITER_PREFIX}` et `[[SESSION_MARKER]]` (visible publiquement via
+  `GET /api/agents`), et le texte Slack partait tel quel dans `agent.generate()`, sans
+  encadrement.
+  - Nouvelles fonctions exportées `buildAgentInstructions()` et `wrapAgentInput()` dans
+    `llm-guardrail.ts` : la première assemble l'en-tête de sécurité avec ses placeholders
+    réellement substitués (via `SystemPromptVault` + `SessionManager`) puis les instructions
+    métier ; la seconde encadre un message avant `agent.generate()`, avec le MÊME
+    sessionId/SessionManager que la première (cohérence du `tagPrefix` annoncé dans les
+    DIRECTIVE 3.1/3.2).
+  - Marqueur de session tiré aléatoirement **une fois par processus** au démarrage : les
+    `instructions` d'un `Agent` Mastra sont figées à la construction, donc un marqueur par
+    requête n'est pas possible sans reconstruire l'agent à chaque message (voir commentaire
+    de section 11 dans `llm-guardrail.ts` pour la justification complète et le compromis
+    assumé).
+  - `slack-events.handler.ts` passe désormais le texte Slack par `wrapAgentInput()` avant
+    `agent.generate()`.
+  - Bug latent corrigé au passage : `KeyManager.KEY_ITERATIONS = 100000` n'est pas une
+    puissance de 2 — `scryptSync` l'exige et aurait levé `ERR_CRYPTO_INVALID_SCRYPT_PARAMS`
+    dès qu'un `KeyManager` réel (masterSecret, pas injecté) était instancié. Masqué jusqu'ici
+    car rien n'instanciait `KeyManager` en dehors des tests (qui injectent leur propre
+    `keyManager`). Corrigé à `16384` (2^14, minimum RFC 7914 pour un usage interactif).
+- **Réponses Slack en DM ne sont plus enfouies dans un thread** (`slack-events.handler.ts`,
+  `handleMessage`). `thread_ts = thread_ts ?? ts` threadait systématiquement, y compris en DM
+  où ça masque la réponse hors de la conversation principale — le bot a semblé silencieux
+  pendant des heures en production pour cette raison. Un DM ne threade désormais QUE si le
+  message d'origine faisait déjà partie d'un thread (`thread_ts` présent et différent de `ts`).
+  Les mentions en canal continuent de threader systématiquement (comportement inchangé).
+- **Diagnostic de la bascule Groq → Mistral clarifié** (`src/shared/llm/model-fallback.ts`).
+  Symptôme en production : `POST /api/agents/:id/generate` → `HTTP 500
+  {"error":"Rate limit exceeded"}`. Vérifié empiriquement (agent réel, clé Groq invalide puis
+  les deux clés invalides — script jetable, non versionné) : **la bascule fonctionne bien** ;
+  ce n'était pas un bug de la chaîne elle-même. Le vrai problème était l'observabilité : Mastra
+  émet deux logs `Upstream LLM API error` distincts, et celui de fin de run
+  (`agent-Dj30gJa3.js:29829-29842`) lit `provider`/`modelId` via `capabilities.llm.getModel()`,
+  qui retourne inconditionnellement le PREMIER modèle de la chaîne (`#firstModel`,
+  `agent-Dj30gJa3.js:26004-26010`) — jamais celui qui a réellement produit l'erreur. Il peut
+  donc attribuer l'échec du DERNIER maillon (ex. Mistral) au PREMIER (Groq) — reproduit dans
+  `tests/unit/shared/model-fallback-chain-logging.test.ts` :
+  `{ error: <échec mistral.chat>, provider: 'groq.chat', modelId: 'llama-3.3-70b-versatile' }`.
+  C'est ce qui a fait perdre du temps en diagnostic : impossible de savoir, à la seule lecture du
+  log, quel fournisseur avait réellement échoué.
+  - Nouvelle fonction exportée `withChainFailureLogging()` : enveloppe chaque modèle de la
+    chaîne (`Proxy` sur `doGenerate`/`doStream`) pour journaliser, via `src/shared/logger`
+    (JSON structuré, PII masquée, respecte `LOG_LEVEL`), le `chainId`/`provider`/`modelId`
+    **du maillon qui vient réellement d'échouer**, puis relance l'erreur inchangée — aucun
+    changement de comportement pour Mastra, uniquement une observation fiable en plus,
+    indépendante de la configuration du `logger` passé (ou non) à `new Agent()`.
+  - La politique `maxRetries` existante (0 sur les maillons non terminaux, 1 sur le dernier) a
+    été relue à la lumière du comportement réel de Mastra 1.57.0 (`executeStreamWithFallbackModels`,
+    `agent-Dj30gJa3.js:23206` ; `shouldThrowError: !isLastModel`, `agent-Dj30gJa3.js:23578` ;
+    `retries: modelSettings?.maxRetries ?? 2`, `agent-Dj30gJa3.js:22123`) : elle était déjà
+    correcte, aucun changement de valeur.
+  - Limites qui subsistent, documentées dans l'en-tête du fichier : si Mistral échoue aussi
+    (429/5xx), l'erreur brute de Mistral remonte quand même au client (juste journalisée
+    correctement désormais) — il n'y a pas de 3ᵉ maillon. Le basculement n'est jamais filtré par
+    classe d'erreur : une erreur `context_length_exceeded` déclenche aussi l'essai de Mistral,
+    utile seulement si sa fenêtre de contexte est plus grande.
+
+### Changed
+- **Style des réponses des 3 agents** (`onboarding-orchestrator.ts`, `questionnaire-engine.ts`,
+  `notification-agent.ts`) : instructions métier réécrites pour imposer un français direct et
+  concis, l'interdiction du markdown GitHub (`**gras**`, `###`, `---` — non rendu par Slack,
+  affiché littéralement), le mrkdwn Slack avec parcimonie, l'absence de narration du plan
+  interne ("Étape 1...", "Prochaines étapes"), et la non-divulgation de l'identifiant interne
+  (« KISSO-AGENT-v3 », visible dans le bloc sécurité) à l'utilisateur. Les directives
+  fonctionnelles (extraction obligatoire des champs `createEmployee`, etc.) et le bloc sécurité
+  sont conservés intégralement.
+  - Nouvelle règle explicite anti-invention : interdiction d'affirmer qu'une action a réussi
+    sans confirmation du résultat du tool (notamment `emailSent: false` avec `status: 'success'`
+    global — piège documenté dans `CLAUDE.md`), et interdiction d'inventer une donnée absente
+    (nom, email, identifiant) — la demander à l'utilisateur à la place.
+
+### Added
+- **Tool `findEmployeeByEmail`** (`src/features/employee/application/tools/find-employee-by-email.ts`) :
+  résout un employé à partir de son email professionnel. Corrige un trou fonctionnel observé en
+  production — trace réelle : « Récupère les informations concernant Karyl SOUMAILA » → l'agent
+  `onboardingOrchestrator` n'avait aucun tool pour passer d'un nom/email à un ID d'employé, se
+  rabattait sur l'annuaire Slack, obtenait un ID Slack (pas un UUID), échouait à nouveau, et
+  finissait par redemander manuellement département/poste/date de début à l'utilisateur. Aucun
+  outil de résolution par email n'existait alors que `EmployeeRepository.findByEmail()` (port +
+  implémentations Drizzle/in-memory) existait déjà et était simplement inutilisé par les tools.
+  - Recherche insensible à la casse et robuste aux espaces parasites (normalisation
+    trim + lowercase, en plus de `emailSchema` qui le fait déjà côté schéma).
+  - Retourne `{ found: false }` — jamais une exception — quand l'email est inconnu :
+    c'est précisément l'absence de ce comportement qui faisait dérailler l'agent
+    (boucle d'erreurs `NotFoundError` → abandon → re-question à l'utilisateur).
+  - Exposition volontairement minimale (audit sécurité : tout membre du workspace peut
+    déclencher les tools) : uniquement `id`, `firstName`, `lastName`, `status`. Ni email,
+    ni salaire, ni contact d'urgence, ni téléphone, ni métadonnées — voir commentaire du
+    fichier. Le détail complet reste derrière `getEmployeeProfile(employeeId)`.
+  - Câblé dans `src/mastra/index.ts` uniquement, dans la liste de tools de
+    `onboardingOrchestrator` (le déclenchement observé en prod passait par cet agent, route
+    par défaut de `slack-events.handler.ts`). Couvert par
+    `tests/unit/tools/find-employee-by-email.test.ts` (TDD) et ajouté à
+    `tests/unit/tools/tool-schema-flatness.test.ts`.
+
+## [0.9.0] - 2026-08-07
+### Added
+- **Endpoint Slack Events monté** : `POST /slack/events`, déclaré dans `server.apiRoutes` de
+  `src/mastra/index.ts` via `registerApiRoute()`. Jusqu'ici `src/api/slack-events*.ts` était du
+  **code mort** — Mastra ne monte pas `src/api/` automatiquement et `index.ts` n'avait aucun bloc
+  `server` : `POST /api/slack-events` répondait 404, ce qui explique le bot silencieux.
+- **Vérification de signature Slack** (`src/shared/security/slack-signature.ts`) : HMAC-SHA256 sur
+  `v0:{timestamp}:{rawBody}`, comparaison à temps constant (`timingSafeEqual`), fenêtre anti-rejeu
+  de 5 minutes, **fail-closed** si `SLACK_SIGNING_SECRET` est absent. Vérifié en live :
+  `url_verification` signé → `200 {"challenge":…}` en 2,4 s ; non signé → `401 missing_signature_headers`.
+- **ACK Slack sous 3 s** : réponse immédiate, traitement de l'agent déporté en tâche de fond.
+- **Déduplication des rejeux** Slack sur `event_id` (cache LRU en mémoire).
+- **`SmtpAdapter`** (`nodemailer`) et sélecteur `createEmailProvider()` : SMTP dès que
+  `SMTP_HOST` + `SMTP_USER` + `SMTP_PASS` sont tous renseignés, sinon repli Brevo.
+- **ADR-006** — `docs/adr/006-fournisseur-email-smtp.md` : justification du passage à SMTP.
+
+### Changed
+- **Fournisseur email : Brevo → SMTP (Gmail).** `BREVO_API_KEY` est valide (`GET /v3/account` → 200)
+  mais `POST /v3/smtp/email` renvoie `403 permission_denied` — *"Your SMTP account is not yet
+  activated"* : blocage au niveau **compte**, reproduit même avec l'expéditeur validé, donc
+  incontournable par configuration. Un email réel a été délivré via SMTP (`250 OK`).
+- **Base Turso de production** : elle ne contenait **aucune** table applicative (uniquement 38 tables
+  internes `mastra_*`), le bot déployé ne pouvait rien persister. `drizzle-kit push` se bloquant
+  contre un `libsql://` distant, le DDL a été exporté depuis `schema.ts` et appliqué directement —
+  **10 tables, 69 index, `employees` avec ses 20 colonnes**.
+- `docs/SLACK_BOT_SETUP.md` : variables d'environnement réelles (SMTP au lieu de `RESEND_API_KEY`),
+  et section dépannage étendue (freeze serverless, 401 de signature, double réponse, dédup).
+
+### Fixed
+- **Fuite de secret dans les logs** : `console.log('DEBUG ENV', { brevo: process.env.BREVO_API_KEY })`
+  dans `src/mastra/index.ts` imprimait une clé API vivante. Remplacé par `hasBrevoKey: Boolean(…)`.
+- **Configuration de l'app Slack** (côté Slack, pas côté code) : Socket Mode était activé — il est
+  mutuellement exclusif avec la Request URL HTTP, Slack n'envoyait donc **aucune** requête — et
+  `app_mention` n'était pas abonné, alors que le handler ne sert les mentions en canal que par cet
+  événement. Request URL désormais « Verified ».
+- **Faux positif de routage mot-clé** : `routeToAgent()` matchait `test` par sous-chaîne
+  (`String.includes`), donc capturé par n'importe quel mot français contenant "test" ailleurs
+  qu'en début de mot — "je conteste cette décision", "peux-tu attester de mon poste",
+  "contestation", "protestation" partaient à tort vers `questionnaireEngine` au lieu du routage
+  par défaut. Le matching exclut désormais un mot-clé immédiatement précédé d'une lettre
+  (regex `(?<![\p{L}])`), sans toucher aux mots-clés eux-mêmes ni aux suffixes (pluriels,
+  conjugaisons continuent de matcher). 6 tests ajoutés dans
+  `tests/unit/handlers/slack-events.handler.test.ts`.
+
+### Known issues
+- `drizzle/0000_*.sql` déclare `employees` avec 11 colonnes contre 20 dans `schema.ts` : l'historique
+  de migration n'est pas rejouable sur une base vierge. `npm run db:generate` est interactif et doit
+  être relancé dans un vrai TTY.
+- Traitement en tâche de fond **non testé en serverless** : Vercel peut geler la fonction dès l'ACK et
+  tuer l'appel LLM en vol (symptôme « le bot ACK mais ne répond jamais »). Correctif durable : file
+  durable (`inngest` déjà installé).
+- La dédup LRU est **par instance** : elle ne protège pas d'un traitement double entre instances.
+- Envoyer au nom de « Kisso » depuis une adresse `@gmail.com` dégrade la délivrabilité ; un domaine
+  vérifié (SPF/DKIM/DMARC) reste le correctif propre.
+
 ## [0.1.3] - 2026-08-05
 ### Changed
 - Migration de `better-sqlite3` vers `@libsql/client` (Turso).

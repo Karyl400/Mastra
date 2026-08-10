@@ -130,22 +130,37 @@ export const emailSchema = z
   .describe('Valid professional email address');
 
 /**
- * Nom avec validation internationale
+ * Nom avec validation internationale — FABRIQUE.
+ *
+ * ⚠️ Utiliser `makeNameSchema()` (et non la constante `nameSchema`) dès qu'un même
+ * objet apparaît DEUX FOIS dans un schéma exposé à un LLM (ex. `firstName` +
+ * `lastName`). `zodToJsonSchema` (stratégie `relative`, celle de Mastra) déduplique
+ * les instances Zod partagées et émet `{"$ref": "1/firstName"}` pour la seconde —
+ * un noeud sans `type` racine, de la même famille que le `allOf` qui a cassé
+ * `createEmployee`. Chaque appel de la fabrique produit une instance distincte,
+ * donc un schéma entièrement inline.
  */
-export const nameSchema = z
-  .string()
-  .trim()
-  .min(
-    VALIDATION_CONSTRAINTS.NAME.MIN_LENGTH,
-    `Name must be at least ${VALIDATION_CONSTRAINTS.NAME.MIN_LENGTH} characters`,
-  )
-  .max(
-    VALIDATION_CONSTRAINTS.NAME.MAX_LENGTH,
-    `Name must not exceed ${VALIDATION_CONSTRAINTS.NAME.MAX_LENGTH} characters`,
-  )
-  .regex(VALIDATION_CONSTRAINTS.NAME.PATTERN, VALIDATION_CONSTRAINTS.NAME.MESSAGE)
-  .transform(sanitizeName)
-  .describe('Person name (letters, accents, hyphens, apostrophes)');
+export const makeNameSchema = () =>
+  z
+    .string()
+    .trim()
+    .min(
+      VALIDATION_CONSTRAINTS.NAME.MIN_LENGTH,
+      `Name must be at least ${VALIDATION_CONSTRAINTS.NAME.MIN_LENGTH} characters`,
+    )
+    .max(
+      VALIDATION_CONSTRAINTS.NAME.MAX_LENGTH,
+      `Name must not exceed ${VALIDATION_CONSTRAINTS.NAME.MAX_LENGTH} characters`,
+    )
+    .regex(VALIDATION_CONSTRAINTS.NAME.PATTERN, VALIDATION_CONSTRAINTS.NAME.MESSAGE)
+    .transform(sanitizeName)
+    .describe('Person name (letters, accents, hyphens, apostrophes)');
+
+/**
+ * Instance partagée (rétrocompatibilité) — ne pas réutiliser deux fois
+ * dans un même schéma exposé au LLM, voir `makeNameSchema`.
+ */
+export const nameSchema = makeNameSchema();
 
 /**
  * Titre (tâche, document, etc.)
@@ -176,26 +191,51 @@ export const descriptionSchema = z
   .describe('Description with limited HTML formatting');
 
 /**
+ * Trim non destructif : laisse passer les valeurs non-string telles quelles
+ * pour que `z.nativeEnum` produise son propre message d'erreur.
+ */
+function trimIfString(value: unknown): unknown {
+  return typeof value === 'string' ? value.trim() : value;
+}
+
+/**
  * Département
+ *
+ * ⚠️ NE PAS réintroduire `z.string()....pipe(z.nativeEnum(...))` ici.
+ * `.pipe()` sérialise en `allOf: [{...}, {...}]` — un objet JSON Schema sans `type`
+ * racine — et le validateur de tool-calls de Groq le traite comme un `object`,
+ * ce qui fait échouer 100 % des appels `createEmployee`
+ * (`/department: expected object, but got string`).
+ * Le schéma DOIT rester plat : `{ type: 'string', enum: [...] }`.
+ * Verrouillé par `tests/unit/tools/tool-schema-flatness.test.ts`.
+ *
+ * Le `.trim()` est déplacé en `preprocess` (avant validation) et la sanitization
+ * `sanitizeText` reste en `transform` (après validation) : comportement identique
+ * à l'ancienne chaîne. Les bornes `min(2)/max(100)` sont supprimées car l'enum est
+ * une allowlist stricte — strictement plus restrictive que la contrainte de longueur.
  */
 export const departmentSchema = z
-  .string()
-  .trim()
-  .min(2, 'Department must be at least 2 characters')
-  .max(100, 'Department must not exceed 100 characters')
-  .pipe(z.nativeEnum(Department))
+  .preprocess(
+    trimIfString,
+    z.nativeEnum(Department, {
+      errorMap: () => ({ message: 'Department must be one of the allowed values' }),
+    }),
+  )
   .transform(sanitizeText)
   .describe('Employee department');
 
 /**
  * Poste / Position
+ *
+ * ⚠️ Même contrainte que `departmentSchema` : schéma plat obligatoire, pas de `.pipe()`.
  */
 export const positionSchema = z
-  .string()
-  .trim()
-  .min(2, 'Position must be at least 2 characters')
-  .max(150, 'Position must not exceed 150 characters')
-  .pipe(z.nativeEnum(Position))
+  .preprocess(
+    trimIfString,
+    z.nativeEnum(Position, {
+      errorMap: () => ({ message: 'Position must be one of the allowed values' }),
+    }),
+  )
   .transform(sanitizeText)
   .describe('Employee position');
 
@@ -355,8 +395,8 @@ export const questionSchema = z
  * Employé (création)
  */
 const createEmployeeBaseSchema = z.object({
-  firstName: nameSchema.describe('Employee first name'),
-  lastName: nameSchema.describe('Employee last name'),
+  firstName: makeNameSchema().describe('Employee first name'),
+  lastName: makeNameSchema().describe('Employee last name'),
   email: emailSchema.describe('Professional email'),
   department: departmentSchema.describe('Department'),
   position: positionSchema.describe('Job position'),
@@ -376,7 +416,7 @@ const createEmployeeBaseSchema = z.object({
     .optional(),
   emergencyContact: z
     .object({
-      name: nameSchema,
+      name: makeNameSchema(),
       phone: z.string().regex(/^\+?[\d\s\-()]{7,20}$/, 'Invalid phone number'),
       relationship: z.string().min(2).max(50).transform(sanitizeText),
     })

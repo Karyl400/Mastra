@@ -14,7 +14,7 @@ import { EmployeeStatus } from '../../../../shared/types';
 import {
   uuidSchema,
   emailSchema,
-  nameSchema,
+  makeNameSchema,
   departmentSchema,
   positionSchema,
   startDateSchema,
@@ -93,13 +93,27 @@ interface ValidatedEmployeeInput {
  * Schema d'entrée avec validations métier
  */
 const createEmployeeInputSchema = z.object({
-  firstName: nameSchema.describe("Prénom de l'employé"),
-  lastName: nameSchema.describe("Nom de l'employé"),
+  // makeNameSchema() et non nameSchema : deux occurrences de la MÊME instance Zod
+  // sont dédupliquées en `{"$ref": "1/firstName"}` par zodToJsonSchema (voir validation.ts).
+  firstName: makeNameSchema().describe("Prénom de l'employé"),
+  lastName: makeNameSchema().describe("Nom de l'employé"),
   email: emailSchema.describe('Email professionnel'),
   department: departmentSchema.describe('Département'),
   position: positionSchema.describe('Poste'),
   startDate: startDateSchema.describe('Date de début (ISO 8601)'),
-  managerId: uuidSchema.nullable().optional().describe('ID du manager (optionnel)'),
+
+  // ⚠️ Schéma PLAT obligatoire (cf. src/shared/validation.ts) :
+  // `uuidSchema.nullable().optional()` sérialise en
+  // `anyOf: [{type:'string',format:'uuid'}, {type:'null'}]` — pas de `type` racine,
+  // donc rejeté par le validateur de tool-calls de Groq exactement comme `allOf`.
+  // Le `preprocess` conserve la tolérance au `null` explicite tout en émettant
+  // `{ type: 'string', format: 'uuid' }`.
+  managerId: z
+    .preprocess(
+      (value) => (value === null || value === '' ? undefined : value),
+      uuidSchema.optional(),
+    )
+    .describe('ID du manager (optionnel)'),
 
   // Options d'idempotence
   idempotencyKey: z

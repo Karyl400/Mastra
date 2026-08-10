@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { wrapUserInput, SessionManager } from '../../../src/shared/security/llm-guardrail';
+import {
+  wrapUserInput,
+  SessionManager,
+  buildAgentInstructions,
+  wrapAgentInput,
+  SYSTEM_SECURITY_PROMPT,
+} from '../../../src/shared/security/llm-guardrail';
 import { ValidationError } from '../../../src/shared/errors';
 
 const sessionManager = new SessionManager({ maxSessionAge: 60000, cleanupIntervalMs: 600000 });
@@ -105,6 +111,64 @@ describe('LLM Security Gateway (Guardrails)', () => {
       expect(validateLLMOutput(safeOutput)).toBe(safeOutput);
     });
 
+  });
+
+  describe('buildAgentInstructions() — assemblage réel du prompt système', () => {
+    it('substitue les deux placeholders du template et ne les laisse jamais littéraux', () => {
+      const instructions = buildAgentInstructions('Instructions métier de test.');
+
+      expect(instructions).not.toContain('{DELIMITER_PREFIX}');
+      expect(instructions).not.toContain('[[SESSION_MARKER]]');
+      expect(instructions).toMatch(/SECURITY_ID:/);
+    });
+
+    it('conserve le bloc sécurité intact puis ajoute les instructions métier fournies', () => {
+      const instructions = buildAgentInstructions('Instructions métier de test.');
+
+      expect(instructions).toContain('DIRECTIVE 1.1: You are KISSO-AGENT-v3.');
+      expect(instructions).toContain('Instructions métier de test.');
+      expect(instructions.indexOf('DIRECTIVE 1.1')).toBeLessThan(
+        instructions.indexOf('Instructions métier de test.')
+      );
+    });
+
+    it('est stable entre deux appels (même marqueur de session par processus)', () => {
+      const a = buildAgentInstructions('A');
+      const b = buildAgentInstructions('B');
+
+      // Même en-tête sécurité (même SECURITY_ID, même tagPrefix) pour les deux appels : le
+      // marqueur est tiré une seule fois par PROCESSUS, pas par appel.
+      const securityIdOf = (s: string) => s.match(/SECURITY_ID:[^\]]+/)?.[0];
+      expect(securityIdOf(a)).toEqual(securityIdOf(b));
+      expect(securityIdOf(a)).toBeDefined();
+    });
+
+    it("n'altère pas la constante SYSTEM_SECURITY_PROMPT exportée (toujours les littéraux bruts)", () => {
+      expect(SYSTEM_SECURITY_PROMPT).toContain('{DELIMITER_PREFIX}');
+      expect(SYSTEM_SECURITY_PROMPT).toContain('[[SESSION_MARKER]]');
+    });
+  });
+
+  describe('wrapAgentInput() — encadrement du texte Slack avant agent.generate()', () => {
+    it('encadre le texte avec le même tagPrefix que celui annoncé dans buildAgentInstructions()', () => {
+      const instructions = buildAgentInstructions('Instructions métier de test.');
+      const wrapped = wrapAgentInput('bonjour, je voudrais mon statut');
+
+      // Le tagPrefix (`kisso_XXXX`, cf. DelimiterGenerator) annoncé dans la DIRECTIVE 3.1/3.2
+      // des instructions doit être celui qui borne réellement le texte utilisateur.
+      const genericPrefix = instructions.match(/kisso_[0-9a-f]{4}/)?.[0];
+
+      expect(genericPrefix).toBeDefined();
+      expect(wrapped).toContain(`<${genericPrefix}_user_input>`);
+      expect(wrapped).toContain('bonjour, je voudrais mon statut');
+    });
+
+    it('produit un résultat déterministe pour un même texte (même session partagée)', () => {
+      const first = wrapAgentInput('même message');
+      const second = wrapAgentInput('même message');
+
+      expect(first).toBe(second);
+    });
   });
 
 });

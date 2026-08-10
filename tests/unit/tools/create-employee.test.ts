@@ -114,3 +114,146 @@ describe('Sanitizer: EmployeeDataSanitizer', () => {
     expect(clean.position).not.toContain('<script>');
   });
 });
+
+/**
+ * Ces tests verrouillent le comportement conservé lors de l'aplatissement du
+ * JSON Schema de `department` / `position` (bug Groq `expected object, but got string`).
+ * Aplatir le schéma ne doit RIEN retirer à la sanitization ni à la validation.
+ *
+ * NB : `tool.execute()` de Mastra n'exception PAS sur une erreur de schéma —
+ * il retourne `{ error: true, message, validationErrors }` (message renvoyé au LLM).
+ */
+type ToolValidationError = {
+  error?: boolean;
+  message?: string;
+  validationErrors?: { fields?: Record<string, { errors?: string[] }> };
+};
+
+function savedEmployee(repo: EmployeeRepository): Record<string, string> {
+  const mock = (repo.save as unknown as { mock: { calls: Array<[Record<string, string>]> } }).mock;
+  expect(mock.calls.length, 'repo.save was never called').toBeGreaterThan(0);
+  return mock.calls[0][0];
+}
+
+describe('Tool: createEmployee — sanitization preserved after schema flattening', () => {
+  it('still normalises names through sanitizeName (transform still runs)', async () => {
+    const repo = makeMockRepo();
+    const tool = makeCreateEmployee(repo);
+
+    await tool.execute!(
+      {
+        ...baseInput,
+        email: 'padded.name@kisso.com',
+        firstName: '  Jean   Marie  ',
+        lastName: "  O'Connor-Smith ",
+      } as never,
+      {} as never,
+    );
+
+    const saved = savedEmployee(repo);
+    // sanitizeName : trim + collapse des espaces + strip HTML
+    expect(saved.firstName).toBe('Jean Marie');
+    expect(saved.lastName).toBe("O'Connor-Smith");
+  });
+
+  it('still REJECTS HTML injected in firstName (never reaches the repository)', async () => {
+    const repo = makeMockRepo();
+    const tool = makeCreateEmployee(repo);
+
+    const result = (await tool.execute!(
+      { ...baseInput, email: 'xss.attempt@kisso.com', firstName: 'Jean<script>alert(1)</script>' } as never,
+      {} as never,
+    )) as ToolValidationError;
+
+    expect(result.error).toBe(true);
+    expect(result.validationErrors?.fields?.firstName).toBeDefined();
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('still REJECTS a department carrying HTML instead of silently cleaning it', async () => {
+    const repo = makeMockRepo();
+    const tool = makeCreateEmployee(repo);
+
+    const result = (await tool.execute!(
+      {
+        ...baseInput,
+        email: 'dirty.dept@kisso.com',
+        department: '<script>Engineering</script>',
+      } as never,
+      {} as never,
+    )) as ToolValidationError;
+
+    expect(result.error).toBe(true);
+    expect(result.validationErrors?.fields?.department?.errors).toContain(
+      'Department must be one of the allowed values',
+    );
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('still REJECTS a position outside the allowlist', async () => {
+    const repo = makeMockRepo();
+    const tool = makeCreateEmployee(repo);
+
+    const result = (await tool.execute!(
+      { ...baseInput, email: 'bad.position@kisso.com', position: 'Chief Vibes Officer' } as never,
+      {} as never,
+    )) as ToolValidationError;
+
+    expect(result.error).toBe(true);
+    expect(result.validationErrors?.fields?.position?.errors).toContain(
+      'Position must be one of the allowed values',
+    );
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it('still trims whitespace around department / position (preprocess still runs)', async () => {
+    const repo = makeMockRepo();
+    const tool = makeCreateEmployee(repo);
+
+    await tool.execute!(
+      {
+        ...baseInput,
+        email: 'padded@kisso.com',
+        department: '  Engineering  ',
+        position: '\tBackend Developer\n',
+      } as never,
+      {} as never,
+    );
+
+    const saved = savedEmployee(repo);
+    expect(saved.department).toBe('Engineering');
+    expect(saved.position).toBe('Backend Developer');
+  });
+
+  it('accepts a plain-string department / position — the shape the LLM actually sends', async () => {
+    const repo = makeMockRepo();
+    const tool = makeCreateEmployee(repo);
+
+    await tool.execute!(
+      {
+        ...baseInput,
+        email: 'plain.string@kisso.com',
+        department: 'Engineering',
+        position: 'Backend Developer',
+      } as never,
+      {} as never,
+    );
+
+    const saved = savedEmployee(repo);
+    expect(saved.department).toBe('Engineering');
+    expect(saved.position).toBe('Backend Developer');
+  });
+
+  it('accepts an explicit null managerId even though the schema is flat', async () => {
+    const repo = makeMockRepo();
+    const tool = makeCreateEmployee(repo);
+
+    const result = (await tool.execute!(
+      { ...baseInput, email: 'null.manager@kisso.com', managerId: null } as never,
+      {} as never,
+    )) as { employee?: { id: string } };
+
+    expect(result.employee?.id).toBeDefined();
+    expect(repo.save).toHaveBeenCalledTimes(1);
+  });
+});
