@@ -30,12 +30,9 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "@ai-sdk/google": "^3.0.102",
     "@ai-sdk/groq": "^4.0.24",
     "@ai-sdk/mistral": "^4.0.25",
-    "@ai-sdk/openai": "^3.0.89",
     "@aws-sdk/client-secrets-manager": "^3.1101.0",
-    "@getbrevo/brevo": "^6.0.2",
     "@libsql/client": "^0.17.4",
     "@mastra/core": "^1.57.0",
     "@mastra/deployer-vercel": "^1.2.13",
@@ -50,7 +47,6 @@
     "better-sqlite3": "^12.11.1",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
-    "inngest": "^4.13.0",
     "lru-cache": "^11.5.2",
     "mastra": "^1.22.0",
     "nodemailer": "^9.0.4",
