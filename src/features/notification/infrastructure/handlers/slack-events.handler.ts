@@ -3,6 +3,7 @@ import { LRUCache } from 'lru-cache';
 import type { Mastra } from '@mastra/core';
 import { logger } from '../../../../shared/logger';
 import { wrapAgentInput } from '../../../../shared/security/llm-guardrail';
+import { sanitizeAgentOutput } from '../../../../shared/security/agent-output';
 import { SlackAdapter, type SlackBlock } from '../providers/slack.adapter';
 import { SlackWorkspaceService } from '../providers/slack-workspace.service';
 import type { SlackWorkspaceProvider } from '../../domain/ports/slack-workspace.port';
@@ -684,12 +685,32 @@ export class SlackEventsHandler {
       const safeInput = wrapAgentInput(text);
       const response = await agent.generate(safeInput);
 
-      await postMessage({
-        channel,
-        text: response.text || "Désolé, je n'ai pas pu générer de réponse.",
-      });
+      // Point de passage UNIQUE de toute réponse d'agent vers Slack. C'est ici,
+      // et nulle part ailleurs, qu'on garantit qu'aucun marqueur interne ne
+      // franchit la frontière et que le style est bien du mrkdwn Slack.
+      // Les instructions et le prompt système n'y suffisent pas : la campagne du
+      // 2026-08-10 a vu passer le délimiteur `kisso_XXXX`, le marqueur
+      // `[SECURITY_BLOCK]` et du markdown GitHub, tous explicitement proscrits.
+      const safeOutput = sanitizeAgentOutput(response.text);
 
-      logger.info('Slack response sent', { channel, agentId });
+      if (safeOutput.redacted.length > 0) {
+        // Niveau `error` volontaire : une fuite de marqueur signifie que le
+        // modèle a été amené à parler de son propre garde-fou. C'est la ligne à
+        // chercher dans les logs après une tentative d'extraction de prompt.
+        logger.error('Agent output carried internal markers — response replaced', {
+          agentId,
+          channel,
+          markers: safeOutput.redacted,
+        });
+      }
+
+      await postMessage({ channel, text: safeOutput.text });
+
+      logger.info('Slack response sent', {
+        channel,
+        agentId,
+        redacted: safeOutput.redacted.length,
+      });
     } catch (error) {
       logger.error('Error processing Slack message', { error, text, user });
 
