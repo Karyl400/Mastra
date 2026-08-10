@@ -229,6 +229,55 @@ describe('SlackEventsHandler — accept() (décision synchrone, avant l’ACK)',
   });
 });
 
+describe('SlackEventsHandler — double réponse en DM (régression 2026-08-10)', () => {
+  let ctx: ReturnType<typeof makeHandler>;
+
+  beforeEach(() => {
+    ctx = makeHandler();
+  });
+
+  it('ignore un app_mention émis dans un canal de DM', () => {
+    // Mentionner le bot dans un DM émet À LA FOIS `message` (channel_type 'im')
+    // et `app_mention`. Le filtre `not_a_dm` ne dédouble que les canaux : sans
+    // cette garde, le bot répond DEUX FOIS — observé en production.
+    //
+    // Le test porte sur le préfixe `D` du canal, PAS sur `channel_type` :
+    // le payload `app_mention` de Slack ne porte pas ce champ.
+    const decision = ctx.handler.accept(
+      envelope(mention({ channel: 'D0MOCKDM01', channel_type: undefined }), 'Ev0MENTIONDM'),
+    );
+
+    expect(decision).toEqual({ action: 'ignore', reason: 'duplicate_mention' });
+  });
+
+  it('continue d’accepter un app_mention dans un vrai canal', () => {
+    expect(ctx.handler.accept(envelope(mention(), 'Ev0MENTIONCH')).action).toBe('process');
+  });
+
+  it('ne traite qu’une fois deux événements jumeaux d’event_id différents', () => {
+    // `message` et `app_mention` d'une même prise de parole ont des `event_id`
+    // distincts mais partagent toujours `channel` et `ts`. La clé de
+    // déduplication doit donc préférer `channel:ts` à `event_id`.
+    const first = ctx.handler.accept(
+      envelope(dm({ channel: 'D0TWIN', ts: '1700000000.000900' }), 'Ev0TWIN_A'),
+    );
+    const twin = ctx.handler.accept(
+      envelope(dm({ channel: 'D0TWIN', ts: '1700000000.000900' }), 'Ev0TWIN_B'),
+    );
+
+    expect(first.action).toBe('process');
+    expect(twin).toEqual({ action: 'ignore', reason: 'duplicate' });
+  });
+
+  it('déduplique toujours team_join sur event_id, faute de canal et de ts', () => {
+    expect(ctx.handler.accept(envelope(teamJoin(), 'Ev0JOINKEY')).action).toBe('process');
+    expect(ctx.handler.accept(envelope(teamJoin(), 'Ev0JOINKEY'))).toEqual({
+      action: 'ignore',
+      reason: 'duplicate',
+    });
+  });
+});
+
 describe('SlackEventsHandler — accept() sur team_join (arrivée d’un nouvel employé)', () => {
   let ctx: ReturnType<typeof makeHandler>;
 

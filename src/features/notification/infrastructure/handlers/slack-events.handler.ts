@@ -116,7 +116,8 @@ export type SlackIgnoreReason =
   | 'no_user'
   | 'bot_join'
   | 'deleted_user'
-  | 'restricted_user';
+  | 'restricted_user'
+  | 'duplicate_mention';
 
 export interface SlackAcceptContext {
   /** En-tête `X-Slack-Retry-Num` (présent uniquement sur les renvois Slack). */
@@ -331,13 +332,21 @@ export class SlackEventsHandler {
    * systématiquement sur une enveloppe `event_callback`.
    */
   private dedupKey(envelope: SlackEventEnvelope): string | undefined {
-    if (envelope.event_id) return `id:${envelope.event_id}`;
-
     const event = envelope.event;
-    if (!event || isTeamJoinEvent(event)) return undefined;
 
-    const { channel, ts } = event;
-    if (channel && ts) return `ts:${channel}:${ts}`;
+    // `channel:ts` PRIME sur `event_id` pour les événements porteurs de texte.
+    // Une même prise de parole peut produire DEUX événements aux `event_id`
+    // distincts (`message` et `app_mention`), mais ils partagent toujours le
+    // même `ts` dans le même canal : une seule clé, donc un seul traitement.
+    // C'est la protection de fond ; la garde `duplicate_mention` ci-dessus
+    // évite en plus d'ouvrir une entrée pour rien.
+    if (event && !isTeamJoinEvent(event)) {
+      const { channel, ts } = event;
+      if (channel && ts) return `ts:${channel}:${ts}`;
+    }
+
+    // `team_join` n'a ni canal ni `ts` : seul `event_id` le protège du rejeu.
+    if (envelope.event_id) return `id:${envelope.event_id}`;
     return undefined;
   }
 
@@ -447,6 +456,18 @@ export class SlackEventsHandler {
   private rejectMessage(event: SlackMessageEvent): SlackIgnoreReason | undefined {
     if (event.type === 'message' && event.channel_type !== 'im') {
       return 'not_a_dm';
+    }
+
+    // Symétrique du filtre ci-dessus, pour les DM. Mentionner le bot dans un DM
+    // émet À LA FOIS `message` (channel_type 'im') et `app_mention` : on garde
+    // le premier, on écarte le second. Sans cela le bot répond DEUX FOIS —
+    // observé en production le 2026-08-10.
+    //
+    // Le test porte sur le préfixe `D` du canal et NON sur `channel_type` :
+    // le payload `app_mention` de Slack ne porte pas ce champ (vérifié dans
+    // `@slack/types`, `AppMentionEvent` déclare `ts`, `channel`, `event_ts`).
+    if (event.type === 'app_mention' && event.channel?.startsWith('D')) {
+      return 'duplicate_mention';
     }
 
     // Anti-boucle : les indices synchrones. `user === bot_user_id` est vérifié plus tard
