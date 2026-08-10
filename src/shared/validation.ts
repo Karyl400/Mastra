@@ -21,7 +21,6 @@ import {
   RecipientType,
   OnboardingStatus,
   Department,
-  Position,
 } from './types.js';
 
 // ============================================
@@ -37,6 +36,17 @@ const VALIDATION_CONSTRAINTS = {
     // Simplified regex for JSON Schema compatibility (removes \p{L} etc)
     PATTERN: /^[a-zA-ZÀ-ÿ\s'-]+$/,
     MESSAGE: 'Name must contain only letters, accents, spaces, hyphens, and apostrophes',
+  },
+  POSITION: {
+    MIN_LENGTH: 2,
+    MAX_LENGTH: 150,
+    // Plus permissif que NAME : un intitulé de poste porte des chiffres (« L3 »),
+    // des séparateurs (« Product Manager - Growth ») et de la ponctuation
+    // (« Ingénieur R&D », « Développeur (Full-Stack) »). Comme NAME, la classe
+    // reste ASCII + Latin-1 : `\p{L}` casse le parseur de schémas du Vercel AI SDK.
+    PATTERN: /^[a-zA-ZÀ-ÿ0-9\s'&./()-]+$/,
+    MESSAGE:
+      'Position must contain only letters, digits, spaces and the punctuation &./()- and apostrophes',
   },
   EMAIL: {
     MAX_LENGTH: 254, // RFC 5321
@@ -225,19 +235,41 @@ export const departmentSchema = z
   .describe('Employee department');
 
 /**
- * Poste / Position
+ * Poste / Position — **champ libre**, contrairement à `departmentSchema`.
  *
- * ⚠️ Même contrainte que `departmentSchema` : schéma plat obligatoire, pas de `.pipe()`.
+ * L'ancienne allowlist (`z.nativeEnum(Position)`, 24 valeurs) ne contenait pas
+ * « Software Engineer », le titre le plus répandu du métier : elle rejetait des
+ * saisies parfaitement légitimes. Un poste est un intitulé rédigé par la
+ * personne, pas une taxonomie RH — au contraire du département, qui pilote le
+ * routage vers les canaux Slack et reste donc une allowlist.
+ *
+ * L'enum `Position` survit comme liste de suggestions ; la colonne SQL est
+ * `text NOT NULL` sans contrainte CHECK, donc la bascule n'exige aucune
+ * migration. Effet de bord recherché : les 24 valeurs ne sont plus réinjectées
+ * dans le schéma JSON du tool à chaque aller-retour, ce qui allège le budget
+ * face au plafond Groq de 12 000 tokens/minute.
+ *
+ * ⚠️ Même contrainte que `departmentSchema` : schéma plat obligatoire, pas de
+ * `.pipe()` — la sérialisation doit rester un `{"type":"string", …}` sans
+ * `allOf`. Verrouillé par `tool-schema-flatness.test.ts`.
  */
 export const positionSchema = z
   .preprocess(
     trimIfString,
-    z.nativeEnum(Position, {
-      errorMap: () => ({ message: 'Position must be one of the allowed values' }),
-    }),
+    z
+      .string()
+      .min(
+        VALIDATION_CONSTRAINTS.POSITION.MIN_LENGTH,
+        `Position must be at least ${VALIDATION_CONSTRAINTS.POSITION.MIN_LENGTH} characters`,
+      )
+      .max(
+        VALIDATION_CONSTRAINTS.POSITION.MAX_LENGTH,
+        `Position must not exceed ${VALIDATION_CONSTRAINTS.POSITION.MAX_LENGTH} characters`,
+      )
+      .regex(VALIDATION_CONSTRAINTS.POSITION.PATTERN, VALIDATION_CONSTRAINTS.POSITION.MESSAGE),
   )
   .transform(sanitizeText)
-  .describe('Employee position');
+  .describe('Employee position (free text, e.g. "Software Engineer")');
 
 /**
  * Date de début avec contraintes métier

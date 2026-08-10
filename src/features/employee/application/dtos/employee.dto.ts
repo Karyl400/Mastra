@@ -150,12 +150,15 @@ const baseEmployeeSchema = z.object({
     { message: 'Email already exists in the system' },
   ),
   department: departmentSchema,
+  // Champ libre : voir `positionSchema` dans shared/validation.ts. Le `.pipe()`
+  // qui figurait ici sérialisait en `allOf` — exactement la construction que
+  // `tool-schema-flatness.test.ts` interdit, et qui a déjà cassé `createEmployee`.
+  // Elle ne survivait que parce que ce schéma n'est pas un `inputSchema` de tool.
   position: z
     .string()
     .trim()
     .min(EMPLOYEE_CONSTRAINTS.POSITION.MIN_LENGTH)
     .max(EMPLOYEE_CONSTRAINTS.POSITION.MAX_LENGTH)
-    .pipe(z.nativeEnum(Position))
     .transform((val) => sanitizeHtml(val)),
   startDate: startDateSchema,
   status: z.nativeEnum(EmployeeStatus).default(EmployeeStatus.Pending),

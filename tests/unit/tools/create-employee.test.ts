@@ -29,7 +29,10 @@ describe('Tool: createEmployee', () => {
     const repo = makeMockRepo();
     const tool = makeCreateEmployee(repo);
 
-    const result = await tool.execute!(baseInput as never, {} as never) as Record<string, unknown>;
+    const result = (await tool.execute!(baseInput as never, {} as never)) as Record<
+      string,
+      unknown
+    >;
 
     expect(result).toBeDefined();
     expect((result as { employee?: { firstName: string } }).employee?.firstName).toBe('Jean');
@@ -43,7 +46,9 @@ describe('Tool: createEmployee', () => {
     });
     const tool = makeCreateEmployee(repo);
 
-    await expect(tool.execute!(baseInput as never, {} as never)).rejects.toBeInstanceOf(ConflictError);
+    await expect(tool.execute!(baseInput as never, {} as never)).rejects.toBeInstanceOf(
+      ConflictError,
+    );
     expect(repo.save).not.toHaveBeenCalled();
   });
 
@@ -65,9 +70,8 @@ describe('Tool: createEmployee', () => {
 
 describe('UseCase: CreateEmployeeUseCase', () => {
   it('throws ConflictError when email is already taken', async () => {
-    const { CreateEmployeeUseCase } = await import(
-      '../../../src/features/employee/application/tools/create-employee'
-    );
+    const { CreateEmployeeUseCase } =
+      await import('../../../src/features/employee/application/tools/create-employee');
     const repo = makeMockRepo({
       findByEmail: vi.fn().mockResolvedValue({ id: 'emp-existing' }),
     });
@@ -77,9 +81,8 @@ describe('UseCase: CreateEmployeeUseCase', () => {
   });
 
   it('saves exactly one employee on success', async () => {
-    const { CreateEmployeeUseCase } = await import(
-      '../../../src/features/employee/application/tools/create-employee'
-    );
+    const { CreateEmployeeUseCase } =
+      await import('../../../src/features/employee/application/tools/create-employee');
     const repo = makeMockRepo();
     const useCase = new CreateEmployeeUseCase(repo);
 
@@ -93,9 +96,8 @@ describe('UseCase: CreateEmployeeUseCase', () => {
 
 describe('Sanitizer: EmployeeDataSanitizer', () => {
   it('strips HTML tags from department and position', async () => {
-    const { EmployeeDataSanitizer } = await import(
-      '../../../src/features/employee/application/tools/create-employee'
-    );
+    const { EmployeeDataSanitizer } =
+      await import('../../../src/features/employee/application/tools/create-employee');
     const { EmployeeStatus } = await import('../../../src/shared/types');
 
     const dirty = {
@@ -161,7 +163,11 @@ describe('Tool: createEmployee — sanitization preserved after schema flattenin
     const tool = makeCreateEmployee(repo);
 
     const result = (await tool.execute!(
-      { ...baseInput, email: 'xss.attempt@kisso.com', firstName: 'Jean<script>alert(1)</script>' } as never,
+      {
+        ...baseInput,
+        email: 'xss.attempt@kisso.com',
+        firstName: 'Jean<script>alert(1)</script>',
+      } as never,
       {} as never,
     )) as ToolValidationError;
 
@@ -190,19 +196,32 @@ describe('Tool: createEmployee — sanitization preserved after schema flattenin
     expect(repo.save).not.toHaveBeenCalled();
   });
 
-  it('still REJECTS a position outside the allowlist', async () => {
+  it('ACCEPTS a job title absent from the enum — position is free text', async () => {
+    // Le poste n'est plus une allowlist : « Software Engineer » ne figurait pas
+    // dans l'enum, alors que c'est le titre le plus courant du métier.
     const repo = makeMockRepo();
     const tool = makeCreateEmployee(repo);
 
     const result = (await tool.execute!(
-      { ...baseInput, email: 'bad.position@kisso.com', position: 'Chief Vibes Officer' } as never,
+      { ...baseInput, email: 'free.position@kisso.com', position: 'Software Engineer' } as never,
+      {} as never,
+    )) as ToolValidationError;
+
+    expect(result.error).toBeUndefined();
+    expect(repo.save).toHaveBeenCalled();
+  });
+
+  it('still REJECTS a position carrying HTML', async () => {
+    const repo = makeMockRepo();
+    const tool = makeCreateEmployee(repo);
+
+    const result = (await tool.execute!(
+      { ...baseInput, email: 'bad.position@kisso.com', position: 'Dev <img src=x>' } as never,
       {} as never,
     )) as ToolValidationError;
 
     expect(result.error).toBe(true);
-    expect(result.validationErrors?.fields?.position?.errors).toContain(
-      'Position must be one of the allowed values',
-    );
+    expect(result.validationErrors?.fields?.position?.errors?.length).toBeGreaterThan(0);
     expect(repo.save).not.toHaveBeenCalled();
   });
 

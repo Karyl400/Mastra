@@ -17,13 +17,15 @@ const baseInput = {
   slackChannelId: 'C-ENG',
 };
 
-function makeDeps(overrides: {
-  employeeRepo?: Partial<EmployeeRepository>;
-  onboardingRepo?: Partial<OnboardingRepository>;
-  notificationRepo?: Partial<NotificationRepository>;
-  emailProvider?: Partial<EmailProvider>;
-  slackProvider?: Partial<SlackWorkspaceProvider> | null;
-} = {}) {
+function makeDeps(
+  overrides: {
+    employeeRepo?: Partial<EmployeeRepository>;
+    onboardingRepo?: Partial<OnboardingRepository>;
+    notificationRepo?: Partial<NotificationRepository>;
+    emailProvider?: Partial<EmailProvider>;
+    slackProvider?: Partial<SlackWorkspaceProvider> | null;
+  } = {},
+) {
   const employeeRepo: EmployeeRepository = {
     findById: vi.fn().mockResolvedValue(null),
     findByEmail: vi.fn().mockResolvedValue(null),
@@ -212,25 +214,42 @@ describe('Workflow: employee-onboarding', () => {
       // contrairement à l'échec d'une ÉTAPE qui, lui, retourne { status: 'failed' }.
       // Deux régimes d'erreur distincts — ne pas les confondre.
       await expect(
-        run.start({ inputData: { ...baseInput, department: 'Wakanda' as never } })
+        run.start({ inputData: { ...baseInput, department: 'Wakanda' as never } }),
       ).rejects.toThrow(/department/i);
 
       expect(deps.employeeRepo.save).not.toHaveBeenCalled();
     });
 
-    it('rejette un poste hors allowlist et ne persiste rien', async () => {
+    it('accepte un poste absent de l’enum — le poste est un champ libre', async () => {
+      // Le workflow reste la seconde porte d'entrée vers `employees`, mais le
+      // poste n'est plus une taxonomie : c'est l'arrivant qui le saisit.
       const deps = makeDeps();
       const workflow = createEmployeeOnboardingWorkflow(deps);
       const run = await workflow.createRun();
 
-      await expect(
-        run.start({ inputData: { ...baseInput, position: 'Grand Manitou' as never } })
-      ).rejects.toThrow(/position/i);
+      const result = await run.start({
+        inputData: { ...baseInput, position: 'Software Engineer' as never },
+      });
+
+      expect(result.status).toBe('success');
+      expect(deps.employeeRepo.save).toHaveBeenCalled();
+    });
+
+    it('rejette un poste vide ou porteur de HTML et ne persiste rien', async () => {
+      const deps = makeDeps();
+      const workflow = createEmployeeOnboardingWorkflow(deps);
+
+      for (const bad of ['', 'Dev <img src=x>']) {
+        const run = await workflow.createRun();
+        await expect(
+          run.start({ inputData: { ...baseInput, position: bad as never } }),
+        ).rejects.toThrow(/position/i);
+      }
 
       expect(deps.employeeRepo.save).not.toHaveBeenCalled();
     });
 
-    it('accepte toutes les valeurs légitimes de l\'allowlist', async () => {
+    it("accepte toutes les valeurs légitimes de l'allowlist", async () => {
       const deps = makeDeps();
       const workflow = createEmployeeOnboardingWorkflow(deps);
       const run = await workflow.createRun();

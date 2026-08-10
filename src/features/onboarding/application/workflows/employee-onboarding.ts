@@ -9,27 +9,43 @@ import type { NotificationRepository } from '../../../notification/domain/ports/
 import type { EmailProvider } from '../../../notification/domain/ports/providers';
 import type { SlackWorkspaceProvider } from '../../../notification/domain/ports/slack-workspace.port';
 import { createNotification } from '../../../notification/domain/entities/notification';
-import { OnboardingStatus, NotificationChannel, NotificationStatus, RecipientType, Department, Position } from '../../../../shared/types';
+import {
+  OnboardingStatus,
+  NotificationChannel,
+  NotificationStatus,
+  RecipientType,
+  Department,
+} from '../../../../shared/types';
+import { VALIDATION_CONSTRAINTS } from '../../../../shared/validation';
 import { ConflictError } from '../../../../shared/errors';
-
 
 // ============================================
 // SCHEMAS
 // ============================================
 
 /**
- * ⚠️ `department` / `position` DOIVENT réutiliser les schémas partagés.
+ * ⚠️ `department` et `position` DOIVENT appliquer ici les mêmes règles que le tool.
  *
  * Ce workflow constitue une SECONDE porte d'entrée vers `employees`, à côté du tool
- * `createEmployee`. Tant qu'il déclarait `z.string().min(1)`, l'allowlist n'était
+ * `createEmployee` — et, depuis le flux d'arrivée, la modale Slack en est une
+ * troisième. Tant qu'il déclarait `z.string().min(1)`, la validation n'était
  * appliquée que sur le chemin agent : un appel direct à
  * `POST /api/workflows/employeeOnboardingWorkflow/start-async` avec
  * `department: "Wakanda"` renvoyait `status: 'success'` et persistait la valeur.
  *
- * On réutilise les enums `Department` / `Position` (source unique de vérité), et NON
- * `departmentSchema` / `positionSchema` de `shared/validation` : ces derniers sont bâtis
- * sur `z.preprocess(...)`, dont le type d'ENTRÉE est `unknown`, ce qui casse l'inférence
- * de types entre les étapes du workflow (`.then(createEmployeeStep)`).
+ * **`department` reste une allowlist, `position` n'en est plus une.** Ce n'est pas
+ * une incohérence : le département pilote le routage vers les canaux Slack et les
+ * règles métier, donc il doit appartenir à un ensemble fermé. Le poste, lui, est un
+ * intitulé rédigé par la personne qui arrive — l'ancienne enum de 24 valeurs ne
+ * contenait même pas « Software Engineer » et rejetait des saisies légitimes. Il est
+ * désormais validé en FORME (longueur, jeu de caractères), pas en appartenance.
+ *
+ * On réutilise l'enum `Department` (source unique de vérité) et NON
+ * `departmentSchema` / `positionSchema` de `shared/validation` : ces derniers sont
+ * bâtis sur `z.preprocess(...)`, dont le type d'ENTRÉE est `unknown`, ce qui casse
+ * l'inférence de types entre les étapes du workflow (`.then(createEmployeeStep)`).
+ * Les contraintes de `position` sont donc recopiées depuis
+ * `VALIDATION_CONSTRAINTS.POSITION`, qui reste la source unique des valeurs.
  *
  * Différence assumée avec le chemin tool : pas de `trim` ici. Le tool en a besoin car un
  * LLM produit des espaces parasites ; ce workflow est appelé par une machine en JSON, où
@@ -40,10 +56,18 @@ const onboardingInputSchema = z.object({
   lastName: z.string().min(1),
   email: z.string().email(),
   department: z.nativeEnum(Department),
-  position: z.nativeEnum(Position),
+  position: z
+    .string()
+    .min(VALIDATION_CONSTRAINTS.POSITION.MIN_LENGTH, 'position is too short')
+    .max(VALIDATION_CONSTRAINTS.POSITION.MAX_LENGTH, 'position is too long')
+    .regex(VALIDATION_CONSTRAINTS.POSITION.PATTERN, VALIDATION_CONSTRAINTS.POSITION.MESSAGE),
   startDate: z.string().datetime(),
   managerId: z.string().uuid().nullable().optional(),
-  slackChannelId: z.string().nullable().optional().describe('Channel Slack du département (optionnel)'),
+  slackChannelId: z
+    .string()
+    .nullable()
+    .optional()
+    .describe('Channel Slack du département (optionnel)'),
 });
 
 const employeeCreatedSchema = z.object({
@@ -88,13 +112,12 @@ export function createEmployeeOnboardingWorkflow(deps: {
   emailProvider: EmailProvider;
   slackProvider?: SlackWorkspaceProvider;
 }) {
-
   // ──────────────────────────────────────────
   // Step 1 : créer l'employé en base
   // ──────────────────────────────────────────
   const createEmployeeStep = createStep({
     id: 'createEmployee',
-    description: 'Crée le profil de l\'employé et vérifie l\'unicité de l\'email',
+    description: "Crée le profil de l'employé et vérifie l'unicité de l'email",
     inputSchema: onboardingInputSchema,
     outputSchema: employeeCreatedSchema,
     execute: async ({ inputData }) => {
@@ -148,7 +171,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
   // ──────────────────────────────────────────
   const initOnboardingStep = createStep({
     id: 'initOnboarding',
-    description: 'Crée le suivi d\'onboarding avec les étapes initiales',
+    description: "Crée le suivi d'onboarding avec les étapes initiales",
     inputSchema: employeeCreatedSchema,
     outputSchema: onboardingInitializedSchema,
     execute: async ({ inputData }) => {
@@ -189,7 +212,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
   // ──────────────────────────────────────────
   const sendWelcomeEmailStep = createStep({
     id: 'sendWelcomeEmail',
-    description: 'Envoie l\'email de bienvenue et persiste la notification',
+    description: "Envoie l'email de bienvenue et persiste la notification",
     inputSchema: onboardingInitializedSchema,
     outputSchema: welcomeSentSchema,
     execute: async ({ inputData }) => {
@@ -254,7 +277,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
   // ──────────────────────────────────────────
   const inviteToSlackStep = createStep({
     id: 'inviteToSlack',
-    description: 'Trouve l\'utilisateur Slack par email et l\'invite dans le channel département',
+    description: "Trouve l'utilisateur Slack par email et l'invite dans le channel département",
     inputSchema: welcomeSentSchema,
     outputSchema: z.object({
       employeeId: z.string().uuid(),
@@ -320,7 +343,8 @@ export function createEmployeeOnboardingWorkflow(deps: {
   // ──────────────────────────────────────────
   const workflow = new Workflow({
     id: 'employee-onboarding',
-    description: 'Processus complet d\'onboarding : création employé → onboarding progress → email de bienvenue → invitation Slack',
+    description:
+      "Processus complet d'onboarding : création employé → onboarding progress → email de bienvenue → invitation Slack",
     inputSchema: onboardingInputSchema,
     outputSchema: z.object({
       employeeId: z.string().uuid(),

@@ -59,9 +59,28 @@ describe('positionSchema', () => {
     expect(positionSchema.parse('  Backend Developer  ')).toBe(Position.BackendDeveloper);
   });
 
-  it('rejects values outside the allowlist, including HTML payloads', () => {
-    for (const bad of ['Backend Developer<img src=x>', 'Chief Vibes Officer', '', 'dev']) {
-      expect(positionSchema.safeParse(bad).success).toBe(false);
+  it('accepts job titles absent from the enum', () => {
+    // Le poste est saisi librement par l'arrivant : ce n'est pas une taxonomie
+    // RH. « Software Engineer », le titre le plus répandu du métier, ne figurait
+    // pas dans l'enum de 24 valeurs.
+    for (const title of [
+      'Software Engineer',
+      'Chief Vibes Officer',
+      'Ingénieur R&D',
+      'Développeur Full-Stack (L3)',
+      'Product Manager - Growth',
+    ]) {
+      expect(positionSchema.safeParse(title).success, title).toBe(true);
     }
+  });
+
+  it('still rejects HTML payloads, empty values and one-character titles', () => {
+    for (const bad of ['Backend Developer<img src=x>', '<script>alert(1)</script>', '', 'd']) {
+      expect(positionSchema.safeParse(bad).success, bad).toBe(false);
+    }
+  });
+
+  it('rejects a title longer than the column allows', () => {
+    expect(positionSchema.safeParse('a'.repeat(151)).success).toBe(false);
   });
 });

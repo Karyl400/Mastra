@@ -100,23 +100,36 @@ describe('Tool input schemas — JSON Schema flatness (LLM tool-call compatibili
     ).toEqual([]);
   });
 
-  it('createEmployee: department and position serialise as flat string enums', () => {
+  it('createEmployee: department stays a flat string enum', () => {
     const tool = makeCreateEmployee(stub);
     const json = zodToJsonSchema(tool.inputSchema as never) as {
       properties: Record<string, JsonNode>;
     };
 
-    for (const field of ['department', 'position'] as const) {
-      const prop = json.properties[field];
-      expect(prop, `${field} missing from schema`).toBeDefined();
-      expect(prop, `${field} must not be wrapped in allOf`).not.toHaveProperty('allOf');
-      expect(prop.type, `${field} must be a plain string`).toBe('string');
-      expect(Array.isArray(prop.enum), `${field} must expose an enum`).toBe(true);
-      expect((prop.enum as string[]).length).toBeGreaterThan(1);
-    }
+    const prop = json.properties.department;
+    expect(prop, 'department missing from schema').toBeDefined();
+    expect(prop, 'department must not be wrapped in allOf').not.toHaveProperty('allOf');
+    expect(prop.type, 'department must be a plain string').toBe('string');
+    expect(Array.isArray(prop.enum), 'department must expose an enum').toBe(true);
+    expect(prop.enum as string[]).toContain('Engineering');
+  });
 
-    expect((json.properties.department.enum as string[])).toContain('Engineering');
-    expect((json.properties.position.enum as string[])).toContain('Backend Developer');
+  it('createEmployee: position serialises flat as a constrained string, without enum', () => {
+    // Le poste est devenu un champ libre : plus d'`enum`, mais la sérialisation
+    // doit rester PLATE — c'est ce qui compte pour le validateur de tool-calls.
+    // Effet de bord recherché : les 24 valeurs de l'ancienne allowlist ne sont
+    // plus réinjectées à chaque aller-retour, sous le plafond Groq.
+    const tool = makeCreateEmployee(stub);
+    const json = zodToJsonSchema(tool.inputSchema as never) as {
+      properties: Record<string, JsonNode>;
+    };
+
+    const prop = json.properties.position;
+    expect(prop, 'position missing from schema').toBeDefined();
+    expect(prop, 'position must not be wrapped in allOf').not.toHaveProperty('allOf');
+    expect(prop, 'position must not be wrapped in anyOf').not.toHaveProperty('anyOf');
+    expect(prop.type, 'position must be a plain string').toBe('string');
+    expect(prop.enum, 'position must no longer expose an enum').toBeUndefined();
   });
 
   it('createEmployee: managerId serialises flat (nullable must not leak an anyOf)', () => {
