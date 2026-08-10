@@ -125,14 +125,12 @@ const createEmployeeInputSchema = z.object({
   // Métadonnées
   metadata: z.record(z.string(), z.unknown()).optional().describe('Métadonnées additionnelles'),
 
-  // Options de traitement
-  options: z
-    .object({
-      skipUniquenessCheck: z.boolean().default(false),
-      initialStatus: z.nativeEnum(EmployeeStatus).default(EmployeeStatus.Pending),
-    })
-    .optional()
-    .default({}),
+  // Aucun bloc `options` : `skipUniquenessCheck` et `initialStatus` étaient
+  // annoncés au modèle et n'ont JAMAIS été appliqués — l'appel au validateur
+  // omet le 3e argument, et l'entité force `Pending`. Leur neutralité était un
+  // accident, pas une défense. Les exposer coûtait des tokens à chaque
+  // aller-retour et laissait croire au modèle qu'il pouvait désactiver un
+  // contrôle d'unicité.
 });
 
 type CreateEmployeeInput = z.infer<typeof createEmployeeInputSchema>;
@@ -158,7 +156,7 @@ export class EmployeeDataSanitizer {
       startDate: new Date(input.startDate).toISOString(),
       managerId: input.managerId || null,
       idempotencyKey: input.idempotencyKey,
-      initialStatus: input.options.initialStatus,
+      initialStatus: EmployeeStatus.Pending,
     };
   }
 

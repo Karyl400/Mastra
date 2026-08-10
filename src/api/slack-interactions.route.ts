@@ -19,6 +19,7 @@
  *                         fait base + SMTP + Slack, largement au-delà de 3 s).
  * Ne pas « harmoniser » les deux : c'est ce qui casserait la modale.
  */
+import { createHash } from 'node:crypto';
 import { registerApiRoute } from '@mastra/core/server';
 import type { Mastra } from '@mastra/core';
 
@@ -29,10 +30,13 @@ import {
   buildProfileModal,
   decodePrefill,
   errorsByBlockId,
+  normalizeStartDate,
   profileSubmissionSchema,
   readProfileSubmission,
   type SlackViewState,
+  type ValidatedProfile,
 } from '../features/notification/infrastructure/handlers/profile-modal';
+import { scheduleBackgroundWork } from './slack-events.route';
 import { verifySlackSignature } from '../shared/security/slack-signature';
 import { logger } from '../shared/logger';
 
@@ -155,13 +159,80 @@ async function handleBlockActions(payload: SlackInteractionPayload): Promise<Res
 }
 
 /**
+ * Identifiant de run dérivé de l'email.
+ *
+ * Deux soumissions du même profil produisent le même `runId`, donc le même run
+ * — y compris depuis deux instances serverless concurrentes. C'est ce qui rend
+ * l'idempotence indépendante du cache mémoire de `create-employee.ts`, inopérant
+ * hors d'un processus unique.
+ */
+export function onboardingRunId(email: string): string {
+  const digest = createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+  return `onboarding-${digest.slice(0, 32)}`;
+}
+
+/**
+ * Exécute le workflow d'intégration. Appelé en TÂCHE DE FOND uniquement.
+ *
+ * ⚠️ `getWorkflow()` prend la CLÉ DU REGISTRE (`src/mastra/index.ts`), pas l'`id`
+ * interne du workflow — ce dernier ne se résout que via `getWorkflowById`. Une
+ * clé erronée rend `undefined` et lève un `TypeError` **dans la tâche de fond**,
+ * donc invisible.
+ */
+async function runOnboarding(mastra: Mastra, profile: ValidatedProfile): Promise<void> {
+  const workflow = mastra.getWorkflow('employeeOnboardingWorkflow' as never) as unknown as {
+    createRun(options?: { runId?: string }): Promise<{
+      start(args: { inputData: unknown }): Promise<{
+        status: string;
+        result?: { emailSent?: boolean; slackInvited?: boolean };
+        error?: unknown;
+      }>;
+    }>;
+  };
+
+  if (!workflow) {
+    logger.error('Workflow employeeOnboardingWorkflow introuvable dans le registre Mastra');
+    return;
+  }
+
+  const run = await workflow.createRun({ runId: onboardingRunId(profile.email) });
+
+  const result = await run.start({
+    inputData: {
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      email: profile.email,
+      department: profile.department,
+      position: profile.position,
+      startDate: normalizeStartDate(profile.startDate),
+      // Aucune correspondance département → canal n'existe aujourd'hui :
+      // le workflow saute alors l'invitation Slack, sans échouer.
+      slackChannelId: null,
+    },
+  });
+
+  if (result.status !== 'success') {
+    logger.error('Onboarding workflow failed', { email: profile.email, error: result.error });
+    return;
+  }
+
+  // ⚠️ Lire `result.result.emailSent`, JAMAIS le statut de l'étape : celle-ci
+  // avale son exception et se déclare `success` même quand l'email a échoué.
+  logger.info('Onboarding workflow completed', {
+    email: profile.email,
+    emailSent: result.result?.emailSent,
+    slackInvited: result.result?.slackInvited,
+  });
+}
+
+/**
  * Soumission de la modale.
  *
  * En cas d'erreur de validation, `response_action: 'errors'` réaffiche la modale
  * avec les messages par champ **sans perdre la saisie**. Les clés sont des
  * `block_id` — une clé inconnue est silencieusement ignorée par Slack.
  */
-function handleViewSubmission(payload: SlackInteractionPayload): Response {
+function handleViewSubmission(payload: SlackInteractionPayload, mastra: Mastra): Response {
   if (payload.view?.callback_id !== PROFILE_MODAL_CALLBACK_ID) return ack();
 
   const raw = readProfileSubmission(payload.view.state ?? {});
@@ -178,13 +249,19 @@ function handleViewSubmission(payload: SlackInteractionPayload): Response {
     payload.user?.id ?? '',
   ).slackUserId;
 
-  // Le lot 4 branchera ici `employeeOnboardingWorkflow`, en TÂCHE DE FOND :
-  // le workflow écrit en base, envoie un email et invite sur Slack, ce qui
-  // dépasse largement les 3 secondes accordées à cette réponse.
   logger.info('Profile submission accepted', {
     slackUserId,
     department: parsed.data.department,
   });
+
+  // TÂCHE DE FOND — régime OPPOSÉ à celui de `block_actions` ci-dessus : le
+  // workflow écrit en base, envoie un email SMTP et appelle Slack, largement
+  // au-delà des 3 secondes accordées à cette réponse. Sur Vercel, `waitUntil`
+  // empêche le gel de la fonction avant la fin.
+  const work = runOnboarding(mastra, parsed.data).catch((error: unknown) => {
+    logger.error('Background onboarding failed', { error, email: parsed.data.email });
+  });
+  scheduleBackgroundWork(work);
 
   return ack();
 }
@@ -235,7 +312,7 @@ export async function handleSlackInteractionRequest(
   }
 
   if (payload.type === 'block_actions') return handleBlockActions(payload);
-  if (payload.type === 'view_submission') return handleViewSubmission(payload);
+  if (payload.type === 'view_submission') return handleViewSubmission(payload, c.get('mastra'));
 
   logger.debug('Slack interaction ignored', { type: payload.type });
   return ack();

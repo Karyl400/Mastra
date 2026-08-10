@@ -18,7 +18,6 @@ import { DrizzleOnboardingRepository } from '../features/onboarding/infrastructu
 
 import { getDb } from '../infrastructure/database/connection';
 
-import { makeCreateEmployee } from '../features/employee/application/tools/create-employee';
 import { makeFindEmployeeByEmail } from '../features/employee/application/tools/find-employee-by-email';
 import { makeGetEmployeeProfile } from '../features/employee/application/tools/get-employee-profile';
 import { makeUpdateOnboardingStatus } from '../features/onboarding/application/tools/update-onboarding-status';
@@ -108,7 +107,6 @@ const chatProvider = new SlackAdapter(process.env.SLACK_BOT_TOKEN ?? '');
 const slackWorkspace = new SlackWorkspaceService(process.env.SLACK_BOT_TOKEN ?? '');
 const pdfService = new PdfmakeService();
 
-const createEmployee = makeCreateEmployee(employeeRepo);
 const findEmployeeByEmail = makeFindEmployeeByEmail(employeeRepo);
 const getEmployeeProfile = makeGetEmployeeProfile(employeeRepo, onboardingRepo, taskRepo);
 const updateOnboardingStatus = makeUpdateOnboardingStatus(onboardingRepo);
@@ -132,8 +130,17 @@ const getNotificationHistory = makeGetNotificationHistory(notificationRepo);
 // cohérence. L'invitation Slack du parcours d'onboarding ne passe pas par ce tool mais par
 // `deps.slackProvider` dans l'étape `inviteToSlack` de `employeeOnboardingWorkflow`.
 // Le tool reste câblé et testé isolément — seule son exposition à cet agent est retirée.
+// `createEmployee` a été retiré le 2026-08-11, après la campagne de tests en
+// production. Exposer une allowlist fermée (`department`, `position`) à un LLM ne
+// protège pas l'intégrité des données : le modèle substitue une valeur valide
+// AVANT d'appeler l'outil pour que l'appel réussisse. Mesuré : « Software
+// Engineer » enregistré en « Developer », et « Plomberie » enregistré en
+// « Engineering » — ce dernier SANS le moindre avertissement. La validation Zod
+// n'a jamais vu les valeurs refusées.
+// La création passe désormais par la modale du flux d'arrivée : liste déroulante
+// côté Slack, workflow appelé en code, aucun LLM sur le chemin transactionnel.
+// Le tool reste câblé pour l'API et le workflow.
 const onboardingOrchestrator = makeOnboardingOrchestrator({
-  createEmployee,
   findEmployeeByEmail,
   getEmployeeProfile,
   updateOnboardingStatus,

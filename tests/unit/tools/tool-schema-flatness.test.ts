@@ -132,6 +132,21 @@ describe('Tool input schemas — JSON Schema flatness (LLM tool-call compatibili
     expect(prop.enum, 'position must no longer expose an enum').toBeUndefined();
   });
 
+  it("createEmployee: n'expose plus le bloc `options` au modèle", () => {
+    // `skipUniquenessCheck` et `initialStatus` étaient annoncés dans le schéma
+    // et n'ont jamais été appliqués : l'appel au validateur omet le 3e argument
+    // et l'entité force `Pending`. Les exposer coûtait des tokens et laissait
+    // croire au modèle qu'il pouvait désactiver le contrôle d'unicité — ce
+    // qu'il a effectivement affirmé en production le 2026-08-10.
+    const tool = makeCreateEmployee(stub);
+    const json = zodToJsonSchema(tool.inputSchema as never) as {
+      properties: Record<string, JsonNode>;
+    };
+
+    expect(json.properties.options).toBeUndefined();
+    expect(JSON.stringify(json)).not.toContain('skipUniquenessCheck');
+  });
+
   it('createEmployee: managerId serialises flat (nullable must not leak an anyOf)', () => {
     const tool = makeCreateEmployee(stub);
     const json = zodToJsonSchema(tool.inputSchema as never) as {
