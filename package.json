@@ -32,7 +32,6 @@
   "dependencies": {
     "@ai-sdk/groq": "^4.0.24",
     "@ai-sdk/mistral": "^4.0.25",
-    "@aws-sdk/client-secrets-manager": "^3.1101.0",
     "@libsql/client": "^0.17.4",
     "@mastra/core": "^1.57.0",
     "@mastra/deployer-vercel": "^1.2.13",
