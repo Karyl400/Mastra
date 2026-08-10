@@ -6,6 +6,52 @@ import type {
 } from '../../domain/ports/slack-workspace.port';
 import { logger } from '../../../../shared/logger';
 
+/** Forme commune aux réponses `users.list`, `users.lookupByEmail` et `users.info`. */
+interface SlackApiUser {
+  id?: string;
+  name?: string;
+  real_name?: string | null;
+  is_bot?: boolean;
+  is_admin?: boolean;
+  team_id?: string;
+  profile?: {
+    email?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+  };
+}
+
+/** Découpe « Marie Claire Dupont » en « Marie » / « Claire Dupont ». */
+function splitRealName(realName: string): { firstName: string; lastName: string } {
+  const [first, ...rest] = realName.trim().split(/\s+/).filter(Boolean);
+  return { firstName: first ?? '', lastName: rest.join(' ') };
+}
+
+/**
+ * Projection unique de l'utilisateur Slack vers `SlackMember`.
+ *
+ * Les trois méthodes d'annuaire la partagent : trois mappings parallèles
+ * auraient divergé au premier champ ajouté.
+ */
+function toMember(user: SlackApiUser): SlackMember {
+  const realName = user.real_name ?? '';
+  const derived = splitRealName(realName);
+
+  return {
+    id: user.id ?? '',
+    name: user.name ?? '',
+    realName,
+    email: user.profile?.email ?? null,
+    // `||` et non `??` : Slack renvoie une chaîne vide — pas `undefined` —
+    // pour un prénom non renseigné, et `??` la laisserait passer.
+    firstName: user.profile?.first_name || derived.firstName,
+    lastName: user.profile?.last_name || derived.lastName,
+    isBot: user.is_bot ?? false,
+    isAdmin: user.is_admin ?? false,
+    teamId: user.team_id ?? '',
+  };
+}
+
 export class SlackWorkspaceService implements SlackWorkspaceProvider {
   private client: WebClient;
 
@@ -55,15 +101,7 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
       for (const user of response.members ?? []) {
         if (user.deleted) continue;
 
-        members.push({
-          id: user.id ?? '',
-          name: user.name ?? '',
-          realName: user.real_name ?? '',
-          email: user.profile?.email ?? null,
-          isBot: user.is_bot ?? false,
-          isAdmin: user.is_admin ?? false,
-          teamId: user.team_id ?? '',
-        });
+        members.push(toMember(user));
       }
 
       cursor = response.response_metadata?.next_cursor || undefined;
@@ -79,19 +117,30 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
       const user = response.user;
       if (!user) return null;
 
-      return {
-        id: user.id ?? '',
-        name: user.name ?? '',
-        realName: user.real_name ?? '',
-        email: user.profile?.email ?? null,
-        isBot: user.is_bot ?? false,
-        isAdmin: user.is_admin ?? false,
-        teamId: user.team_id ?? '',
-      };
+      return toMember(user);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes('users_not_found')) {
         logger.warn('Slack user not found by email', { email });
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  async getUserById(userId: string): Promise<SlackMember | null> {
+    try {
+      const response = await this.client.users.info({ user: userId });
+      const user = response.user;
+      if (!user) return null;
+
+      return toMember(user);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      // `users.info` répond `user_not_found` au singulier, là où
+      // `users.lookupByEmail` répond `users_not_found`. Les deux sont acceptés.
+      if (message.includes('user_not_found') || message.includes('users_not_found')) {
+        logger.warn('Slack user not found by id', { userId });
         return null;
       }
       throw err;

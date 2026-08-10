@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { makeSendNotification } from '../../../src/features/notification/application/tools/send-notification';
 import type { NotificationRepository } from '../../../src/features/notification/domain/ports/notification.repository';
-import type { EmailProvider, ChatProvider } from '../../../src/features/notification/domain/ports/providers';
-import type { SlackWorkspaceProvider, SlackMember } from '../../../src/features/notification/domain/ports/slack-workspace.port';
+import type {
+  EmailProvider,
+  ChatProvider,
+} from '../../../src/features/notification/domain/ports/providers';
+import type {
+  SlackWorkspaceProvider,
+  SlackMember,
+} from '../../../src/features/notification/domain/ports/slack-workspace.port';
 import { InMemoryNotificationRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-notification.repository';
 import { InMemoryEmployeeRepository } from '../../../src/features/employee/infrastructure/repositories/in-memory-employee.repository';
 import { createEmployee } from '../../../src/features/employee/domain/entities/employee';
@@ -24,7 +30,17 @@ const ATTACKER_EMAIL = 'victime@example.com';
 const ATTACKER_SLACK_ID = 'C0BJGBVB5HP';
 
 function makeSlackMember(id: string, email: string): SlackMember {
-  return { id, name: 'user', realName: 'User', email, isBot: false, isAdmin: false, teamId: 'TMLKC4EPP' };
+  return {
+    id,
+    name: 'user',
+    realName: 'User',
+    email,
+    firstName: 'User',
+    lastName: '',
+    isBot: false,
+    isAdmin: false,
+    teamId: 'TMLKC4EPP',
+  };
 }
 
 function makeDeps() {
@@ -38,6 +54,7 @@ function makeDeps() {
     listChannels: vi.fn().mockResolvedValue([]),
     listMembers: vi.fn().mockResolvedValue([]),
     findUserByEmail: vi.fn().mockResolvedValue(null),
+    getUserById: vi.fn().mockResolvedValue(null),
     inviteToChannel: vi.fn().mockResolvedValue(undefined),
     getChannelMembers: vi.fn().mockResolvedValue([]),
   };
@@ -111,7 +128,11 @@ describe('SendNotification Tool', () => {
 
       expect(result).toBeDefined();
       expect(result.status).toBe(NotificationStatus.Sent);
-      expect(deps.emailProvider.sendEmail).toHaveBeenCalledWith(EMPLOYEE_EMAIL, 'Bienvenue', 'Voici vos accès.');
+      expect(deps.emailProvider.sendEmail).toHaveBeenCalledWith(
+        EMPLOYEE_EMAIL,
+        'Bienvenue',
+        'Voici vos accès.',
+      );
       expect(await deps.notificationRepo.findByRecipient(EMPLOYEE_ID)).toHaveLength(1);
     });
 
@@ -197,7 +218,9 @@ describe('SendNotification Tool', () => {
     });
 
     it('should IGNORE an LLM-supplied recipientSlackId and resolve the Slack target from the repository email', async () => {
-      (deps.slackWorkspace.findUserByEmail as any).mockResolvedValue(makeSlackMember('U0EMPLOYEE', EMPLOYEE_EMAIL));
+      (deps.slackWorkspace.findUserByEmail as any).mockResolvedValue(
+        makeSlackMember('U0EMPLOYEE', EMPLOYEE_EMAIL),
+      );
       const tool = makeTool(deps);
 
       await tool.execute!(

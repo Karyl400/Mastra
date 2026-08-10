@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockConversationsList = vi.fn();
 const mockUsersList = vi.fn();
 const mockLookupByEmail = vi.fn();
+const mockUsersInfo = vi.fn();
 const mockConversationsInvite = vi.fn();
 const mockConversationsMembers = vi.fn();
 
@@ -16,6 +17,7 @@ vi.mock('@slack/web-api', () => {
     users = {
       list: mockUsersList,
       lookupByEmail: mockLookupByEmail,
+      info: mockUsersInfo,
     };
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     constructor(_token: string) {}
@@ -30,9 +32,8 @@ describe('Infrastructure: SlackWorkspaceService', () => {
   });
 
   async function loadService() {
-    const { SlackWorkspaceService } = await import(
-      '../../../src/features/notification/infrastructure/providers/slack-workspace.service'
-    );
+    const { SlackWorkspaceService } =
+      await import('../../../src/features/notification/infrastructure/providers/slack-workspace.service');
     return new SlackWorkspaceService('xoxb-test-token');
   }
 
@@ -69,7 +70,12 @@ describe('Infrastructure: SlackWorkspaceService', () => {
     const channels = await service.listChannels();
 
     expect(channels).toHaveLength(2);
-    expect(channels[0]).toMatchObject({ id: 'C01', name: 'general', isPrivate: false, memberCount: 5 });
+    expect(channels[0]).toMatchObject({
+      id: 'C01',
+      name: 'general',
+      isPrivate: false,
+      memberCount: 5,
+    });
     expect(channels[1]).toMatchObject({ id: 'C02', isPrivate: true });
     expect(mockConversationsList).toHaveBeenCalledTimes(2);
   });
@@ -148,6 +154,90 @@ describe('Infrastructure: SlackWorkspaceService', () => {
 
     const service = await loadService();
     await expect(service.inviteToChannel('C404', 'U01')).rejects.toThrow('channel_not_found');
+  });
+
+  // ── getUserById : résolution d'un membre par son identifiant Slack ──────────
+  // Ajouté pour le flux `team_join`, dont le payload ne porte qu'un `user.id`
+  // fiable. Rendu sur `SlackWorkspaceProvider` — et non sur `SlackAdapter` —
+  // pour réutiliser `SlackMember` : une seconde représentation de l'utilisateur
+  // Slack dans la même feature aurait divergé de la première.
+
+  it('maps a user found by id, including first and last name', async () => {
+    mockUsersInfo.mockResolvedValueOnce({
+      user: {
+        id: 'U0BM123',
+        name: 'karyl',
+        real_name: 'Karyl SOUMAILA',
+        is_bot: false,
+        is_admin: false,
+        team_id: 'TMLKC4EPP',
+        profile: {
+          email: 'karylsoumaila1@gmail.com',
+          first_name: 'Karyl',
+          last_name: 'SOUMAILA',
+        },
+      },
+    });
+
+    const service = await loadService();
+    const member = await service.getUserById('U0BM123');
+
+    expect(mockUsersInfo).toHaveBeenCalledWith({ user: 'U0BM123' });
+    expect(member).toEqual({
+      id: 'U0BM123',
+      name: 'karyl',
+      realName: 'Karyl SOUMAILA',
+      email: 'karylsoumaila1@gmail.com',
+      firstName: 'Karyl',
+      lastName: 'SOUMAILA',
+      isBot: false,
+      isAdmin: false,
+      teamId: 'TMLKC4EPP',
+    });
+  });
+
+  it('falls back to splitting real_name when the profile carries no first/last name', async () => {
+    // Cas réel d'un compte fraîchement invité : Slack renseigne `real_name`
+    // mais laisse `first_name`/`last_name` vides tant que le profil n'est pas
+    // complété. La modale doit malgré tout être pré-remplie.
+    mockUsersInfo.mockResolvedValueOnce({
+      user: {
+        id: 'U0BM124',
+        real_name: 'Marie Claire Dupont',
+        profile: { email: 'marie@kisso.com' },
+      },
+    });
+
+    const service = await loadService();
+    const member = await service.getUserById('U0BM124');
+
+    expect(member).toMatchObject({ firstName: 'Marie', lastName: 'Claire Dupont' });
+  });
+
+  it('returns email null — never an empty string — when the profile has none', async () => {
+    // Le flux d'arrivée distingue « pas d'email » (la modale le demandera) de
+    // « email vide », qui passerait une simple validation de présence.
+    mockUsersInfo.mockResolvedValueOnce({ user: { id: 'U0BM125', profile: {} } });
+
+    const service = await loadService();
+    const member = await service.getUserById('U0BM125');
+
+    expect(member?.email).toBeNull();
+  });
+
+  it('returns null when users.info reports user_not_found', async () => {
+    // Aligné sur `findUserByEmail`, qui absorbe déjà `users_not_found` en null.
+    mockUsersInfo.mockRejectedValueOnce(new Error('user_not_found'));
+
+    const service = await loadService();
+    await expect(service.getUserById('UINCONNU')).resolves.toBeNull();
+  });
+
+  it('rethrows unexpected users.info errors', async () => {
+    mockUsersInfo.mockRejectedValueOnce(new Error('ratelimited'));
+
+    const service = await loadService();
+    await expect(service.getUserById('U0BM123')).rejects.toThrow('ratelimited');
   });
 
   it('paginates channel members', async () => {
