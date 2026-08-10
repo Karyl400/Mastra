@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { WebClient } from '@slack/web-api';
 import type { Mastra } from '@mastra/core';
 
@@ -14,6 +14,9 @@ import {
   SlackEventsHandler,
   type SlackEvent,
   type SlackEventEnvelope,
+  type SlackMessageEvent,
+  type SlackTeamJoinEvent,
+  type SlackEventsHandlerOptions,
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
 import { wrapAgentInput } from '../../../src/shared/security/llm-guardrail';
 
@@ -40,11 +43,39 @@ function makeMastraMock(generatedText = 'Réponse de l’agent') {
   return { mastra: { getAgent } as unknown as Mastra, getAgent, generate };
 }
 
-function makeHandler(options: { slack?: MockSlack; mastra?: Mastra } = {}) {
+/**
+ * Doublures des deux dépendances du chemin `team_join`.
+ *
+ * Elles sont injectées par options — comme `slackClient` — plutôt que reprises
+ * de `src/mastra/index.ts` : la route importe déjà `index.ts`, donc l'inverse
+ * créerait un cycle d'import.
+ */
+function makeTeamJoinDeps() {
+  const sendBlocks = vi.fn().mockResolvedValue({ ts: '1700000000.000400' });
+  const getUserById = vi.fn().mockResolvedValue(null);
+  return {
+    chatProvider: { sendBlocks },
+    workspaceProvider: { getUserById },
+    sendBlocks,
+    getUserById,
+  };
+}
+
+function makeHandler(
+  options: {
+    slack?: MockSlack;
+    mastra?: Mastra;
+    chatProvider?: { sendBlocks: ReturnType<typeof vi.fn> };
+    workspaceProvider?: { getUserById: ReturnType<typeof vi.fn> };
+  } = {},
+) {
   const slack = options.slack ?? makeSlackMock();
   const mastraMock = makeMastraMock();
   const handler = new SlackEventsHandler('xoxb-test-token', options.mastra ?? mastraMock.mastra, {
     slackClient: slack as unknown as WebClient,
+    chatProvider: options.chatProvider as unknown as SlackEventsHandlerOptions['chatProvider'],
+    workspaceProvider:
+      options.workspaceProvider as unknown as SlackEventsHandlerOptions['workspaceProvider'],
   });
   return { handler, slack, ...mastraMock };
 }
@@ -59,7 +90,10 @@ function envelope(event: SlackEvent, eventId = 'Ev0TEST0001'): SlackEventEnvelop
   };
 }
 
-const mention = (overrides: Partial<SlackEvent> = {}): SlackEvent => ({
+// Ces fabriques sont typées sur `SlackMessageEvent`, PAS sur l'union `SlackEvent` :
+// `Partial<Union>` est homomorphe et distribue sur les membres, ce qui élargirait
+// `user` en `string | objet` et rendrait l'étalement inassignable (TS2322).
+const mention = (overrides: Partial<SlackMessageEvent> = {}): SlackMessageEvent => ({
   type: 'app_mention',
   user: HUMAN,
   text: `<@${BOT_USER_ID}> bonjour`,
@@ -69,7 +103,7 @@ const mention = (overrides: Partial<SlackEvent> = {}): SlackEvent => ({
   ...overrides,
 });
 
-const dm = (overrides: Partial<SlackEvent> = {}): SlackEvent => ({
+const dm = (overrides: Partial<SlackMessageEvent> = {}): SlackMessageEvent => ({
   type: 'message',
   user: HUMAN,
   text: 'bonjour',
@@ -77,6 +111,30 @@ const dm = (overrides: Partial<SlackEvent> = {}): SlackEvent => ({
   channel_type: 'im',
   ts: '1700000000.000200',
   ...overrides,
+});
+
+const NEWCOMER = 'U0NEWCOMER1';
+
+/**
+ * Payload `team_join` réel : `user` est un OBJET complet, et l'événement ne porte
+ * ni `channel`, ni `ts`, ni `text`, ni `subtype`, ni `bot_id`.
+ */
+const teamJoin = (userOverrides: Partial<SlackTeamJoinEvent['user']> = {}): SlackTeamJoinEvent => ({
+  type: 'team_join',
+  event_ts: '1700000000.000300',
+  user: {
+    id: NEWCOMER,
+    name: 'alice',
+    real_name: 'Alice Martin',
+    is_bot: false,
+    deleted: false,
+    profile: {
+      email: 'alice@kisso.com',
+      first_name: 'Alice',
+      last_name: 'Martin',
+    },
+    ...userOverrides,
+  },
 });
 
 describe('SlackEventsHandler — accept() (décision synchrone, avant l’ACK)', () => {
@@ -103,7 +161,7 @@ describe('SlackEventsHandler — accept() (décision synchrone, avant l’ACK)',
   it('ignores a plain channel message so a mention never yields two replies', () => {
     // Slack émet app_mention ET message.channels pour la même mention.
     const decision = ctx.handler.accept(
-      envelope(dm({ channel_type: 'channel', channel: 'C0MOCKCHAN' }), 'Ev0CHANNEL')
+      envelope(dm({ channel_type: 'channel', channel: 'C0MOCKCHAN' }), 'Ev0CHANNEL'),
     );
     expect(decision).toEqual({ action: 'ignore', reason: 'not_a_dm' });
   });
@@ -168,6 +226,241 @@ describe('SlackEventsHandler — accept() (décision synchrone, avant l’ACK)',
   it('does not deduplicate two genuinely distinct events', () => {
     expect(ctx.handler.accept(envelope(dm({ ts: '1.1' }), 'Ev0A')).action).toBe('process');
     expect(ctx.handler.accept(envelope(dm({ ts: '2.2' }), 'Ev0B')).action).toBe('process');
+  });
+});
+
+describe('SlackEventsHandler — accept() sur team_join (arrivée d’un nouvel employé)', () => {
+  let ctx: ReturnType<typeof makeHandler>;
+
+  beforeEach(() => {
+    ctx = makeHandler();
+  });
+
+  it('accepts a genuine team_join payload', () => {
+    // Un team_join n'a NI channel, NI ts, NI text : les gardes écrites pour les
+    // messages doivent toutes être conditionnées au type, sinon il est rejeté.
+    expect(ctx.handler.accept(envelope(teamJoin(), 'Ev0JOIN01'))).toEqual({
+      action: 'process',
+      event: expect.objectContaining({ type: 'team_join' }),
+    });
+  });
+
+  it('does not reject team_join as empty_text although it carries no text', () => {
+    // Régression visée : `cleanText(undefined) === ''` → falsy → 100 % des
+    // team_join seraient sortis en `empty_text`.
+    const decision = ctx.handler.accept(envelope(teamJoin(), 'Ev0JOIN02'));
+    expect(decision).not.toEqual(expect.objectContaining({ reason: 'empty_text' }));
+  });
+
+  it('ignores a bot joining the workspace', () => {
+    // La garde anti-boucle des messages (`bot_id` / `subtype` / `bot_profile`)
+    // est structurellement incapable de le voir : ces champs n'existent pas sur
+    // un team_join. Sans garde dédiée, le bot enverrait un DM à chaque app
+    // installée — voire à lui-même.
+    expect(ctx.handler.accept(envelope(teamJoin({ is_bot: true }), 'Ev0JOIN03'))).toEqual({
+      action: 'ignore',
+      reason: 'bot_join',
+    });
+  });
+
+  it('ignores an app user and a workflow bot', () => {
+    expect(ctx.handler.accept(envelope(teamJoin({ is_app_user: true }), 'Ev0JOIN04'))).toEqual({
+      action: 'ignore',
+      reason: 'bot_join',
+    });
+    expect(ctx.handler.accept(envelope(teamJoin({ is_workflow_bot: true }), 'Ev0JOIN05'))).toEqual({
+      action: 'ignore',
+      reason: 'bot_join',
+    });
+  });
+
+  it('ignores Slackbot itself', () => {
+    expect(ctx.handler.accept(envelope(teamJoin({ id: 'USLACKBOT' }), 'Ev0JOIN06'))).toEqual({
+      action: 'ignore',
+      reason: 'bot_join',
+    });
+  });
+
+  it('ignores a deleted account', () => {
+    expect(ctx.handler.accept(envelope(teamJoin({ deleted: true }), 'Ev0JOIN07'))).toEqual({
+      action: 'ignore',
+      reason: 'deleted_user',
+    });
+  });
+
+  it('ignores a single-channel guest and a Slack Connect stranger', () => {
+    // Décision métier assumée : un invité mono-canal n'est jamais une embauche
+    // Kisso, un externe Slack Connect non plus. L'invité MULTI-canal
+    // (`is_restricted`) passe en revanche — ce sont les prestataires, qui sont
+    // bien intégrés.
+    expect(
+      ctx.handler.accept(envelope(teamJoin({ is_ultra_restricted: true }), 'Ev0JOIN08')),
+    ).toEqual({ action: 'ignore', reason: 'restricted_user' });
+    expect(ctx.handler.accept(envelope(teamJoin({ is_stranger: true }), 'Ev0JOIN09'))).toEqual({
+      action: 'ignore',
+      reason: 'restricted_user',
+    });
+    expect(
+      ctx.handler.accept(envelope(teamJoin({ is_restricted: true }), 'Ev0JOIN10')).action,
+    ).toBe('process');
+  });
+
+  it('ignores a team_join with no usable user id', () => {
+    const decision = ctx.handler.accept(
+      { type: 'event_callback', event_id: 'Ev0JOIN11', event: { type: 'team_join' } },
+      {},
+    );
+    expect(decision).toEqual({ action: 'ignore', reason: 'no_user' });
+  });
+
+  it('deduplicates a team_join retry on event_id alone', () => {
+    // team_join n'a ni channel ni ts : le repli `channel:ts` de dedupKey() est
+    // inopérant, seul `event_id` protège du double DM de bienvenue.
+    expect(ctx.handler.accept(envelope(teamJoin(), 'Ev0JOINDUP')).action).toBe('process');
+    expect(ctx.handler.accept(envelope(teamJoin(), 'Ev0JOINDUP'), { retryNum: '1' })).toEqual({
+      action: 'ignore',
+      reason: 'duplicate',
+    });
+  });
+});
+
+describe('SlackEventsHandler — vérification du workspace d’origine (team_id)', () => {
+  const ORIGINAL = process.env.SLACK_TEAM_ID;
+
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.SLACK_TEAM_ID;
+    else process.env.SLACK_TEAM_ID = ORIGINAL;
+  });
+
+  it('accepts every workspace when SLACK_TEAM_ID is unset (fail-open)', () => {
+    // Délibérément fail-OPEN. La variable n'existe ni dans .env ni parmi les 15
+    // variables Vercel de production : un fail-closed couperait 100 % du trafic
+    // Slack, silencieusement — la route rend 200 en toute circonstance — et
+    // avec une CI verte. Le HMAC lie déjà la requête au signing secret de
+    // l'app, qui est mono-workspace.
+    delete process.env.SLACK_TEAM_ID;
+    const ctx = makeHandler();
+
+    expect(ctx.handler.accept(envelope(dm(), 'Ev0TEAM01')).action).toBe('process');
+  });
+
+  it('accepts an event coming from the configured workspace', () => {
+    process.env.SLACK_TEAM_ID = 'TMLKC4EPP';
+    const ctx = makeHandler();
+
+    expect(ctx.handler.accept(envelope(dm(), 'Ev0TEAM02')).action).toBe('process');
+  });
+
+  it('ignores an event from another workspace once SLACK_TEAM_ID is set', () => {
+    process.env.SLACK_TEAM_ID = 'TOTHERWORKSPACE';
+    const ctx = makeHandler();
+
+    expect(ctx.handler.accept(envelope(dm(), 'Ev0TEAM03'))).toEqual({
+      action: 'ignore',
+      reason: 'wrong_team',
+    });
+  });
+});
+
+describe('SlackEventsHandler — handleTeamJoin (DM de bienvenue)', () => {
+  it('sends a block message straight to the newcomer’s user id', async () => {
+    // `chat.postMessage` accepte un identifiant utilisateur comme `channel` et
+    // ouvre le DM au besoin : `conversations.open` est inutile, et `chat:write`
+    // suffit.
+    const deps = makeTeamJoinDeps();
+    const { handler } = makeHandler(deps);
+
+    await handler.handleTeamJoin(teamJoin());
+
+    expect(deps.sendBlocks).toHaveBeenCalledTimes(1);
+    const [channel, fallback, blocks] = deps.sendBlocks.mock.calls[0];
+    expect(channel).toBe(NEWCOMER);
+    expect(fallback).toMatch(/bienvenue/i);
+    expect(JSON.stringify(blocks)).toMatch(/Compléter mon profil/);
+  });
+
+  it('greets the newcomer by first name', async () => {
+    const deps = makeTeamJoinDeps();
+    const { handler } = makeHandler(deps);
+
+    await handler.handleTeamJoin(teamJoin());
+
+    expect(JSON.stringify(deps.sendBlocks.mock.calls[0])).toMatch(/Alice/);
+  });
+
+  it('does not call users.info when the payload already carries the email', async () => {
+    // Le repli est un second aller-retour réseau sur un chemin déjà budgété
+    // par waitUntil : ne le payer que si nécessaire.
+    const deps = makeTeamJoinDeps();
+    const { handler } = makeHandler(deps);
+
+    await handler.handleTeamJoin(teamJoin());
+
+    expect(deps.getUserById).not.toHaveBeenCalled();
+  });
+
+  it('falls back to users.info when the payload carries no email', async () => {
+    const deps = makeTeamJoinDeps();
+    deps.getUserById.mockResolvedValue({
+      id: NEWCOMER,
+      name: 'alice',
+      realName: 'Alice Martin',
+      email: 'alice@kisso.com',
+      firstName: 'Alice',
+      lastName: 'Martin',
+      isBot: false,
+      isAdmin: false,
+      teamId: 'TMLKC4EPP',
+    });
+    const { handler } = makeHandler(deps);
+
+    await handler.handleTeamJoin(teamJoin({ profile: {} }));
+
+    expect(deps.getUserById).toHaveBeenCalledWith(NEWCOMER);
+    expect(deps.sendBlocks).toHaveBeenCalledTimes(1);
+  });
+
+  it('still sends the DM when the email cannot be resolved at all', async () => {
+    // L'email absent ne bloque pas : le DM part sur l'identifiant Slack et la
+    // modale le collectera.
+    const deps = makeTeamJoinDeps();
+    deps.getUserById.mockResolvedValue(null);
+    const { handler } = makeHandler(deps);
+
+    await handler.handleTeamJoin(teamJoin({ profile: {} }));
+
+    expect(deps.sendBlocks).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends the DM even when the directory lookup throws', async () => {
+    const deps = makeTeamJoinDeps();
+    deps.getUserById.mockRejectedValue(new Error('ratelimited'));
+    const { handler } = makeHandler(deps);
+
+    await handler.handleTeamJoin(teamJoin({ profile: {} }));
+
+    expect(deps.sendBlocks).toHaveBeenCalledTimes(1);
+  });
+
+  it('never rethrows — a Slack retry would produce a second welcome DM', async () => {
+    const deps = makeTeamJoinDeps();
+    deps.sendBlocks.mockRejectedValue(new Error('cannot_dm_bot'));
+    const { handler } = makeHandler(deps);
+
+    await expect(handler.handleTeamJoin(teamJoin())).resolves.toBeUndefined();
+  });
+
+  it('routes a team_join through handleEvent without calling auth.test', async () => {
+    // getBotUserId() est un aller-retour réseau sans objet ici : la boucle
+    // « le bot poste en tant qu'utilisateur » n'existe pas sur team_join.
+    const deps = makeTeamJoinDeps();
+    const { handler, slack } = makeHandler(deps);
+
+    await handler.handleEvent(envelope(teamJoin(), 'Ev0JOINRUN'));
+
+    expect(deps.sendBlocks).toHaveBeenCalledTimes(1);
+    expect(slack.auth.test).not.toHaveBeenCalled();
+    expect(slack.chat.postMessage).not.toHaveBeenCalled();
   });
 });
 
@@ -277,7 +570,9 @@ describe('SlackEventsHandler — routeToAgent()', () => {
   });
 
   it('gives questionnaire keywords priority over notification keywords', () => {
-    expect(handler.routeToAgent('envoie un email avec le questionnaire')).toBe('questionnaireEngine');
+    expect(handler.routeToAgent('envoie un email avec le questionnaire')).toBe(
+      'questionnaireEngine',
+    );
   });
 
   /**
@@ -314,7 +609,9 @@ describe('SlackEventsHandler — getBotUserId()', () => {
   });
 
   it('returns undefined and stays retryable when auth.test fails', async () => {
-    const slack = makeSlackMock({ auth: { test: vi.fn().mockRejectedValue(new Error('invalid_auth')) } });
+    const slack = makeSlackMock({
+      auth: { test: vi.fn().mockRejectedValue(new Error('invalid_auth')) },
+    });
     const { handler } = makeHandler({ slack });
 
     await expect(handler.getBotUserId()).resolves.toBeUndefined();
@@ -337,7 +634,7 @@ describe('SlackEventsHandler — handleEvent() (traitement de fond)', () => {
     const { handler, slack, getAgent, generate } = makeHandler();
 
     await handler.handleEvent(
-      envelope(mention({ text: `<@${BOT_USER_ID}> lance le questionnaire` }))
+      envelope(mention({ text: `<@${BOT_USER_ID}> lance le questionnaire` })),
     );
 
     expect(getAgent).toHaveBeenCalledWith('questionnaireEngine');
@@ -372,11 +669,11 @@ describe('SlackEventsHandler — handleEvent() (traitement de fond)', () => {
     const { handler, slack } = makeHandler();
 
     await handler.handleEvent(
-      envelope(mention({ ts: '1700000000.000999', thread_ts: '1700000000.000100' }))
+      envelope(mention({ ts: '1700000000.000999', thread_ts: '1700000000.000100' })),
     );
 
     expect(slack.chat.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ thread_ts: '1700000000.000100' })
+      expect.objectContaining({ thread_ts: '1700000000.000100' }),
     );
   });
 
@@ -384,11 +681,11 @@ describe('SlackEventsHandler — handleEvent() (traitement de fond)', () => {
     const { handler, slack } = makeHandler();
 
     await handler.handleEvent(
-      envelope(dm({ ts: '1700000000.000999', thread_ts: '1700000000.000100' }))
+      envelope(dm({ ts: '1700000000.000999', thread_ts: '1700000000.000100' })),
     );
 
     expect(slack.chat.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: 'D0MOCKDM01', thread_ts: '1700000000.000100' })
+      expect.objectContaining({ channel: 'D0MOCKDM01', thread_ts: '1700000000.000100' }),
     );
   });
 
@@ -402,7 +699,7 @@ describe('SlackEventsHandler — handleEvent() (traitement de fond)', () => {
     await handler.handleEvent(envelope(dm()));
 
     expect(slack.chat.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: expect.stringContaining('non disponible') })
+      expect.objectContaining({ text: expect.stringContaining('non disponible') }),
     );
   });
 
@@ -416,7 +713,7 @@ describe('SlackEventsHandler — handleEvent() (traitement de fond)', () => {
 
     await expect(handler.handleEvent(envelope(dm()))).resolves.toBeUndefined();
     expect(slack.chat.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: expect.stringContaining('une erreur') })
+      expect.objectContaining({ text: expect.stringContaining('une erreur') }),
     );
   });
 
@@ -438,7 +735,7 @@ describe('SlackEventsHandler — handleUrlVerification()', () => {
   it('echoes the challenge', async () => {
     const { handler } = makeHandler();
     await expect(
-      handler.handleUrlVerification({ type: 'url_verification', challenge: 'abc123' })
+      handler.handleUrlVerification({ type: 'url_verification', challenge: 'abc123' }),
     ).resolves.toEqual({ challenge: 'abc123' });
   });
 });

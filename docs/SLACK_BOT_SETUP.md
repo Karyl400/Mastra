@@ -51,6 +51,16 @@ Sous "Event Subscriptions":
    - `message.im` - **REQUIS** — messages directs (DM)
    - `message.channels` / `message.groups` - facultatifs : le handler les ignore
      (`reason: not_a_dm`), ils ne servent qu'à d'éventuels usages futurs.
+   - `team_join` - **REQUIS** — arrivée d'une personne dans le workspace. C'est ce qui
+     déclenche le DM de bienvenue et le bouton « Compléter mon profil ». Le scope
+     nécessaire, `users:read`, est **déjà accordé** : aucun scope nouveau à demander.
+
+> ⚠️ **Ajouter `team_join` à la liste ne suffit pas : il faut RÉINSTALLER l'app.**
+> Tant que l'installation du workspace ne reflète pas la configuration de l'app, Slack
+> n'émet **aucun** événement du nouveau type — le code est déployé, les logs sont vides,
+> et rien n'indique la cause. C'est exactement la panne du 2026-08-08, qui a coûté
+> plusieurs heures. *Settings → Install App → Reinstall to Workspace*, en allant
+> jusqu'au bouton **Allow**.
 
 **Request URL:**
 - Ajoutez l'URL: `https://votre-domaine.com/slack/events`

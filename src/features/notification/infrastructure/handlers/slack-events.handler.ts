@@ -3,6 +3,9 @@ import { LRUCache } from 'lru-cache';
 import type { Mastra } from '@mastra/core';
 import { logger } from '../../../../shared/logger';
 import { wrapAgentInput } from '../../../../shared/security/llm-guardrail';
+import { SlackAdapter, type SlackBlock } from '../providers/slack.adapter';
+import { SlackWorkspaceService } from '../providers/slack-workspace.service';
+import type { SlackWorkspaceProvider } from '../../domain/ports/slack-workspace.port';
 
 /**
  * Handler des événements Slack (Events API).
@@ -15,7 +18,14 @@ import { wrapAgentInput } from '../../../../shared/security/llm-guardrail';
  *    la réponse dans Slack.
  */
 
-export interface SlackEvent {
+/**
+ * Événement porteur de texte : `message` et `app_mention`.
+ *
+ * `type` reste un `string` ouvert : le fil Slack est du JSON non fiable, et une
+ * union fermée affirmerait une garantie qu'on n'a pas. Le filtrage réel est
+ * fait par `SUPPORTED_EVENT_TYPES`, à l'exécution.
+ */
+export interface SlackMessageEvent {
   type?: string;
   subtype?: string;
   text?: string;
@@ -27,6 +37,50 @@ export interface SlackEvent {
   bot_id?: string;
   app_id?: string;
   bot_profile?: unknown;
+}
+
+/** Profil porté par le payload `team_join`. Tous les champs sont optionnels. */
+export interface SlackTeamJoinUser {
+  id?: string;
+  name?: string;
+  real_name?: string;
+  is_bot?: boolean;
+  is_app_user?: boolean;
+  is_workflow_bot?: boolean;
+  deleted?: boolean;
+  is_restricted?: boolean;
+  is_ultra_restricted?: boolean;
+  is_stranger?: boolean;
+  profile?: {
+    email?: string;
+    first_name?: string;
+    last_name?: string;
+    real_name?: string;
+  };
+}
+
+/**
+ * Arrivée d'une personne dans le workspace.
+ *
+ * Contrairement à un message, `user` est un OBJET complet, et l'événement ne
+ * porte ni `channel`, ni `ts`, ni `text` — d'où l'union ci-dessous plutôt qu'une
+ * interface unique où `user` serait `string | objet`.
+ */
+export interface SlackTeamJoinEvent {
+  type: 'team_join';
+  user?: SlackTeamJoinUser;
+  event_ts?: string;
+}
+
+export type SlackEvent = SlackTeamJoinEvent | SlackMessageEvent;
+
+/**
+ * Prédicat de restriction. Une comparaison `event.type === 'team_join'` ne
+ * suffit pas à restreindre l'union : le membre « message » déclare `type` en
+ * `string` ouvert, donc il resterait dans la branche vraie.
+ */
+export function isTeamJoinEvent(event: SlackEvent): event is SlackTeamJoinEvent {
+  return event.type === 'team_join';
 }
 
 export interface SlackEventEnvelope {
@@ -41,9 +95,13 @@ export interface SlackEventEnvelope {
 }
 
 export type SlackEventDecision =
-  | { action: 'process'; event: SlackEvent }
-  | { action: 'ignore'; reason: SlackIgnoreReason };
+  { action: 'process'; event: SlackEvent } | { action: 'ignore'; reason: SlackIgnoreReason };
 
+/**
+ * Motifs de rejet. Chacun est journalisé tel quel par la route
+ * (`slack-events.route.ts`) : ne jamais recycler un motif existant pour un
+ * nouveau cas, le log de production mentirait.
+ */
 export type SlackIgnoreReason =
   | 'not_event_callback'
   | 'no_event'
@@ -51,7 +109,12 @@ export type SlackIgnoreReason =
   | 'not_a_dm'
   | 'bot_message'
   | 'duplicate'
-  | 'empty_text';
+  | 'empty_text'
+  | 'wrong_team'
+  | 'no_user'
+  | 'bot_join'
+  | 'deleted_user'
+  | 'restricted_user';
 
 export interface SlackAcceptContext {
   /** En-tête `X-Slack-Retry-Num` (présent uniquement sur les renvois Slack). */
@@ -61,6 +124,16 @@ export interface SlackAcceptContext {
 export interface SlackEventsHandlerOptions {
   /** Injection d'un WebClient (tests unitaires). */
   slackClient?: WebClient;
+  /**
+   * Émetteur des messages à blocs (DM de bienvenue).
+   *
+   * Injecté par options plutôt que repris de `src/mastra/index.ts` : ce module
+   * importe déjà la route qui construit ce handler, donc la dépendance inverse
+   * créerait un cycle d'import — panne d'initialisation classique en ESM bundlé.
+   */
+  chatProvider?: Pick<SlackAdapter, 'sendBlocks'>;
+  /** Annuaire Slack, pour le repli quand `team_join` ne porte pas l'email. */
+  workspaceProvider?: Pick<SlackWorkspaceProvider, 'getUserById'>;
   /** Taille max du cache de déduplication. */
   dedupMax?: number;
   /** TTL du cache de déduplication, en ms. */
@@ -93,7 +166,56 @@ interface DedupEntry {
 const DEFAULT_IN_FLIGHT_GRACE_MS = 60_000;
 
 /** Types d'événements Slack que le bot traite. Tout le reste est ignoré. */
-const SUPPORTED_EVENT_TYPES = new Set(['app_mention', 'message']);
+const SUPPORTED_EVENT_TYPES = new Set(['app_mention', 'message', 'team_join']);
+
+/** Identifiant fixe de Slackbot : il « rejoint » techniquement chaque workspace. */
+const SLACKBOT_USER_ID = 'USLACKBOT';
+
+/** `action_id` du bouton du DM de bienvenue, lu par la route d'interactivité. */
+export const COMPLETE_PROFILE_ACTION_ID = 'complete_profile';
+
+/** Premier mot d'un nom complet — repli quand le profil Slack n'a pas de prénom. */
+function firstWordOf(fullName: string | undefined): string {
+  return (fullName ?? '').trim().split(/\s+/)[0] ?? '';
+}
+
+/** Salutation, avec ou sans prénom connu. */
+function greet(firstName: string): string {
+  return firstName ? `Bienvenue ${firstName} 👋` : 'Bienvenue 👋';
+}
+
+/**
+ * DM d'accueil : un mot de bienvenue et le bouton qui ouvrira la modale.
+ *
+ * `value` transporte l'identifiant Slack de l'arrivant jusqu'à la route
+ * d'interactivité, qui n'a pas d'autre moyen de le relier à cet accueil.
+ */
+function buildWelcomeBlocks(firstName: string, userId: string): SlackBlock[] {
+  return [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text:
+          `${greet(firstName)}\n\n` +
+          "Ravi de t'accueillir chez Kisso. Il me manque quelques informations " +
+          'pour préparer ton intégration — deux minutes suffisent.',
+      },
+    },
+    {
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          action_id: COMPLETE_PROFILE_ACTION_ID,
+          style: 'primary',
+          text: { type: 'plain_text', text: 'Compléter mon profil' },
+          value: userId,
+        },
+      ],
+    },
+  ];
+}
 
 export class SlackEventsHandler {
   private slack: WebClient;
@@ -115,10 +237,16 @@ export class SlackEventsHandler {
   private readonly seenEvents: LRUCache<string, DedupEntry>;
   private readonly inFlightGraceMs: number;
   private botUserIdPromise?: Promise<string | undefined>;
+  private readonly chatProvider: Pick<SlackAdapter, 'sendBlocks'>;
+  private readonly workspaceProvider: Pick<SlackWorkspaceProvider, 'getUserById'>;
+  /** Évite d'inonder les logs : l'absence de `SLACK_TEAM_ID` est signalée une fois. */
+  private teamIdWarningEmitted = false;
 
   constructor(botToken: string, mastra: Mastra, options: SlackEventsHandlerOptions = {}) {
     this.slack = options.slackClient ?? new WebClient(botToken);
     this.mastra = mastra;
+    this.chatProvider = options.chatProvider ?? new SlackAdapter(botToken);
+    this.workspaceProvider = options.workspaceProvider ?? new SlackWorkspaceService(botToken);
     this.inFlightGraceMs = options.inFlightGraceMs ?? DEFAULT_IN_FLIGHT_GRACE_MS;
     this.seenEvents = new LRUCache<string, DedupEntry>({
       max: options.dedupMax ?? 1000,
@@ -184,10 +312,20 @@ export class SlackEventsHandler {
     return this.botUserIdPromise;
   }
 
-  /** Clé de déduplication : `event_id` si présent, sinon `channel:ts`. */
+  /**
+   * Clé de déduplication : `event_id` si présent, sinon `channel:ts`.
+   *
+   * Un `team_join` n'a NI `channel` NI `ts` : le repli est inopérant pour lui,
+   * seul `event_id` le protège du double DM de bienvenue. Slack le fournit
+   * systématiquement sur une enveloppe `event_callback`.
+   */
   private dedupKey(envelope: SlackEventEnvelope): string | undefined {
     if (envelope.event_id) return `id:${envelope.event_id}`;
-    const { channel, ts } = envelope.event ?? {};
+
+    const event = envelope.event;
+    if (!event || isTeamJoinEvent(event)) return undefined;
+
+    const { channel, ts } = event;
     if (channel && ts) return `ts:${channel}:${ts}`;
     return undefined;
   }
@@ -217,25 +355,13 @@ export class SlackEventsHandler {
       return { action: 'ignore', reason: 'unsupported_event_type' };
     }
 
-    if (event.type === 'message' && event.channel_type !== 'im') {
-      return { action: 'ignore', reason: 'not_a_dm' };
-    }
+    const wrongTeam = this.checkTeamId(envelope);
+    if (wrongTeam) return wrongTeam;
 
-    // Anti-boucle : les indices synchrones. `user === bot_user_id` est vérifié plus tard
-    // (nécessite un appel réseau `auth.test()`).
-    if (event.bot_id || event.subtype === 'bot_message' || event.bot_profile) {
-      return { action: 'ignore', reason: 'bot_message' };
-    }
-
-    // Les autres sous-types (`message_changed`, `channel_join`, `message_deleted`, …)
-    // ne sont pas des messages utilisateur adressés au bot.
-    if (event.type === 'message' && event.subtype) {
-      return { action: 'ignore', reason: 'unsupported_event_type' };
-    }
-
-    if (!this.cleanText(event.text)) {
-      return { action: 'ignore', reason: 'empty_text' };
-    }
+    const rejected = isTeamJoinEvent(event)
+      ? this.rejectTeamJoin(event)
+      : this.rejectMessage(event);
+    if (rejected) return { action: 'ignore', reason: rejected };
 
     const key = this.dedupKey(envelope);
     if (key) {
@@ -269,6 +395,97 @@ export class SlackEventsHandler {
     return { action: 'process', event };
   }
 
+  /**
+   * Vérifie que l'événement vient bien du workspace attendu.
+   *
+   * Délibérément **fail-open** : `SLACK_TEAM_ID` n'est définie ni localement ni
+   * en production, donc rejeter en son absence couperait 100 % du trafic Slack
+   * — silencieusement, la route rendant `200` en toute circonstance, et sans
+   * qu'aucun test ne vire au rouge. La signature HMAC lie déjà chaque requête
+   * au *signing secret* de cette app, qui n'est installée que sur un seul
+   * workspace : ce contrôle n'est qu'une défense en profondeur.
+   *
+   * Pour passer en fail-closed : déclarer `SLACK_TEAM_ID` dans Vercel, redéployer,
+   * confirmer l'absence d'avertissement dans les logs, PUIS durcir ici.
+   */
+  private checkTeamId(envelope: SlackEventEnvelope): SlackEventDecision | undefined {
+    const expected = process.env.SLACK_TEAM_ID?.trim();
+
+    if (!expected) {
+      if (!this.teamIdWarningEmitted) {
+        this.teamIdWarningEmitted = true;
+        logger.warn(
+          'SLACK_TEAM_ID is not set — cross-workspace check disabled (fail-open by design)',
+        );
+      }
+      return undefined;
+    }
+
+    if (envelope.team_id && envelope.team_id !== expected) {
+      logger.warn('Dropping Slack event from an unexpected workspace', {
+        received: envelope.team_id,
+        expected,
+      });
+      return { action: 'ignore', reason: 'wrong_team' };
+    }
+
+    return undefined;
+  }
+
+  /** Motifs de rejet propres aux messages. `undefined` = accepté. */
+  private rejectMessage(event: SlackMessageEvent): SlackIgnoreReason | undefined {
+    if (event.type === 'message' && event.channel_type !== 'im') {
+      return 'not_a_dm';
+    }
+
+    // Anti-boucle : les indices synchrones. `user === bot_user_id` est vérifié plus tard
+    // (nécessite un appel réseau `auth.test()`).
+    if (event.bot_id || event.subtype === 'bot_message' || event.bot_profile) {
+      return 'bot_message';
+    }
+
+    // Les autres sous-types (`message_changed`, `channel_join`, `message_deleted`, …)
+    // ne sont pas des messages utilisateur adressés au bot.
+    if (event.type === 'message' && event.subtype) {
+      return 'unsupported_event_type';
+    }
+
+    if (!this.cleanText(event.text)) {
+      return 'empty_text';
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Motifs de rejet propres à `team_join`. `undefined` = accepté.
+   *
+   * Aucune des gardes de `rejectMessage` ne s'applique ici : `bot_id`,
+   * `subtype`, `bot_profile` et `text` sont des champs de *message*, absents
+   * d'un `team_join`. Sans les gardes ci-dessous, le bot ouvrirait un DM à
+   * chaque application installée — et la garde `empty_text` rejetterait au
+   * contraire 100 % des arrivées réelles.
+   */
+  private rejectTeamJoin(event: SlackTeamJoinEvent): SlackIgnoreReason | undefined {
+    const user = event.user;
+
+    if (!user?.id) return 'no_user';
+
+    if (user.is_bot || user.is_app_user || user.is_workflow_bot || user.id === SLACKBOT_USER_ID) {
+      return 'bot_join';
+    }
+
+    if (user.deleted) return 'deleted_user';
+
+    // Décision métier assumée : un invité MONO-canal (`is_ultra_restricted`) et
+    // un externe Slack Connect (`is_stranger`) ne sont jamais des embauches
+    // Kisso. L'invité MULTI-canal (`is_restricted`) passe en revanche — ce sont
+    // les prestataires, qui suivent bien le parcours d'intégration.
+    if (user.is_ultra_restricted || user.is_stranger) return 'restricted_user';
+
+    return undefined;
+  }
+
   /** Le traitement est allé au bout : tout rejeu ultérieur doit être ignoré. */
   private markDedupDone(key: string | undefined): void {
     if (!key) return;
@@ -286,7 +503,10 @@ export class SlackEventsHandler {
 
   /** Retire les mentions (`<@U123456>`) et normalise les espaces. */
   private cleanText(text: string | undefined): string {
-    return (text ?? '').replace(/<@[A-Z0-9]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return (text ?? '')
+      .replace(/<@[A-Z0-9]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   /**
@@ -311,6 +531,15 @@ export class SlackEventsHandler {
     const event = envelope.event;
     if (!event) return;
 
+    // L'aiguillage précède délibérément `getBotUserId()` : c'est un aller-retour
+    // réseau (`auth.test()`) sans objet sur ce chemin — la boucle « le bot poste
+    // en tant qu'utilisateur » n'existe pas pour une arrivée, et le cas « un bot
+    // rejoint le workspace » est déjà filtré par `rejectTeamJoin`, sans réseau.
+    if (isTeamJoinEvent(event)) {
+      await this.handleTeamJoin(event);
+      return;
+    }
+
     // Dernière garde anti-boucle : le bot pourrait poster en tant qu'utilisateur.
     const botUserId = await this.getBotUserId();
     if (botUserId && event.user === botUserId) {
@@ -321,7 +550,75 @@ export class SlackEventsHandler {
     await this.handleMessage(event);
   }
 
-  async handleMessage(event: SlackEvent): Promise<void> {
+  /**
+   * Ouvre un DM de bienvenue portant le bouton « Compléter mon profil ».
+   *
+   * Aucun LLM sur ce chemin : la modale collectera les données, et le workflow
+   * sera appelé en code. Coût : zéro token.
+   *
+   * N'échoue jamais vers l'appelant — `handleEvent` relance l'exception et
+   * libère la clé de déduplication, ce qui ferait rejouer Slack et enverrait un
+   * SECOND DM de bienvenue, visible par la personne.
+   */
+  async handleTeamJoin(event: SlackTeamJoinEvent): Promise<void> {
+    const user = event.user;
+    if (!user?.id) {
+      logger.warn('team_join without a user id, skipping');
+      return;
+    }
+
+    try {
+      const identity = await this.resolveNewcomer(user);
+      logger.info('Welcoming a newcomer', {
+        userId: user.id,
+        hasEmail: Boolean(identity.email),
+      });
+
+      await this.chatProvider.sendBlocks(
+        user.id,
+        greet(identity.firstName),
+        buildWelcomeBlocks(identity.firstName, user.id),
+      );
+    } catch (error) {
+      logger.error('Unable to send the welcome DM', { error, userId: user.id });
+    }
+  }
+
+  /**
+   * Prénom et email de l'arrivant.
+   *
+   * L'email manque souvent du payload `team_join` tant que le profil n'est pas
+   * complété : on ne paie le second aller-retour `users.info` que dans ce cas.
+   * Son échec ne bloque pas — le DM part sur l'identifiant Slack et la modale
+   * collectera l'email.
+   */
+  private async resolveNewcomer(
+    user: SlackTeamJoinUser,
+  ): Promise<{ firstName: string; email: string | null }> {
+    const fromPayload = {
+      firstName: user.profile?.first_name || firstWordOf(user.real_name),
+      email: user.profile?.email ?? null,
+    };
+
+    if (fromPayload.email || !user.id) return fromPayload;
+
+    try {
+      const member = await this.workspaceProvider.getUserById(user.id);
+      if (!member) return fromPayload;
+      return {
+        firstName: fromPayload.firstName || member.firstName,
+        email: member.email,
+      };
+    } catch (error) {
+      logger.warn('Directory lookup failed for a newcomer, continuing without email', {
+        error,
+        userId: user.id,
+      });
+      return fromPayload;
+    }
+  }
+
+  async handleMessage(event: SlackMessageEvent): Promise<void> {
     const { user, channel, ts, thread_ts } = event;
     const text = this.cleanText(event.text);
 
