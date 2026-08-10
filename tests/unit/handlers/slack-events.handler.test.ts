@@ -625,6 +625,55 @@ describe('SlackEventsHandler — routeToAgent()', () => {
   });
 
   /**
+   * Régression mesurée en production le 2026-08-10.
+   *
+   * Le mot « email » aiguillait vers `notificationAgent`, qui ne possède ni
+   * `findEmployeeByEmail` ni `createEmployee`. Or une demande de recherche par
+   * email contient NÉCESSAIREMENT le mot « email » : la fonctionnalité était
+   * structurellement inatteignable. Observé : « Retrouve l'identifiant de
+   * l'employé dont l'email est … » → « Je n'ai pas réussi à récupérer
+   * l'historique des notifications. »
+   *
+   * Les deux créations réussies ce jour-là ne l'ont été que parce que la
+   * formulation évitait le mot — une roulette, pas un chemin fiable.
+   */
+  it.each([
+    ["retrouve l'identifiant de l'employé dont l'email est karyl@kisso.com", 'recherche par email'],
+    ['crée un employé : Awa TRAORE, email awa@kisso.com, département Product', 'création + email'],
+    ["crée un employé pour un test d'intégration : Awa TRAORE", 'création + test'],
+    ["quelles sont les tâches d'intégration de l'employé 123 ?", 'tâches'],
+    ["génère le document de bienvenue de l'employé 123", 'document'],
+  ])('routes an orchestrator intent to onboardingOrchestrator (%s)', (text) => {
+    expect(handler.routeToAgent(text)).toBe('onboardingOrchestrator');
+  });
+
+  it('laisse les demandes réellement centrées sur les notifications à leur agent', () => {
+    expect(handler.routeToAgent("quel est l'historique des notifications de l'employé 123 ?")).toBe(
+      'notificationAgent',
+    );
+    expect(
+      handler.routeToAgent("envoie une notification par email à l'employé 123, sujet : Bienvenue"),
+    ).toBe('notificationAgent');
+    expect(
+      handler.routeToAgent(
+        "planifie un rappel dans 3 jours pour l'employé 123 : compléter son profil",
+      ),
+    ).toBe('notificationAgent');
+  });
+
+  it("n'aiguille plus sur un mot-clé enchâssé à DROITE dans un mot plus long", () => {
+    // La garde n'existait qu'à gauche : « rappelle », « messagerie » et
+    // « testez » déclenchaient tous un détournement.
+    expect(handler.routeToAgent('rappelle-toi de notre échange')).toBe('onboardingOrchestrator');
+    expect(handler.routeToAgent('ouvre la messagerie interne')).toBe('onboardingOrchestrator');
+  });
+
+  it('tolère le pluriel des mots-clés', () => {
+    expect(handler.routeToAgent('les emails sont-ils partis ?')).toBe('notificationAgent');
+    expect(handler.routeToAgent('montre-moi les questionnaires')).toBe('questionnaireEngine');
+  });
+
+  /**
    * Régression : "test" était matché par sous-chaîne (`String.includes`), donc capturé
    * par n'importe quel mot français qui contient la séquence "test" ailleurs qu'en
    * début de mot — "conteste", "attester", "contestation", "protestation"... Ces phrases

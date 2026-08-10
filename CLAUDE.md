@@ -102,9 +102,27 @@ verrouillent cette règle : `tests/unit/quality/architecture.test.ts` et `code-a
 - Bot : `@mastra` — `bot_user_id` `U0BMBEJTBMJ`, `bot_id` `B0BM9MK4G65`
 - Endpoint Events API : `POST /slack/events` — **pas** `/api/slack-events`, voir ci-dessous
 - Le routage message → agent vit dans
-  `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
-  (mots-clés : `questionnaire|évaluation|quiz|test` → `questionnaireEngine` ;
-  `notification|rappel|email|message` → `notificationAgent` ; défaut → `onboardingOrchestrator`).
+  `src/features/notification/infrastructure/handlers/slack-events.handler.ts`.
+  **Trois paliers, dans cet ordre :**
+  1. **Intentions de l'orchestrateur** (prioritaire) —
+     `crée|créer|création|cree|creer|ajoute|enregistre|retrouve|recherche|identifiant|document|tâche|tache|onboarding`
+     → `onboardingOrchestrator`
+  2. `questionnaire|évaluation|quiz|test` → `questionnaireEngine`
+  3. `notification|rappel|email|message` → `notificationAgent`
+  4. défaut → `onboardingOrchestrator`
+
+  Le palier 1 a été ajouté le 2026-08-10 après une campagne en production : le mot **« email »**
+  aiguillait vers `notificationAgent`, qui ne possède ni `createEmployee` ni `findEmployeeByEmail`.
+  Or une demande de recherche par email contient nécessairement ce mot — **la fonctionnalité était
+  structurellement inatteignable**, et les créations ne réussissaient que si la formulation évitait
+  le mot. N'y ajouter que des termes sans ambiguïté : « profil », « statut » et « intégration » en
+  sont **volontairement exclus** (ils captureraient « planifie un rappel : compléter son profil » ou
+  « génère un questionnaire d'intégration »), et le repli par défaut étant déjà l'orchestrateur,
+  les y mettre n'apporterait rien.
+
+  La correspondance exige un **bord de mot des deux côtés**, avec pluriel toléré (`s?`). La garde
+  ne portait que sur le bord gauche : `rappelle`, `messagerie`, `testez` déclenchaient tous un
+  détournement, tandis que `emails` et `questionnaires` étaient ignorés.
 - Setup complet : `docs/SLACK_BOT_SETUP.md`.
 
 **Une route HTTP n'existe que si elle est déclarée dans `server.apiRoutes` de

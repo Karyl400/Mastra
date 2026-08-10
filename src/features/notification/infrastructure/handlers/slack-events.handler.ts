@@ -177,6 +177,31 @@ const SLACKBOT_USER_ID = 'USLACKBOT';
 /** `action_id` du bouton du DM de bienvenue, lu par la route d'interactivité. */
 export const COMPLETE_PROFILE_ACTION_ID = 'complete_profile';
 
+/**
+ * Aiguillage mot-clé → agent. Ces listes sont CONTRACTUELLES : elles sont
+ * documentées dans CLAUDE.md, ne pas les modifier sans mettre la doc à jour.
+ */
+const ORCHESTRATOR_INTENTS = [
+  'crée',
+  'créer',
+  'création',
+  'cree',
+  'creer',
+  'ajoute',
+  'enregistre',
+  'retrouve',
+  'recherche',
+  'identifiant',
+  'document',
+  'tâche',
+  'tache',
+  'onboarding',
+] as const;
+
+const QUESTIONNAIRE_TOPICS = ['questionnaire', 'évaluation', 'quiz', 'test'] as const;
+
+const NOTIFICATION_TOPICS = ['notification', 'rappel', 'email', 'message'] as const;
+
 /** Premier mot d'un nom complet — repli quand le profil Slack n'a pas de prénom. */
 function firstWordOf(fullName: string | undefined): string {
   return (fullName ?? '').trim().split(/\s+/)[0] ?? '';
@@ -277,7 +302,13 @@ export class SlackEventsHandler {
    */
   private matchesKeyword(lowerText: string, keyword: string): boolean {
     const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern = new RegExp(`(?<![\\p{L}])${escaped}`, 'u');
+    // Bords de mot des DEUX côtés, pluriel toléré.
+    //
+    // La garde ne portait que sur le bord GAUCHE : « rappelle », « messagerie »,
+    // « testez » et « emails » déclenchaient donc tous un aiguillage. Le `s?`
+    // conserve les pluriels légitimes (« emails », « questionnaires ») que le
+    // bord droit aurait sinon écartés.
+    const pattern = new RegExp(`(?<![\\p{L}])${escaped}s?(?![\\p{L}])`, 'u');
     return pattern.test(lowerText);
   }
 
@@ -287,16 +318,33 @@ export class SlackEventsHandler {
    */
   routeToAgent(text: string): string {
     const lowerText = (text ?? '').toLowerCase();
-    const matchesAny = (keywords: string[]): boolean =>
+    const matchesAny = (keywords: readonly string[]): boolean =>
       keywords.some((keyword) => this.matchesKeyword(lowerText, keyword));
 
+    // PALIER PRIORITAIRE — intentions que SEUL l'orchestrateur sait servir.
+    //
+    // Il prime sur les paliers thématiques ci-dessous, et c'est la correction du
+    // défaut mesuré en production : une demande de création ou de recherche
+    // mentionne presque toujours un email, et partait donc chez l'agent de
+    // notification, qui ne possède ni `createEmployee` ni `findEmployeeByEmail`.
+    // La recherche par email était ainsi structurellement inatteignable.
+    //
+    // On n'y met QUE des termes sans ambiguïté. Volontairement absents :
+    // « profil », « statut », « intégration » — trop courants, ils captureraient
+    // « planifie un rappel : compléter son profil » ou « génère un questionnaire
+    // d'intégration ». Le repli par défaut étant déjà l'orchestrateur, les y
+    // ajouter n'apporterait rien et coûterait des faux positifs.
+    if (matchesAny(ORCHESTRATOR_INTENTS)) {
+      return 'onboardingOrchestrator';
+    }
+
     // Mots-clés pour le questionnaire engine
-    if (matchesAny(['questionnaire', 'évaluation', 'quiz', 'test'])) {
+    if (matchesAny(QUESTIONNAIRE_TOPICS)) {
       return 'questionnaireEngine';
     }
 
     // Mots-clés pour le notification agent
-    if (matchesAny(['notification', 'rappel', 'email', 'message'])) {
+    if (matchesAny(NOTIFICATION_TOPICS)) {
       return 'notificationAgent';
     }
 
