@@ -183,10 +183,15 @@ export async function handleSlackEventRequest(c: SlackRouteContext): Promise<Res
 
     const mechanism = scheduleBackgroundWork(work);
 
+    // `retryNum` n'était journalisé QUE sur le chemin dupliqué. Sur le chemin
+    // accepté, l'en-tête était lu puis jeté — impossible de distinguer un rejeu
+    // Slack d'un événement jumeau (`message` + `app_mention`) quand deux
+    // réponses partent pour un seul message. C'est la ligne qui tranche.
     logger.info('Slack event scheduled', {
       mechanism,
       eventId: body.event_id,
       eventType: body.event?.type,
+      retryNum: retryNum ?? null,
     });
 
     // Garde-fou d'observabilité : sur Vercel, `detached` signifie que le travail SERA

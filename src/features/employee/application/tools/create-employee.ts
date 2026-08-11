@@ -608,10 +608,18 @@ export function makeCreateEmployee(repo: EmployeeRepository) {
       const validatedInput = createEmployeeInputSchema.parse(rawInput);
 
       // Ajouter le contexte au log (via le payload additionnel)
+      // `department` et `position` sont journalisés ICI, à l'ENTRÉE, et pas
+      // seulement en sortie : c'est le seul moyen de prouver une substitution
+      // par le modèle. En production le 2026-08-10, « Plomberie » demandé a été
+      // enregistré en « Engineering » — seule la valeur de SORTIE était journalisée,
+      // et `position` ne l'était nulle part, donc le cas « Software Engineer »
+      // enregistré en « Developer » était indémontrable a posteriori.
       logger.info('Début workflow createEmployee', {
         requestId: ctx.requestId,
         correlationId: ctx.correlationId,
         email: validatedInput.email,
+        department: validatedInput.department,
+        position: validatedInput.position,
       });
 
       try {
