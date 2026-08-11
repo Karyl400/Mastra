@@ -39,10 +39,14 @@ export const employees = sqliteTable(
     salaryAmount: real('salary_amount'),
     salaryCurrency: text('salary_currency').default('EUR'),
     metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>
-    
+
     // Timestamps
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
     deletedAt: text('deleted_at'), // Soft delete
   },
   (table) => ({
@@ -55,10 +59,10 @@ export const employees = sqliteTable(
     startDateIdx: index('idx_employees_start_date').on(table.startDate),
     deletedAtIdx: index('idx_employees_deleted_at').on(table.deletedAt),
     nameSearchIdx: index('idx_employees_name_search').on(table.firstName, table.lastName),
-    
+
     // Contrainte: email doit contenir '@'
     emailCheck: check('chk_employees_email', sql`${table.email} LIKE '%@%'`),
-  })
+  }),
 );
 
 // ============================================
@@ -72,26 +76,30 @@ export const tasks = sqliteTable(
     employeeId: text('employee_id').notNull(),
     assigneeId: text('assignee_id'), // La personne qui exécute (peut différer de employeeId)
     reviewerId: text('reviewer_id'), // Pour les tâches de type Review
-    
+
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
     type: text('type').notNull(), // TaskType
     status: text('status').notNull().default('pending'), // TaskStatus
     priority: text('priority').notNull().default('medium'), // TaskPriority
-    
+
     dueDate: text('due_date'),
     completedAt: text('completed_at'),
     startedAt: text('started_at'),
-    
+
     estimatedHours: real('estimated_hours'),
     actualHours: real('actual_hours'),
-    
+
     tags: text('tags', { mode: 'json' }).default('[]'), // string[]
     metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>
-    
+
     // Timestamps
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
     deletedAt: text('deleted_at'), // Soft delete
   },
   (table) => ({
@@ -111,7 +119,7 @@ export const tasks = sqliteTable(
       foreignColumns: [employees.id],
       name: 'fk_tasks_reviewer',
     })),
-    
+
     // Indexes
     employeeIdx: index('idx_tasks_employee').on(table.employeeId),
     assigneeIdx: index('idx_tasks_assignee').on(table.assigneeId),
@@ -122,7 +130,7 @@ export const tasks = sqliteTable(
     completedAtIdx: index('idx_tasks_completed_at').on(table.completedAt),
     employeeStatusIdx: index('idx_tasks_employee_status').on(table.employeeId, table.status),
     deletedAtIdx: index('idx_tasks_deleted_at').on(table.deletedAt),
-  })
+  }),
 );
 
 // ============================================
@@ -135,34 +143,38 @@ export const documents = sqliteTable(
     id: text('id').primaryKey(),
     employeeId: text('employee_id').notNull(),
     templateId: text('template_id'), // Si généré depuis un template
-    
+
     type: text('type').notNull(), // DocumentType
     title: text('title').notNull(),
     description: text('description').default(''),
-    
+
     // Stockage : on stocke la référence S3, pas le contenu
     storageKey: text('storage_key'), // Clé S3/GCS
     storageBucket: text('storage_bucket'),
     fileName: text('file_name'),
     fileSize: integer('file_size'), // En bytes
     mimeType: text('mime_type'),
-    
+
     format: text('format').notNull(), // DocumentFormat
     status: text('status').notNull().default('pending'), // DocumentStatus
-    
+
     version: integer('version').notNull().default(1),
     isConfidential: integer('is_confidential', { mode: 'boolean' }).default(false),
     expiresAt: text('expires_at'),
-    
+
     generatedAt: text('generated_at'),
     signedAt: text('signed_at'),
     viewedAt: text('viewed_at'),
-    
+
     metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>
-    
+
     // Timestamps
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
     deletedAt: text('deleted_at'), // Soft delete
   },
   (table) => ({
@@ -172,7 +184,7 @@ export const documents = sqliteTable(
       foreignColumns: [employees.id],
       name: 'fk_documents_employee',
     })),
-    
+
     // Indexes
     employeeIdx: index('idx_documents_employee').on(table.employeeId),
     typeIdx: index('idx_documents_type').on(table.type),
@@ -181,7 +193,7 @@ export const documents = sqliteTable(
     storageKeyIdx: uniqueIndex('idx_documents_storage_key').on(table.storageKey),
     expiresAtIdx: index('idx_documents_expires_at').on(table.expiresAt),
     deletedAtIdx: index('idx_documents_deleted_at').on(table.deletedAt),
-  })
+  }),
 );
 
 // ============================================
@@ -196,27 +208,31 @@ export const notifications = sqliteTable(
     recipientType: text('recipient_type').notNull(), // RecipientType
     channel: text('channel').notNull(), // NotificationChannel
     priority: text('priority').notNull().default('normal'), // NotificationPriority
-    
+
     templateId: text('template_id'),
     templateData: text('template_data', { mode: 'json' }), // Record<string, unknown>
-    
+
     subject: text('subject').notNull(),
     body: text('body').notNull(),
-    
+
     status: text('status').notNull().default('pending'), // NotificationStatus
     errorMessage: text('error_message'),
     retryCount: integer('retry_count').notNull().default(0),
-    
+
     scheduledAt: text('scheduled_at'),
     sentAt: text('sent_at'),
     deliveredAt: text('delivered_at'),
     readAt: text('read_at'),
-    
+
     metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>
-    
+
     // Timestamps
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
   (table) => ({
     // Indexes
@@ -226,7 +242,7 @@ export const notifications = sqliteTable(
     scheduledAtIdx: index('idx_notifications_scheduled_at').on(table.scheduledAt),
     sentAtIdx: index('idx_notifications_sent_at').on(table.sentAt),
     createdAtIdx: index('idx_notifications_created_at').on(table.createdAt),
-  })
+  }),
 );
 
 // ============================================
@@ -238,24 +254,28 @@ export const questionnaires = sqliteTable(
   {
     id: text('id').primaryKey(),
     employeeId: text('employee_id'), // Nullable: questionnaire peut être un template
-    
+
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
     category: text('category'), // 'onboarding', 'feedback', 'evaluation', 'exit'
-    
+
     questions: text('questions', { mode: 'json' }).notNull(), // Question[]
-    
+
     status: text('status').notNull().default('draft'), // QuestionnaireStatus
     isAnonymous: integer('is_anonymous', { mode: 'boolean' }).default(false),
-    
+
     assignedBy: text('assigned_by'), // Qui a assigné le questionnaire
     dueDate: text('due_date'),
-    
+
     version: integer('version').notNull().default(1),
-    
+
     // Timestamps
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
     publishedAt: text('published_at'),
     closedAt: text('closed_at'),
     deletedAt: text('deleted_at'),
@@ -267,14 +287,14 @@ export const questionnaires = sqliteTable(
       foreignColumns: [employees.id],
       name: 'fk_questionnaires_employee',
     })),
-    
+
     // Indexes
     employeeIdx: index('idx_questionnaires_employee').on(table.employeeId),
     statusIdx: index('idx_questionnaires_status').on(table.status),
     categoryIdx: index('idx_questionnaires_category').on(table.category),
     dueDateIdx: index('idx_questionnaires_due_date').on(table.dueDate),
     deletedAtIdx: index('idx_questionnaires_deleted_at').on(table.deletedAt),
-  })
+  }),
 );
 
 // ============================================
@@ -287,25 +307,29 @@ export const questionnaireResponses = sqliteTable(
     id: text('id').primaryKey(),
     questionnaireId: text('questionnaire_id').notNull(),
     employeeId: text('employee_id').notNull(),
-    
+
     answers: text('answers', { mode: 'json' }).notNull(), // QuestionResponse[]
-    
+
     status: text('status').notNull().default('pending'), // ResponseStatus
     score: real('score'),
     maxScore: real('max_score'),
     percentage: real('percentage'), // 0-100
-    
+
     timeSpentSeconds: integer('time_spent_seconds'),
-    
+
     reviewedBy: text('reviewed_by'),
     reviewedAt: text('reviewed_at'),
     reviewNotes: text('review_notes'),
-    
+
     submittedAt: text('submitted_at'),
-    
+
     // Timestamps
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
   (table) => ({
     // Foreign Keys
@@ -324,18 +348,20 @@ export const questionnaireResponses = sqliteTable(
       foreignColumns: [employees.id],
       name: 'fk_responses_reviewer',
     })),
-    
+
     // Unique: un employé ne peut répondre qu'une fois à un questionnaire
     // (sauf si le questionnaire le permet explicitement)
-    uniqueEmployeeQuestionnaire: uniqueIndex('uq_responses_employee_questionnaire')
-      .on(table.employeeId, table.questionnaireId),
-    
+    uniqueEmployeeQuestionnaire: uniqueIndex('uq_responses_employee_questionnaire').on(
+      table.employeeId,
+      table.questionnaireId,
+    ),
+
     // Indexes
     questionnaireIdx: index('idx_responses_questionnaire').on(table.questionnaireId),
     employeeIdx: index('idx_responses_employee').on(table.employeeId),
     statusIdx: index('idx_responses_status').on(table.status),
     submittedAtIdx: index('idx_responses_submitted_at').on(table.submittedAt),
-  })
+  }),
 );
 
 // ============================================
@@ -348,24 +374,28 @@ export const onboardingProgress = sqliteTable(
     id: text('id').primaryKey(),
     employeeId: text('employee_id').notNull(),
     templateId: text('template_id'), // Si basé sur un template d'onboarding
-    
+
     status: text('status').notNull().default('not_started'), // OnboardingStatus
     currentStep: integer('current_step').notNull().default(0),
     totalSteps: integer('total_steps').notNull(),
     completionPercentage: real('completion_percentage').default(0), // 0-100
-    
+
     startedAt: text('started_at'),
     completedAt: text('completed_at'),
     blockedAt: text('blocked_at'),
     blockReason: text('block_reason'),
-    
+
     assignedBuddyId: text('assigned_buddy_id'), // Référent/parrain
-    
+
     metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>
-    
+
     // Timestamps
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
   (table) => ({
     // Foreign Keys
@@ -379,14 +409,14 @@ export const onboardingProgress = sqliteTable(
       foreignColumns: [employees.id],
       name: 'fk_onboarding_progress_buddy',
     })),
-    
+
     // Unique: un seul onboarding actif par employé
     uniqueEmployee: uniqueIndex('uq_onboarding_employee').on(table.employeeId),
-    
+
     // Indexes
     statusIdx: index('idx_onboarding_progress_status').on(table.status),
     completionIdx: index('idx_onboarding_progress_completion').on(table.completionPercentage),
-  })
+  }),
 );
 
 // ============================================
@@ -399,28 +429,32 @@ export const onboardingSteps = sqliteTable(
     id: text('id').primaryKey(),
     progressId: text('progress_id').notNull(),
     taskId: text('task_id'), // Optionnel: lié à une tâche existante
-    
+
     name: text('name').notNull(),
     description: text('description').default(''),
     stepOrder: integer('step_order').notNull(),
     category: text('category'), // 'documents', 'training', 'meetings', 'setup'
-    
+
     status: text('status').notNull().default('pending'), // TaskStatus
     isRequired: integer('is_required', { mode: 'boolean' }).notNull().default(true),
-    
+
     assignedTo: text('assigned_to'), // Qui est responsable de cette étape
-    
+
     startedAt: text('started_at'),
     completedAt: text('completed_at'),
     dueDate: text('due_date'),
-    
+
     notes: text('notes'),
-    
+
     metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>
-    
+
     // Timestamps
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
   (table) => ({
     // Foreign Keys
@@ -434,13 +468,13 @@ export const onboardingSteps = sqliteTable(
       foreignColumns: [tasks.id],
       name: 'fk_onboarding_steps_task',
     })),
-    
+
     // Indexes
     progressIdx: index('idx_onboarding_steps_progress').on(table.progressId),
     statusIdx: index('idx_onboarding_steps_status').on(table.status),
     orderIdx: index('idx_onboarding_steps_order').on(table.progressId, table.stepOrder),
     dueDateIdx: index('idx_onboarding_steps_due_date').on(table.dueDate),
-  })
+  }),
 );
 
 // ============================================
@@ -453,15 +487,19 @@ export const employeeDocuments = sqliteTable(
     id: text('id').primaryKey(),
     employeeId: text('employee_id').notNull(),
     documentId: text('document_id').notNull(),
-    
+
     // Statut spécifique à l'association employé-document
     status: text('status').notNull().default('pending'), // 'pending', 'acknowledged', 'signed', 'expired'
     acknowledgedAt: text('acknowledged_at'),
     signedAt: text('signed_at'),
-    
+
     // Timestamps
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
-    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    updatedAt: text('updated_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
   (table) => ({
     // Foreign Keys
@@ -475,16 +513,18 @@ export const employeeDocuments = sqliteTable(
       foreignColumns: [documents.id],
       name: 'fk_employee_documents_document',
     })),
-    
+
     // Unique: un document ne peut être assigné qu'une fois à un employé
-    uniqueEmployeeDocument: uniqueIndex('uq_employee_document')
-      .on(table.employeeId, table.documentId),
-    
+    uniqueEmployeeDocument: uniqueIndex('uq_employee_document').on(
+      table.employeeId,
+      table.documentId,
+    ),
+
     // Indexes
     employeeIdx: index('idx_employee_documents_employee').on(table.employeeId),
     documentIdx: index('idx_employee_documents_document').on(table.documentId),
     statusIdx: index('idx_employee_documents_status').on(table.status),
-  })
+  }),
 );
 
 // ============================================
@@ -499,25 +539,27 @@ export const auditLogs = sqliteTable(
     actorId: text('actor_id').notNull(),
     actorType: text('actor_type').notNull().default('user'), // 'user', 'system', 'api', 'webhook'
     actorEmail: text('actor_email'),
-    
+
     resourceId: text('resource_id'),
     resourceType: text('resource_type'), // 'Employee', 'Task', 'Document', etc.
-    
+
     details: text('details', { mode: 'json' }), // { before, after, changes }
-    
+
     // Contexte de la requête
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
     requestId: text('request_id'),
     correlationId: text('correlation_id'),
     sessionId: text('session_id'),
-    
+
     // Statut
     status: text('status').notNull().default('success'), // 'success', 'failure', 'denied'
     errorMessage: text('error_message'),
-    
+
     // Timestamp
-    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    createdAt: text('created_at')
+      .notNull()
+      .default(sql`(datetime('now'))`),
   },
   (table) => ({
     // Indexes
@@ -528,11 +570,49 @@ export const auditLogs = sqliteTable(
     createdAtIdx: index('idx_audit_logs_created_at').on(table.createdAt),
     requestIdIdx: index('idx_audit_logs_request_id').on(table.requestId),
     sessionIdIdx: index('idx_audit_logs_session_id').on(table.sessionId),
-  })
+  }),
 );
 
 // ============================================
-// 11. TYPES INFÉRÉS POUR LES REQUÊTES
+// 11. CONVERSATION TURNS (Mémoire conversationnelle)
+// ============================================
+//
+// Table unique de la feature `conversation`. L'agent « collant » d'un fil est simplement
+// l'`agent_id` du dernier tour : la requête de fenêtre le ramène déjà, aucune seconde table
+// n'est nécessaire.
+//
+// ⚠️ Écart ASSUMÉ au style des 10 tables ci-dessus : elles horodatent en `text` via
+// `datetime('now')`, qui a une résolution à la SECONDE et un format sans fuseau. Ici
+// l'horodatage est le discriminant du TTL *et* de l'ordre des tours ; deux messages d'un même
+// échange arrivent couramment dans la même seconde, et les égalités casseraient l'ordre
+// chronologique dont dépend `selectWindow`. D'où un entier en millisecondes, qui donne aussi
+// un `Date` natif côté Drizzle — donc pas de reparsing pour l'arithmétique du TTL.
+
+export const conversationTurns = sqliteTable(
+  'conversation_turns',
+  {
+    id: text('id').primaryKey(),
+    conversationId: text('conversation_id').notNull(), // `${channel}` ou `${channel}:${threadTs}`
+    role: text('role').notNull(), // 'user' | 'assistant'
+    content: text('content').notNull(), // texte seul — jamais de tool-call ni de tool-result
+    agentId: text('agent_id').notNull(), // onboardingOrchestrator | questionnaireEngine | notificationAgent
+    slackUserId: text('slack_user_id'), // null sur un tour assistant
+
+    // Timestamp
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    // Index unique servant les deux accès : fenêtre d'une conversation (égalité + tri) et purge.
+    conversationCreatedAtIdx: index('idx_conversation_turns_conversation_created_at').on(
+      table.conversationId,
+      table.createdAt,
+    ),
+    createdAtIdx: index('idx_conversation_turns_created_at').on(table.createdAt),
+  }),
+);
+
+// ============================================
+// 12. TYPES INFÉRÉS POUR LES REQUÊTES
 // ============================================
 
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
@@ -548,6 +628,7 @@ export type OnboardingProgress = InferSelectModel<typeof onboardingProgress>;
 export type OnboardingStep = InferSelectModel<typeof onboardingSteps>;
 export type EmployeeDocument = InferSelectModel<typeof employeeDocuments>;
 export type AuditLog = InferSelectModel<typeof auditLogs>;
+export type ConversationTurnRow = InferSelectModel<typeof conversationTurns>;
 
 // Insert types (création)
 export type NewEmployee = InferInsertModel<typeof employees>;
@@ -560,3 +641,4 @@ export type NewOnboardingProgress = InferInsertModel<typeof onboardingProgress>;
 export type NewOnboardingStep = InferInsertModel<typeof onboardingSteps>;
 export type NewEmployeeDocument = InferInsertModel<typeof employeeDocuments>;
 export type NewAuditLog = InferInsertModel<typeof auditLogs>;
+export type NewConversationTurnRow = InferInsertModel<typeof conversationTurns>;

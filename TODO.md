@@ -240,3 +240,44 @@
       fournisseur email **principal**.
 - [ ] **Passer Node en `>=22.13.0`** : l'environnement tourne sur v20.19.4 alors que
       `engines` exige 22.13.0.
+
+## [Mémoire conversationnelle] — spec `docs/superpowers/specs/2026-08-11-memoire-conversationnelle-design.md`
+- [x] **Lot 1 — feature `conversation`** : entité, value-object `deriveConversationId`, service
+      `selectWindow` (fenêtre en tokens), port `ConversationRepository`, dépôts Drizzle et
+      in-memory, table `conversation_turns`.
+- [ ] **Appliquer `scripts/ddl-conversation-turns.sql`** sur `data/kisso.db` ET sur la Turso de
+      production. Sans ça, `DrizzleConversationRepository` échoue sur `no such table` —
+      et le lot 1 n'est pas branché tant que ce n'est pas fait.
+- [ ] **Câbler la mémoire dans `slack-events.handler.ts`** : lecture de la fenêtre avant
+      `agent.generate`, écriture du tour `user` *après* `wrapAgentInput` et du tour `assistant`
+      *après* `sanitizeAgentOutput` (décision D4 — sinon un marqueur `kisso_XXXX` se rejouerait
+      à chaque tour, et un message bloqué pour injection entrerait en mémoire).
+- [ ] **Appeler `prune()` opportunément** (aucun cron ne le fera) — sinon `conversation_turns`
+      croît indéfiniment.
+
+## [Coût en tokens] — lot 0
+- [x] **Borner et projeter les tool-results** (`task-summary.mapper.ts`, `MAX_TASKS_IN_RESULT = 5`) :
+      `getEmployeeProfile` 2 506 → 329 tokens sur 12 tâches, taille désormais indépendante du
+      nombre de tâches. Troncature signalée par `totalTasks` / `shown`.
+- [x] **Raccourcir et factoriser les blocs STYLE / ANTI-INVENTION** (`src/shared/agent-style.ts`),
+      + « URL / lien / chemin de fichier » dans la liste anti-invention.
+- [x] **Alléger les schémas** `scheduleReminder` (232 → 183) et `generateDocument` (212 → 172),
+      sans toucher aux champs ni à la validation.
+- [x] **Floor des 3 agents : 4 306 → 3 816 tokens (−490).**
+- [ ] **Livraison d'un PDF téléchargeable dans la conversation Slack** — capacité attendue côté
+      produit, **inexistante aujourd'hui**. En l'état l'agent ne peut qu'enregistrer une ligne en
+      base, d'où la consigne « n'invente jamais de lien » sur l'orchestrateur. Il manque quatre
+      choses, dont une bloquante :
+      1. `generateDocument` n'appelle jamais `PdfmakeService` — il ne fait que `repo.save()`.
+      2. `PdfmakeService.generate()` écrit dans `./data/documents` et rend un **chemin local** :
+         inutilisable sur Vercel (FS en lecture seule hors `/tmp`, et éphémère). Il devrait rendre
+         un `Buffer`.
+      3. Aucun upload Slack n'existe (`files.upload` / `files.uploadV2` n'apparaissent nulle part)
+         et le scope **`files:write` n'est pas accordé** au bot — l'ajouter impose une
+         réinstallation de l'app dans le workspace.
+      4. **Bloquant** : un tool n'a aujourd'hui aucun moyen de savoir dans QUEL canal / thread
+         poster. Il faut faire descendre le contexte Slack jusqu'au tool (`runtimeContext` Mastra),
+         donc modifier `slack-events.handler.ts`.
+- [ ] **Postes de coût restants** (hors périmètre du lot 0, appartiennent à d'autres lots) :
+      `generateQuestionnaire` 247 tokens de schéma et `sendNotification` 173 — les deux plus
+      lourds du dépôt après ce lot.

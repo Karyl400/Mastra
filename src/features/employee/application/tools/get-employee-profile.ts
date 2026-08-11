@@ -6,6 +6,7 @@ import type { TaskRepository } from '../../domain/ports/task.repository';
 import { uuidSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { NotFoundError } from '../../../../shared/errors';
+import { summarizeTasks } from '../mappers/task-summary.mapper';
 
 export function makeGetEmployeeProfile(
   empRepo: EmployeeRepository,
@@ -41,6 +42,12 @@ export function makeGetEmployeeProfile(
       // `Employee` ne déclare pas ces champs — une protection par coïncidence,
       // pas par conception. On énumère donc ce qu'on expose, sur le modèle de
       // `find-employee-by-email.ts`. Verrouillé par un test.
+      //
+      // La même règle s'applique désormais à `progress` et `tasks`, pour la même
+      // raison de fond ET pour le budget de tokens : `tasks` était NON BORNÉ et
+      // rendait les 19 champs de l'entité `Task` (3 428 caractères ≈ 979 tokens
+      // mesurés pour un seul résultat, réémis à chaque aller-retour). Voir
+      // `task-summary.mapper.ts`.
       return {
         employee: {
           id: employee.id,
@@ -53,8 +60,14 @@ export function makeGetEmployeeProfile(
           status: employee.status,
           managerId: employee.managerId ?? null,
         },
-        progress,
-        tasks,
+        progress: progress
+          ? {
+              status: progress.status,
+              currentStep: progress.currentStep,
+              totalSteps: progress.totalSteps,
+            }
+          : null,
+        ...summarizeTasks(tasks),
       };
     },
   });

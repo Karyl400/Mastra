@@ -1,5 +1,86 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-11
+### Changed (lot 0 — coût en tokens d'entrée)
+
+Mesures au ratio **3,5 caractères/token** (calibré sur les relevés de production du projet),
+via `_measure.mts` étendu aux 3 agents complets — instructions + tous les tools tels que câblés
+dans `src/mastra/index.ts`.
+
+| Agent                    | avant | après | gain |
+| ------------------------ | ----- | ----- | ---- |
+| `onboardingOrchestrator`  | 1649  | 1458  | −191 |
+| `questionnaireEngine`     | 1266  | 1120  | −146 |
+| `notificationAgent`       | 1391  | 1238  | −153 |
+| **Somme**                 | 4306  | 3816  | **−490** |
+
+- **Tool-results bornés et projetés** — le plus gros gain du lot.
+  `getEmployeeProfile` rendait `tasks` **non borné**, avec les 19 champs de l'entité `Task`.
+  Sur 12 tâches en base : **2 506 → 329 tokens** par appel. Nouveau
+  `application/mappers/task-summary.mapper.ts` (`MAX_TASKS_IN_RESULT = 5`, projection sur
+  `id/title/status/priority/dueDate`), appliqué à `getEmployeeProfile` **et** `getTaskList`.
+  - La taille du résultat est désormais **indépendante du nombre de tâches** (verrouillé par test).
+  - Troncature **signalée** (`totalTasks` / `shown`) : sans ces compteurs le modèle conclut qu'il
+    a vu toute la liste. `getTaskList` filtre **avant** de tronquer, pour que `totalTasks` compte
+    les tâches correspondant à la demande.
+  - Effet de bord de sécurité : `metadata` et `description` ne partent plus dans le contexte du
+    LLM. Même raisonnement que la projection du profil employé (commit `889ab66`), qui est
+    **étendue, pas remplacée** — `progress` est projeté à son tour.
+- **Blocs STYLE et ANTI-INVENTION factorisés** dans `src/shared/agent-style.ts`.
+  ⚠️ La factorisation n'économise **aucun** token à l'exécution (chaque agent envoie quand même
+  le bloc) : elle sert la maintenance. Le gain vient du **raccourcissement** — bloc STYLE
+  ~170 → 80 tokens sur chacun des 3 agents. Le texte peut rester bref sur la mise en forme parce
+  que le vrai garde-fou est du code : `sanitizeAgentOutput` convertit déjà markdown → mrkdwn et
+  retire les emojis.
+- **« URL / lien / chemin de fichier » ajouté à la liste ANTI-INVENTION.** La liste nommait
+  « prénom, nom, email, identifiant, date, score » mais pas les URL : c'est le trou par lequel est
+  passé le faux lien `https://kisso.internal/docs/<uuid>/download`.
+- **Consigne documents sur l'orchestrateur** : `generateDocument` **enregistre** le document et ne
+  rend ni fichier ni URL. Voir la note « livraison de PDF » dans `TODO.md` — la capacité attendue
+  côté produit n'existe pas encore.
+- **Instructions métier dégraissées** : elles ré-énuméraient les noms des tools, que le modèle
+  reçoit déjà via les schémas. Les garde-fous issus de régressions réelles sont tous conservés
+  (création d'employé impossible, résolution par email d'abord, déduplication par l'historique).
+- **Schémas allégés** : `scheduleReminder` 232 → 183 tokens, `generateDocument` 212 → 172. Seuls
+  des `.describe()` redondants avec le nom du champ ont été retirés — **aucun champ ni aucune règle
+  de validation n'a bougé**. `format` est conservé sur `generateDocument` malgré son enum coûteux :
+  c'est le seul point d'entrée par lequel un document pourra être demandé en `pdf`.
+
+## [Unreleased] - 2026-08-11
+### Added (lot 1 — mémoire conversationnelle)
+- **Feature `conversation`** (`src/features/conversation/`), **sans `@mastra/memory`** :
+  ce paquet dépend de `zod ^4.4.3` alors que le projet épingle `3.25.76` (le parseur de schémas
+  du Vercel AI SDK casse au-delà), et surtout il ne sait plafonner qu'en **nombre de messages** —
+  inadapté quand un seul retour d'outil pèse 979 tokens. Décision D2 de
+  `docs/superpowers/specs/2026-08-11-memoire-conversationnelle-design.md`.
+  - `domain/entities/conversation-turn.ts` — un tour = un message. **Texte seul** : jamais de
+    tool-call ni de tool-result (décision D3, levier de −63 % sur la fenêtre).
+  - `domain/value-objects/conversation-id.ts` — `deriveConversationId({ channel, threadTs })` :
+    `threadTs ? \`${channel}:${threadTs}\` : channel`. En DM `threadTs` est `undefined` **par
+    conception** (threader un DM avait rendu le bot silencieux), donc la clé est le canal `D…` ;
+    en canal l'appelant passe `thread_ts ?? ts`, donc un thread est une conversation.
+  - `domain/services/token-window.ts` — `selectWindow(turns, budgetTokens)` : fenêtrage **en
+    tokens, jamais en messages**. Parcours du plus récent au plus ancien, rendu chronologique.
+    Une **paire `user`/`assistant` n'est jamais coupée** (un assistant orphelin répondrait à une
+    question invisible pour le modèle — pire que pas de mémoire). Un tour dépassant **40 % du
+    budget est tronqué**, pas exclu, sinon un message géant avale la fenêtre. Constantes
+    `CHARS_PER_TOKEN = 3.5` (calibré : en-tête de sécurité 1308 car. ≈ 374 tok mesurés en prod)
+    et `CONVERSATION_TOKEN_BUDGET = 1000` (1253 réellement disponibles à K=3 sur
+    `onboardingOrchestrator`, 20 % de marge pour l'incertitude ±10 % du ratio).
+  - `domain/ports/conversation.repository.ts` — `append` / `recentTurns` / `prune`, plus
+    `CONVERSATION_TTL_MS = 60 min`, **TTL unique** gouvernant mémoire ET routage collant (D1).
+  - `infrastructure/repositories/` — implémentation Drizzle et doublure `in-memory`.
+- **Table `conversation_turns`** dans `src/infrastructure/database/schema.ts`, index
+  `(conversation_id, created_at)`. L'agent « collant » est l'`agent_id` du dernier tour : la
+  requête de fenêtre le ramène déjà, pas de seconde table.
+  - Écart assumé au style des 10 autres tables : `created_at` est un **INTEGER en millisecondes**
+    (`mode: 'timestamp_ms'`) et non le `TEXT` `datetime('now')` habituel, dont la résolution à la
+    seconde mettrait à égalité deux messages d'un même échange et rendrait l'ordre chronologique
+    indéterminé — or c'est cet ordre dont dépend `selectWindow`.
+  - DDL à appliquer **à la main** : `scripts/ddl-conversation-turns.sql`. Ni `npm run db:push`
+    (se bloque indéfiniment contre une base `libsql://` distante) ni `npm run db:generate` (les
+    migrations `drizzle/` sont désynchronisées de `schema.ts` et drizzle-kit exige un vrai TTY).
+
 ## [Unreleased] - 2026-08-08
 ### Changed (perf — coût en tokens d'entrée)
 - **Réduction du coût en tokens système/tools des 3 agents**, `notificationAgent` en priorité :

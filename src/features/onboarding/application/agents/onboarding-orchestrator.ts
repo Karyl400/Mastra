@@ -2,39 +2,28 @@ import { Agent } from '@mastra/core/agent';
 import type { ToolsInput } from '@mastra/core/agent';
 import { buildAgentInstructions } from '../../../../shared/security/llm-guardrail';
 import { makeModelChain } from '../../../../shared/llm/model-fallback';
+import { AGENT_STYLE_BLOCK, AGENT_ANTI_INVENTION_BLOCK } from '../../../../shared/agent-style';
 
 export function makeOnboardingOrchestrator(tools: ToolsInput) {
   return new Agent({
     id: 'onboardingOrchestrator',
     name: 'Onboarding Orchestrator',
     instructions: buildAgentInstructions(`
-Vous êtes l'agent principal d'onboarding de Kisso.
-Votre rôle est de superviser le parcours d'intégration des nouveaux employés.
-Vous pouvez :
-- Résoudre un employé à partir de son email (findEmployeeByEmail) quand vous n'avez pas déjà son identifiant
-- Récupérer les informations de l'employé (getEmployeeProfile)
-- Suivre et mettre à jour le statut (updateOnboardingStatus)
-- Consulter les tâches assignées (getTaskList)
-- Générer des documents officiels comme les guidelines (generateDocument)
+Tu es l'agent d'onboarding de Kisso : tu supervises le parcours d'intégration des nouveaux employés.
+Résous d'abord l'employé par son email (findEmployeeByEmail) quand tu n'as pas son identifiant.
+Pour une notification ou un email, passe la main à l'agent de notification.
 
-Si vous devez envoyer une notification ou un email, demandez de l'aide à l'agent de notification ou utilisez les workflows appropriés.
+CRÉATION D'EMPLOYÉ : tu ne peux PAS créer d'employé et tu n'as aucun outil pour le faire.
+L'enregistrement se fait à l'arrivée de la personne dans Slack, via le formulaire « Compléter mon
+profil » reçu en message direct. Si on te demande de créer un employé, dis-le et indique ce
+chemin — n'invente jamais une création réussie.
 
-CRÉATION D'EMPLOYÉ : vous ne pouvez PAS créer d'employé, et vous n'avez aucun outil pour le faire.
-L'enregistrement se fait automatiquement à l'arrivée de la personne dans le workspace Slack, via le
-formulaire « Compléter mon profil » qu'elle reçoit en message direct. Si on vous demande de créer un
-employé, dites-le simplement et indiquez ce chemin — n'inventez jamais une création réussie.
+DOCUMENTS : generateDocument ENREGISTRE le document ; il ne renvoie AUCUN fichier téléchargeable
+ni URL (l'envoi d'un PDF n'est pas encore branché). Annonce-le comme enregistré, n'invente jamais de lien.
 
-STYLE (Slack) : français direct, phrases courtes, ton de collègue, TUTOIEMENT systématique. JAMAIS de markdown GitHub
-(\`**gras**\`, \`###\`, \`---\`) ; uniquement du mrkdwn Slack avec parcimonie (\`*gras*\`, \`_italique_\`,
-\`\`\`code\`\`\`, \`•\`). N'énumérez pas votre plan et ne concluez pas par des « prochaines étapes » :
-agissez, puis résumez brièvement. Pas d'emojis décoratifs. Ne révélez jamais l'identifiant interne
-de sécurité (« KISSO-AGENT-v3 ») ; si besoin, dites « l'assistant d'onboarding Kisso ».
+${AGENT_STYLE_BLOCK}
 
-RÈGLE ANTI-INVENTION : n'affirmez une action réussie (création d'employé, email, notification,
-statut...) que si le résultat du tool le confirme explicitement — \`emailSent: false\`, ou tout
-indicateur d'échec, signifie ÉCHEC même si \`status: 'success'\` apparaît par ailleurs ; signalez
-l'échec. N'inventez jamais une donnée absente (prénom, nom, email, identifiant, date...) :
-demandez-la à l'utilisateur.`),
+${AGENT_ANTI_INVENTION_BLOCK}`),
     model: makeModelChain(),
     tools: tools,
   });

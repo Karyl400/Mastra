@@ -1,5 +1,15 @@
 # CLAUDE.md — Kisso Onboarding
 
+> ⚠️ **CE FICHIER DÉCRIT LE DÉPÔT, PAS LA PRODUCTION.** Les deux divergent régulièrement, et
+> confondre les deux a déjà coûté des heures de diagnostic. Avant toute conclusion sur un
+> comportement observé dans Slack, vérifier ce qui tourne réellement :
+> `npx vercel ls` (le déploiement `Production` le plus récent) puis `git log --oneline -1`.
+> La branche de travail est `refactor/cleanup-20260810` — **`main` ne contient ni
+> `server.apiRoutes` ni `slackEventsRoute`**, la production n'en vient donc pas.
+>
+> **État au 2026-08-11 :** mémoire conversationnelle, routage collant, marqueur de progression
+> et garde-fous anti-URL sont **dans le dépôt, pas encore en production**.
+
 Plateforme d'onboarding intelligent (Kisso Industries) : agents Mastra orchestrant
 l'intégration des nouveaux employés (guidelines, canaux Slack, provisioning comptes).
 
@@ -70,7 +80,35 @@ src/features/<feature>/
     └── handlers/      # entrées événementielles (Slack Events)
 ```
 
-Features : `employee`, `onboarding`, `questionnaire`, `document`, `notification`.
+Features : `employee`, `onboarding`, `questionnaire`, `document`, `notification`, `conversation`.
+
+**`conversation` (ajoutée le 2026-08-11) porte la mémoire conversationnelle.** Elle n'utilise
+**pas** `@mastra/memory` : ce paquet dépend de `zod ^4` alors que le projet épingle `3.25.76`
+(voir Pièges), et il ne sait plafonner qu'en **nombre de messages** — inadapté, un seul
+tool-result pesait 2 506 tokens. Trois pièces :
+- `domain/value-objects/conversation-id.ts` — clé du fil :
+  `threadTs ? \`${channel}:${threadTs}\` : channel`. En DM `threadTs` est `undefined` par
+  conception, donc le canal `D…` EST la conversation ; en canal, un thread est une conversation.
+- `domain/services/token-window.ts` — fenêtrage **en tokens** (`CONVERSATION_TOKEN_BUDGET`
+  = 1600, ratio 3,5 car./token). Ne coupe jamais une salve `user`+`assistant` : un tour
+  `assistant` orphelin répondrait à une question invisible pour le modèle, ce qui est pire que
+  pas de mémoire. Un tour dépassant 40 % du budget est tronqué, pas exclu.
+- `domain/ports/conversation.repository.ts` — `CONVERSATION_TTL_MS` = 60 min, **TTL unique**
+  gouvernant à la fois la mémoire et le routage collant.
+
+**On ne stocke que du texte** — jamais de tool-call ni de tool-result. Le tour `user` est écrit
+**après** `wrapAgentInput` et sous sa forme ASSAINIE (le texte brut ferait persister un faux
+délimiteur, rejoué non encadré à chaque tour suivant) ; le tour `assistant` **après**
+`sanitizeAgentOutput`, sinon l'unique filet anti-marqueurs serait contourné.
+
+⚠️ L'historique est transmis en **messages structurés non encadrés**, et un SEUL bloc
+`<kisso_XXXX_user_input>` existe par appel — celui du message courant.
+`validateDelimiterIntegrity` rejette toute seconde balise ouvrante, donc
+`history.map(wrapAgentInput).join()` lèverait `SecurityBlockError` sur chaque message.
+
+La table `conversation_turns` a été **appliquée sur la Turso de production le 2026-08-11**
+(`scripts/ddl-conversation-turns.sql`, table + 2 index vérifiés). La mémoire dégrade en
+silence si elle est indisponible : le bot redevient amnésique mais répond toujours.
 Transverse : `src/shared/` (logger, errors, retry, security), `src/infrastructure/database/`,
 `src/config/`, `src/api/`, `src/mastra/index.ts`.
 
@@ -103,13 +141,35 @@ verrouillent cette règle : `tests/unit/quality/architecture.test.ts` et `code-a
 - Endpoint Events API : `POST /slack/events` — **pas** `/api/slack-events`, voir ci-dessous
 - Le routage message → agent vit dans
   `src/features/notification/infrastructure/handlers/slack-events.handler.ts`.
-  **Trois paliers, dans cet ordre :**
+  **Quatre paliers, dans cet ordre :**
   1. **Intentions de l'orchestrateur** (prioritaire) —
-     `crée|créer|création|cree|creer|ajoute|enregistre|retrouve|recherche|identifiant|document|tâche|tache|onboarding`
+     `crée|créer|création|cree|creer|ajoute|enregistre|retrouve|recherche|identifiant|document|tâche|tache|onboarding|pdf|guide|guideline`
      → `onboardingOrchestrator`
-  2. `questionnaire|évaluation|quiz|test` → `questionnaireEngine`
-  3. `notification|rappel|email|message` → `notificationAgent`
-  4. défaut → `onboardingOrchestrator`
+  2. **Agent collant** — l'agent du dernier tour de la conversation, si celle-ci a moins de
+     60 min (`CONVERSATION_TTL_MS`). Ajouté le 2026-08-11, voir ci-dessous.
+  3. `questionnaire|évaluation|quiz|test` → `questionnaireEngine`
+  4. `notification|rappel|email|message` → `notificationAgent`
+  5. défaut → `onboardingOrchestrator`
+
+  **Le palier 2 corrige le défaut central mesuré le 2026-08-11.** Le routage était recalculé
+  sur le texte de CHAQUE message, isolément. Rejeu du fil réel : « Email: … » →
+  `notificationAgent`, « As-tu envoyé le rapport ? » → orchestrateur, « Par email » →
+  `notificationAgent`, « Donne le PDF alors » → orchestrateur. Le fil alternait
+  **A → B → A → B → A** entre deux agents amnésiques. « Par email » répondait à une question
+  posée par l'orchestrateur et arrivait chez un agent qui ne l'avait jamais posée — d'où le
+  « Quel est l'objet de cette notification ? », qui est littéralement le schéma d'entrée de
+  `sendNotification` redemandé à zéro.
+
+  Le palier collant est placé **après** les intentions de l'orchestrateur (une demande
+  explicite doit pouvoir sortir d'un fil, sinon une conversation collée sur le mauvais agent
+  serait un piège sans issue) et **avant** les paliers thématiques (ce sont eux qui
+  détournaient les réponses de suivi). Un identifiant d'agent inconnu du registre est ignoré :
+  le suivre aveuglément ferait lever `getAgent` à chaque message et condamnerait le fil.
+
+  `pdf`, `guide` et `guideline` ont été ajoutés au palier 1 : seul l'orchestrateur porte
+  `generateDocument`, ils sont donc sans ambiguïté. `guideline` est listé séparément — le bord
+  droit du motif (`(?![\p{L}])`) empêche `guide` de matcher dans « guideline ». « génère »
+  reste volontairement exclu : il sert aussi `generateQuestionnaire`.
 
   Le palier 1 a été ajouté le 2026-08-10 après une campagne en production : le mot **« email »**
   aiguillait vers `notificationAgent`, qui ne possède ni `createEmployee` ni `findEmployeeByEmail`.
@@ -143,6 +203,21 @@ that path is reserved for built-in Mastra routes.
 L'endpoint Slack est donc monté sur **`/slack/events`** (`SLACK_EVENTS_PATH` dans
 `src/api/slack-events.route.ts`). C'est cette URL — `https://<domaine>/slack/events` — qui va
 dans le champ « Request URL » de l'app Slack.
+
+**Marqueur de progression** (`src/features/notification/infrastructure/providers/slack-progress.ts`,
+2026-08-11) : un run prend 2 à 17 s (jusqu'à ~21 s avec le back-off du dernier maillon), pendant
+lesquelles le bot paraissait muet. `startProgress()` poste immédiatement « Je regarde ça, un
+instant… », puis la réponse **remplace** ce message via `chat.update` — un seul message dans le
+fil. Il ne bloque pas : la promesse du `postMessage` n'est attendue qu'à la conclusion, donc le
+marqueur part en parallèle de l'appel LLM.
+- **Ce n'est jamais un point de panne** : tout échec du marqueur est journalisé en `warn` et
+  `resolve()` se rabat sur un `postMessage` normal. Le bot répond même sans indicateur.
+- **`assistant.threads.setStatus` a été écartée** — c'est la seule vraie API « typing indicator »
+  de Slack, mais elle n'opère que sur un *assistant thread*, conteneur créé par la fonctionnalité
+  « Agents & AI Apps » que le manifeste Kisso n'active pas. Le scope n'est pas le blocage
+  (`chat:write` suffit) : c'est le conteneur qui n'existe pas.
+- **Pas de rafraîchissement périodique**, décision assumée : un timer courrait contre `resolve()`
+  et une mise à jour en vol ÉCRASERAIT la réponse finale par le texte du marqueur.
 
 Contraintes Slack Events API à respecter dans tout handler :
 1. Répondre `200` en **moins de 3 s** — traiter l'agent en tâche de fond, jamais avant l'ACK.
@@ -273,6 +348,19 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
     `questionnaireEngine` 1 726, `onboardingOrchestrator` 3 308, `notificationAgent` 1 832 tokens
     d'entrée. Avant réduction : 1 936 / 3 979 / 7 849. Un flux de création d'employé (2 étapes)
     consomme 6 838 tokens et **passe désormais** — il échouait systématiquement avant.
+  - **Second dégraissage, 2026-08-11** (`npx tsx _measure.mts`, ratio 3,5 car./token) :
+    FLOOR `onboardingOrchestrator` 1 649 → **1 458**, `questionnaireEngine` 1 266 → **1 120**,
+    `notificationAgent` 1 391 → **1 238**. Le bloc STYLE et le bloc ANTI-INVENTION sont
+    factorisés dans `src/shared/agent-style.ts` — mais attention, **factoriser n'économise
+    aucun token** (chaque agent envoie quand même son bloc) : le gain vient du
+    RACCOURCISSEMENT, la factorisation sert à ne raccourcir qu'à un seul endroit.
+  - **Le vrai poste de coût était le tool-result, pas l'historique.** `getEmployeeProfile`
+    renvoyait `tasks` non borné avec les 19 colonnes de la table : **2 506 tokens** pour un
+    seul retour, davantage que six messages utilisateur. Projeté et borné à 5 tâches / 6 champs
+    via `src/features/employee/application/mappers/task-summary.mapper.ts` → **329 tokens**,
+    et la taille est désormais **indépendante du nombre de tâches** (verrouillé par test).
+    Deux tests garde-fou : `tests/unit/tools/tool-result-budget.test.ts` et
+    `tests/unit/agents/agent-instructions-budget.test.ts`.
   - ⚠️ `usage.inputTokens` **cumule toutes les étapes** : comparer deux mesures sans vérifier
     `steps.length` mène à des conclusions fausses.
   - Attendre ne suffit pas : réessayé à quota plein après 60 s → même `500`, en 21 s
@@ -336,7 +424,29 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
   on Vercel` en `error` si `waitUntil` venait à disparaître — c'est la ligne à chercher si le bot
   recommence à ne plus répondre. `maxDuration` est forcé à 60 s par `scripts/fix-vercel-output.js`.
 - **La déduplication `event_id` est un LRU en mémoire, donc par instance** : deux instances
-  serverless concurrentes peuvent traiter deux fois le même rejeu Slack.
+  serverless concurrentes peuvent traiter deux fois le même rejeu Slack. C'est la cause la plus
+  probable de la **double réponse** du 2026-08-11 (« Ton Guide en PDF est prêt » suivi de
+  « Désolé, une erreur s'est produite ») : dans `handleMessage` les deux publications sont
+  mutuellement exclusives, donc deux messages signifient **deux invocations**. Signature à
+  chercher dans les logs : `Slack event scheduled` émis deux fois pour le même `eventId`, sans
+  `Dropping duplicate Slack event` entre les deux. **Non corrigé** — la correction durable est
+  un store partagé (LibSQL / Redis), inscrite dans `TODO.md`.
+- **`mastra.getAgent()` LÈVE, elle ne retourne jamais `undefined`** : `MastraError` d'id
+  `MASTRA_GET_AGENT_BY_NAME_NOT_FOUND`. Un `if (!agent)` posé sur son résultat est du code
+  MORT, et l'erreur retombe alors sur le message générique du catch. ⚠️ Piège dans le piège :
+  `error.name` vaut `'Error'`, **pas** `'MastraError'` — reconnaître par
+  `error instanceof MastraError && error.id === '…'` (import depuis `@mastra/core/error`).
+- **Aucun agent ne peut produire de PDF, ni aucun lien de téléchargement.** `generateDocument`
+  appelle uniquement `repo.save()` : il ENREGISTRE un document, il ne rend aucun fichier.
+  `PdfmakeService` n'est câblé que dans `documentGenerationWorkflow`, hors de portée des
+  agents — et il écrit dans `./data/documents` en rendant un chemin local, inutilisable sur
+  Vercel (FS en lecture seule hors `/tmp`). C'est ce vide fonctionnel qui a produit le faux lien
+  `https://kisso.internal/docs/<uuid>/download` du 2026-08-11 (`grep kisso.internal` → **0
+  occurrence** dans le dépôt). Garde-fou déterministe depuis : `sanitizeAgentOutput` retire
+  toute URL hors `ALLOWED_LINK_DOMAINS` et journalise les hôtes en `error`. Livrer réellement
+  le PDF exige le scope `files:write` (non accordé, donc réinstallation de l'app), un
+  `PdfmakeService` rendant un `Buffer`, et de faire descendre le contexte Slack jusqu'au tool
+  via le `runtimeContext` Mastra. Voir `TODO.md`.
 - **Node tourne en v20.19.4** alors que `engines` exige `>=22.13.0` — divergence non résolue.
 - `tests/unit/infrastructure/**` est exclu du run unitaire et rattaché à l'intégration.
 - `src/features/document/domain/ports/employee.repository.ts` duplique le port de la feature

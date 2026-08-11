@@ -39,26 +39,27 @@ export function makeSendNotification(
   employeeRepo: EmployeeRepository,
   emailProvider: EmailProvider,
   chatProvider: ChatProvider,
-  slackWorkspace: SlackWorkspaceProvider
+  slackWorkspace: SlackWorkspaceProvider,
 ) {
   return createTool({
     id: 'sendNotification',
+    // Description et `describe()` sont réémis à CHAQUE aller-retour : on n'y garde que
+    // ce que le nom du champ ne dit pas déjà. Ce qui reste est le contrat de sécurité
+    // (destinataire par UUID, jamais par adresse) — il doit rester lisible par le modèle.
     description:
-      "Envoie une notification (email/Slack/in-app) à une personne DÉJÀ ENREGISTRÉE dans " +
-      "l'annuaire Kisso, désignée par son recipientId (UUID) — jamais par une adresse : " +
-      "email et compte Slack sont résolus côté serveur. Utiliser getEmployeeProfile pour " +
-      "obtenir l'identifiant.",
+      'Envoie une notification (email/Slack/in-app) à un employé déjà enregistré, ' +
+      'désigné par son recipientId — jamais par une adresse.',
     inputSchema: z.object({
       // Pas de `recipientEmail` ni de `recipientSlackId` : voir le modèle de menace ci-dessus.
       // Un LLM qui les émettrait quand même les verrait supprimés par Zod (`z.object` retire
       // les clés inconnues), et `execute` ne les lit de toute façon jamais.
       recipientId: uuidSchema.describe(
-        "UUID du destinataire dans l'annuaire Kisso ; l'adresse réelle est déduite côté serveur."
+        'UUID annuaire (via getEmployeeProfile) ; adresse résolue côté serveur.',
       ),
-      recipientType: z.nativeEnum(RecipientType).describe('Type de destinataire'),
-      channel: z.nativeEnum(NotificationChannel).describe('Canal de notification'),
-      subject: z.string().min(1).max(200).describe('Sujet de la notification'),
-      body: z.string().min(1).describe('Corps de la notification'),
+      recipientType: z.nativeEnum(RecipientType),
+      channel: z.nativeEnum(NotificationChannel),
+      subject: z.string().min(1).max(200),
+      body: z.string().min(1),
     }),
     execute: async (data, _ctx) => {
       logger.info('Envoi notification', {
@@ -75,7 +76,7 @@ export function makeSendNotification(
       if (supplied.recipientEmail !== undefined || supplied.recipientSlackId !== undefined) {
         logger.warn(
           'Destination fournie par le modèle ignorée — la résolution se fait depuis la base',
-          { recipientId: data.recipientId, channel: data.channel }
+          { recipientId: data.recipientId, channel: data.channel },
         );
       }
 

@@ -10,16 +10,25 @@ export function makeScheduleReminder(repo: NotificationRepository) {
   return createTool({
     id: 'scheduleReminder',
     description: 'Planifie un rappel pour un employé ou un manager',
+    // Schéma volontairement dépouillé : chaque caractère de ce JSON Schema est
+    // réémis au modèle à CHAQUE aller-retour (plafond Groq 12 000 tok/min), et
+    // le schéma pesait 232 tokens à lui seul. Les `.describe()` retirés ne
+    // faisaient que répéter le nom du champ (« Sujet du rappel » sur `subject`) ;
+    // seuls survivent les deux qui portent une information que ni le nom ni le
+    // type ne donnent. Aucun champ ni aucune règle de validation n'a bougé.
     inputSchema: z.object({
-      recipientId: uuidSchema.describe('ID du destinataire'),
-      recipientType: z.nativeEnum(RecipientType).describe('Type de destinataire'),
-      channel: z.nativeEnum(NotificationChannel).describe('Canal de notification'),
-      subject: z.string().min(1).max(200).describe('Sujet du rappel'),
-      body: z.string().min(1).describe('Corps du rappel'),
-      scheduledAt: z.string().datetime().describe('Date d envoi planifiée au format ISO'),
+      recipientId: uuidSchema.describe('UUID annuaire'),
+      recipientType: z.nativeEnum(RecipientType),
+      channel: z.nativeEnum(NotificationChannel),
+      subject: z.string().min(1).max(200),
+      body: z.string().min(1),
+      scheduledAt: z.string().datetime().describe('ISO 8601'),
     }),
     execute: async (data, _ctx) => {
-      logger.info('Planification rappel', { recipientId: data.recipientId, scheduledAt: data.scheduledAt });
+      logger.info('Planification rappel', {
+        recipientId: data.recipientId,
+        scheduledAt: data.scheduledAt,
+      });
       const notif = createNotification({
         id: crypto.randomUUID(),
         recipientId: data.recipientId,
@@ -28,7 +37,12 @@ export function makeScheduleReminder(repo: NotificationRepository) {
         subject: data.subject,
         body: data.body,
       });
-      const scheduled = { ...notif, status: NotificationStatus.Scheduled, scheduledAt: data.scheduledAt, updatedAt: new Date().toISOString() };
+      const scheduled = {
+        ...notif,
+        status: NotificationStatus.Scheduled,
+        scheduledAt: data.scheduledAt,
+        updatedAt: new Date().toISOString(),
+      };
       await repo.save(scheduled);
       return scheduled;
     },

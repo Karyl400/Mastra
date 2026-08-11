@@ -30,11 +30,47 @@
 export const NEUTRAL_REFUSAL =
   "Je ne peux pas répondre à cette demande. Reformulez-la, ou contactez l'équipe RH.";
 
+/**
+ * Domaines dont un lien peut franchir la frontière vers Slack.
+ *
+ * Volontairement MINIMALE. Le produit ne sait livrer aucun fichier : aucun tool
+ * exposé aux agents ne retourne d'URL — `generateDocument` rend l'entité
+ * `Document`, qui ne déclare ni `url` ni `path` (`document/domain/entities/document.ts`),
+ * et le seul chemin de fichier du dépôt (`documentPath`) appartient à un workflow
+ * jamais exposé comme tool. Donc TOUT lien produit par un agent est, à ce jour,
+ * fabriqué — sauf un renvoi vers Slack lui-même.
+ *
+ * Un sous-domaine d'une entrée est accepté (`files.slack.com` via `slack.com`) ;
+ * `kissohq.slack.com` est listé explicitement pour que la liste se lise seule.
+ */
+export const ALLOWED_LINK_DOMAINS: readonly string[] = ['kissohq.slack.com', 'slack.com'];
+
+/**
+ * Texte substitué à un lien non autorisé.
+ *
+ * Il ne nomme pas le domaine retiré : l'affichage renseignerait l'utilisateur —
+ * ou un attaquant — sur ce que le modèle a tenté d'émettre. Le domaine part dans
+ * `strippedUrls`, donc dans les logs, jamais dans Slack.
+ */
+export const STRIPPED_LINK_PLACEHOLDER = '[lien retiré]';
+
 export interface SanitizedAgentOutput {
   /** Texte réellement postable dans Slack. */
   text: string;
   /** Étiquettes des marqueurs internes trouvés — à journaliser, jamais à afficher. */
   redacted: string[];
+  /**
+   * NOMS D'HÔTE (pas les URL complètes) des liens retirés, dédupliqués, dans
+   * l'ordre d'apparition.
+   *
+   * L'hôte suffit à décider (`kisso.internal` revient-il ?) et c'est le seul
+   * fragment sûr à journaliser : le chemin d'un lien fabriqué embarque souvent un
+   * identifiant réel — celui de l'incident du 2026-08-11 était
+   * `https://kisso.internal/docs/<uuid>/download`, où l'UUID était le vrai
+   * `Document.id`. Le recopier dans les logs y déverserait une donnée métier pour
+   * rien.
+   */
+  strippedUrls: string[];
 }
 
 /**
@@ -136,14 +172,144 @@ function convertOutsideCode(segment: string): string {
 }
 
 /**
- * Applique les conversions en préservant intégralement les blocs de code.
+ * Découpage capturant les blocs ```code```, qui atterrissent donc aux index
+ * IMPAIRS du tableau produit par `split` et sont réinsérés tels quels.
  *
- * Le découpage capture les blocs, ce qui les place aux index IMPAIRS du tableau
- * produit par `split` — ils sont alors réinsérés tels quels.
+ * Un seul quantifiant, paresseux, sur une classe totale : coût linéaire.
+ */
+const CODE_BLOCK_SPLIT = /(```[\s\S]*?```)/g;
+
+/**
+ * Jeton mrkdwn Slack `<…>` : lien (`<url>`, `<url|libellé>`) mais aussi mention
+ * (`<@U123>`, `<#C123>`). Le contenu est analysé ENSUITE, en code.
+ *
+ * La forme complète du lien — `/<(https?:\/\/[^\s<>|]*)(?:\|[^<>]*)?>/` — a été
+ * écartée bien qu'elle paraisse sûre : sur `<https://a|||||…x` sans `>` final,
+ * le groupe optionnel rend le motif AMBIGU et le moteur revient en arrière sur
+ * chaque position de départ, soit un coût quadratique sur une entrée fabriquée.
+ * `security/detect-unsafe-regex` la signalait à juste titre.
+ *
+ * Ici la classe exclut les DEUX délimiteurs : le caractère qui l'arrête est
+ * forcément `<`, `>` ou la fin. S'il n'est pas `>`, l'échec est immédiat et
+ * aucun retour arrière n'est possible — il n'existe qu'une seule façon de
+ * matcher. Coût linéaire, garanti par construction.
+ */
+const MRKDWN_TOKEN = /<[^<>]*>/g;
+
+/** Cible d'un jeton : est-ce un lien http(s) ? Ancré, donc à coût constant. */
+const HTTP_PREFIX = /^https?:\/\//i;
+
+/** URL nue. Classe négative unique, un seul quantifiant, rien après : linéaire. */
+const BARE_URL = /https?:\/\/[^\s<>|"'`]+/g;
+
+/**
+ * Ponctuation de fin de phrase collée à une URL nue — « voir https://x.tld/a. »
+ * Sans ce retrait, le point final serait avalé par le placeholder.
+ */
+const TRAILING_PUNCTUATION = new Set(['.', ',', ';', ':', '!', '?', ')', ']', '}']);
+
+/**
+ * Retire la ponctuation finale par un balayage arrière.
+ *
+ * Une regex `/[.,;:!?)\]}]+$/` ferait le même travail, mais `[…]+$` est
+ * super-linéaire par retour arrière (signalé par `sonarjs/super-linear-regex`) :
+ * sur une longue suite de ponctuation non suivie de la fin, le moteur réessaie
+ * depuis chaque position. Ce balayage visite chaque caractère une fois au plus.
+ */
+function trimTrailingPunctuation(url: string): string {
+  let end = url.length;
+  while (end > 0 && TRAILING_PUNCTUATION.has(url[end - 1] as string)) end -= 1;
+  return url.slice(0, end);
+}
+
+/**
+ * Nom d'hôte d'une URL, en minuscules. Purement lexical (aucun `new URL()`, qui
+ * lève sur une entrée malformée — or l'entrée vient d'un LLM).
+ *
+ * Deux pièges traités explicitement :
+ *  - `userinfo@` : dans `https://kissohq.slack.com@evil.tld/x`, l'hôte réel est
+ *    `evil.tld`. On retient donc ce qui suit le DERNIER `@`, jamais le début.
+ *  - le port : `:443` est retiré, mais seulement s'il est numérique — sinon un
+ *    IPv6 littéral (`[::1]`) serait tronqué.
+ */
+function hostnameOf(url: string): string {
+  const schemeEnd = url.indexOf('://');
+  if (schemeEnd === -1) return '';
+
+  const afterScheme = url.slice(schemeEnd + 3);
+  const pathStart = afterScheme.search(/[/?#]/);
+  let authority = pathStart === -1 ? afterScheme : afterScheme.slice(0, pathStart);
+
+  const userInfoEnd = authority.lastIndexOf('@');
+  if (userInfoEnd !== -1) authority = authority.slice(userInfoEnd + 1);
+
+  const portStart = authority.lastIndexOf(':');
+  if (portStart !== -1 && /^\d*$/.test(authority.slice(portStart + 1))) {
+    authority = authority.slice(0, portStart);
+  }
+
+  return authority.toLowerCase();
+}
+
+/** Hôte exact, ou sous-domaine d'une entrée de l'allowlist. */
+function isAllowedHost(host: string): boolean {
+  return ALLOWED_LINK_DOMAINS.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+/**
+ * Retire les liens dont l'hôte n'est pas dans {@link ALLOWED_LINK_DOMAINS} et
+ * remonte les hôtes concernés.
+ *
+ * Les blocs de code sont préservés intégralement : un extrait de code peut
+ * légitimement citer une URL, et il n'est pas cliquable dans Slack.
+ *
+ * L'ordre des deux passes compte. La forme mrkdwn est traitée EN PREMIER, sinon
+ * la passe « URL nue » viderait l'intérieur de `<…|…>` et laisserait derrière
+ * elle une balise orpheline `<[lien retiré]|texte>`.
+ */
+function stripDisallowedLinks(text: string): { text: string; hostnames: string[] } {
+  const seen = new Set<string>();
+
+  const filterSegment = (segment: string): string =>
+    segment
+      .replace(MRKDWN_TOKEN, (token) => {
+        const inner = token.slice(1, -1);
+        const pipe = inner.indexOf('|');
+        const target = pipe === -1 ? inner : inner.slice(0, pipe);
+
+        // Mentions Slack (`<@U123>`, `<#C123>`) et autres jetons non-http :
+        // rien à filtrer, on les rend intacts.
+        if (!HTTP_PREFIX.test(target)) return token;
+
+        const host = hostnameOf(target);
+        if (isAllowedHost(host)) return token;
+        if (host) seen.add(host);
+        // Le libellé part avec le lien : « clique ici » sans cible est au mieux
+        // inutile, au pire trompeur sur ce que le message prétendait offrir.
+        return STRIPPED_LINK_PLACEHOLDER;
+      })
+      .replace(BARE_URL, (match) => {
+        const trimmed = trimTrailingPunctuation(match);
+        const host = hostnameOf(trimmed);
+        if (isAllowedHost(host)) return match;
+        if (host) seen.add(host);
+        return STRIPPED_LINK_PLACEHOLDER + match.slice(trimmed.length);
+      });
+
+  const filtered = text
+    .split(CODE_BLOCK_SPLIT)
+    .map((segment, index) => (index % 2 === 1 ? segment : filterSegment(segment)))
+    .join('');
+
+  return { text: filtered, hostnames: [...seen] };
+}
+
+/**
+ * Applique les conversions en préservant intégralement les blocs de code.
  */
 function toSlackMrkdwn(text: string): string {
   return text
-    .split(/(```[\s\S]*?```)/g)
+    .split(CODE_BLOCK_SPLIT)
     .map((segment, index) => (index % 2 === 1 ? segment : convertOutsideCode(segment)))
     .join('');
 }
@@ -157,13 +323,26 @@ function toSlackMrkdwn(text: string): string {
 export function sanitizeAgentOutput(raw: string | undefined | null): SanitizedAgentOutput {
   const text = (raw ?? '').trim();
 
-  if (!text) return { text: NEUTRAL_REFUSAL, redacted: [] };
+  if (!text) return { text: NEUTRAL_REFUSAL, redacted: [], strippedUrls: [] };
 
   const redacted = INTERNAL_MARKERS.filter((marker) => marker.pattern.test(text)).map(
     (marker) => marker.label,
   );
 
-  if (redacted.length > 0) return { text: NEUTRAL_REFUSAL, redacted };
+  if (redacted.length > 0) return { text: NEUTRAL_REFUSAL, redacted, strippedUrls: [] };
 
-  return { text: toSlackMrkdwn(text), redacted: [] };
+  // Un lien non autorisé ne déclenche PAS `NEUTRAL_REFUSAL`, contrairement à un
+  // marqueur interne. Les deux défauts n'ont ni la même nature ni le même coût.
+  //
+  // Un marqueur interne est une FUITE : la réponse entière est suspecte, puisque
+  // le modèle y parle de son propre garde-fou. La jeter ne perd rien d'utile.
+  //
+  // Un lien fabriqué est une INEXACTITUDE LOCALE dans une réponse par ailleurs
+  // exploitable — celle du 2026-08-11 à 3:07 portait un vrai résumé et une seule
+  // URL inventée. Tout jeter transformerait chaque hallucination de lien en
+  // panne totale du tour, alors que le mal se répare en retirant le lien. Le
+  // signal, lui, ne se perd pas : il part dans `strippedUrls`, donc dans les logs.
+  const { text: withoutLinks, hostnames } = stripDisallowedLinks(text);
+
+  return { text: toSlackMrkdwn(withoutLinks), redacted: [], strippedUrls: hostnames };
 }

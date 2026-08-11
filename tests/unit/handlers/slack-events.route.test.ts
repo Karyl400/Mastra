@@ -2,15 +2,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Mastra } from '@mastra/core';
 
 // Aucun test unitaire ne doit toucher l'API Slack réelle.
-const { postMessage, authTest } = vi.hoisted(() => ({
-  postMessage: vi.fn().mockResolvedValue({ ok: true }),
+const { postMessage, updateMessage, authTest } = vi.hoisted(() => ({
+  // Le `ts` est indispensable : sans lui, le marqueur de progression est considéré comme
+  // non posté et la réponse finale part en message SÉPARÉ au lieu de le remplacer.
+  postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1700000000.000900' }),
+  updateMessage: vi.fn().mockResolvedValue({ ok: true }),
   authTest: vi.fn().mockResolvedValue({ ok: true, user_id: 'U0BMBEJTBMJ' }),
 }));
 
 vi.mock('@slack/web-api', () => ({
   WebClient: class FakeWebClient {
     auth = { test: authTest };
-    chat = { postMessage };
+    chat = { postMessage, update: updateMessage };
   },
 }));
 
@@ -24,6 +27,7 @@ import {
   type SlackRouteContext,
 } from '../../../src/api/slack-events.route';
 import { computeSlackSignature } from '../../../src/shared/security/slack-signature';
+import { PROGRESS_MARKER_TEXT } from '../../../src/features/notification/infrastructure/providers/slack-progress';
 
 const SECRET = 'unit-test-signing-secret';
 const BOT_USER_ID = 'U0BMBEJTBMJ';
@@ -57,7 +61,7 @@ async function callRoute(
     timestamp?: string;
     retryNum?: string;
     secret?: string | undefined;
-  } = {}
+  } = {},
 ): Promise<RouteResult> {
   const rawBody = JSON.stringify(payload);
   const timestamp = options.timestamp ?? String(Math.floor(Date.now() / 1000));
@@ -76,7 +80,9 @@ async function callRoute(
 }
 
 function invokeRoute(context: ReturnType<typeof makeContext>): Promise<RouteResult> {
-  return handleSlackEventRequest(context as unknown as SlackRouteContext) as unknown as Promise<RouteResult>;
+  return handleSlackEventRequest(
+    context as unknown as SlackRouteContext,
+  ) as unknown as Promise<RouteResult>;
 }
 
 function eventCallback(event: Record<string, unknown>, eventId: string) {
@@ -128,7 +134,7 @@ describe('Route: POST /slack/events', () => {
   it('rejects url_verification with a bad signature — Slack signs it too', async () => {
     const result = await callRoute(
       { type: 'url_verification', challenge: 'chal-42' },
-      { signature: `v0=${'0'.repeat(64)}` }
+      { signature: `v0=${'0'.repeat(64)}` },
     );
     expect(result.status).toBe(401);
     expect(result.body).toEqual({ error: 'unauthorized', reason: 'invalid_signature' });
@@ -166,8 +172,8 @@ describe('Route: POST /slack/events', () => {
           'x-slack-request-timestamp': timestamp,
           'x-slack-signature': computeSlackSignature(SECRET, timestamp, rawBody),
         },
-        makeMastra().mastra
-      )
+        makeMastra().mastra,
+      ),
     );
     expect(result.status).toBe(400);
     expect(result.body).toEqual({ error: 'invalid_json' });
@@ -187,14 +193,26 @@ describe('Route: POST /slack/events', () => {
 
     expect(result.status).toBe(200);
     expect(result.body).toEqual({ ok: true });
-    // L'ACK est parti alors que l'agent n'a pas encore répondu.
-    expect(postMessage).not.toHaveBeenCalled();
 
     await vi.waitFor(() => expect(generate).toHaveBeenCalled());
-    expect(postMessage).not.toHaveBeenCalled();
+
+    // Le marqueur de progression est posté SANS attendre le modèle — c'est tout son
+    // intérêt : l'utilisateur voit que sa demande est prise en compte pendant les 2 à 17 s
+    // de l'appel LLM. Mais AUCUNE réponse d'agent n'a encore été délivrée.
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: PROGRESS_MARKER_TEXT }),
+    );
+    expect(updateMessage).not.toHaveBeenCalled();
 
     resolveAgent({ text: 'réponse tardive' });
-    await vi.waitFor(() => expect(postMessage).toHaveBeenCalled());
+
+    // La réponse REMPLACE le marqueur : un seul message dans le fil, jamais deux.
+    await vi.waitFor(() =>
+      expect(updateMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ text: 'réponse tardive' }),
+      ),
+    );
+    expect(postMessage).toHaveBeenCalledTimes(1);
   });
 
   it('routes an app_mention to the keyword-selected agent in the background', async () => {
@@ -210,17 +228,17 @@ describe('Route: POST /slack/events', () => {
           channel_type: 'channel',
           ts: '1700000000.000100',
         },
-        'Ev0MENTION'
+        'Ev0MENTION',
       ),
-      { mastra }
+      { mastra },
     );
 
     expect(result.status).toBe(200);
     await vi.waitFor(() => expect(getAgent).toHaveBeenCalledWith('questionnaireEngine'));
     await vi.waitFor(() =>
       expect(postMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ channel: 'C0MOCKCHAN', thread_ts: '1700000000.000100' })
-      )
+        expect.objectContaining({ channel: 'C0MOCKCHAN', thread_ts: '1700000000.000100' }),
+      ),
     );
   });
 
@@ -229,7 +247,7 @@ describe('Route: POST /slack/events', () => {
 
     const result = await callRoute(
       eventCallback(dmEvent({ bot_id: 'B0BM9MK4G65', subtype: 'bot_message' }), 'Ev0SELF'),
-      { mastra }
+      { mastra },
     );
 
     expect(result.status).toBe(200);
@@ -256,7 +274,7 @@ describe('Route: POST /slack/events', () => {
 
     const result = await callRoute(
       eventCallback(dmEvent({ channel: 'C0MOCKCHAN', channel_type: 'channel' }), 'Ev0CHANMSG'),
-      { mastra }
+      { mastra },
     );
 
     expect(result.status).toBe(200);
@@ -354,7 +372,7 @@ describe('Route: prolongation du traitement de fond (waitUntil)', () => {
     const { mastra } = makeMastra();
     await callRoute(
       eventCallback(dmEvent({ bot_id: 'B0BM9MK4G65', subtype: 'bot_message' }), 'Ev0NOSCHED'),
-      { mastra }
+      { mastra },
     );
 
     expect(waitUntil).not.toHaveBeenCalled();

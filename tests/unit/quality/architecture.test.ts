@@ -75,7 +75,9 @@ function findViolations(predicate: (spec: string) => { label: string } | undefin
       for (const spec of importSpecifiers(source)) {
         const hit = predicate(spec);
         if (hit) {
-          violations.push(`${path.relative(REPO_ROOT, file)} importe "${spec}" (interdit : ${hit.label})`);
+          violations.push(
+            `${path.relative(REPO_ROOT, file)} importe "${spec}" (interdit : ${hit.label})`,
+          );
         }
       }
     }
@@ -104,17 +106,30 @@ describe('Règle de dépendance — la couche domain ne dépend de rien', () => 
     ).toEqual([]);
   });
 
-  it('scanne effectivement les 5 features et leurs fichiers domain (anti faux-négatif)', () => {
+  it('scanne effectivement les 6 features et leurs fichiers domain (anti faux-négatif)', () => {
     // Sans cette assertion, un renommage de dossier ferait passer le garde-fou
     // au vert à vide — exactement le défaut de la version précédente.
     const features = listFeatures();
-    expect(features).toEqual(['document', 'employee', 'notification', 'onboarding', 'questionnaire']);
+    expect(features).toEqual([
+      'conversation',
+      'document',
+      'employee',
+      'notification',
+      'onboarding',
+      'questionnaire',
+    ]);
 
     for (const feature of features) {
-      expect(domainFilesOf(feature).length, `${feature}/domain est vide ou introuvable`).toBeGreaterThan(0);
+      expect(
+        domainFilesOf(feature).length,
+        `${feature}/domain est vide ou introuvable`,
+      ).toBeGreaterThan(0);
     }
 
     const total = features.reduce((count, feature) => count + domainFilesOf(feature).length, 0);
-    expect(total, 'le scan ne trouve plus de fichiers domain — le garde-fou est cassé').toBeGreaterThanOrEqual(20);
+    expect(
+      total,
+      'le scan ne trouve plus de fichiers domain — le garde-fou est cassé',
+    ).toBeGreaterThanOrEqual(20);
   });
 });

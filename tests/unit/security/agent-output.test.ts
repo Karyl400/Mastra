@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizeAgentOutput, NEUTRAL_REFUSAL } from '../../../src/shared/security/agent-output';
+import {
+  sanitizeAgentOutput,
+  NEUTRAL_REFUSAL,
+  ALLOWED_LINK_DOMAINS,
+  STRIPPED_LINK_PLACEHOLDER,
+} from '../../../src/shared/security/agent-output';
 
 /**
  * Filet posé après la campagne de tests en production du 2026-08-10.
@@ -72,6 +77,170 @@ describe('sanitizeAgentOutput — purge des marqueurs internes', () => {
 
     expect(result.text).toBe(clean);
     expect(result.redacted).toEqual([]);
+  });
+});
+
+/**
+ * Filtre posé après l'incident du 2026-08-11 à 3:07 : le bot a renvoyé
+ * `https://kisso.internal/docs/<uuid>/download`, un lien qui ne mène nulle part.
+ *
+ * `grep -rn "kisso.internal"` → 0 occurrence dans tout le dépôt : le domaine est
+ * une pure invention du modèle. Et il ne pouvait pas en être autrement — AUCUN
+ * tool exposé aux agents ne retourne d'URL, l'entité `Document` ne déclarant ni
+ * `url` ni `path`. Ce point de passage est le seul endroit où ce lien pouvait
+ * être intercepté.
+ */
+describe('sanitizeAgentOutput — filtre des liens', () => {
+  it('laisse passer un lien Slack', () => {
+    const result = sanitizeAgentOutput('Le fil est ici : https://kissohq.slack.com/archives/C123');
+
+    expect(result.text).toBe('Le fil est ici : https://kissohq.slack.com/archives/C123');
+    expect(result.strippedUrls).toEqual([]);
+  });
+
+  it('laisse passer un sous-domaine d’un domaine autorisé', () => {
+    const result = sanitizeAgentOutput('Fichier : https://files.slack.com/x/y.pdf');
+
+    expect(result.text).toContain('https://files.slack.com/x/y.pdf');
+    expect(result.strippedUrls).toEqual([]);
+  });
+
+  it("retire le lien fabriqué de l'incident et remonte son domaine", () => {
+    const result = sanitizeAgentOutput(
+      'Ton guide est prêt : https://kisso.internal/docs/d20df236-5c24-4a1b-9f3e-8c7b21e4a901/download',
+    );
+
+    expect(result.text).toBe(`Ton guide est prêt : ${STRIPPED_LINK_PLACEHOLDER}`);
+    expect(result.text).not.toContain('kisso.internal');
+    expect(result.strippedUrls).toEqual(['kisso.internal']);
+  });
+
+  it("ne journalise que l'hôte, jamais l'UUID porté par le chemin", () => {
+    // Le chemin d'un lien fabriqué embarque souvent un identifiant RÉEL : le
+    // recopier dans les logs y déverserait une donnée métier pour rien.
+    const result = sanitizeAgentOutput(
+      'Voir https://kisso.internal/docs/d20df236-5c24-4a1b-9f3e-8c7b21e4a901/download',
+    );
+
+    expect(result.strippedUrls).toEqual(['kisso.internal']);
+    expect(result.strippedUrls.join()).not.toContain('d20df236');
+  });
+
+  it('retire un lien au format mrkdwn `<url|texte>`', () => {
+    const result = sanitizeAgentOutput(
+      'Télécharge-le <https://kisso.internal/docs/abc/download|ici>.',
+    );
+
+    expect(result.text).toBe(`Télécharge-le ${STRIPPED_LINK_PLACEHOLDER}.`);
+    expect(result.strippedUrls).toEqual(['kisso.internal']);
+  });
+
+  it('laisse intact un lien mrkdwn autorisé, libellé compris', () => {
+    const mrkdwn = 'Rejoins <https://kissohq.slack.com/archives/C123|le canal>.';
+
+    const result = sanitizeAgentOutput(mrkdwn);
+
+    expect(result.text).toBe(mrkdwn);
+    expect(result.strippedUrls).toEqual([]);
+  });
+
+  it('préserve une URL citée dans un bloc de code', () => {
+    // Un extrait de code peut légitimement citer une URL, et Slack ne la rend
+    // pas cliquable dans un bloc.
+    const code = 'Exemple :\n```\ncurl https://kisso.internal/docs/x\n```\nVoilà.';
+
+    const result = sanitizeAgentOutput(code);
+
+    expect(result.text).toBe(code);
+    expect(result.strippedUrls).toEqual([]);
+  });
+
+  it('préserve la ponctuation finale collée à une URL nue', () => {
+    const result = sanitizeAgentOutput('Va sur https://kisso.internal/docs.');
+
+    expect(result.text).toBe(`Va sur ${STRIPPED_LINK_PLACEHOLDER}.`);
+  });
+
+  it('déduplique les domaines et conserve l’ordre d’apparition', () => {
+    const result = sanitizeAgentOutput(
+      'Un https://kisso.internal/a puis https://drive.example/b puis https://kisso.internal/c',
+    );
+
+    expect(result.strippedUrls).toEqual(['kisso.internal', 'drive.example']);
+  });
+
+  it("n'est pas trompé par un domaine autorisé placé en userinfo", () => {
+    // `https://kissohq.slack.com@evil.tld/x` : l'hôte RÉEL est `evil.tld`.
+    const result = sanitizeAgentOutput('Clique https://kissohq.slack.com@evil.tld/x');
+
+    expect(result.text).toBe(`Clique ${STRIPPED_LINK_PLACEHOLDER}`);
+    expect(result.strippedUrls).toEqual(['evil.tld']);
+  });
+
+  it("n'est pas trompé par un domaine autorisé en préfixe d'un autre", () => {
+    const result = sanitizeAgentOutput('Voir https://slack.com.evil.tld/x');
+
+    expect(result.strippedUrls).toEqual(['slack.com.evil.tld']);
+  });
+
+  it('ignore le port lors de la comparaison', () => {
+    const result = sanitizeAgentOutput('Voir https://kissohq.slack.com:443/archives/C123');
+
+    expect(result.strippedUrls).toEqual([]);
+  });
+
+  it('ne déclenche pas le refus complet — la réponse utile est conservée', () => {
+    // Différence assumée avec un marqueur interne : une hallucination de lien est
+    // une inexactitude LOCALE, pas une fuite. Tout jeter transformerait chaque
+    // faux lien en panne totale du tour.
+    const result = sanitizeAgentOutput(
+      'Ton guide *Onboarding* est enregistré. Lien : https://kisso.internal/docs/x',
+    );
+
+    expect(result.text).not.toBe(NEUTRAL_REFUSAL);
+    expect(result.text).toContain('Ton guide *Onboarding* est enregistré.');
+    expect(result.redacted).toEqual([]);
+  });
+
+  it('la purge des marqueurs prime sur le filtre des liens', () => {
+    const result = sanitizeAgentOutput('[SECURITY_BLOCK] voir https://kisso.internal/docs/x');
+
+    expect(result.text).toBe(NEUTRAL_REFUSAL);
+    expect(result.redacted).toContain('security_marker');
+    expect(result.strippedUrls).toEqual([]);
+  });
+
+  it('ne touche pas aux mentions Slack `<@U…>` et `<#C…>`', () => {
+    // Le filtre balaie TOUS les jetons `<…>`, mentions comprises : seuls ceux
+    // dont la cible est http(s) sont examinés.
+    const mrkdwn = 'J’en parle à <@U0BMBEJTBMJ> dans <#CMLKC4S5T>.';
+
+    const result = sanitizeAgentOutput(mrkdwn);
+
+    expect(result.text).toBe(mrkdwn);
+    expect(result.strippedUrls).toEqual([]);
+  });
+
+  it('reste linéaire sur une entrée fabriquée pour faire exploser le moteur', () => {
+    // `<https://a` suivi de milliers de `|` sans `>` final : c'est la forme qui
+    // rendait quadratique la version regex complète du lien mrkdwn.
+    const hostile = `<https://a${'|'.repeat(50_000)}x`;
+
+    const start = Date.now();
+    sanitizeAgentOutput(hostile);
+
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it('expose une allowlist minimale et fermée', () => {
+    expect([...ALLOWED_LINK_DOMAINS]).toEqual(['kissohq.slack.com', 'slack.com']);
+  });
+
+  it('ne fait rien sur une réponse sans lien', () => {
+    const clean = "L'employé Karyl SOUMAILA a été retrouvé.";
+
+    expect(sanitizeAgentOutput(clean).strippedUrls).toEqual([]);
+    expect(sanitizeAgentOutput(clean).text).toBe(clean);
   });
 });
 

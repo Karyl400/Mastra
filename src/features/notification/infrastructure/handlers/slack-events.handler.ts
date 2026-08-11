@@ -8,6 +8,18 @@ import { SlackAdapter, type SlackBlock } from '../providers/slack.adapter';
 import { SlackWorkspaceService } from '../providers/slack-workspace.service';
 import type { SlackWorkspaceProvider } from '../../domain/ports/slack-workspace.port';
 import { encodePrefill, type ProfileModalPrefill } from './profile-modal';
+import { deriveConversationId } from '../../../conversation/domain/value-objects/conversation-id';
+import {
+  selectWindow,
+  CONVERSATION_TOKEN_BUDGET,
+} from '../../../conversation/domain/services/token-window';
+import {
+  CONVERSATION_TTL_MS,
+  type ConversationRepository,
+} from '../../../conversation/domain/ports/conversation.repository';
+import type { ConversationTurn } from '../../../conversation/domain/entities/conversation-turn';
+import { DrizzleConversationRepository } from '../../../conversation/infrastructure/repositories/drizzle-conversation.repository';
+import { startProgress } from '../providers/slack-progress';
 
 /**
  * Handler des événements Slack (Events API).
@@ -146,6 +158,18 @@ export interface SlackEventsHandlerOptions {
    * (fonction serverless gelée / tuée) et l'événement redevient rejouable.
    */
   inFlightGraceMs?: number;
+  /**
+   * Mémoire conversationnelle. Injectée pour les tests (doublure in-memory) ; en
+   * production le dépôt Drizzle est construit paresseusement, au premier message.
+   *
+   * `null` DÉSACTIVE explicitement la mémoire — utile pour isoler un test du reste
+   * du comportement sans avoir à fournir une doublure.
+   */
+  conversationRepository?: ConversationRepository | null;
+  /** Budget de contexte alloué à l'historique, en tokens. */
+  conversationTokenBudget?: number;
+  /** Durée d'inactivité au-delà de laquelle le fil est clos (mémoire ET collance). */
+  conversationTtlMs?: number;
 }
 
 /**
@@ -196,11 +220,64 @@ const ORCHESTRATOR_INTENTS = [
   'tâche',
   'tache',
   'onboarding',
+  // Ajoutés le 2026-08-11. Seul l'orchestrateur porte `generateDocument`, donc ces trois
+  // termes sont SANS AMBIGUÏTÉ — le critère exigé par CLAUDE.md pour ce palier. Ils
+  // corrigent un défaut mesuré : « Donne le PDF alors » ne matchait AUCUNE liste et ne
+  // survivait que par le repli. `guideline` est listé à part car le bord droit du motif
+  // (`(?![\p{L}])`) empêche `guide` de matcher à l'intérieur de « guideline ».
+  // « génère » reste VOLONTAIREMENT exclu : il sert aussi `generateQuestionnaire`.
+  'pdf',
+  'guide',
+  'guideline',
 ] as const;
 
 const QUESTIONNAIRE_TOPICS = ['questionnaire', 'évaluation', 'quiz', 'test'] as const;
 
 const NOTIFICATION_TOPICS = ['notification', 'rappel', 'email', 'message'] as const;
+
+/**
+ * Identifiants d'agents connus. Sert à valider l'agent collant relu en base : une valeur
+ * corrompue ou l'identifiant d'un agent retiré du registre ferait sinon lever
+ * `mastra.getAgent()` à chaque message du fil, condamnant la conversation entière.
+ */
+const KNOWN_AGENT_IDS: ReadonlySet<string> = new Set([
+  'onboardingOrchestrator',
+  'questionnaireEngine',
+  'notificationAgent',
+]);
+
+/**
+ * Garde-fou de REQUÊTE : nombre de tours chargés avant fenêtrage. Ce n'est pas le plafond
+ * de contexte — celui-là se compte en tokens (`selectWindow`). Il évite seulement de tirer
+ * un fil de mille messages en mémoire pour n'en garder que six.
+ */
+const CONVERSATION_QUERY_LIMIT = 40;
+
+/**
+ * Une purge est lancée tous les N messages traités, en tâche de fond. Pas de cron : le
+ * projet n'en a aucun, et la rétention n'a pas besoin d'être ponctuelle.
+ */
+const PRUNE_EVERY_N_MESSAGES = 100;
+
+/**
+ * Extrait le contenu ASSAINI d'une entrée encadrée par `wrapAgentInput`.
+ *
+ * Format produit par le garde-fou :
+ *   `<PREFIX_user_input>\n{assaini}\n</PREFIX_user_input>`
+ *
+ * On ne réimplémente surtout pas l'assainissement : on récupère le résultat de celui que le
+ * garde-fou vient d'appliquer. C'est ce texte-là, et lui seul, qui a le droit d'entrer en
+ * mémoire — le texte brut y ferait persister un faux délimiteur, rejoué ensuite à chaque tour.
+ *
+ * Le repli sur `fallback` ne sert qu'au cas où le format changerait ; il est signalé par
+ * l'appelant, jamais silencieux.
+ */
+export function unwrapSanitizedInput(wrapped: string, fallback: string): string {
+  const firstNewline = wrapped.indexOf('\n');
+  const lastNewline = wrapped.lastIndexOf('\n');
+  if (firstNewline < 0 || lastNewline <= firstNewline) return fallback;
+  return wrapped.slice(firstNewline + 1, lastNewline);
+}
 
 /** Premier mot d'un nom complet — repli quand le profil Slack n'a pas de prénom. */
 function firstWordOf(fullName: string | undefined): string {
@@ -278,6 +355,15 @@ export class SlackEventsHandler {
   private readonly workspaceProvider: Pick<SlackWorkspaceProvider, 'getUserById'>;
   /** Évite d'inonder les logs : l'absence de `SLACK_TEAM_ID` est signalée une fois. */
   private teamIdWarningEmitted = false;
+  /**
+   * Mémoire conversationnelle. `undefined` signifie « pas encore construite » et
+   * `null` « désactivée » — les deux états sont distincts, d'où l'union.
+   */
+  private conversationRepo: ConversationRepository | null | undefined;
+  private readonly conversationTokenBudget: number;
+  private readonly conversationTtlMs: number;
+  /** Compteur de messages traités, pour déclencher la purge périodique. */
+  private processedMessages = 0;
 
   constructor(botToken: string, mastra: Mastra, options: SlackEventsHandlerOptions = {}) {
     this.slack = options.slackClient ?? new WebClient(botToken);
@@ -285,10 +371,27 @@ export class SlackEventsHandler {
     this.chatProvider = options.chatProvider ?? new SlackAdapter(botToken);
     this.workspaceProvider = options.workspaceProvider ?? new SlackWorkspaceService(botToken);
     this.inFlightGraceMs = options.inFlightGraceMs ?? DEFAULT_IN_FLIGHT_GRACE_MS;
+    this.conversationRepo = options.conversationRepository;
+    this.conversationTokenBudget = options.conversationTokenBudget ?? CONVERSATION_TOKEN_BUDGET;
+    this.conversationTtlMs = options.conversationTtlMs ?? CONVERSATION_TTL_MS;
     this.seenEvents = new LRUCache<string, DedupEntry>({
       max: options.dedupMax ?? 1000,
       ttl: options.dedupTtlMs ?? 10 * 60 * 1000,
     });
+  }
+
+  /**
+   * Dépôt de mémoire, construit paresseusement.
+   *
+   * Volontairement PAS dans le constructeur : le handler est instancié au chargement du
+   * module par `getSlackEventsHandler`, et ouvrir une connexion Drizzle à ce moment-là
+   * paierait la latence de connexion sur le chemin d'ACK — celui qui a 3 secondes.
+   */
+  private getConversationRepo(): ConversationRepository | null {
+    if (this.conversationRepo === undefined) {
+      this.conversationRepo = new DrizzleConversationRepository();
+    }
+    return this.conversationRepo;
   }
 
   /**
@@ -316,7 +419,7 @@ export class SlackEventsHandler {
    * Routage mot-clé → agent. Les mots-clés sont contractuels (documentés dans CLAUDE.md),
    * ne pas les modifier sans mettre à jour la doc.
    */
-  routeToAgent(text: string): string {
+  routeToAgent(text: string, stickyAgentId?: string): string {
     const lowerText = (text ?? '').toLowerCase();
     const matchesAny = (keywords: readonly string[]): boolean =>
       keywords.some((keyword) => this.matchesKeyword(lowerText, keyword));
@@ -336,6 +439,26 @@ export class SlackEventsHandler {
     // ajouter n'apporterait rien et coûterait des faux positifs.
     if (matchesAny(ORCHESTRATOR_INTENTS)) {
       return 'onboardingOrchestrator';
+    }
+
+    // PALIER COLLANT — on reste sur l'agent qui mène le fil (décision D5).
+    //
+    // C'est la correction du défaut central mesuré le 2026-08-11 : le routage était
+    // recalculé sur le texte de CHAQUE message, isolément. Rejeu du fil réel —
+    // « Email: … » → notificationAgent, « As-tu envoyé le rapport ? » → orchestrateur,
+    // « Par email » → notificationAgent, « Donne le PDF alors » → orchestrateur : le fil
+    // alternait A → B → A → B → A entre deux agents amnésiques. « Par email » répondait
+    // à une question posée par l'orchestrateur et était livré à un agent qui ne l'avait
+    // jamais posée — d'où le « Quel est l'objet de cette notification ? », qui est
+    // littéralement le schéma d'entrée de `sendNotification` redemandé à zéro.
+    //
+    // Le palier est placé APRÈS les intentions de l'orchestrateur, qui restent
+    // prioritaires : une demande explicite de création ou de document doit pouvoir sortir
+    // d'un fil, sans quoi une conversation collée sur le mauvais agent serait un piège
+    // sans issue. Il est en revanche placé AVANT les paliers thématiques : ce sont eux
+    // qui détournaient les réponses de suivi.
+    if (stickyAgentId && KNOWN_AGENT_IDS.has(stickyAgentId)) {
+      return stickyAgentId;
     }
 
     // Mots-clés pour le questionnaire engine
@@ -730,18 +853,46 @@ export class SlackEventsHandler {
       threadTs = thread_ts ?? ts;
     }
 
-    const postMessage = (payload: { channel: string; text: string }) =>
-      this.slack.chat.postMessage(threadTs ? { ...payload, thread_ts: threadTs } : payload);
-
     logger.info('Processing Slack message', { user, channel, text });
 
-    try {
-      const agentId = this.routeToAgent(text);
-      logger.info('Routing to agent', { agentId, text });
+    // Marqueur de progression posté IMMÉDIATEMENT, avant tout appel LLM. Un run prend 2 à
+    // 17 s (jusqu'à ~21 s quand le back-off du dernier maillon se déclenche), pendant
+    // lesquelles le bot paraissait totalement muet. `startProgress` ne bloque pas : il rend
+    // la main sans attendre l'aller-retour Slack, et la réponse finale REMPLACE le marqueur
+    // — un seul message dans le fil, jamais deux.
+    const progress = await startProgress(this.slack, { channel, threadTs });
+    const postMessage = (payload: { channel: string; text: string }) =>
+      progress.resolve(payload.text);
 
-      const agent = this.mastra.getAgent(agentId);
+    // Clé du fil. En DM `threadTs` est `undefined` par conception (voir plus haut), donc
+    // la conversation EST le canal ; en canal, c'est le thread.
+    const conversationId = deriveConversationId({ channel, threadTs });
+
+    // Phase courante du traitement. Le catch générique ci-dessous couvrait cinq points
+    // d'échec très différents — chaîne LLM épuisée, exception d'outil, `SecurityBlockError`
+    // de `wrapAgentInput`, agent introuvable, échec de publication Slack — et les rendait
+    // tous sous le même « Désolé, une erreur s'est produite », sans rien pour les
+    // distinguer dans les logs. C'est ce qui a rendu l'incident du 2026-08-11 opaque.
+    let phase: 'route' | 'resolve-agent' | 'wrap' | 'generate' | 'sanitize' | 'post' = 'route';
+    let agentId = 'unknown';
+
+    try {
+      const history = await this.loadHistory(conversationId);
+
+      // La collance lit le DERNIER tour de l'historique BRUT, pas de la fenêtre : un fil
+      // peut dépasser le budget de contexte sans pour autant avoir changé d'interlocuteur.
+      const stickyAgentId = history.at(-1)?.agentId;
+      agentId = this.routeToAgent(text, stickyAgentId);
+      logger.info('Routing to agent', {
+        agentId,
+        stickyAgentId: stickyAgentId ?? null,
+        sticky: Boolean(stickyAgentId) && agentId === stickyAgentId,
+        historyTurns: history.length,
+      });
+
+      phase = 'resolve-agent';
+      const agent = this.tryGetAgent(agentId);
       if (!agent) {
-        logger.error('Agent not found', { agentId });
         await postMessage({
           channel,
           text: `Agent ${agentId} non disponible. Veuillez contacter l'administrateur.`,
@@ -749,11 +900,38 @@ export class SlackEventsHandler {
         return;
       }
 
+      phase = 'wrap';
       // Le texte Slack est une entrée UTILISATEUR non fiable : on l'encadre (délimiteurs,
       // détection d'injection, neutralisation Unicode) avant de le transmettre au LLM.
+      // Peut lever `SecurityBlockError` — et c'est voulu : un message bloqué ne doit
+      // atteindre ni le modèle, ni la mémoire (décision D4).
       const safeInput = wrapAgentInput(text);
-      const response = await agent.generate(safeInput);
 
+      // Le tour utilisateur est mémorisé AVANT l'appel du modèle, et seulement après que
+      // l'encadrement a réussi. Si la chaîne LLM échoue, la question reste connue : la
+      // personne reformule et le bot a toujours le contexte, au lieu de repartir de zéro
+      // exactement au moment où ça se passe mal.
+      //
+      // ⚠️ On mémorise le texte ASSAINI, pas le texte brut. La différence n'est pas
+      // cosmétique : un message hostile portant un faux délimiteur (`<kisso_XXXX_user_input>`)
+      // serait sinon stocké tel quel, puis rejoué NON ENCADRÉ à chaque tour suivant du fil —
+      // une injection qui se persiste et se répète, exactement ce que la mémoire ne doit
+      // jamais permettre. `wrapAgentInput` a déjà neutralisé le contenu ; on ne conserve
+      // que ce qu'il a validé.
+      await this.rememberTurn({
+        conversationId,
+        role: 'user',
+        content: unwrapSanitizedInput(safeInput, text),
+        agentId,
+        slackUserId: user ?? null,
+      });
+
+      phase = 'generate';
+      const startedAt = Date.now();
+      const response = await agent.generate(this.buildMessages(history, safeInput));
+      const durationMs = Date.now() - startedAt;
+
+      phase = 'sanitize';
       // Point de passage UNIQUE de toute réponse d'agent vers Slack. C'est ici,
       // et nulle part ailleurs, qu'on garantit qu'aucun marqueur interne ne
       // franchit la frontière et que le style est bien du mrkdwn Slack.
@@ -773,25 +951,212 @@ export class SlackEventsHandler {
         });
       }
 
+      if (safeOutput.strippedUrls.length > 0) {
+        // Un lien fabriqué n'est PAS une fuite : la réponse reste utile, seul le lien est
+        // retiré. Le niveau `error` est néanmoins volontaire — c'est la ligne qui aurait
+        // fait tomber en minutes le faux `https://kisso.internal/docs/<uuid>/download` du
+        // 2026-08-11. Seuls les HÔTES sont journalisés : le chemin d'un lien inventé
+        // embarque un identifiant réel, inutile à déverser dans les logs.
+        logger.error('Agent output carried fabricated links — links removed', {
+          agentId,
+          channel,
+          hosts: safeOutput.strippedUrls,
+        });
+      }
+
+      // Mémorisé APRÈS assainissement : sans cela, l'unique filet anti-marqueurs serait
+      // contourné et un `kisso_XXXX` capté une fois se rejouerait à chaque tour suivant.
+      await this.rememberTurn({
+        conversationId,
+        role: 'assistant',
+        content: safeOutput.text,
+        agentId,
+        slackUserId: null,
+      });
+
+      phase = 'post';
       await postMessage({ channel, text: safeOutput.text });
 
+      // Ce que le log ne disait pas et qu'il fallait deviner : combien d'étapes le run a
+      // coûté, quels outils ont réellement tourné, et combien de tokens d'entrée ont été
+      // brûlés. Sans `toolCalls`, « Le PDF a été généré » est indiscernable d'une pure
+      // narration du modèle. Coût : zéro token.
       logger.info('Slack response sent', {
         channel,
         agentId,
+        conversationId,
         redacted: safeOutput.redacted.length,
+        durationMs,
+        steps: this.readSteps(response),
+        inputTokens: this.readInputTokens(response),
+        toolCalls: this.readToolCalls(response),
+      });
+
+      this.schedulePruneIfDue();
+    } catch (error) {
+      // `error.constructor.name` est conservé explicitement : `maskPii` remplace la pile
+      // par la constante `[STACK_TRACE]` et ne garde que `name`/`message`/`cause`, ce qui
+      // ne suffit pas à distinguer un `SecurityBlockError` d'un échec de la chaîne LLM.
+      logger.error('Error processing Slack message', {
+        error,
+        errorType: error instanceof Error ? error.constructor.name : typeof error,
+        phase,
+        agentId,
+        conversationId,
+        channel,
+        text,
+        user,
+      });
+
+      // `fail()` ne lève jamais : il est déjà sur le chemin d'erreur, et y remplacer une
+      // exception par une autre effacerait la cause d'origine.
+      await progress.fail("Désolé, une erreur s'est produite lors du traitement de votre message.");
+    }
+  }
+
+  /**
+   * Résout un agent du registre Mastra, ou `undefined`.
+   *
+   * `mastra.getAgent()` LÈVE (`MASTRA_GET_AGENT_BY_NAME_NOT_FOUND`) au lieu de rendre
+   * `undefined` : l'ancien `if (!agent)` posé sur son résultat était donc du code MORT, et
+   * un identifiant erroné retombait sur le « Désolé, une erreur s'est produite » générique
+   * du catch — un piège de diagnostic actif. On rattrape l'exception ici.
+   *
+   * La garde `!agent` est conservée en aval malgré tout : c'est une double sécurité contre
+   * un changement de contrat de Mastra, dans les deux sens.
+   */
+  private tryGetAgent(agentId: string) {
+    try {
+      return this.mastra.getAgent(agentId);
+    } catch (error) {
+      logger.error('Agent not found in the Mastra registry', { agentId, error });
+      return undefined;
+    }
+  }
+
+  /* ----------------------------------------------------------------------- *
+   * Mémoire conversationnelle
+   * ----------------------------------------------------------------------- */
+
+  /**
+   * Historique récent du fil. **N'échoue jamais vers l'appelant** : une mémoire
+   * indisponible doit dégrader le bot vers son comportement d'avant — amnésique mais
+   * fonctionnel — et surtout pas le rendre muet. C'est notamment le cas tant que la table
+   * `conversation_turns` n'a pas été appliquée sur la base de production.
+   */
+  private async loadHistory(conversationId: string): Promise<ConversationTurn[]> {
+    const repo = this.getConversationRepo();
+    if (!repo) return [];
+
+    try {
+      return await repo.recentTurns(conversationId, {
+        ttlMs: this.conversationTtlMs,
+        limit: CONVERSATION_QUERY_LIMIT,
       });
     } catch (error) {
-      logger.error('Error processing Slack message', { error, text, user });
-
-      try {
-        await postMessage({
-          channel,
-          text: "Désolé, une erreur s'est produite lors du traitement de votre message.",
-        });
-      } catch (postError) {
-        logger.error('Unable to post Slack error message', { error: postError, channel });
-      }
+      logger.warn('Unable to load conversation history — continuing without memory', {
+        error,
+        conversationId,
+      });
+      return [];
     }
+  }
+
+  /** Persiste un tour. Même contrat que `loadHistory` : jamais fatal. */
+  private async rememberTurn(turn: {
+    conversationId: string;
+    role: 'user' | 'assistant';
+    content: string;
+    agentId: string;
+    slackUserId: string | null;
+  }): Promise<void> {
+    const repo = this.getConversationRepo();
+    if (!repo) return;
+
+    try {
+      await repo.append(turn);
+    } catch (error) {
+      logger.warn('Unable to persist a conversation turn', {
+        error,
+        conversationId: turn.conversationId,
+        role: turn.role,
+      });
+    }
+  }
+
+  /**
+   * Messages transmis au modèle : l'historique fenêtré, puis le message courant.
+   *
+   * ⚠️ L'historique n'est PAS ré-encadré, et c'est délibéré.
+   * `validateDelimiterIntegrity` rejette toute seconde balise ouvrante, donc
+   * `history.map(wrapAgentInput)` lèverait `SecurityBlockError` sur chaque message. Un
+   * SEUL bloc `<kisso_XXXX_user_input>` existe par appel, porté par le message courant —
+   * c'est exactement ce que les DIRECTIVE 3.1/3.2 annoncent au modèle (« le bloc balisé
+   * ajouté sous ce prompt »). L'historique voyage en messages structurés, où le rôle
+   * porte déjà la distinction système / utilisateur.
+   *
+   * Ce qui rend l'absence d'encadrement sûre, c'est le point d'écriture : un tour `user`
+   * n'entre en mémoire qu'après un `wrapAgentInput` réussi, et un tour `assistant`
+   * qu'après `sanitizeAgentOutput`. Rien de bloqué ne peut donc être rejoué.
+   */
+  private buildMessages(history: readonly ConversationTurn[], wrappedCurrentInput: string) {
+    const window = selectWindow(history, this.conversationTokenBudget);
+    // La ternaire produit une union de types LITTÉRAUX (`{role:'user'}` | `{role:'assistant'}`)
+    // là où un `{ role: turn.role }` produirait `role: 'user' | 'assistant'` sur un seul
+    // objet — non assignable à `MessageListInput`, qui attend un membre discriminé.
+    const replayed = window.map((turn) =>
+      turn.role === 'assistant'
+        ? ({ role: 'assistant', content: turn.content } as const)
+        : ({ role: 'user', content: turn.content } as const),
+    );
+
+    return [...replayed, { role: 'user', content: wrappedCurrentInput } as const];
+  }
+
+  /**
+   * Purge périodique, en tâche de fond. Le projet n'a aucun cron, et la rétention n'a pas
+   * besoin d'être ponctuelle : la déclencher un message sur cent suffit à borner la table.
+   */
+  private schedulePruneIfDue(): void {
+    this.processedMessages += 1;
+    if (this.processedMessages % PRUNE_EVERY_N_MESSAGES !== 0) return;
+
+    const repo = this.getConversationRepo();
+    if (!repo) return;
+
+    void repo
+      .prune(new Date(Date.now() - this.conversationTtlMs))
+      .then((removed) => logger.info('Pruned expired conversation turns', { removed }))
+      .catch((error) => logger.warn('Conversation prune failed', { error }));
+  }
+
+  /* ----------------------------------------------------------------------- *
+   * Lecture défensive du résultat d'agent (observabilité)
+   * ----------------------------------------------------------------------- */
+
+  /**
+   * Ces trois lecteurs sont volontairement tolérants : la forme exacte du résultat varie
+   * selon la version de Mastra, et l'observabilité ne doit JAMAIS faire échouer une
+   * réponse déjà produite. Un champ absent vaut `null`, jamais une exception.
+   */
+  private readSteps(response: unknown): number | null {
+    const steps = (response as { steps?: unknown }).steps;
+    return Array.isArray(steps) ? steps.length : null;
+  }
+
+  /** ⚠️ `inputTokens` CUMULE toutes les étapes : ne comparer deux mesures qu'à `steps` égal. */
+  private readInputTokens(response: unknown): number | null {
+    const usage = (response as { usage?: { inputTokens?: unknown } }).usage;
+    return typeof usage?.inputTokens === 'number' ? usage.inputTokens : null;
+  }
+
+  private readToolCalls(response: unknown): string[] | null {
+    const calls = (response as { toolCalls?: unknown }).toolCalls;
+    if (!Array.isArray(calls)) return null;
+    return calls.map((call) => {
+      const named = call as { toolName?: unknown; name?: unknown };
+      return String(named.toolName ?? named.name ?? 'unknown');
+    });
   }
 
   async handleUrlVerification(body: SlackEventEnvelope): Promise<{ challenge: string }> {
