@@ -24,7 +24,7 @@
     "db:init": "npx drizzle-kit export --dialect=sqlite --schema=./src/infrastructure/database/schema.ts | sqlite3 data/kisso.db",
     "smoke:slack": "node --env-file=.env scripts/smoke-slack.mjs",
     "smoke:email": "node --env-file=.env scripts/smoke-email.mjs",
-    "verify:bundle": "node scripts/verify-vercel-bundle.js --require pdfkit,pdfmake,js-md5,fontkit",
+    "verify:bundle": "node scripts/verify-vercel-bundle.js --require pdfkit,pdfmake,js-md5,fontkit,docx",
     "prepare": "husky",
     "lint": "eslint src --ext .ts || true",
     "format": "prettier --write ."
@@ -44,6 +44,7 @@
     "ai": "^7.0.55",
     "async-mutex": "^0.5.0",
     "better-sqlite3": "^12.11.1",
+    "docx": "^9.7.1",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "lru-cache": "^11.5.2",

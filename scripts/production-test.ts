@@ -17,6 +17,11 @@ import { DrizzleNotificationRepository } from '../src/features/notification/infr
 import { BrevoAdapter } from '../src/features/notification/infrastructure/providers/brevo.adapter';
 import { SlackWorkspaceService } from '../src/features/notification/infrastructure/providers/slack-workspace.service';
 import { PdfmakeService } from '../src/features/document/infrastructure/services/pdfmake.service';
+import {
+  OnboardingOutcome,
+  describeDegradation,
+  type StepFailure,
+} from '../src/features/onboarding/domain/value-objects/onboarding-outcome';
 
 // Configuration de test — identités de test dédiées du projet
 const TEST_EMAIL = 'karylsoumaila1@gmail.com';
@@ -39,9 +44,16 @@ const baseEmployeeData = {
   slackChannelId: TEST_SLACK_CHANNEL as string | null,
 };
 
+/**
+ * `DEGRADED` existe pour la même raison que `OnboardingOutcome.Degraded` : un
+ * parcours peut aboutir sans que l'email de bienvenue soit parti. Le rapporter
+ * `PASS` est précisément le faux « ✅ » que ce script a produit pendant des
+ * mois — mais le rapporter `FAIL` effacerait le fait que l'employé, lui, a bien
+ * été créé. Trois états côté rapport, comme côté workflow.
+ */
 type TestResult = {
   test: string;
-  status: 'PASS' | 'FAIL';
+  status: 'PASS' | 'DEGRADED' | 'FAIL';
   error?: string;
   duration?: number;
   notes?: string;
@@ -52,7 +64,9 @@ type TestResult = {
 function assertRunSucceeded(result: { status: string; error?: unknown }, label: string) {
   if (result.status !== 'success') {
     const err = result.error as { message?: string } | undefined;
-    throw new Error(`${label}: workflow status="${result.status}" — ${err?.message ?? JSON.stringify(result.error)}`);
+    throw new Error(
+      `${label}: workflow status="${result.status}" — ${err?.message ?? JSON.stringify(result.error)}`,
+    );
   }
 }
 
@@ -70,7 +84,8 @@ async function runProductionTests() {
   if (!brevoKey) {
     console.warn(
       '⚠️  BREVO_API_KEY est ABSENT/VIDE — AUCUN email ne sera réellement envoyé.\n' +
-        '    Les workflows attrapent l\'erreur Brevo et se contentent de emailSent:false.\n' +
+        "    Les workflows attrapent l'erreur Brevo : le run reste `success`, mais\n" +
+        "    `outcome` bascule sur `degraded` et l'étape `welcomeEmail` est nommée.\n" +
         '    Le chemin email est donc NON PROUVÉ par ce run.',
     );
   }
@@ -108,13 +123,28 @@ async function runProductionTests() {
     assertRunSucceeded(result, 'Onboarding complet');
 
     const duration = Date.now() - start;
-    const out = result.result as { emailSent: boolean; slackInvited: boolean };
-    console.log('Test 1 RÉUSSI', { result: out, duration });
+    // ⚠️ `assertRunSucceeded` ne prouve QUE l'absence d'exception. Le verdict
+    // du parcours est `outcome` : les étapes best-effort (email, Slack, tâches)
+    // avalent leur erreur et laissent le run en `success`.
+    const out = result.result as {
+      outcome: OnboardingOutcome;
+      emailSent: boolean;
+      slackInvited: boolean;
+      degradedSteps: StepFailure[];
+    };
+    const degraded = out.outcome === OnboardingOutcome.Degraded;
+    const notes =
+      `outcome=${out.outcome} emailSent=${out.emailSent} slackInvited=${out.slackInvited}` +
+      (degraded ? ` — étapes en échec : ${describeDegradation(out.degradedSteps ?? [])}` : '');
+
+    if (degraded) console.warn('Test 1 DÉGRADÉ', { notes, duration });
+    else console.log('Test 1 RÉUSSI', { result: out, duration });
+
     results.push({
       test: 'Création employé complet',
-      status: 'PASS',
+      status: degraded ? 'DEGRADED' : 'PASS',
       duration,
-      notes: `emailSent=${out.emailSent} slackInvited=${out.slackInvited}`,
+      notes,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -193,7 +223,11 @@ async function runProductionTests() {
       }
     } else {
       console.error('Test 4 ÉCHOUÉ: Devrait échouer pour email dupliqué');
-      results.push({ test: 'Email dupliqué', status: 'FAIL', error: 'Devrait lever ConflictError' });
+      results.push({
+        test: 'Email dupliqué',
+        status: 'FAIL',
+        error: 'Devrait lever ConflictError',
+      });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -293,6 +327,7 @@ async function runProductionTests() {
   // ── Résumé ────────────────────────────────────────────────────────────────
   console.log('=== RÉSUMÉ DES TESTS ===');
   const passed = results.filter((r) => r.status === 'PASS').length;
+  const degraded = results.filter((r) => r.status === 'DEGRADED').length;
   const failed = results.filter((r) => r.status === 'FAIL').length;
 
   results.forEach((r) => {
@@ -302,9 +337,13 @@ async function runProductionTests() {
     );
   });
 
-  console.log(`TOTAL: ${passed} PASS, ${failed} FAIL`);
+  console.log(`TOTAL: ${passed} PASS, ${degraded} DEGRADED, ${failed} FAIL`);
 
-  if (failed > 0) {
+  // Un parcours dégradé sort en échec : ce script sert à PROUVER le chemin
+  // complet (email compris). Un « 7 PASS » rendu alors qu'aucun email n'est
+  // parti est exactement le rapport mensonger qu'on supprime ici. La distinction
+  // avec FAIL reste lisible dans le résumé ci-dessus.
+  if (failed > 0 || degraded > 0) {
     process.exit(1);
   }
 }

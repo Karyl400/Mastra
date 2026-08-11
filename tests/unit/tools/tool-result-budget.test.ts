@@ -18,6 +18,9 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 
+import { makeGenerateDocument } from '../../../src/features/document/application/tools/generate-document';
+import { InMemoryDocumentRepository } from '../../../src/features/document/infrastructure/repositories/in-memory-document.repository';
+import type { DocumentRenderer } from '../../../src/features/document/domain/ports/document-renderer';
 import { makeGetEmployeeProfile } from '../../../src/features/employee/application/tools/get-employee-profile';
 import { makeGetTaskList } from '../../../src/features/employee/application/tools/get-task-list';
 import { MAX_TASKS_IN_RESULT } from '../../../src/features/employee/application/mappers/task-summary.mapper';
@@ -33,6 +36,8 @@ import {
   TaskPriority,
   TaskStatus,
   TaskType,
+  DocumentFormat,
+  DocumentType,
 } from '../../../src/shared/types';
 
 const EMPLOYEE_ID = '11111111-1111-4111-8111-111111111111';
@@ -293,5 +298,89 @@ describe('getTaskList — budget du tool-result', () => {
     expect(serialise).not.toContain('confidentiel');
     expect(serialise).not.toContain('OPS-4821');
     expect(serialise).not.toContain('rédigée pour le tableau de bord RH');
+  });
+});
+
+/**
+ * `generateDocument` portait exactement le même défaut que `getEmployeeProfile`, en pire :
+ * il retournait l'entité `Document` COMPLÈTE, `content` compris — c'est-à-dire qu'il
+ * renvoyait au modèle, à ses frais, le texte que le modèle venait lui-même d'écrire. Et ce
+ * texte restait ensuite dans l'historique de TOUS les tours suivants.
+ *
+ * Mesure sur un guide d'intégration réaliste (2 000 caractères de corps) : ~600 tokens de
+ * tool-result, contre ~40 après projection. La propriété qui compte n'est pas le chiffre
+ * mais l'INDÉPENDANCE : le résultat ne grandit plus avec le document.
+ */
+describe('generateDocument — budget du tool-result', () => {
+  const DOCUMENT_EMPLOYEE = {
+    ...employee,
+    id: EMPLOYEE_ID,
+  };
+
+  /** Renderer factice : le rendu réel est couvert ailleurs, ici seule la taille compte. */
+  const renderer: DocumentRenderer = {
+    format: DocumentFormat.Pdf,
+    async render() {
+      return {
+        bytes: new Uint8Array([1, 2, 3]),
+        filename: 'guide-de-demarrage.pdf',
+        mimeType: 'application/pdf',
+      };
+    },
+  };
+
+  async function generate(content: string) {
+    const documentRepo = new InMemoryDocumentRepository();
+    const directory = new InMemoryEmployeeRepository();
+    await directory.save(DOCUMENT_EMPLOYEE);
+
+    const tool = makeGenerateDocument({
+      documentRepo,
+      employeeRepo: directory,
+      renderers: [renderer],
+    });
+
+    return (await tool.execute!(
+      {
+        employeeId: EMPLOYEE_ID,
+        type: DocumentType.Guide,
+        title: 'Guide de démarrage',
+        content,
+        format: DocumentFormat.Pdf,
+        deliverTo: 'none',
+      } as never,
+      {} as never,
+    )) as Record<string, unknown>;
+  }
+
+  it('ne renvoie jamais le contenu du document au modèle', async () => {
+    const serialise = JSON.stringify(await generate('SECRET-CONTENU-DU-GUIDE '.repeat(50)));
+
+    expect(serialise).not.toContain('SECRET-CONTENU-DU-GUIDE');
+  });
+
+  it('rend une taille INDÉPENDANTE de la longueur du contenu', async () => {
+    const court = JSON.stringify(await generate('Bienvenue.'));
+    const long = JSON.stringify(await generate('Bienvenue chez Kisso. '.repeat(500)));
+
+    // Seul l'UUID du document change, et il est de longueur fixe.
+    expect(Math.abs(long.length - court.length)).toBe(0);
+  });
+
+  it('tient sous 60 tokens, verdict de livraison compris', async () => {
+    const serialise = JSON.stringify(await generate('Bienvenue chez Kisso. '.repeat(500)));
+    const tokens = Math.round(serialise.length / 3.5);
+
+    expect(tokens, `tool-result de ${tokens} tokens (${serialise.length} caractères)`).toBeLessThan(
+      60,
+    );
+  });
+
+  it('rend TOUJOURS le verdict de livraison — sans lui le modèle ne peut pas dire la vérité', async () => {
+    const result = await generate('Bienvenue.');
+
+    expect(result.delivery).toBeDefined();
+    expect(result.documentId).toBeDefined();
+    expect(result.format).toBe(DocumentFormat.Pdf);
   });
 });

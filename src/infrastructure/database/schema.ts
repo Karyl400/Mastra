@@ -148,6 +148,29 @@ export const documents = sqliteTable(
     title: text('title').notNull(),
     description: text('description').default(''),
 
+    /**
+     * CONTENU du document — le texte lui-même.
+     *
+     * Ajoutée le 2026-08-11 après une perte de données vérifiée en production :
+     * l'entité `Document` déclare `content: string`, `generateDocument` l'exige
+     * en entrée… et aucune colonne ne l'accueillait. Drizzle IGNORE
+     * silencieusement toute clé de `.values()` sans colonne déclarée, et le
+     * `as unknown as` des mappers effaçait l'écart pour le compilateur : les 6
+     * documents de la Turso de production ne contiennent RIEN.
+     *
+     * Pourquoi une colonne, et non un mappage vers les colonnes existantes : le
+     * bloc « stockage » ci-dessous décrit une référence vers un objet S3/GCS qui
+     * n'existe pas — `storage_key`, `storage_bucket`, `file_name`, `file_size`
+     * et `mime_type` sont NULL sur 6 lignes / 6, aucun bucket n'est configuré
+     * nulle part dans le dépôt. Détourner `description` (un résumé) ou
+     * `metadata` (un JSON libre) pour y loger le corps du document ferait mentir
+     * deux colonnes au lieu d'en ajouter une juste. Tant qu'aucun stockage
+     * objet n'existe, la base EST le stockage.
+     *
+     * Nullable, car les 6 lignes déjà écrites n'ont pas de contenu à rétablir.
+     */
+    content: text('content'),
+
     // Stockage : on stocke la référence S3, pas le contenu
     storageKey: text('storage_key'), // Clé S3/GCS
     storageBucket: text('storage_bucket'),
@@ -612,7 +635,38 @@ export const conversationTurns = sqliteTable(
 );
 
 // ============================================
-// 12. TYPES INFÉRÉS POUR LES REQUÊTES
+// 12. SLACK EVENT DEDUP (Déduplication multi-instance)
+// ============================================
+//
+// Table unique de la déduplication PARTAGÉE des événements Slack. Le cache LRU du handler est
+// en mémoire, donc par instance : il est incapable par construction d'écarter un rejeu routé
+// vers une AUTRE instance pendant que la première traite encore l'événement — c'est-à-dire
+// exactement le cas qui produit une double réponse (incident du 2026-08-11, 12:38 UTC).
+//
+// La `key` est celle du handler (`ts:<channel>:<ts>` ou `id:<event_id>`) et sert de PRIMARY
+// KEY : c'est elle qui rend la prise atomique via `INSERT … ON CONFLICT DO NOTHING`.
+//
+// ⚠️ Même écart assumé que `conversation_turns` sur l'horodatage : entier en millisecondes et
+// non `datetime('now')` en `text`. `started_at` est le discriminant de la grâce d'abandon
+// (60 s) ; une résolution à la seconde y serait grossière, et le comparer exigerait un
+// reparsing à chaque prise de clé — sur le chemin d'ACK, celui qui a 3 secondes.
+
+export const slackEventDedup = sqliteTable(
+  'slack_event_dedup',
+  {
+    key: text('key').primaryKey(), // `ts:<channel>:<ts>` ou `id:<event_id>`
+    status: text('status').notNull(), // 'in-flight' | 'done'
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    // Sert la purge de rétention (~10 min, la fenêtre de rejeu de Slack). L'accès par clé
+    // passe déjà par l'index implicite de la PRIMARY KEY.
+    startedAtIdx: index('idx_slack_event_dedup_started_at').on(table.startedAt),
+  }),
+);
+
+// ============================================
+// 13. TYPES INFÉRÉS POUR LES REQUÊTES
 // ============================================
 
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
@@ -629,6 +683,7 @@ export type OnboardingStep = InferSelectModel<typeof onboardingSteps>;
 export type EmployeeDocument = InferSelectModel<typeof employeeDocuments>;
 export type AuditLog = InferSelectModel<typeof auditLogs>;
 export type ConversationTurnRow = InferSelectModel<typeof conversationTurns>;
+export type SlackEventDedupRow = InferSelectModel<typeof slackEventDedup>;
 
 // Insert types (création)
 export type NewEmployee = InferInsertModel<typeof employees>;
@@ -642,3 +697,4 @@ export type NewOnboardingStep = InferInsertModel<typeof onboardingSteps>;
 export type NewEmployeeDocument = InferInsertModel<typeof employeeDocuments>;
 export type NewAuditLog = InferInsertModel<typeof auditLogs>;
 export type NewConversationTurnRow = InferInsertModel<typeof conversationTurns>;
+export type NewSlackEventDedupRow = InferInsertModel<typeof slackEventDedup>;

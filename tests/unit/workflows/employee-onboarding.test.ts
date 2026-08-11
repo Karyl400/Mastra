@@ -6,6 +6,10 @@ import type { NotificationRepository } from '../../../src/features/notification/
 import type { TaskRepository } from '../../../src/features/employee/domain/ports/task.repository';
 import type { EmailProvider } from '../../../src/features/notification/domain/ports/providers';
 import type { SlackWorkspaceProvider } from '../../../src/features/notification/domain/ports/slack-workspace.port';
+import {
+  BestEffortStep,
+  OnboardingOutcome,
+} from '../../../src/features/onboarding/domain/value-objects/onboarding-outcome';
 import { Department, Position } from '../../../src/shared/types';
 
 const baseInput = {
@@ -107,6 +111,8 @@ describe('Workflow: employee-onboarding', () => {
     expect(result.status).toBe('success');
     if (result.status !== 'success') return;
 
+    expect(result.result.outcome).toBe(OnboardingOutcome.Completed);
+    expect(result.result.degradedSteps).toEqual([]);
     expect(result.result.emailSent).toBe(true);
     expect(result.result.slackInvited).toBe(true);
     expect(result.result.slackUserId).toBe('U01');
@@ -270,6 +276,154 @@ describe('Workflow: employee-onboarding', () => {
     expect(result.status).toBe('success');
     if (result.status !== 'success') return;
     expect(result.result.slackInvited).toBe(false);
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Visibilité de la DÉGRADATION.
+  //
+  // Le piège corrigé ici : un email jamais parti était rendu par un simple
+  // `emailSent: false` noyé dans un run `status: 'success'`. Trois lecteurs
+  // successifs (rapport humain, `scripts/production-*`, agent) ont conclu à
+  // tort qu'un email avait été envoyé. `outcome` porte désormais le verdict et
+  // `degradedSteps` nomme l'étape ET la cause.
+  //
+  // Contrainte inverse, tout aussi importante : ces étapes restent best-effort.
+  // Aucune ne doit LEVER, sinon la création de l'employé, ses tâches et son
+  // invitation Slack seraient perdues parce que le SMTP est tombé.
+  // ──────────────────────────────────────────────────────────────────────────
+  describe('issue du parcours (outcome / degradedSteps)', () => {
+    it("marque le parcours DÉGRADÉ et nomme l'étape email quand l'envoi échoue", async () => {
+      const deps = makeDeps({
+        emailProvider: { sendEmail: vi.fn().mockRejectedValue(new Error('SMTP down')) },
+      });
+      const workflow = createEmployeeOnboardingWorkflow(deps);
+      const run = await workflow.createRun();
+      const result = await run.start({ inputData: baseInput });
+
+      expect(result.status).toBe('success');
+      if (result.status !== 'success') return;
+
+      expect(result.result.outcome).toBe(OnboardingOutcome.Degraded);
+      expect(result.result.degradedSteps).toHaveLength(1);
+      expect(result.result.degradedSteps[0]?.step).toBe(BestEffortStep.WelcomeEmail);
+      // La CAUSE voyage avec l'étape : un booléen ne dit pas quoi réparer.
+      expect(result.result.degradedSteps[0]?.reason).toContain('SMTP down');
+    });
+
+    it("persiste malgré tout l'employé ET ses tâches quand l'email échoue", async () => {
+      // C'est cette garantie qui justifie de ne PAS lever : perdre la création
+      // parce que le SMTP est indisponible serait pire que l'échec silencieux.
+      const deps = makeDeps({
+        emailProvider: { sendEmail: vi.fn().mockRejectedValue(new Error('SMTP down')) },
+      });
+      const workflow = createEmployeeOnboardingWorkflow(deps);
+      const run = await workflow.createRun();
+      const result = await run.start({ inputData: baseInput });
+
+      expect(result.status).toBe('success');
+      expect(deps.employeeRepo.save).toHaveBeenCalledTimes(1);
+      expect(deps.onboardingRepo.save).toHaveBeenCalledTimes(1);
+      expect(
+        (deps.taskRepo.save as ReturnType<typeof vi.fn>).mock.calls.length,
+        'aucune tâche persistée',
+      ).toBeGreaterThan(0);
+      // La notification reste tracée, en statut d'échec.
+      expect(deps.notificationRepo.save).toHaveBeenCalledTimes(1);
+    });
+
+    it("marque le parcours DÉGRADÉ et nomme l'étape Slack quand l'invitation lève", async () => {
+      const deps = makeDeps({
+        slackProvider: { inviteToChannel: vi.fn().mockRejectedValue(new Error('rate_limited')) },
+      });
+      const workflow = createEmployeeOnboardingWorkflow(deps);
+      const run = await workflow.createRun();
+      const result = await run.start({ inputData: baseInput });
+
+      expect(result.status).toBe('success');
+      if (result.status !== 'success') return;
+
+      expect(result.result.outcome).toBe(OnboardingOutcome.Degraded);
+      expect(result.result.degradedSteps.map((f) => f.step)).toEqual([BestEffortStep.SlackInvite]);
+      expect(result.result.degradedSteps[0]?.reason).toContain('rate_limited');
+      expect(deps.employeeRepo.save).toHaveBeenCalledTimes(1);
+    });
+
+    it("marque le parcours DÉGRADÉ quand aucun compte Slack ne répond à l'email", async () => {
+      // Le canal EST configuré : l'invitation était donc attendue et n'a pas eu
+      // lieu. C'est un trou réel dans l'accueil, pas une étape non applicable.
+      const deps = makeDeps({
+        slackProvider: { findUserByEmail: vi.fn().mockResolvedValue(null) },
+      });
+      const workflow = createEmployeeOnboardingWorkflow(deps);
+      const run = await workflow.createRun();
+      const result = await run.start({ inputData: baseInput });
+
+      expect(result.status).toBe('success');
+      if (result.status !== 'success') return;
+
+      expect(result.result.outcome).toBe(OnboardingOutcome.Degraded);
+      expect(result.result.degradedSteps.map((f) => f.step)).toEqual([BestEffortStep.SlackInvite]);
+    });
+
+    it("reste COMPLET quand l'invitation Slack est simplement hors sujet", async () => {
+      // Arbitrage décisif : sans canal de département (le cas de TOUTE
+      // soumission de la modale, `slackChannelId: null`), l'étape n'était pas
+      // censée s'exécuter. La compter comme dégradation rendrait « dégradé »
+      // l'état NORMAL et détruirait le signal qu'on vient de créer.
+      const deps = makeDeps();
+      const workflow = createEmployeeOnboardingWorkflow(deps);
+      const run = await workflow.createRun();
+      const { slackChannelId: _ignored, ...withoutChannel } = baseInput;
+      const result = await run.start({ inputData: withoutChannel });
+
+      expect(result.status).toBe('success');
+      if (result.status !== 'success') return;
+
+      expect(result.result.outcome).toBe(OnboardingOutcome.Completed);
+      expect(result.result.degradedSteps).toEqual([]);
+      expect(result.result.slackInvited).toBe(false);
+    });
+
+    it('marque le parcours DÉGRADÉ quand la persistance des tâches échoue', async () => {
+      const deps = makeDeps({
+        taskRepo: { save: vi.fn().mockRejectedValue(new Error('db down')) },
+      });
+      const workflow = createEmployeeOnboardingWorkflow(deps);
+      const run = await workflow.createRun();
+      const result = await run.start({ inputData: baseInput });
+
+      expect(result.status).toBe('success');
+      if (result.status !== 'success') return;
+
+      expect(result.result.outcome).toBe(OnboardingOutcome.Degraded);
+      expect(result.result.degradedSteps.map((f) => f.step)).toEqual([
+        BestEffortStep.OnboardingTasks,
+      ]);
+      expect(result.result.degradedSteps[0]?.reason).toContain('db down');
+      expect(deps.employeeRepo.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('cumule TOUTES les étapes best-effort en échec, sans en masquer aucune', async () => {
+      // Ne rendre que la première ferait réparer l'email et croire le reste sain.
+      const deps = makeDeps({
+        emailProvider: { sendEmail: vi.fn().mockRejectedValue(new Error('SMTP down')) },
+        slackProvider: { inviteToChannel: vi.fn().mockRejectedValue(new Error('rate_limited')) },
+      });
+      const workflow = createEmployeeOnboardingWorkflow(deps);
+      const run = await workflow.createRun();
+      const result = await run.start({ inputData: baseInput });
+
+      expect(result.status).toBe('success');
+      if (result.status !== 'success') return;
+
+      expect(result.result.outcome).toBe(OnboardingOutcome.Degraded);
+      expect(result.result.degradedSteps.map((f) => f.step)).toEqual([
+        BestEffortStep.WelcomeEmail,
+        BestEffortStep.SlackInvite,
+      ]);
+      expect(result.result.emailSent).toBe(false);
+      expect(result.result.slackInvited).toBe(false);
+    });
   });
 
   it('fails with a conflict message for duplicate emails', async () => {

@@ -1,9 +1,21 @@
 import { createRequire } from 'module';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
-import type { TDocumentDefinitions } from 'pdfmake/interfaces';
+import type { Content, TDocumentDefinitions } from 'pdfmake/interfaces';
 
 import type { PdfService } from '../../domain/ports/pdf.service';
+import type {
+  DocumentRenderInput,
+  DocumentRenderer,
+  RenderedDocument,
+} from '../../domain/ports/document-renderer';
+import { buildDocumentFilename, documentMimeType } from '../../domain/services/document-file';
+import {
+  buildDocumentOutline,
+  type DocumentBlock,
+  type DocumentOutline,
+} from '../../domain/services/document-template';
+import { DocumentFormat, DocumentType } from '../../../../shared/types';
 import { logger } from '../../../../shared/logger';
 
 const _require = createRequire(import.meta.url);
@@ -96,222 +108,124 @@ function ensureFonts(): void {
 // Templates
 // ─────────────────────────────────────────────
 
+/**
+ * Anciens identifiants de template, conservés pour `documentGenerationWorkflow`
+ * qui les passe encore en clair. Ils ne sont plus qu'un alias vers un
+ * `DocumentType` : le contenu réel vit désormais dans
+ * `domain/services/document-template.ts`, partagé avec le rendu DOCX.
+ */
 type TemplateId = 'TPL-contract' | 'TPL-welcome_letter' | 'TPL-certificate' | 'TPL-guide';
 
-function buildWelcomeLetter(data: Record<string, unknown>): TDocumentDefinitions {
-  return {
-    content: [
-      {
-        text: 'KISSO INDUSTRIES',
-        style: 'header',
-        alignment: 'center',
-      },
-
-      {
-        text: '\nLettre de Bienvenue\n\n',
-      },
-
-      {
-        text: `Cher(e) ${data.firstName ?? ''} ${data.lastName ?? ''},`,
-        style: 'body',
-      },
-
-      {
-        text: `Nous avons le plaisir de vous accueillir au sein de Kisso Industries, département ${data.department ?? 'N/A'}, en tant que ${data.position ?? 'N/A'}.`,
-        style: 'body',
-      },
-
-      {
-        text: `Votre date de début est le ${data.startDate ?? 'à confirmer'}.`,
-        style: 'body',
-      },
-
-      {
-        text: 'Prochaines étapes :',
-        style: 'sectionHeader',
-      },
-
-      {
-        ul: [
-          'Compléter votre profil employé',
-          'Rejoindre les canaux Slack assignés',
-          'Remplir le questionnaire d’intégration',
-          'Consulter le guide onboarding',
-        ],
-      },
-
-      {
-        text: '\nBienvenue dans l’équipe !',
-        italics: true,
-      },
-    ],
-
-    styles: {
-      header: {
-        fontSize: 22,
-        bold: true,
-      },
-
-      body: {
-        fontSize: 11,
-      },
-
-      sectionHeader: {
-        fontSize: 13,
-        bold: true,
-      },
-    },
-
-    defaultStyle: {
-      font: 'Roboto',
-    },
-  };
-}
-
-function buildContract(data: Record<string, unknown>): TDocumentDefinitions {
-  return {
-    content: [
-      {
-        text: 'KISSO INDUSTRIES',
-        style: 'header',
-      },
-
-      {
-        text: 'CONTRAT DE TRAVAIL',
-        style: 'header',
-      },
-
-      {
-        table: {
-          widths: ['*', '*'],
-
-          body: [
-            ['Employé', `${data.firstName ?? ''} ${data.lastName ?? ''}`],
-
-            ['Email', `${data.email ?? ''}`],
-
-            ['Département', `${data.department ?? ''}`],
-
-            ['Poste', `${data.position ?? ''}`],
-          ],
-        },
-      },
-    ],
-
-    styles: {
-      header: {
-        fontSize: 20,
-        bold: true,
-      },
-    },
-
-    defaultStyle: {
-      font: 'Roboto',
-    },
-  };
-}
-
-function buildCertificate(data: Record<string, unknown>): TDocumentDefinitions {
-  return {
-    content: [
-      {
-        text: 'CERTIFICAT D’ONBOARDING',
-        style: 'header',
-      },
-
-      {
-        text: `${data.firstName ?? ''} ${data.lastName ?? ''} a complété son onboarding chez Kisso Industries.`,
-      },
-    ],
-
-    styles: {
-      header: {
-        fontSize: 22,
-        bold: true,
-      },
-    },
-
-    defaultStyle: {
-      font: 'Roboto',
-    },
-  };
-}
-
-function buildGuide(data: Record<string, unknown>): TDocumentDefinitions {
-  return {
-    content: [
-      {
-        text: 'GUIDE D’ONBOARDING',
-        style: 'header',
-      },
-
-      {
-        text: `Département : ${data.department ?? 'Général'}`,
-      },
-
-      {
-        ul: [
-          'Configuration poste de travail',
-          'Accès Slack/GitHub',
-          'Présentation équipe',
-          'Culture entreprise',
-        ],
-      },
-    ],
-
-    styles: {
-      header: {
-        fontSize: 22,
-        bold: true,
-      },
-    },
-
-    defaultStyle: {
-      font: 'Roboto',
-    },
-  };
-}
-
-const TEMPLATE_BUILDERS: Record<
-  TemplateId,
-  (data: Record<string, unknown>) => TDocumentDefinitions
-> = {
-  'TPL-contract': buildContract,
-
-  'TPL-welcome_letter': buildWelcomeLetter,
-
-  'TPL-certificate': buildCertificate,
-
-  'TPL-guide': buildGuide,
+const TEMPLATE_TYPES: Record<TemplateId, DocumentType> = {
+  'TPL-contract': DocumentType.Contract,
+  'TPL-welcome_letter': DocumentType.WelcomeLetter,
+  'TPL-certificate': DocumentType.Certificate,
+  'TPL-guide': DocumentType.Guide,
 };
+
+/** Champ employé lu depuis un enregistrement non typé (`generate()`). */
+function readField(source: Record<string, unknown>, key: string): string | undefined {
+  const value = source[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+// ─────────────────────────────────────────────
+// Traduction du modèle logique vers pdfmake
+// ─────────────────────────────────────────────
+
+const STYLES: TDocumentDefinitions['styles'] = {
+  header: { fontSize: 20, bold: true, margin: [0, 0, 0, 8] },
+  subheader: { fontSize: 14, bold: true, margin: [0, 10, 0, 6] },
+  body: { fontSize: 11, margin: [0, 0, 0, 6] },
+};
+
+function renderBlock(block: DocumentBlock): Content {
+  switch (block.kind) {
+    case 'heading':
+      return { text: block.text, style: block.level === 1 ? 'header' : 'subheader' };
+
+    case 'paragraph':
+      return { text: block.text, style: 'body', italics: block.italic === true };
+
+    case 'bullets':
+      return { ul: [...block.items], style: 'body' };
+
+    case 'fields':
+      return {
+        table: { widths: ['*', '*'], body: block.rows.map((row) => [row[0], row[1]]) },
+        margin: [0, 6, 0, 6],
+      };
+  }
+}
+
+function toDocumentDefinition(outline: DocumentOutline): TDocumentDefinitions {
+  return {
+    content: outline.blocks.map(renderBlock),
+    styles: STYLES,
+    // Roboto est la seule police injectée dans le VFS : tout autre nom ferait
+    // échouer le rendu au lieu de dégrader.
+    defaultStyle: { font: 'Roboto' },
+  };
+}
 
 // ─────────────────────────────────────────────
 // Service
 // ─────────────────────────────────────────────
 
-export class PdfmakeService implements PdfService {
+/**
+ * Rend un document en PDF.
+ *
+ * Deux ports, une seule mécanique de rendu :
+ * - `DocumentRenderer.render()` — chemin PUR, rend des octets. C'est le seul
+ *   utilisable sur Vercel, dont le système de fichiers est en lecture seule hors
+ *   `/tmp` et éphémère.
+ * - `PdfService.generate()` — chemin historique, écrit sur disque et rend un
+ *   chemin local. Conservé tel quel pour `documentGenerationWorkflow`, mais il
+ *   délègue désormais au rendu pur : un seul endroit produit le PDF.
+ */
+export class PdfmakeService implements PdfService, DocumentRenderer {
+  readonly format = DocumentFormat.Pdf;
+
   private outputDir: string;
 
   constructor(outputDir = './data/documents') {
     this.outputDir = outputDir;
   }
 
-  async generate(employeeData: Record<string, unknown>, templateId: string): Promise<string> {
-    const builder = TEMPLATE_BUILDERS[templateId as TemplateId];
+  async render(input: DocumentRenderInput): Promise<RenderedDocument> {
+    const bytes = await this.renderBytes(buildDocumentOutline(input));
 
-    if (!builder) {
+    return {
+      bytes,
+      filename: buildDocumentFilename(input.title, DocumentFormat.Pdf),
+      mimeType: documentMimeType(DocumentFormat.Pdf),
+    };
+  }
+
+  async generate(employeeData: Record<string, unknown>, templateId: string): Promise<string> {
+    const type = TEMPLATE_TYPES[templateId as TemplateId];
+
+    if (!type) {
       throw new Error(`Unknown template ${templateId}`);
     }
 
-    ensureFonts();
+    const outline = buildDocumentOutline({
+      type,
+      // Le workflow ne fournit ni titre ni corps : le template s'appuie alors sur
+      // son titre par défaut et sur les seules données employé.
+      title: '',
+      content: '',
+      employee: {
+        firstName: readField(employeeData, 'firstName'),
+        lastName: readField(employeeData, 'lastName'),
+        email: readField(employeeData, 'email'),
+        department: readField(employeeData, 'department'),
+        position: readField(employeeData, 'position'),
+        startDate: readField(employeeData, 'startDate'),
+      },
+    });
 
-    if (!pdfmake) {
-      throw new Error('PDFMake unavailable');
-    }
-
-    const pdf = pdfmake.createPdf(builder(employeeData));
-
-    const buffer = await pdf.getBuffer();
+    const buffer = await this.renderBytes(outline);
 
     if (!existsSync(this.outputDir)) {
       mkdirSync(this.outputDir, {
@@ -319,6 +233,8 @@ export class PdfmakeService implements PdfService {
       });
     }
 
+    // Nom historique : `documentGenerationWorkflow` et ses tests s'appuient sur la
+    // présence du templateId dans le chemin rendu.
     const filename = `${templateId}_${Date.now()}.pdf`;
 
     const filepath = join(this.outputDir, filename);
@@ -332,5 +248,15 @@ export class PdfmakeService implements PdfService {
     });
 
     return filepath;
+  }
+
+  private async renderBytes(outline: DocumentOutline): Promise<Uint8Array> {
+    ensureFonts();
+
+    if (!pdfmake) {
+      throw new Error('PDFMake unavailable');
+    }
+
+    return await pdfmake.createPdf(toDocumentDefinition(outline)).getBuffer();
   }
 }

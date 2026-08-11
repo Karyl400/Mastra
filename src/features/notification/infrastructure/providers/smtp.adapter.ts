@@ -1,5 +1,6 @@
 import nodemailer, { type Transporter } from 'nodemailer';
-import type { EmailProvider } from '../../domain/ports/providers';
+import type { EmailAttachment, EmailProvider } from '../../domain/ports/providers';
+import { assertEmailAttachmentsFit } from '../../domain/services/email-attachment-policy';
 
 /**
  * Adaptateur email SMTP (Gmail et tout serveur SMTP classique).
@@ -84,7 +85,17 @@ export class SmtpAdapter implements EmailProvider {
     await this.transporter.verify();
   }
 
-  async sendEmail(to: string, subject: string, body: string): Promise<void> {
+  async sendEmail(
+    to: string,
+    subject: string,
+    body: string,
+    attachments?: EmailAttachment[],
+  ): Promise<void> {
+    // Vérifié AVANT d'ouvrir la connexion : sur une fonction serverless, laisser
+    // partir un envoi trop lourd coûte les 10 s du timeout socket pour finir sur
+    // un `ETIMEDOUT` qui ne dit rien de la vraie cause.
+    if (attachments?.length) assertEmailAttachmentsFit(attachments);
+
     try {
       await this.transporter.sendMail({
         from: this.from,
@@ -93,7 +104,23 @@ export class SmtpAdapter implements EmailProvider {
         html: body,
         // Repli texte brut : certains clients refusent un message uniquement HTML,
         // et cela améliore le score anti-spam.
-        text: body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+        text: body
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim(),
+        // La clé n'est posée que s'il y a réellement quelque chose à joindre :
+        // les appelants historiques doivent produire un message strictement
+        // identique à l'existant. `content` doit être un Buffer — nodemailer ne
+        // contractualise pas l'`Uint8Array`.
+        ...(attachments?.length
+          ? {
+              attachments: attachments.map((attachment) => ({
+                filename: attachment.filename,
+                content: Buffer.from(attachment.bytes),
+                contentType: attachment.mimeType,
+              })),
+            }
+          : {}),
       });
     } catch (error) {
       const err = error as { responseCode?: number; code?: string; message?: string };
@@ -103,15 +130,15 @@ export class SmtpAdapter implements EmailProvider {
       if (err.responseCode === 534 || /application-specific password/i.test(err.message ?? '')) {
         throw new Error(
           "SMTP auth refusée : Gmail exige un mot de passe d'application (16 caractères), " +
-            "pas le mot de passe du compte. Activez la validation en deux étapes puis générez-en " +
+            'pas le mot de passe du compte. Activez la validation en deux étapes puis générez-en ' +
             'un dans Compte Google → Sécurité → Mots de passe des applications.',
-          { cause: error }
+          { cause: error },
         );
       }
 
       throw new Error(
         `Failed to send email via SMTP: ${err.code ?? err.responseCode ?? 'unknown'} ${err.message ?? ''}`.trim(),
-        { cause: error }
+        { cause: error },
       );
     }
   }

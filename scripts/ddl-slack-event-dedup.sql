@@ -1,0 +1,92 @@
+-- ============================================================================
+-- slack_event_dedup — déduplication PARTAGÉE des événements Slack (feature `notification`)
+-- ============================================================================
+--
+-- POURQUOI CE FICHIER EXISTE, plutôt qu'une migration `drizzle/` :
+--
+--   1. Les migrations `drizzle/` sont DÉSYNCHRONISÉES de `src/infrastructure/database/schema.ts`
+--      (0000_*.sql crée `employees` avec 11 colonnes, le schéma en déclare 20). Les appliquer
+--      sur une base vierge échoue. `npm run db:generate` exige en plus un vrai TTY, drizzle-kit
+--      posant des questions « added vs renamed ».
+--   2. `drizzle-kit push` SE BLOQUE contre une base `libsql://` distante (dialect `sqlite`) :
+--      aucune erreur, il ne rend jamais la main.
+--
+-- Même chemin, donc, que `ddl-conversation-turns.sql` et `ddl-documents-content.sql`.
+--
+-- ----------------------------------------------------------------------------
+-- CE QU'IL CORRIGE — la DOUBLE RÉPONSE du bot
+-- ----------------------------------------------------------------------------
+-- Le cache de déduplication du handler est un LRU EN MÉMOIRE, donc par instance. Il ne peut
+-- pas, par construction, écarter un rejeu Slack routé vers une AUTRE instance serverless.
+--
+-- Incident du 2026-08-11 : un démarrage à froid a repoussé l'ACK à 6,7 s (> 3 s), Slack a
+-- rejoué l'événement (`retryNum: "1"`), et l'instance A étant occupée par le `waitUntil` de
+-- l'appel LLM, le rejeu est parti sur une instance NEUVE, au cache vide. Deux traitements, deux
+-- réponses différentes dans le même fil — « Ton Guide en PDF est prêt » suivi de « Désolé, une
+-- erreur s'est produite ».
+--
+-- `claimEvent()` prend donc la clé à DEUX niveaux : le cache local d'abord (gratuit, écarte le
+-- cas fréquent), puis CE STORE PARTAGÉ, seul capable de voir ce que fait une autre instance.
+--
+-- ----------------------------------------------------------------------------
+-- ⚠️ TANT QUE CETTE TABLE N'EXISTE PAS
+-- ----------------------------------------------------------------------------
+-- La dégradation est ASSUMÉE et silencieuse pour l'utilisateur : `claimEvent()` rattrape
+-- l'échec du store partagé, retombe sur le seul cache local et ACCEPTE l'événement. Un doublon
+-- possible vaut mieux qu'un message perdu — le doublon est visible et corrigeable, le silence
+-- ne l'est pas.
+--
+-- La ligne à chercher dans les logs, émise en `error` à CHAQUE message tant que la table
+-- manque :
+--       Shared Slack dedup unavailable — falling back to the per-instance cache
+--
+-- Autrement dit : sans cette table, le correctif de la double réponse est présent dans le code
+-- mais INOPÉRANT en production.
+--
+-- ----------------------------------------------------------------------------
+-- APPLICATION
+-- ----------------------------------------------------------------------------
+--
+--   Base locale :
+--       sqlite3 data/kisso.db < scripts/ddl-slack-event-dedup.sql
+--
+--   Turso / LibSQL distant (le blocage de `drizzle-kit push` ne concerne PAS le client turso) :
+--       turso db shell <nom-de-la-base> < scripts/ddl-slack-event-dedup.sql
+--
+--   Rejouable sans risque : `IF NOT EXISTS` partout, contrairement à
+--   `ddl-documents-content.sql` dont l'`ALTER TABLE … ADD COLUMN` n'a pas de forme idempotente.
+--
+--   Vérification :
+--       SELECT name FROM sqlite_master
+--        WHERE tbl_name = 'slack_event_dedup' ORDER BY type DESC, name;
+--       -- attendu : table slack_event_dedup, index idx_slack_event_dedup_started_at
+--       --           (+ sqlite_autoindex_slack_event_dedup_1, créé par la PRIMARY KEY)
+--
+-- ----------------------------------------------------------------------------
+-- NOTES DE CONCEPTION
+-- ----------------------------------------------------------------------------
+-- `key` EST la clé primaire, et ce n'est pas un détail de modélisation : c'est elle qui rend la
+-- prise ATOMIQUE via `INSERT … ON CONFLICT DO NOTHING`. Deux instances qui prennent la même clé
+-- au même instant sont départagées par la base, sans verrou applicatif — le seul mécanisme qui
+-- tienne quand les deux concurrents ne partagent aucune mémoire. Sa forme est celle du handler :
+-- `ts:<channel>:<ts>` pour un événement porteur de texte, `id:<event_id>` pour un `team_join`.
+--
+-- `started_at` en INTEGER (millisecondes, Drizzle `mode: 'timestamp_ms'`) et non en TEXT
+-- `datetime('now')` comme les 10 tables historiques : c'est le discriminant de la grâce
+-- d'abandon (60 s, soit le `maxDuration` de la fonction Vercel — au-delà, une entrée encore
+-- `in-flight` ne peut plus correspondre à un traitement vivant). Une résolution à la seconde y
+-- serait grossière, et comparer un TEXT imposerait un reparsing à chaque prise de clé, sur le
+-- chemin d'ACK — celui qui n'a que 3 secondes.
+--
+-- L'index sur `started_at` sert la PURGE de rétention (~10 min, la fenêtre de rejeu de Slack).
+-- L'accès par clé, lui, passe déjà par l'index implicite de la PRIMARY KEY.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS slack_event_dedup (
+    key        text    PRIMARY KEY NOT NULL,
+    status     text    NOT NULL,
+    started_at integer NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_slack_event_dedup_started_at
+    ON slack_event_dedup (started_at);

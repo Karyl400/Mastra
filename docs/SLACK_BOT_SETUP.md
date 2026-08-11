@@ -248,8 +248,11 @@ HTTP envoyée** — l'appel LLM en vol est tué au milieu, silencieusement.
   (base ou cache externe).
 
 **Aucun email envoyé alors que le workflow retourne `status: 'success'` :**
-- L'échec d'email est **silencieux** : `sendWelcomeEmail` avale l'erreur et pose
-  `emailSent: false`. Toujours vérifier `emailSent`, jamais `status`.
+- `sendWelcomeEmail` est une étape **best-effort** : elle avale son erreur pour
+  ne pas perdre l'employé déjà créé. Le run reste donc `success`, mais le
+  résultat porte `outcome: 'degraded'` et `degradedSteps: [{ step:
+  'welcomeEmail', reason: … }]`. Toujours lire `outcome`, jamais `status`.
+  Côté logs, chercher `Onboarding terminé en mode DÉGRADÉ` (niveau `error`).
   Voir `docs/adr/006-fournisseur-email-smtp.md`.
 
 **Mauvais routing d'agent :**

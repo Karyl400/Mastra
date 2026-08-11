@@ -1,0 +1,67 @@
+-- ============================================================================
+-- documents.content — le CONTENU des documents générés (feature `document`)
+-- ============================================================================
+--
+-- POURQUOI CE FICHIER EXISTE, plutôt qu'une migration `drizzle/` :
+--
+--   1. Les migrations `drizzle/` sont DÉSYNCHRONISÉES de `src/infrastructure/database/schema.ts`
+--      (0000_*.sql crée `employees` avec 11 colonnes, le schéma en déclare 20). Les appliquer
+--      sur une base vierge échoue. `npm run db:generate` exige en plus un vrai TTY, drizzle-kit
+--      posant des questions « added vs renamed ».
+--   2. `drizzle-kit push` SE BLOQUE contre une base `libsql://` distante (dialect `sqlite`) :
+--      aucune erreur, il ne rend jamais la main. Le schéma de la Turso de production a déjà dû
+--      être appliqué de cette façon — en exécutant le DDL exporté depuis `schema.ts`.
+--
+-- Ce DDL est donc l'équivalent EXACT de la colonne `content` déclarée dans la table `documents`
+-- de `schema.ts`, à appliquer à la main.
+--
+-- ----------------------------------------------------------------------------
+-- CE QU'IL CORRIGE — une PERTE DE DONNÉES, pas un manque de confort
+-- ----------------------------------------------------------------------------
+-- L'entité `Document` déclare `content: string` et le tool `generateDocument` l'exige en
+-- entrée (`z.string().min(1)`)… mais la table n'avait aucune colonne pour l'accueillir.
+-- Drizzle IGNORE SILENCIEUSEMENT toute clé de `.values()` sans colonne déclarée — vérifié
+-- empiriquement, y compris lorsque la colonne EXISTE en base mais manque à `schema.ts` : la
+-- ligne s'écrit alors avec `content` à NULL, sans erreur ni avertissement. Le `as unknown as`
+-- des mappers du repository masquait l'écart au compilateur.
+--
+-- État constaté sur la Turso de production le 2026-08-11 : 6 lignes dans `documents`, toutes
+-- avec `storage_key`, `file_name`, `file_size` et `mime_type` à NULL, et le texte du document
+-- nulle part. Ces 6 documents sont IRRÉCUPÉRABLES : le contenu n'a jamais été écrit.
+--
+-- ----------------------------------------------------------------------------
+-- ⚠️ ORDRE D'OPÉRATION — appliquer AVANT de déployer
+-- ----------------------------------------------------------------------------
+-- Une fois `content` déclarée dans `schema.ts`, Drizzle la NOMME dans l'INSERT. Si la colonne
+-- n'existe pas encore en base, `generateDocument` échoue avec `no such column: content` au
+-- lieu de perdre le contenu en silence. C'est le bon comportement (échec bruyant plutôt que
+-- perte muette), mais cela impose l'ordre : DDL d'abord, déploiement ensuite.
+--
+-- ----------------------------------------------------------------------------
+-- APPLICATION
+-- ----------------------------------------------------------------------------
+--
+--   Base locale :
+--       sqlite3 data/kisso.db < scripts/ddl-documents-content.sql
+--
+--   Turso / LibSQL distant (le blocage de `drizzle-kit push` ne concerne PAS le client turso) :
+--       turso db shell <nom-de-la-base> < scripts/ddl-documents-content.sql
+--
+--   ⚠️ `ALTER TABLE … ADD COLUMN` n'a PAS de forme `IF NOT EXISTS` en SQLite : rejouer ce
+--   fichier sur une base déjà migrée échoue avec `duplicate column name: content`. Cette
+--   erreur-là est bénigne — elle signifie que la colonne est en place.
+--
+--   Vérification :
+--       SELECT name FROM pragma_table_info('documents') WHERE name = 'content';
+--       -- attendu : content
+--
+-- ----------------------------------------------------------------------------
+-- NOTE SUR LA NULLABILITÉ
+-- ----------------------------------------------------------------------------
+-- La colonne est NULLABLE, délibérément. Les 6 lignes déjà en base n'ont pas de contenu à
+-- rétablir : un `NOT NULL` exigerait une valeur de remplissage, c'est-à-dire un document vide
+-- présenté comme complet. `toDomainDocument` traduit ce NULL en chaîne vide pour respecter le
+-- type de l'entité, sans jamais prétendre que le document a du contenu.
+-- ============================================================================
+
+ALTER TABLE documents ADD COLUMN content text;

@@ -5,6 +5,7 @@ import {
   FALLBACK_MODEL_ID,
   LAST_RESORT_MAX_RETRIES,
 } from '../../../src/shared/llm/model-fallback';
+import { AGENT_STYLE_BLOCK } from '../../../src/shared/agent-style';
 
 describe('QuestionnaireEngine Agent', () => {
   it('should create an agent with correct ID and name', () => {
@@ -25,7 +26,7 @@ describe('QuestionnaireEngine Agent', () => {
   it('should inject provided tools', () => {
     const mockTools = { generateQuestionnaire: {} };
     const agent = makeQuestionnaireEngine(mockTools);
-    
+
     expect(agent).toBeDefined();
     // agent.tools est privé
   });
@@ -64,7 +65,12 @@ describe('QuestionnaireEngine Agent', () => {
     it('applique les directives de style Slack et anti-invention aux instructions métier', async () => {
       const instructions = String(await makeQuestionnaireEngine({}).getInstructions());
 
-      expect(instructions).toContain('mrkdwn Slack');
+      // Marqueur historique du bloc STYLE : « mrkdwn Slack ». La consigne a quitté le
+      // texte le 2026-08-11 (elle est désormais garantie par `sanitizeAgentOutput`), donc
+      // on ancre sur le bloc partagé lui-même. Ce test vérifie le CÂBLAGE — que les
+      // directives atteignent bien les instructions métier ; leur CONTENU est verrouillé
+      // par tests/unit/agents/agent-instructions-budget.test.ts.
+      expect(instructions).toContain(AGENT_STYLE_BLOCK);
       expect(instructions).toContain('RÈGLE ANTI-INVENTION');
     });
   });

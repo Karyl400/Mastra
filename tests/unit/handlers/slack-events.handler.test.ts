@@ -19,8 +19,16 @@ import {
   type SlackEventsHandlerOptions,
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
 import { wrapAgentInput } from '../../../src/shared/security/llm-guardrail';
+import {
+  SLACK_CHANNEL_KEY,
+  SLACK_THREAD_TS_KEY,
+  SLACK_USER_ID_KEY,
+  readSlackContext,
+} from '../../../src/shared/slack-request-context';
 import { InMemoryConversationRepository } from '../../../src/features/conversation/infrastructure/repositories/in-memory-conversation.repository';
 import type { ConversationRepository } from '../../../src/features/conversation/domain/ports/conversation.repository';
+import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
+import type { SlackEventDedupRepository } from '../../../src/features/notification/domain/ports/slack-event-dedup.repository';
 
 const BOT_USER_ID = 'U0BMBEJTBMJ';
 const BOT_ID = 'B0BM9MK4G65';
@@ -72,12 +80,17 @@ function makeHandler(
     /** Mémoire conversationnelle. `null` par défaut : ces tests restent hermétiques. */
     conversationRepository?: ConversationRepository | null;
     conversationTokenBudget?: number;
+    /** Une SEULE doublure partagée par deux handlers simule deux instances serverless. */
+    dedupRepository?: SlackEventDedupRepository | null;
+    /** `0` simule un traitement dont la durée de vie maximale est déjà dépassée. */
+    inFlightGraceMs?: number;
   } = {},
 ) {
   const slack = options.slack ?? makeSlackMock();
   const mastraMock = makeMastraMock();
   const handler = new SlackEventsHandler('xoxb-test-token', options.mastra ?? mastraMock.mastra, {
     slackClient: slack as unknown as WebClient,
+    inFlightGraceMs: options.inFlightGraceMs,
     chatProvider: options.chatProvider as unknown as SlackEventsHandlerOptions['chatProvider'],
     workspaceProvider:
       options.workspaceProvider as unknown as SlackEventsHandlerOptions['workspaceProvider'],
@@ -85,6 +98,9 @@ function makeHandler(
     // `DrizzleConversationRepository`, donc ouvrirait une connexion base dans un test unitaire.
     conversationRepository: options.conversationRepository ?? null,
     conversationTokenBudget: options.conversationTokenBudget,
+    // Doublure par défaut : sans elle le handler construirait un dépôt Drizzle et ouvrirait
+    // une connexion base dans un test unitaire.
+    dedupRepository: options.dedupRepository ?? new InMemorySlackEventDedupRepository(),
   });
   return { handler, slack, ...mastraMock };
 }
@@ -146,95 +162,111 @@ const teamJoin = (userOverrides: Partial<SlackTeamJoinEvent['user']> = {}): Slac
   },
 });
 
-describe('SlackEventsHandler — accept() (décision synchrone, avant l’ACK)', () => {
+/**
+ * `accept()` est ASYNCHRONE depuis la déduplication partagée (2026-08-11) : la prise de clé
+ * fait un aller-retour vers la base. Elle reste néanmoins sur le chemin d'AVANT l'ACK — c'est
+ * la seule façon qu'un rejeu routé vers une autre instance soit écarté avant tout traitement.
+ */
+describe('SlackEventsHandler — accept() (décision prise avant l’ACK)', () => {
   let ctx: ReturnType<typeof makeHandler>;
 
   beforeEach(() => {
     ctx = makeHandler();
   });
 
-  it('accepts an app_mention in a channel', () => {
-    expect(ctx.handler.accept(envelope(mention()))).toEqual({
+  it('accepts an app_mention in a channel', async () => {
+    await expect(ctx.handler.accept(envelope(mention()))).resolves.toEqual({
       action: 'process',
       event: expect.objectContaining({ type: 'app_mention' }),
     });
   });
 
-  it('accepts a message with channel_type "im" (DM)', () => {
-    expect(ctx.handler.accept(envelope(dm()))).toEqual({
+  it('accepts a message with channel_type "im" (DM)', async () => {
+    await expect(ctx.handler.accept(envelope(dm()))).resolves.toEqual({
       action: 'process',
       event: expect.objectContaining({ channel_type: 'im' }),
     });
   });
 
-  it('ignores a plain channel message so a mention never yields two replies', () => {
+  it('ignores a plain channel message so a mention never yields two replies', async () => {
     // Slack émet app_mention ET message.channels pour la même mention.
-    const decision = ctx.handler.accept(
+    const decision = await ctx.handler.accept(
       envelope(dm({ channel_type: 'channel', channel: 'C0MOCKCHAN' }), 'Ev0CHANNEL'),
     );
     expect(decision).toEqual({ action: 'ignore', reason: 'not_a_dm' });
   });
 
-  it('ignores events carrying bot_id (infinite loop guard)', () => {
-    expect(ctx.handler.accept(envelope(dm({ bot_id: BOT_ID })))).toEqual({
+  it('ignores events carrying bot_id (infinite loop guard)', async () => {
+    await expect(ctx.handler.accept(envelope(dm({ bot_id: BOT_ID })))).resolves.toEqual({
       action: 'ignore',
       reason: 'bot_message',
     });
   });
 
-  it('ignores events with subtype "bot_message"', () => {
-    expect(ctx.handler.accept(envelope(dm({ subtype: 'bot_message' })))).toEqual({
+  it('ignores events with subtype "bot_message"', async () => {
+    await expect(ctx.handler.accept(envelope(dm({ subtype: 'bot_message' })))).resolves.toEqual({
       action: 'ignore',
       reason: 'bot_message',
     });
   });
 
-  it('ignores non event_callback envelopes and unsupported event types', () => {
-    expect(ctx.handler.accept({ type: 'url_verification', challenge: 'x' })).toEqual({
-      action: 'ignore',
-      reason: 'not_event_callback',
-    });
-    expect(ctx.handler.accept(envelope({ type: 'reaction_added', channel: 'C1' }))).toEqual({
+  it('ignores non event_callback envelopes and unsupported event types', async () => {
+    await expect(ctx.handler.accept({ type: 'url_verification', challenge: 'x' })).resolves.toEqual(
+      {
+        action: 'ignore',
+        reason: 'not_event_callback',
+      },
+    );
+    await expect(
+      ctx.handler.accept(envelope({ type: 'reaction_added', channel: 'C1' })),
+    ).resolves.toEqual({
       action: 'ignore',
       reason: 'unsupported_event_type',
     });
-    expect(ctx.handler.accept({ type: 'event_callback' })).toEqual({
+    await expect(ctx.handler.accept({ type: 'event_callback' })).resolves.toEqual({
       action: 'ignore',
       reason: 'no_event',
     });
   });
 
-  it('ignores message subtypes such as message_changed / channel_join', () => {
-    expect(ctx.handler.accept(envelope(dm({ subtype: 'message_changed' })))).toEqual({
-      action: 'ignore',
-      reason: 'unsupported_event_type',
-    });
+  it('ignores message subtypes such as message_changed / channel_join', async () => {
+    await expect(ctx.handler.accept(envelope(dm({ subtype: 'message_changed' })))).resolves.toEqual(
+      {
+        action: 'ignore',
+        reason: 'unsupported_event_type',
+      },
+    );
   });
 
-  it('ignores a mention with no text left once the bot mention is stripped', () => {
-    expect(ctx.handler.accept(envelope(mention({ text: `<@${BOT_USER_ID}>   ` })))).toEqual({
+  it('ignores a mention with no text left once the bot mention is stripped', async () => {
+    await expect(
+      ctx.handler.accept(envelope(mention({ text: `<@${BOT_USER_ID}>   ` }))),
+    ).resolves.toEqual({
       action: 'ignore',
       reason: 'empty_text',
     });
   });
 
-  it('deduplicates a Slack retry carrying the same event_id', () => {
-    const first = ctx.handler.accept(envelope(dm(), 'Ev0DUPLICATE'));
-    const retry = ctx.handler.accept(envelope(dm(), 'Ev0DUPLICATE'), { retryNum: '1' });
+  it('deduplicates a Slack retry carrying the same event_id', async () => {
+    const first = await ctx.handler.accept(envelope(dm(), 'Ev0DUPLICATE'));
+    const retry = await ctx.handler.accept(envelope(dm(), 'Ev0DUPLICATE'), { retryNum: '1' });
 
     expect(first.action).toBe('process');
     expect(retry).toEqual({ action: 'ignore', reason: 'duplicate' });
   });
 
-  it('falls back to channel:ts for dedup when event_id is absent', () => {
+  it('falls back to channel:ts for dedup when event_id is absent', async () => {
     const withoutId: SlackEventEnvelope = { type: 'event_callback', event: dm() };
-    expect(ctx.handler.accept(withoutId).action).toBe('process');
-    expect(ctx.handler.accept(withoutId)).toEqual({ action: 'ignore', reason: 'duplicate' });
+    expect((await ctx.handler.accept(withoutId)).action).toBe('process');
+    await expect(ctx.handler.accept(withoutId)).resolves.toEqual({
+      action: 'ignore',
+      reason: 'duplicate',
+    });
   });
 
-  it('does not deduplicate two genuinely distinct events', () => {
-    expect(ctx.handler.accept(envelope(dm({ ts: '1.1' }), 'Ev0A')).action).toBe('process');
-    expect(ctx.handler.accept(envelope(dm({ ts: '2.2' }), 'Ev0B')).action).toBe('process');
+  it('does not deduplicate two genuinely distinct events', async () => {
+    expect((await ctx.handler.accept(envelope(dm({ ts: '1.1' }), 'Ev0A'))).action).toBe('process');
+    expect((await ctx.handler.accept(envelope(dm({ ts: '2.2' }), 'Ev0B'))).action).toBe('process');
   });
 });
 
@@ -245,32 +277,32 @@ describe('SlackEventsHandler — double réponse en DM (régression 2026-08-10)'
     ctx = makeHandler();
   });
 
-  it('ignore un app_mention émis dans un canal de DM', () => {
+  it('ignore un app_mention émis dans un canal de DM', async () => {
     // Mentionner le bot dans un DM émet À LA FOIS `message` (channel_type 'im')
     // et `app_mention`. Le filtre `not_a_dm` ne dédouble que les canaux : sans
     // cette garde, le bot répond DEUX FOIS — observé en production.
     //
     // Le test porte sur le préfixe `D` du canal, PAS sur `channel_type` :
     // le payload `app_mention` de Slack ne porte pas ce champ.
-    const decision = ctx.handler.accept(
+    const decision = await ctx.handler.accept(
       envelope(mention({ channel: 'D0MOCKDM01', channel_type: undefined }), 'Ev0MENTIONDM'),
     );
 
     expect(decision).toEqual({ action: 'ignore', reason: 'duplicate_mention' });
   });
 
-  it('continue d’accepter un app_mention dans un vrai canal', () => {
-    expect(ctx.handler.accept(envelope(mention(), 'Ev0MENTIONCH')).action).toBe('process');
+  it('continue d’accepter un app_mention dans un vrai canal', async () => {
+    expect((await ctx.handler.accept(envelope(mention(), 'Ev0MENTIONCH'))).action).toBe('process');
   });
 
-  it('ne traite qu’une fois deux événements jumeaux d’event_id différents', () => {
+  it('ne traite qu’une fois deux événements jumeaux d’event_id différents', async () => {
     // `message` et `app_mention` d'une même prise de parole ont des `event_id`
     // distincts mais partagent toujours `channel` et `ts`. La clé de
     // déduplication doit donc préférer `channel:ts` à `event_id`.
-    const first = ctx.handler.accept(
+    const first = await ctx.handler.accept(
       envelope(dm({ channel: 'D0TWIN', ts: '1700000000.000900' }), 'Ev0TWIN_A'),
     );
-    const twin = ctx.handler.accept(
+    const twin = await ctx.handler.accept(
       envelope(dm({ channel: 'D0TWIN', ts: '1700000000.000900' }), 'Ev0TWIN_B'),
     );
 
@@ -278,9 +310,9 @@ describe('SlackEventsHandler — double réponse en DM (régression 2026-08-10)'
     expect(twin).toEqual({ action: 'ignore', reason: 'duplicate' });
   });
 
-  it('déduplique toujours team_join sur event_id, faute de canal et de ts', () => {
-    expect(ctx.handler.accept(envelope(teamJoin(), 'Ev0JOINKEY')).action).toBe('process');
-    expect(ctx.handler.accept(envelope(teamJoin(), 'Ev0JOINKEY'))).toEqual({
+  it('déduplique toujours team_join sur event_id, faute de canal et de ts', async () => {
+    expect((await ctx.handler.accept(envelope(teamJoin(), 'Ev0JOINKEY'))).action).toBe('process');
+    await expect(ctx.handler.accept(envelope(teamJoin(), 'Ev0JOINKEY'))).resolves.toEqual({
       action: 'ignore',
       reason: 'duplicate',
     });
@@ -294,88 +326,102 @@ describe('SlackEventsHandler — accept() sur team_join (arrivée d’un nouvel 
     ctx = makeHandler();
   });
 
-  it('accepts a genuine team_join payload', () => {
+  it('accepts a genuine team_join payload', async () => {
     // Un team_join n'a NI channel, NI ts, NI text : les gardes écrites pour les
     // messages doivent toutes être conditionnées au type, sinon il est rejeté.
-    expect(ctx.handler.accept(envelope(teamJoin(), 'Ev0JOIN01'))).toEqual({
+    await expect(ctx.handler.accept(envelope(teamJoin(), 'Ev0JOIN01'))).resolves.toEqual({
       action: 'process',
       event: expect.objectContaining({ type: 'team_join' }),
     });
   });
 
-  it('does not reject team_join as empty_text although it carries no text', () => {
+  it('does not reject team_join as empty_text although it carries no text', async () => {
     // Régression visée : `cleanText(undefined) === ''` → falsy → 100 % des
     // team_join seraient sortis en `empty_text`.
-    const decision = ctx.handler.accept(envelope(teamJoin(), 'Ev0JOIN02'));
+    const decision = await ctx.handler.accept(envelope(teamJoin(), 'Ev0JOIN02'));
     expect(decision).not.toEqual(expect.objectContaining({ reason: 'empty_text' }));
   });
 
-  it('ignores a bot joining the workspace', () => {
+  it('ignores a bot joining the workspace', async () => {
     // La garde anti-boucle des messages (`bot_id` / `subtype` / `bot_profile`)
     // est structurellement incapable de le voir : ces champs n'existent pas sur
     // un team_join. Sans garde dédiée, le bot enverrait un DM à chaque app
     // installée — voire à lui-même.
-    expect(ctx.handler.accept(envelope(teamJoin({ is_bot: true }), 'Ev0JOIN03'))).toEqual({
+    await expect(
+      ctx.handler.accept(envelope(teamJoin({ is_bot: true }), 'Ev0JOIN03')),
+    ).resolves.toEqual({
       action: 'ignore',
       reason: 'bot_join',
     });
   });
 
-  it('ignores an app user and a workflow bot', () => {
-    expect(ctx.handler.accept(envelope(teamJoin({ is_app_user: true }), 'Ev0JOIN04'))).toEqual({
+  it('ignores an app user and a workflow bot', async () => {
+    await expect(
+      ctx.handler.accept(envelope(teamJoin({ is_app_user: true }), 'Ev0JOIN04')),
+    ).resolves.toEqual({
       action: 'ignore',
       reason: 'bot_join',
     });
-    expect(ctx.handler.accept(envelope(teamJoin({ is_workflow_bot: true }), 'Ev0JOIN05'))).toEqual({
+    await expect(
+      ctx.handler.accept(envelope(teamJoin({ is_workflow_bot: true }), 'Ev0JOIN05')),
+    ).resolves.toEqual({
       action: 'ignore',
       reason: 'bot_join',
     });
   });
 
-  it('ignores Slackbot itself', () => {
-    expect(ctx.handler.accept(envelope(teamJoin({ id: 'USLACKBOT' }), 'Ev0JOIN06'))).toEqual({
+  it('ignores Slackbot itself', async () => {
+    await expect(
+      ctx.handler.accept(envelope(teamJoin({ id: 'USLACKBOT' }), 'Ev0JOIN06')),
+    ).resolves.toEqual({
       action: 'ignore',
       reason: 'bot_join',
     });
   });
 
-  it('ignores a deleted account', () => {
-    expect(ctx.handler.accept(envelope(teamJoin({ deleted: true }), 'Ev0JOIN07'))).toEqual({
+  it('ignores a deleted account', async () => {
+    await expect(
+      ctx.handler.accept(envelope(teamJoin({ deleted: true }), 'Ev0JOIN07')),
+    ).resolves.toEqual({
       action: 'ignore',
       reason: 'deleted_user',
     });
   });
 
-  it('ignores a single-channel guest and a Slack Connect stranger', () => {
+  it('ignores a single-channel guest and a Slack Connect stranger', async () => {
     // Décision métier assumée : un invité mono-canal n'est jamais une embauche
     // Kisso, un externe Slack Connect non plus. L'invité MULTI-canal
     // (`is_restricted`) passe en revanche — ce sont les prestataires, qui sont
     // bien intégrés.
-    expect(
+    await expect(
       ctx.handler.accept(envelope(teamJoin({ is_ultra_restricted: true }), 'Ev0JOIN08')),
-    ).toEqual({ action: 'ignore', reason: 'restricted_user' });
-    expect(ctx.handler.accept(envelope(teamJoin({ is_stranger: true }), 'Ev0JOIN09'))).toEqual({
+    ).resolves.toEqual({ action: 'ignore', reason: 'restricted_user' });
+    await expect(
+      ctx.handler.accept(envelope(teamJoin({ is_stranger: true }), 'Ev0JOIN09')),
+    ).resolves.toEqual({
       action: 'ignore',
       reason: 'restricted_user',
     });
     expect(
-      ctx.handler.accept(envelope(teamJoin({ is_restricted: true }), 'Ev0JOIN10')).action,
+      (await ctx.handler.accept(envelope(teamJoin({ is_restricted: true }), 'Ev0JOIN10'))).action,
     ).toBe('process');
   });
 
-  it('ignores a team_join with no usable user id', () => {
-    const decision = ctx.handler.accept(
+  it('ignores a team_join with no usable user id', async () => {
+    const decision = await ctx.handler.accept(
       { type: 'event_callback', event_id: 'Ev0JOIN11', event: { type: 'team_join' } },
       {},
     );
     expect(decision).toEqual({ action: 'ignore', reason: 'no_user' });
   });
 
-  it('deduplicates a team_join retry on event_id alone', () => {
+  it('deduplicates a team_join retry on event_id alone', async () => {
     // team_join n'a ni channel ni ts : le repli `channel:ts` de dedupKey() est
     // inopérant, seul `event_id` protège du double DM de bienvenue.
-    expect(ctx.handler.accept(envelope(teamJoin(), 'Ev0JOINDUP')).action).toBe('process');
-    expect(ctx.handler.accept(envelope(teamJoin(), 'Ev0JOINDUP'), { retryNum: '1' })).toEqual({
+    expect((await ctx.handler.accept(envelope(teamJoin(), 'Ev0JOINDUP'))).action).toBe('process');
+    await expect(
+      ctx.handler.accept(envelope(teamJoin(), 'Ev0JOINDUP'), { retryNum: '1' }),
+    ).resolves.toEqual({
       action: 'ignore',
       reason: 'duplicate',
     });
@@ -390,7 +436,7 @@ describe('SlackEventsHandler — vérification du workspace d’origine (team_id
     else process.env.SLACK_TEAM_ID = ORIGINAL;
   });
 
-  it('accepts every workspace when SLACK_TEAM_ID is unset (fail-open)', () => {
+  it('accepts every workspace when SLACK_TEAM_ID is unset (fail-open)', async () => {
     // Délibérément fail-OPEN. La variable n'existe ni dans .env ni parmi les 15
     // variables Vercel de production : un fail-closed couperait 100 % du trafic
     // Slack, silencieusement — la route rend 200 en toute circonstance — et
@@ -399,21 +445,21 @@ describe('SlackEventsHandler — vérification du workspace d’origine (team_id
     delete process.env.SLACK_TEAM_ID;
     const ctx = makeHandler();
 
-    expect(ctx.handler.accept(envelope(dm(), 'Ev0TEAM01')).action).toBe('process');
+    expect((await ctx.handler.accept(envelope(dm(), 'Ev0TEAM01'))).action).toBe('process');
   });
 
-  it('accepts an event coming from the configured workspace', () => {
+  it('accepts an event coming from the configured workspace', async () => {
     process.env.SLACK_TEAM_ID = 'TMLKC4EPP';
     const ctx = makeHandler();
 
-    expect(ctx.handler.accept(envelope(dm(), 'Ev0TEAM02')).action).toBe('process');
+    expect((await ctx.handler.accept(envelope(dm(), 'Ev0TEAM02'))).action).toBe('process');
   });
 
-  it('ignores an event from another workspace once SLACK_TEAM_ID is set', () => {
+  it('ignores an event from another workspace once SLACK_TEAM_ID is set', async () => {
     process.env.SLACK_TEAM_ID = 'TOTHERWORKSPACE';
     const ctx = makeHandler();
 
-    expect(ctx.handler.accept(envelope(dm(), 'Ev0TEAM03'))).toEqual({
+    await expect(ctx.handler.accept(envelope(dm(), 'Ev0TEAM03'))).resolves.toEqual({
       action: 'ignore',
       reason: 'wrong_team',
     });
@@ -528,13 +574,18 @@ describe('SlackEventsHandler — handleTeamJoin (DM de bienvenue)', () => {
  * clé déjà posée et était silencieusement jeté. Le cache mémorise désormais un statut.
  */
 describe('SlackEventsHandler — déduplication in-flight / done', () => {
-  it('drops a retry while the first attempt is still in flight (no double processing)', () => {
+  // Ces cas éprouvent la sémantique in-flight/done DES DEUX niveaux à la fois : le cache
+  // local et le store partagé la portent à l'identique, et c'est cette équivalence qui rend
+  // la dégradation vers le seul cache local acceptable. On injecte donc la doublure
+  // in-memory (via `makeHandler`) plutôt que `null` — sinon seul le niveau local serait
+  // testé, et une divergence du store partagé passerait inaperçue.
+  it('drops a retry while the first attempt is still in flight (no double processing)', async () => {
     const { handler } = makeHandler();
     const payload = () => envelope(dm(), 'Ev0INFLIGHT');
 
-    expect(handler.accept(payload()).action).toBe('process');
+    expect((await handler.accept(payload())).action).toBe('process');
     // handleEvent n'a pas encore rendu la main : le rejeu concurrent doit être ignoré.
-    expect(handler.accept(payload(), { retryNum: '1' })).toEqual({
+    await expect(handler.accept(payload(), { retryNum: '1' })).resolves.toEqual({
       action: 'ignore',
       reason: 'duplicate',
     });
@@ -544,42 +595,36 @@ describe('SlackEventsHandler — déduplication in-flight / done', () => {
     const { handler } = makeHandler();
     const payload = () => envelope(dm(), 'Ev0DONE');
 
-    expect(handler.accept(payload()).action).toBe('process');
+    expect((await handler.accept(payload())).action).toBe('process');
     await handler.handleEvent(payload());
 
     // Statut `done` : même très longtemps après, le rejeu reste un doublon.
-    expect(handler.accept(payload(), { retryNum: '1' })).toEqual({
+    await expect(handler.accept(payload(), { retryNum: '1' })).resolves.toEqual({
       action: 'ignore',
       reason: 'duplicate',
     });
   });
 
-  it('reprocesses an in-flight event abandoned past the grace period (frozen function)', () => {
+  it('reprocesses an in-flight event abandoned past the grace period (frozen function)', async () => {
     // `inFlightGraceMs: 0` simule un traitement dont la durée de vie maximale est dépassée.
-    const handler = new SlackEventsHandler('xoxb-test-token', makeMastraMock().mastra, {
-      slackClient: makeSlackMock() as unknown as WebClient,
-      inFlightGraceMs: 0,
-    });
+    const { handler } = makeHandler({ inFlightGraceMs: 0 });
     const payload = () => envelope(dm(), 'Ev0FROZEN');
 
-    expect(handler.accept(payload()).action).toBe('process');
+    expect((await handler.accept(payload())).action).toBe('process');
     // La fonction a été gelée : aucun `done` n'a été posé → le rejeu Slack repasse.
-    expect(handler.accept(payload(), { retryNum: '1' }).action).toBe('process');
+    expect((await handler.accept(payload(), { retryNum: '1' })).action).toBe('process');
   });
 
   it('keeps dropping a completed event even with a zero grace period', async () => {
-    const handler = new SlackEventsHandler('xoxb-test-token', makeMastraMock().mastra, {
-      slackClient: makeSlackMock() as unknown as WebClient,
-      inFlightGraceMs: 0,
-    });
+    const { handler } = makeHandler({ inFlightGraceMs: 0 });
     const payload = () => envelope(dm(), 'Ev0DONE0MS');
 
-    expect(handler.accept(payload()).action).toBe('process');
+    expect((await handler.accept(payload())).action).toBe('process');
     await handler.handleEvent(payload());
 
     // `done` n'est jamais considéré comme abandonné : la grâce ne s'applique qu'à
     // `in-flight`. Sans cette distinction, toute réponse déjà postée serait repostée.
-    expect(handler.accept(payload(), { retryNum: '1' })).toEqual({
+    await expect(handler.accept(payload(), { retryNum: '1' })).resolves.toEqual({
       action: 'ignore',
       reason: 'duplicate',
     });
@@ -593,14 +638,21 @@ describe('SlackEventsHandler — déduplication in-flight / done', () => {
     }
     const handler = new ExplodingHandler('xoxb-test-token', makeMastraMock().mastra, {
       slackClient: makeSlackMock() as unknown as WebClient,
+      // Sous-classe, donc `makeHandler` ne s'applique pas : les deux dépôts sont câblés à la
+      // main, sans quoi le handler construirait les dépôts Drizzle et ouvrirait une connexion
+      // base dans un test unitaire. La mémoire est hors sujet ici (`handleMessage` est
+      // remplacé), la déduplication partagée est au contraire ce que le test vérifie.
+      conversationRepository: null,
+      dedupRepository: new InMemorySlackEventDedupRepository(),
     });
     const payload = () => envelope(dm(), 'Ev0BOOM');
 
-    expect(handler.accept(payload()).action).toBe('process');
+    expect((await handler.accept(payload())).action).toBe('process');
     await expect(handler.handleEvent(payload())).rejects.toThrow('function killed mid-flight');
 
-    // La clé a été libérée : le rejeu repart immédiatement, sans attendre la grâce.
-    expect(handler.accept(payload(), { retryNum: '1' }).action).toBe('process');
+    // La clé a été libérée AUX DEUX NIVEAUX : le rejeu repart immédiatement, sans attendre
+    // la grâce.
+    expect((await handler.accept(payload(), { retryNum: '1' })).action).toBe('process');
   });
 });
 
@@ -752,9 +804,12 @@ describe('SlackEventsHandler — handleEvent() (traitement de fond)', () => {
     // Depuis l'ajout de la mémoire, `generate` reçoit une LISTE de messages et non plus une
     // chaîne : l'historique doit voyager en messages structurés. Sans historique, la liste
     // se réduit au seul message courant, qui reste encadré bit-à-bit à l'identique.
-    expect(generate).toHaveBeenCalledWith([
-      { role: 'user', content: wrapAgentInput('lance le questionnaire') },
-    ]);
+    // Le second argument porte le `requestContext` (canal / thread / auteur) : il voyage
+    // HORS de la fenêtre du modèle et n'est donc jamais comparé au contenu des messages.
+    expect(generate).toHaveBeenCalledWith(
+      [{ role: 'user', content: wrapAgentInput('lance le questionnaire') }],
+      expect.objectContaining({ requestContext: expect.anything() }),
+    );
     expect(slack.chat.postMessage).toHaveBeenCalledWith({
       channel: 'C0MOCKCHAN',
       text: 'Réponse de l’agent',
@@ -803,10 +858,10 @@ describe('SlackEventsHandler — handleEvent() (traitement de fond)', () => {
 
   it('posts a fallback message when the agent is not registered', async () => {
     const getAgent = vi.fn().mockReturnValue(undefined);
-    const slack = makeSlackMock();
-    const handler = new SlackEventsHandler('xoxb-test-token', { getAgent } as unknown as Mastra, {
-      slackClient: slack as unknown as WebClient,
-    });
+    // Passe par `makeHandler` pour hériter des doublures de mémoire et de déduplication :
+    // construit à la main, le handler ouvrirait deux connexions Drizzle pour un test dont
+    // ce n'est pas le sujet.
+    const { handler, slack } = makeHandler({ mastra: { getAgent } as unknown as Mastra });
 
     await handler.handleEvent(envelope(dm()));
 
@@ -818,10 +873,7 @@ describe('SlackEventsHandler — handleEvent() (traitement de fond)', () => {
   it('never throws when the agent generation fails, and posts an error message', async () => {
     const generate = vi.fn().mockRejectedValue(new Error('LLM timeout'));
     const getAgent = vi.fn().mockReturnValue({ generate });
-    const slack = makeSlackMock();
-    const handler = new SlackEventsHandler('xoxb-test-token', { getAgent } as unknown as Mastra, {
-      slackClient: slack as unknown as WebClient,
-    });
+    const { handler, slack } = makeHandler({ mastra: { getAgent } as unknown as Mastra });
 
     await expect(handler.handleEvent(envelope(dm()))).resolves.toBeUndefined();
     expect(slack.chat.postMessage).toHaveBeenCalledWith(
@@ -835,11 +887,103 @@ describe('SlackEventsHandler — handleEvent() (traitement de fond)', () => {
     const slack = makeSlackMock({
       chat: { postMessage: vi.fn().mockRejectedValue(new Error('channel_not_found')) },
     });
-    const handler = new SlackEventsHandler('xoxb-test-token', { getAgent } as unknown as Mastra, {
-      slackClient: slack as unknown as WebClient,
-    });
+    const { handler } = makeHandler({ slack, mastra: { getAgent } as unknown as Mastra });
 
     await expect(handler.handleEvent(envelope(dm()))).resolves.toBeUndefined();
+  });
+});
+
+/* ------------------------------------------------------------------------- *
+ * Contexte Slack transmis aux tools
+ *
+ * Sans ce contexte, un tool n'a aucun moyen de savoir dans QUEL canal ni dans quel thread
+ * livrer un fichier — le point bloquant de TODO.md. Il voyage par le `requestContext` de
+ * Mastra, donc HORS de la fenêtre du modèle : coût en tokens nul.
+ * ------------------------------------------------------------------------- */
+
+describe('SlackEventsHandler — contexte Slack transmis à l’agent', () => {
+  /** Deuxième argument de `agent.generate`, tel que le runtime le passera aux tools. */
+  const lastRequestContext = (generate: ReturnType<typeof vi.fn>) =>
+    (generate.mock.lastCall?.[1] as { requestContext?: unknown } | undefined)?.requestContext;
+
+  it('porte le canal et l’auteur du message', async () => {
+    const { handler, generate } = makeHandler();
+
+    await handler.handleEvent(envelope(mention()));
+
+    expect(readSlackContext(lastRequestContext(generate))).toEqual({
+      channel: 'C0MOCKCHAN',
+      threadTs: '1700000000.000100',
+      slackUserId: HUMAN,
+    });
+  });
+
+  it('porte le thread en canal — le même que celui de la réponse postée', async () => {
+    const { handler, slack, generate } = makeHandler();
+
+    await handler.handleEvent(
+      envelope(mention({ ts: '1700000000.000999', thread_ts: '1700000000.000100' })),
+    );
+
+    // Anti-régression qui compte le plus : un fichier livré ailleurs que la réponse serait
+    // orphelin. Le contexte doit porter le thread DÉJÀ calculé par le handler, jamais un
+    // `thread_ts` relu du payload.
+    const posted = slack.chat.postMessage.mock.calls.at(-1)?.[0] as { thread_ts?: string };
+    expect(readSlackContext(lastRequestContext(generate))?.threadTs).toBe(posted.thread_ts);
+    expect(posted.thread_ts).toBe('1700000000.000100');
+  });
+
+  it('ne porte AUCUN threadTs en DM', async () => {
+    const { handler, generate } = makeHandler();
+
+    await handler.handleEvent(envelope(dm()));
+
+    // En DM, `threadTs` est `undefined` par conception : threader y enfouit le message hors
+    // de la conversation principale — le bot a paru muet des heures en production pour cette
+    // raison. Un fichier uploadé avec un `thread_ts` reproduirait l'enfouissement, en pire :
+    // la personne lirait « voici ton document » sans jamais voir le document.
+    const requestContext = lastRequestContext(generate) as { has(key: string): boolean };
+    expect(requestContext.has(SLACK_THREAD_TS_KEY)).toBe(false);
+    expect(readSlackContext(requestContext)).toEqual({
+      channel: 'D0MOCKDM01',
+      slackUserId: HUMAN,
+    });
+  });
+
+  it('porte le thread d’un DM qui appartient DÉJÀ à un thread existant', async () => {
+    const { handler, generate } = makeHandler();
+
+    await handler.handleEvent(
+      envelope(dm({ ts: '1700000000.000999', thread_ts: '1700000000.000100' })),
+    );
+
+    // Symétrique du cas précédent : le handler threade un DM déjà threadé, donc le contexte
+    // doit suivre — sinon la livraison sortirait du fil où la demande a été faite.
+    expect(readSlackContext(lastRequestContext(generate))?.threadTs).toBe('1700000000.000100');
+  });
+
+  it('utilise les clés contractuelles du module partagé', () => {
+    // Le handler (producteur) et les tools (consommateurs) vivent dans des couches qui ne
+    // peuvent pas s'importer l'une l'autre : ces trois clés sont leur seul contrat.
+    expect([SLACK_CHANNEL_KEY, SLACK_THREAD_TS_KEY, SLACK_USER_ID_KEY]).toEqual([
+      'slackChannel',
+      'slackThreadTs',
+      'slackUserId',
+    ]);
+  });
+
+  it('n’ajoute rien aux messages envoyés au modèle (budget de tokens inchangé)', async () => {
+    const { handler, generate } = makeHandler();
+
+    await handler.handleEvent(envelope(dm({ text: 'bonjour' })));
+
+    // Le `requestContext` est un canal d'injection de dépendances côté serveur : il ne doit
+    // apparaître ni dans le prompt, ni dans les messages. Le plafond Groq (12 000
+    // tokens/minute) interdit d'y ajouter quoi que ce soit.
+    expect(generate.mock.lastCall?.[0]).toEqual([
+      { role: 'user', content: wrapAgentInput('bonjour') },
+    ]);
+    expect(JSON.stringify(generate.mock.lastCall?.[0])).not.toContain('D0MOCKDM01');
   });
 });
 
@@ -882,11 +1026,14 @@ describe('SlackEventsHandler — mémoire conversationnelle', () => {
     // Le second appel doit contenir la question ET la réponse du premier tour, puis le
     // message courant encadré. C'est exactement ce qui manquait quand le bot inventait
     // `votre_email@example.com` faute de se souvenir de l'email donné une minute avant.
-    expect(generate).toHaveBeenLastCalledWith([
-      { role: 'user', content: 'mon email est a@kisso.com' },
-      { role: 'assistant', content: 'Réponse de l’agent' },
-      { role: 'user', content: wrapAgentInput('et alors ?') },
-    ]);
+    expect(generate).toHaveBeenLastCalledWith(
+      [
+        { role: 'user', content: 'mon email est a@kisso.com' },
+        { role: 'assistant', content: 'Réponse de l’agent' },
+        { role: 'user', content: wrapAgentInput('et alors ?') },
+      ],
+      expect.objectContaining({ requestContext: expect.anything() }),
+    );
   });
 
   it("ne stocke QUE du texte assaini, jamais l'entrée encadrée", async () => {
@@ -911,9 +1058,10 @@ describe('SlackEventsHandler — mémoire conversationnelle', () => {
     );
 
     // Une clé partagée ferait fuiter le contexte d'un employé dans la conversation d'un autre.
-    expect(generate).toHaveBeenLastCalledWith([
-      { role: 'user', content: wrapAgentInput('et moi ?') },
-    ]);
+    expect(generate).toHaveBeenLastCalledWith(
+      [{ role: 'user', content: wrapAgentInput('et moi ?') }],
+      expect.objectContaining({ requestContext: expect.anything() }),
+    );
   });
 
   it('reste fonctionnel — sans mémoire — quand le dépôt est en panne', async () => {
@@ -1011,6 +1159,20 @@ describe('SlackEventsHandler — routage collant', () => {
     // détournait la réponse de suivi dès que le fil était mené par un autre agent.
     expect(handler.routeToAgent('Donne le PDF alors')).toBe('onboardingOrchestrator');
     expect(handler.routeToAgent('génère un guideline de bienvenue')).toBe('onboardingOrchestrator');
+  });
+
+  it('route « docx » vers l’orchestrateur, mais PAS « word »', () => {
+    const { handler } = makeHandler();
+    // `docx` est une extension de fichier, servie par le seul `generateDocument` : même
+    // statut que `pdf`. `word` a été écarté — mot anglais courant, et ce palier PRIME sur
+    // le palier collant, donc un faux positif arrache le message au fil en cours.
+    expect(handler.routeToAgent('envoie-le en docx')).toBe('onboardingOrchestrator');
+    expect(handler.routeToAgent('in other words, envoie un rappel')).toBe('notificationAgent');
+    // Et « en Word » n'a pas besoin de ce palier : c'est une réponse de suivi, que le
+    // palier collant ramène à l'agent qui mène la conversation.
+    expect(handler.routeToAgent('donne-le en Word', 'onboardingOrchestrator')).toBe(
+      'onboardingOrchestrator',
+    );
   });
 
   it('ignore un agent collant inconnu du registre', () => {

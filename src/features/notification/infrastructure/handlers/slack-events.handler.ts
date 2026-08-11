@@ -20,13 +20,22 @@ import {
 import type { ConversationTurn } from '../../../conversation/domain/entities/conversation-turn';
 import { DrizzleConversationRepository } from '../../../conversation/infrastructure/repositories/drizzle-conversation.repository';
 import { startProgress } from '../providers/slack-progress';
+import {
+  SLACK_EVENT_DEDUP_RETENTION_MS,
+  type SlackEventDedupRepository,
+} from '../../domain/ports/slack-event-dedup.repository';
+import { DrizzleSlackEventDedupRepository } from '../repositories/drizzle-slack-event-dedup.repository';
+import { buildSlackRequestContext } from '../../../../shared/slack-request-context';
 
 /**
  * Handler des événements Slack (Events API).
  *
  * Le découpage est volontaire :
- *  - `accept()` est SYNCHRONE : filtrage de type, garde anti-boucle bon marché et
- *    déduplication. Il doit tourner AVANT l'ACK HTTP (< 3 s imposées par Slack).
+ *  - `accept()` tourne AVANT l'ACK HTTP (< 3 s imposées par Slack) : filtrage de type, garde
+ *    anti-boucle bon marché et déduplication. Il est ASYNCHRONE depuis le 2026-08-11 — la
+ *    prise de clé fait un aller-retour vers la base partagée. C'est le prix à payer : un
+ *    rejeu Slack routé vers une AUTRE instance ne peut être écarté que là, et seulement
+ *    avant tout traitement.
  *  - `handleEvent()` est ASYNCHRONE et lancé en tâche de fond APRÈS l'ACK : il résout
  *    le `bot_user_id`, appelle l'agent LLM (2 à 17 s d'après TEST_REPORT.md) puis poste
  *    la réponse dans Slack.
@@ -166,6 +175,15 @@ export interface SlackEventsHandlerOptions {
    * du comportement sans avoir à fournir une doublure.
    */
   conversationRepository?: ConversationRepository | null;
+  /**
+   * Déduplication PARTAGÉE entre instances. Injectée pour les tests (une seule doublure
+   * partagée par deux handlers simule deux instances serverless devant le même store) ;
+   * en production le dépôt Drizzle est construit paresseusement.
+   *
+   * `null` la DÉSACTIVE et ramène au seul cache local — l'ancien comportement, celui qui
+   * laissait passer les doubles réponses.
+   */
+  dedupRepository?: SlackEventDedupRepository | null;
   /** Budget de contexte alloué à l'historique, en tokens. */
   conversationTokenBudget?: number;
   /** Durée d'inactivité au-delà de laquelle le fil est clos (mémoire ET collance). */
@@ -229,6 +247,17 @@ const ORCHESTRATOR_INTENTS = [
   'pdf',
   'guide',
   'guideline',
+  // `docx` ajouté le 2026-08-11, quand `generateDocument` a su rendre ce format. Même
+  // raisonnement que `pdf` : une extension de fichier, servie par le seul orchestrateur,
+  // sans aucun autre sens en français comme en anglais.
+  //
+  // « word » a été EXAMINÉ et volontairement ÉCARTÉ. Le critère du palier n'est pas
+  // « désigne un document » mais « sans ambiguïté » : `word` est un mot anglais courant
+  // (« in other words »), et ce palier PRIME sur le palier collant — un faux positif ne
+  // coûte pas un repli anodin, il ARRACHE le message au fil en cours. Or « envoie-le en
+  // Word » n'a pas besoin de ce palier : c'est une réponse de suivi, donc précisément ce
+  // que le palier collant sait router vers l'agent qui mène la conversation.
+  'docx',
 ] as const;
 
 const QUESTIONNAIRE_TOPICS = ['questionnaire', 'évaluation', 'quiz', 'test'] as const;
@@ -360,6 +389,11 @@ export class SlackEventsHandler {
    * `null` « désactivée » — les deux états sont distincts, d'où l'union.
    */
   private conversationRepo: ConversationRepository | null | undefined;
+  /**
+   * Déduplication partagée. `undefined` = pas encore construite, `null` = désactivée : deux
+   * états distincts, d'où l'union.
+   */
+  private dedupRepo: SlackEventDedupRepository | null | undefined;
   private readonly conversationTokenBudget: number;
   private readonly conversationTtlMs: number;
   /** Compteur de messages traités, pour déclencher la purge périodique. */
@@ -372,6 +406,7 @@ export class SlackEventsHandler {
     this.workspaceProvider = options.workspaceProvider ?? new SlackWorkspaceService(botToken);
     this.inFlightGraceMs = options.inFlightGraceMs ?? DEFAULT_IN_FLIGHT_GRACE_MS;
     this.conversationRepo = options.conversationRepository;
+    this.dedupRepo = options.dedupRepository;
     this.conversationTokenBudget = options.conversationTokenBudget ?? CONVERSATION_TOKEN_BUDGET;
     this.conversationTtlMs = options.conversationTtlMs ?? CONVERSATION_TTL_MS;
     this.seenEvents = new LRUCache<string, DedupEntry>({
@@ -387,6 +422,21 @@ export class SlackEventsHandler {
    * module par `getSlackEventsHandler`, et ouvrir une connexion Drizzle à ce moment-là
    * paierait la latence de connexion sur le chemin d'ACK — celui qui a 3 secondes.
    */
+  /**
+   * Dépôt de déduplication partagée, construit paresseusement.
+   *
+   * Même raison que pour la mémoire : le handler est instancié au chargement du module, et
+   * ouvrir une connexion Drizzle à ce moment-là alourdirait le démarrage à froid — or c'est
+   * précisément ce démarrage à froid (6,1 s mesurées) qui provoque les rejeux Slack que cette
+   * déduplication existe pour absorber.
+   */
+  private getDedupRepo(): SlackEventDedupRepository | null {
+    if (this.dedupRepo === undefined) {
+      this.dedupRepo = new DrizzleSlackEventDedupRepository();
+    }
+    return this.dedupRepo;
+  }
+
   private getConversationRepo(): ConversationRepository | null {
     if (this.conversationRepo === undefined) {
       this.conversationRepo = new DrizzleConversationRepository();
@@ -532,7 +582,10 @@ export class SlackEventsHandler {
    *    En n'acceptant `message` que pour les DM, un seul des deux passe.
    *  - Tout message émis par un bot est ignoré (anti-boucle infinie).
    */
-  accept(envelope: SlackEventEnvelope, context: SlackAcceptContext = {}): SlackEventDecision {
+  async accept(
+    envelope: SlackEventEnvelope,
+    context: SlackAcceptContext = {},
+  ): Promise<SlackEventDecision> {
     if (envelope.type !== 'event_callback') {
       return { action: 'ignore', reason: 'not_event_callback' };
     }
@@ -555,35 +608,106 @@ export class SlackEventsHandler {
     if (rejected) return { action: 'ignore', reason: rejected };
 
     const key = this.dedupKey(envelope);
-    if (key) {
-      const existing = this.seenEvents.get(key);
-      if (existing) {
-        const ageMs = Date.now() - existing.startedAt;
-        // Une tentative encore `in-flight` mais plus vieille que la durée de vie maximale
-        // d'une invocation ne peut plus être vivante : la fonction a été gelée ou tuée.
-        // On rejoue plutôt que de perdre l'événement.
-        const abandoned = existing.status === 'in-flight' && ageMs >= this.inFlightGraceMs;
-
-        if (!abandoned) {
-          logger.info('Dropping duplicate Slack event', {
-            key,
-            status: existing.status,
-            ageMs,
-            retryNum: context.retryNum ?? undefined,
-          });
-          return { action: 'ignore', reason: 'duplicate' };
-        }
-
-        logger.warn('Reprocessing abandoned Slack event', {
-          key,
-          ageMs,
-          retryNum: context.retryNum ?? undefined,
-        });
-      }
-      this.seenEvents.set(key, { status: 'in-flight', startedAt: Date.now() });
+    if (key && !(await this.claimEvent(key, context.retryNum))) {
+      return { action: 'ignore', reason: 'duplicate' };
     }
 
     return { action: 'process', event };
+  }
+
+  /**
+   * Prend la clé d'un événement, ou refuse — en DEUX niveaux.
+   *
+   * 1. **Cache local (LRU).** Écarte sans aucune E/S les rejeux qui retombent sur la MÊME
+   *    instance. Gratuit, et c'est le cas le plus fréquent quand l'instance est chaude.
+   * 2. **Store partagé (Turso).** Le seul capable d'écarter un rejeu routé vers une AUTRE
+   *    instance. C'est précisément ce qui manquait le 2026-08-11 : l'instance A était occupée
+   *    par le `waitUntil` de l'appel LLM, donc le rejeu Slack (`retryNum: "1"`, provoqué par
+   *    un ACK à 6,7 s sur démarrage à froid) est parti sur une instance NEUVE, au cache vide,
+   *    qui a répondu une seconde fois avec un texte différent.
+   *
+   * **Dégradation assumée** : si le store partagé est indisponible, on retombe sur le seul
+   * cache local et on ACCEPTE l'événement. L'arbitrage est explicite — un doublon possible
+   * vaut mieux qu'un message perdu, car le doublon est visible et corrigeable tandis que le
+   * silence ne l'est pas. La ligne est journalisée en `error` : c'est celle à chercher si les
+   * doubles réponses reviennent.
+   */
+  private async claimEvent(key: string, retryNum?: string | null): Promise<boolean> {
+    const local = this.claimLocally(key, retryNum);
+    if (!local) return false;
+
+    const repo = this.getDedupRepo();
+    if (!repo) return true;
+
+    try {
+      const claim = await repo.claim(key, { inFlightGraceMs: this.inFlightGraceMs });
+
+      if (!claim.granted) {
+        // Une AUTRE instance mène ou a mené le traitement. On relâche notre prise locale :
+        // la garder en `in-flight` bloquerait localement un rejeu qui redeviendrait pourtant
+        // légitime après la grâce d'abandon.
+        this.seenEvents.delete(key);
+        logger.info('Dropping duplicate Slack event (claimed by another instance)', {
+          key,
+          status: claim.status,
+          ageMs: claim.ageMs,
+          retryNum: retryNum ?? undefined,
+        });
+        return false;
+      }
+
+      if (claim.reclaimed) {
+        // Symptôme d'une invocation tuée en vol : le traitement précédent n'a jamais rendu
+        // la main et la grâce a expiré.
+        logger.warn('Reprocessing an abandoned Slack event (shared claim)', {
+          key,
+          retryNum: retryNum ?? undefined,
+        });
+      }
+
+      return true;
+    } catch (error) {
+      logger.error('Shared Slack dedup unavailable — falling back to the per-instance cache', {
+        error,
+        key,
+        retryNum: retryNum ?? undefined,
+      });
+      return true;
+    }
+  }
+
+  /**
+   * Volet local de la prise de clé. Conserve à l'identique la sémantique d'origine, qui est
+   * le fruit d'un bug déjà corrigé : une entrée `in-flight` plus vieille que la durée de vie
+   * maximale d'une invocation ne peut plus correspondre à un traitement vivant (fonction gelée
+   * ou tuée), donc l'événement redevient rejouable plutôt que d'être perdu DÉFINITIVEMENT.
+   */
+  private claimLocally(key: string, retryNum?: string | null): boolean {
+    const existing = this.seenEvents.get(key);
+
+    if (existing) {
+      const ageMs = Date.now() - existing.startedAt;
+      const abandoned = existing.status === 'in-flight' && ageMs >= this.inFlightGraceMs;
+
+      if (!abandoned) {
+        logger.info('Dropping duplicate Slack event', {
+          key,
+          status: existing.status,
+          ageMs,
+          retryNum: retryNum ?? undefined,
+        });
+        return false;
+      }
+
+      logger.warn('Reprocessing abandoned Slack event', {
+        key,
+        ageMs,
+        retryNum: retryNum ?? undefined,
+      });
+    }
+
+    this.seenEvents.set(key, { status: 'in-flight', startedAt: Date.now() });
+    return true;
   }
 
   /**
@@ -689,19 +813,58 @@ export class SlackEventsHandler {
     return undefined;
   }
 
-  /** Le traitement est allé au bout : tout rejeu ultérieur doit être ignoré. */
-  private markDedupDone(key: string | undefined): void {
+  /**
+   * Le traitement est allé au bout : tout rejeu ultérieur doit être ignoré.
+   *
+   * Les deux niveaux sont mis à jour. L'échec du niveau partagé n'est pas fatal — il laisse
+   * la clé en `in-flight`, donc reprenable après la grâce d'abandon, ce qui est le
+   * comportement le moins dommageable.
+   */
+  private async markDedupDone(key: string | undefined): Promise<void> {
     if (!key) return;
     this.seenEvents.set(key, { status: 'done', startedAt: Date.now() });
+
+    const repo = this.getDedupRepo();
+    if (!repo) return;
+    try {
+      await repo.markDone(key);
+    } catch (error) {
+      logger.warn('Unable to mark the shared Slack dedup key as done', { error, key });
+    }
   }
 
   /**
    * Le traitement a échoué de façon inattendue : on libère la clé pour qu'un rejeu Slack
    * puisse repartir immédiatement au lieu d'être avalé par la déduplication.
    */
-  private releaseDedup(key: string | undefined): void {
+  private async releaseDedup(key: string | undefined): Promise<void> {
     if (!key) return;
     this.seenEvents.delete(key);
+
+    const repo = this.getDedupRepo();
+    if (!repo) return;
+    try {
+      await repo.release(key);
+    } catch (error) {
+      logger.warn('Unable to release the shared Slack dedup key', { error, key });
+    }
+  }
+
+  /**
+   * Purge de rétention de la déduplication, en tâche de fond. Même cadence et même
+   * raisonnement que `schedulePruneIfDue()` pour la mémoire : pas de cron dans ce projet, et
+   * une purge un message sur cent suffit à borner la table.
+   */
+  private scheduleDedupPruneIfDue(): void {
+    if (this.processedMessages % PRUNE_EVERY_N_MESSAGES !== 0) return;
+
+    const repo = this.getDedupRepo();
+    if (!repo) return;
+
+    void repo
+      .prune(new Date(Date.now() - SLACK_EVENT_DEDUP_RETENTION_MS))
+      .then((removed) => logger.info('Pruned expired Slack dedup keys', { removed }))
+      .catch((error) => logger.warn('Slack dedup prune failed', { error }));
   }
 
   /** Retire les mentions (`<@U123456>`) et normalise les espaces. */
@@ -722,10 +885,10 @@ export class SlackEventsHandler {
     const key = this.dedupKey(envelope);
     try {
       await this.processEvent(envelope);
-      this.markDedupDone(key);
+      await this.markDedupDone(key);
     } catch (error) {
       // Échec inattendu : la clé est libérée pour que Slack puisse rejouer.
-      this.releaseDedup(key);
+      await this.releaseDedup(key);
       throw error;
     }
   }
@@ -928,7 +1091,18 @@ export class SlackEventsHandler {
 
       phase = 'generate';
       const startedAt = Date.now();
-      const response = await agent.generate(this.buildMessages(history, safeInput));
+      // Le contexte Slack descend jusqu'aux tools par le `requestContext` de Mastra — le seul
+      // canal qui n'entre PAS dans la fenêtre du modèle. Sans lui, un tool n'a aucun moyen de
+      // savoir où livrer un fichier : c'est ce vide qui a produit le faux lien
+      // `https://kisso.internal/docs/<uuid>/download` du 2026-08-11.
+      //
+      // ⚠️ On transmet la variable `threadTs` DÉJÀ calculée plus haut, jamais `thread_ts` ni
+      // `ts` du payload : en DM elle vaut `undefined` par conception, et un fichier uploadé
+      // avec un `thread_ts` en DM serait enfoui hors de la conversation principale —
+      // exactement le défaut qui a fait paraître le bot muet pendant des heures.
+      const response = await agent.generate(this.buildMessages(history, safeInput), {
+        requestContext: buildSlackRequestContext({ channel, threadTs, slackUserId: user }),
+      });
       const durationMs = Date.now() - startedAt;
 
       phase = 'sanitize';
@@ -993,6 +1167,7 @@ export class SlackEventsHandler {
       });
 
       this.schedulePruneIfDue();
+      this.scheduleDedupPruneIfDue();
     } catch (error) {
       // `error.constructor.name` est conservé explicitement : `maskPii` remplace la pile
       // par la constante `[STACK_TRACE]` et ne garde que `name`/`message`/`cause`, ce qui

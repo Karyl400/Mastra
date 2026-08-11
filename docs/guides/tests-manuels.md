@@ -15,10 +15,13 @@ Pour la suite automatisée, voir `scripts/production-scenarios.mjs`
 Ces trois comportements ont déjà produit de faux « ça marche » dans ce projet.
 Les connaître change la façon de lire chaque résultat.
 
-**1. Un workflow en échec renvoie `status: 'success'` pour l'email.**
-L'étape `sendWelcomeEmail` attrape l'erreur et pose `emailSent: false`, mais le
-workflow se termine en succès. **Ne jamais conclure qu'un email est parti sans
-lire `emailSent`.**
+**1. `status: 'success'` ne dit QUE « le workflow est allé au bout ».**
+Les étapes best-effort (email de bienvenue, invitation Slack, création des
+tâches) attrapent leur erreur : le run se termine en succès même quand rien
+n'est parti. Le verdict est le champ **`result.outcome`**, qui distingue trois
+issues : `completed`, `degraded` (abouti, mais au moins une étape best-effort a
+échoué) et `failed`. `result.degradedSteps` nomme l'étape ET la cause.
+**Ne jamais conclure qu'un email est parti sans lire `outcome`.**
 
 **2. Un run Mastra qui échoue ne lève pas d'exception** — il retourne
 `{ status: 'failed' }`. Un appel HTTP peut donc renvoyer `200` alors que le
@@ -193,13 +196,16 @@ curl -s -X POST "$BASE/api/workflows/employeeOnboardingWorkflow/start-async" \
     "managerId":null,"slackChannelId":"C0BJGBVB5HP"}}' | head -c 800
 ```
 
-**Attendu** : `status: "success"` **et** `emailSent: true`.
+**Attendu** : `status: "success"`, **`result.outcome: "completed"`** et
+`result.emailSent: true` — avec `result.degradedSteps: []`.
 
 > L'URL utilise la **clé du registre** (`employeeOnboardingWorkflow`), pas l'`id`
 > interne du workflow (`employee-onboarding`). Les deux diffèrent.
 
-**À lire attentivement** : si `status: "success"` mais `emailSent: false`,
-le workflow a « réussi » sans envoyer l'email. C'est le piège n°1. Vérifier :
+**À lire attentivement** : si `status: "success"` mais
+`outcome: "degraded"`, le workflow est allé au bout sans que tout ait abouti —
+`degradedSteps` dit quoi (`welcomeEmail`, `slackInvite`, `onboardingTasks`) et
+pourquoi. C'est le piège n°1. Vérifier :
 
 ```bash
 sql "select channel, status, subject, error_message
@@ -340,7 +346,7 @@ Vérifier ensuite `select count(*) from employees`.
 | T4 | Pas de doublon | exactement 1 réponse |
 | T5 | Routage | `Routing to agent` dans les logs |
 | T6 | Création employé | **ligne en base**, pas la prose |
-| T7 | Workflow onboarding | `status` **et** `emailSent` |
+| T7 | Workflow onboarding | `status` **et** `outcome` (+ `degradedSteps`) |
 | T8 | Document | ligne dans `documents` |
 | T9 | Cas d'erreur | erreur qualifiée, jamais 500 |
 | T10 | Injection | **aucun** email hors base |

@@ -25,8 +25,10 @@
  * ────────────────────────────────────────────────────────────────────────────
  * 1. Un run Mastra qui échoue ne LÈVE PAS : il renvoie `{status:'failed'}` avec
  *    un HTTP 200. On assert donc TOUJOURS sur `status`, jamais sur le code HTTP.
- * 2. L'échec d'email est SILENCIEUX (`emailSent:false` + `status:'success'`).
- *    `emailSent` est asserté et reporté SÉPARÉMENT du statut global.
+ * 2. `status:'success'` ne dit QUE « le workflow est allé au bout » : les étapes
+ *    best-effort (email, invitation Slack, tâches) avalent leur erreur. Le
+ *    verdict est `result.outcome` ('completed' | 'degraded' | 'failed'), asserté
+ *    SÉPARÉMENT du statut global, `emailSent` restant asserté pour localiser.
  * 3. On n'assert JAMAIS sur le texte produit par le LLM. La preuve d'un
  *    comportement est une LIGNE EN BASE (Turso), interrogée en direct.
  * 4. Non-idempotence : chaque run utilise des alias Gmail `+kisso-<runid>` pour
@@ -582,7 +584,8 @@ async function groupWorkflows() {
     record('employeeOnboardingWorkflow → status success', j.status === 'success',
       "status === 'success'",
       `HTTP ${res.status}, status=${j.status ?? '(absent)'}, ${res.ms} ms` +
-      (j.error ? ` — erreur: ${trunc(j.error?.message ?? j.error, 140)}` : ''));
+      (j.error ? ` — erreur: ${trunc(j.error?.message ?? j.error, 140)}` : ''),
+      "`status` ne dit QUE « le workflow est allé au bout ». Le verdict est `result.outcome`.");
 
     const emp = await q('SELECT id FROM employees WHERE email = ?', [email]);
     record('employeeOnboardingWorkflow → ligne employees en base', emp.length === 1,
@@ -600,17 +603,38 @@ async function groupWorkflows() {
         '≥ 1 ligne notifications', `${notif.length} ligne(s)${notif[0] ? `, status=${notif[0].status}, canal=${notif[0].channel}` : ''}`);
     }
 
-    // `emailSent` est reporté SÉPARÉMENT : le workflow renvoie 'success' même
-    // quand l'email a échoué (piège documenté dans CLAUDE.md).
+    // ── LE verdict : `outcome`, pas `status` ────────────────────────────────
+    // Le workflow distingue désormais trois issues (`onboarding-outcome.ts`) :
+    // 'completed', 'degraded' (abouti mais une étape best-effort a échoué) et
+    // 'failed'. Un email non parti rend 'degraded' — c'est ce que cette
+    // assertion refuse de laisser passer, là où `status: 'success'` a produit
+    // de faux « PASS » pendant des mois.
+    const outcome = j.result?.outcome;
+    const degradedSteps = j.result?.degradedSteps ?? [];
+    const degradedLabel = degradedSteps.length
+      ? degradedSteps.map((f) => `${f.step} (${f.reason})`).join(' ; ')
+      : 'aucune';
+    record("employeeOnboardingWorkflow → outcome === 'completed'", outcome === 'completed',
+      "outcome === 'completed' (aucune étape best-effort en échec)",
+      `outcome=${JSON.stringify(outcome)}, degradedSteps=${degradedLabel}`,
+      outcome === 'degraded'
+        ? 'Parcours DÉGRADÉ : l’employé est bien créé, mais les étapes ci-dessus n’ont pas abouti.'
+        : outcome === undefined
+          ? 'outcome absent — déploiement antérieur au lot « échec d’email visible » ?'
+          : undefined);
+
+    // `emailSent` reste asserté séparément : les instructions des agents le
+    // nomment explicitement, et il localise la panne plus vite que `outcome`.
     const emailSent = j.result?.emailSent;
     record('employeeOnboardingWorkflow → emailSent === true (assertion séparée)', emailSent === true,
       'emailSent === true', `emailSent=${JSON.stringify(emailSent)}`,
-      emailSent === false ? 'Le workflow renvoie « success » malgré un email non parti — échec silencieux.' : undefined);
+      emailSent === false ? 'Email non parti — le parcours doit ressortir en outcome=degraded.' : undefined);
 
     const slackInvited = j.result?.slackInvited;
     record('employeeOnboardingWorkflow → slackInvited renseigné', typeof slackInvited === 'boolean',
       'slackInvited booléen', `slackInvited=${JSON.stringify(slackInvited)}`,
-      'slackChannelId=null dans ce scénario → false attendu (étape best-effort).');
+      'slackChannelId=null dans ce scénario → false attendu, SANS dégradation : ' +
+      'une étape non applicable n’est pas une étape en échec.');
   }
 
   // ── questionnaireCycleWorkflow ─────────────────────────────────────────────

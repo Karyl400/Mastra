@@ -162,7 +162,10 @@ export async function handleSlackEventRequest(c: SlackRouteContext): Promise<Res
   // 3. Filtrage + déduplication SYNCHRONES, avant l'ACK, pour qu'un renvoi Slack ne
   //    déclenche pas un second traitement de fond.
   const retryNum = c.req.header('x-slack-retry-num');
-  const decision = handler.accept(body, { retryNum });
+  // `accept()` est asynchrone depuis la déduplication partagée : la prise de clé fait un
+  // aller-retour vers Turso. Il reste AVANT l'ACK — c'est la seule position d'où un rejeu
+  // routé vers une autre instance peut être écarté avant tout traitement.
+  const decision = await handler.accept(body, { retryNum });
 
   if (decision.action === 'process') {
     // 4. Slack renvoie tout événement non accusé en moins de 3 s, et un appel agent

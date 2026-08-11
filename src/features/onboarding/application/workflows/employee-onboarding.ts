@@ -2,11 +2,15 @@ import { Workflow, createStep } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { logger } from '../../../../shared/logger';
 import { createEmployee } from '../../../employee/domain/entities/employee';
+import { ONBOARDING_TASKS, buildOnboardingPlan } from '../../domain/services/onboarding-plan';
 import {
-  createProgress,
-  createStep as createOnboardingStep,
-} from '../../domain/entities/onboarding-progress';
-import { createTask } from '../../../employee/domain/entities/task';
+  BestEffortStep,
+  OnboardingOutcome,
+  describeDegradation,
+  outcomeOf,
+  toFailureReason,
+  type StepFailure,
+} from '../../domain/value-objects/onboarding-outcome';
 import type { TaskRepository } from '../../../employee/domain/ports/task.repository';
 import type { EmployeeRepository } from '../../../employee/domain/ports/employee.repository';
 import type { OnboardingRepository } from '../../domain/ports/onboarding.repository';
@@ -15,9 +19,6 @@ import type { EmailProvider } from '../../../notification/domain/ports/providers
 import type { SlackWorkspaceProvider } from '../../../notification/domain/ports/slack-workspace.port';
 import { createNotification } from '../../../notification/domain/entities/notification';
 import {
-  TaskType,
-  TaskPriority,
-  OnboardingStatus,
   NotificationChannel,
   NotificationStatus,
   RecipientType,
@@ -88,6 +89,17 @@ const employeeCreatedSchema = z.object({
   slackChannelId: z.string().nullable().optional(),
 });
 
+/**
+ * Une étape best-effort en échec, transportée d'étape en étape jusqu'à la
+ * sortie. Le tableau est CUMULATIF : chaque étape recopie ce qu'elle a reçu et
+ * y ajoute son propre échec, faute de quoi la dernière écraserait les
+ * précédentes et l'email masquerait Slack.
+ */
+const stepFailureSchema = z.object({
+  step: z.nativeEnum(BestEffortStep),
+  reason: z.string(),
+});
+
 const onboardingInitializedSchema = z.object({
   employeeId: z.string().uuid(),
   progressId: z.string().uuid(),
@@ -96,6 +108,7 @@ const onboardingInitializedSchema = z.object({
   lastName: z.string(),
   department: z.string(),
   slackChannelId: z.string().nullable().optional(),
+  degraded: z.array(stepFailureSchema),
 });
 
 const welcomeSentSchema = z.object({
@@ -106,71 +119,31 @@ const welcomeSentSchema = z.object({
   department: z.string(),
   emailSent: z.boolean(),
   slackChannelId: z.string().nullable().optional(),
+  degraded: z.array(stepFailureSchema),
 });
 
 /**
- * Parcours d'accueil : ce que le nouvel arrivant doit accomplir.
+ * Sortie du parcours.
  *
- * Jusqu'ici, `initOnboarding` posait un compteur `totalSteps: 5` sans jamais
- * créer la moindre tâche ni la moindre étape — `TaskRepository.save()` et
- * `OnboardingRepository.saveStep()` n'étaient appelés par AUCUN code applicatif.
- * Vérifié en production le 2026-08-10 : `tasks = 0`, `onboarding_progress = 0`.
- * Le DM de suivi que porte le nouveau flux d'arrivée n'avait donc rien à suivre.
+ * ⚠️ `outcome` est le champ à lire, PAS le `status` du run Mastra. Ce dernier
+ * vaut `'success'` dès que le workflow est allé au bout, y compris quand
+ * l'email de bienvenue n'est jamais parti — c'est exactement ce qui a produit
+ * de faux « PASS » dans les rapports de test (cf. `onboarding-outcome.ts`).
  *
- * `dueInDays` est compté à partir de la date de début, pas de la date de
- * création : un profil complété trois semaines avant l'arrivée ne doit pas
- * produire cinq tâches déjà en retard.
+ * `emailSent` et `slackInvited` sont CONSERVÉS bien que redondants avec
+ * `degradedSteps` : les instructions des agents (`AGENT_ANTI_INVENTION_BLOCK`),
+ * `scripts/production-scenarios.mjs` et `docs/guides/tests-manuels.md` les
+ * nomment explicitement. Les retirer casserait ces trois lecteurs pour un gain
+ * cosmétique.
  */
-const ONBOARDING_TASKS: ReadonlyArray<{
-  title: string;
-  description: string;
-  type: TaskType;
-  priority: TaskPriority;
-  dueInDays: number;
-}> = [
-  {
-    title: 'Configurer tes accès',
-    description: 'Activer ton compte email, rejoindre Slack et vérifier tes accès aux outils.',
-    type: TaskType.Onboarding,
-    priority: TaskPriority.Urgent,
-    dueInDays: 1,
-  },
-  {
-    title: 'Lire les guidelines de Kisso',
-    description: "Prendre connaissance des règles internes et des pratiques de l'entreprise.",
-    type: TaskType.Document,
-    priority: TaskPriority.High,
-    dueInDays: 3,
-  },
-  {
-    title: 'Rencontrer ton manager',
-    description: 'Premier point avec ton manager : objectifs, attentes et organisation.',
-    type: TaskType.Meeting,
-    priority: TaskPriority.High,
-    dueInDays: 3,
-  },
-  {
-    title: 'Découvrir ton équipe',
-    description: 'Rencontrer les membres de ton équipe et comprendre qui fait quoi.',
-    type: TaskType.Team,
-    priority: TaskPriority.Medium,
-    dueInDays: 7,
-  },
-  {
-    title: "Compléter le questionnaire d'intégration",
-    description: 'Répondre au questionnaire pour valider ta prise de poste.',
-    type: TaskType.Questionnaire,
-    priority: TaskPriority.Medium,
-    dueInDays: 14,
-  },
-];
-
-/** Échéance dérivée de la date de début. `startDate` est un ISO complet, donc non ambigu. */
-function dueDateFrom(startDate: string, days: number): string {
-  const due = new Date(startDate);
-  due.setUTCDate(due.getUTCDate() + days);
-  return due.toISOString();
-}
+const onboardingOutputSchema = z.object({
+  employeeId: z.string().uuid(),
+  outcome: z.nativeEnum(OnboardingOutcome),
+  emailSent: z.boolean(),
+  slackInvited: z.boolean(),
+  slackUserId: z.string().optional(),
+  degradedSteps: z.array(stepFailureSchema),
+});
 
 // ============================================
 // FACTORY
@@ -249,55 +222,31 @@ export function createEmployeeOnboardingWorkflow(deps: {
     execute: async ({ inputData }) => {
       logger.info('Onboarding — initialisation progress', { employeeId: inputData.employeeId });
 
-      const progress = createProgress({
-        id: crypto.randomUUID(),
+      // Catalogue et mise en plan viennent du DOMAINE
+      // (`domain/services/onboarding-plan.ts`), partagés avec
+      // `scripts/backfill-onboarding.mts` : une recopie ici ferait diverger le
+      // parcours créé à l'arrivée de celui posé par le rattrapage.
+      const plan = buildOnboardingPlan({
         employeeId: inputData.employeeId,
-        currentStep: 0,
-        // Dérivé du catalogue, jamais d'un littéral : un `5` en dur mentirait
-        // dès la première tâche ajoutée ou retirée.
-        totalSteps: ONBOARDING_TASKS.length,
+        startDate: inputData.startDate,
       });
-
-      const started = {
-        ...progress,
-        status: OnboardingStatus.InProgress,
-        startedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
+      const started = plan.progress;
 
       await deps.onboardingRepo.save(started);
 
       // Best-effort assumé : un échec ici ne doit PAS faire échouer le workflow.
       // L'employé est déjà créé ; perdre la création pour un suivi incomplet
       // serait un moins bon compromis que de livrer un parcours dégradé, qui
-      // reste réparable. L'erreur est journalisée, jamais avalée en silence.
-      try {
-        for (const [index, modele] of ONBOARDING_TASKS.entries()) {
-          const task = createTask({
-            id: crypto.randomUUID(),
-            employeeId: inputData.employeeId,
-            assigneeId: inputData.employeeId,
-            reviewerId: null,
-            title: modele.title,
-            description: modele.description,
-            type: modele.type,
-            priority: modele.priority,
-            dueDate: dueDateFrom(inputData.startDate, modele.dueInDays),
-            tags: ['onboarding'],
-            metadata: null,
-            estimatedHours: null,
-            actualHours: null,
-          });
-          await deps.taskRepo.save(task);
+      // reste réparable — `scripts/backfill-onboarding.mts` le répare.
+      // L'erreur est journalisée, jamais avalée en silence, et elle est
+      // désormais RENDUE à l'appelant : le seul log ne suffisait pas, personne
+      // ne lit les logs d'un run qui s'annonce `success`.
+      const degraded: StepFailure[] = [];
 
-          await deps.onboardingRepo.saveStep(
-            createOnboardingStep({
-              id: crypto.randomUUID(),
-              progressId: started.id,
-              taskId: task.id,
-              stepOrder: index + 1,
-            }),
-          );
+      try {
+        for (const [index, task] of plan.tasks.entries()) {
+          await deps.taskRepo.save(task);
+          await deps.onboardingRepo.saveStep(plan.steps[index]!);
         }
 
         logger.info("Tâches d'intégration créées", {
@@ -305,6 +254,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
           count: ONBOARDING_TASKS.length,
         });
       } catch (error) {
+        degraded.push({ step: BestEffortStep.OnboardingTasks, reason: toFailureReason(error) });
         logger.error("Échec de création des tâches d'intégration", {
           error,
           employeeId: inputData.employeeId,
@@ -322,6 +272,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
         lastName: inputData.lastName,
         department: inputData.department,
         slackChannelId: inputData.slackChannelId,
+        degraded,
       };
     },
   });
@@ -349,12 +300,14 @@ export function createEmployeeOnboardingWorkflow(deps: {
       ].join('');
 
       let emailSent = false;
+      const degraded: StepFailure[] = [...inputData.degraded];
 
       try {
         await deps.emailProvider.sendEmail(inputData.email, subject, body);
         emailSent = true;
         logger.info('Email de bienvenue envoyé', { email: inputData.email });
       } catch (err) {
+        degraded.push({ step: BestEffortStep.WelcomeEmail, reason: toFailureReason(err) });
         logger.error('Échec envoi email de bienvenue', {
           error: err instanceof Error ? err.message : String(err),
           email: inputData.email,
@@ -387,6 +340,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
         department: inputData.department,
         emailSent,
         slackChannelId: inputData.slackChannelId,
+        degraded,
       };
     },
   });
@@ -398,36 +352,74 @@ export function createEmployeeOnboardingWorkflow(deps: {
     id: 'inviteToSlack',
     description: "Trouve l'utilisateur Slack par email et l'invite dans le channel département",
     inputSchema: welcomeSentSchema,
-    outputSchema: z.object({
-      employeeId: z.string().uuid(),
-      emailSent: z.boolean(),
-      slackInvited: z.boolean(),
-      slackUserId: z.string().optional(),
-    }),
+    outputSchema: onboardingOutputSchema,
     execute: async ({ inputData }) => {
+      const degraded: StepFailure[] = [...inputData.degraded];
+
+      /**
+       * Point de sortie UNIQUE de tout le parcours : c'est ici, et nulle part
+       * ailleurs, que le verdict est calculé et journalisé. Les quatre `return`
+       * précédents de cette étape rendaient chacun sa forme, et rien ne
+       * garantissait qu'un cinquième penserait à conclure.
+       */
+      const conclude = (slack: { slackInvited: boolean; slackUserId?: string }) => {
+        const outcome = outcomeOf(degraded);
+
+        if (outcome === OnboardingOutcome.Degraded) {
+          // Niveau `error`, et non `warn` comme le marqueur de progression Slack
+          // (`slack-progress.ts`). L'arbitrage n'est pas le même : le marqueur
+          // n'est qu'un confort dont l'absence saute aux yeux, alors qu'un email
+          // de bienvenue jamais parti n'a AUCUN symptôme — l'arrivant ignore
+          // qu'il aurait dû le recevoir, et le run se déclare `success`. Réparer
+          // exige une action humaine (renvoi, invitation manuelle), donc la
+          // ligne doit alerter et rester cherchable. Même raisonnement que la
+          // dégradation de `claimEvent()` dans le handler Slack.
+          logger.error('Onboarding terminé en mode DÉGRADÉ', {
+            employeeId: inputData.employeeId,
+            outcome,
+            degradedSteps: describeDegradation(degraded),
+          });
+        } else {
+          logger.info('Onboarding terminé', { employeeId: inputData.employeeId, outcome });
+        }
+
+        return {
+          employeeId: inputData.employeeId,
+          outcome,
+          emailSent: inputData.emailSent,
+          slackInvited: slack.slackInvited,
+          slackUserId: slack.slackUserId,
+          degradedSteps: degraded,
+        };
+      };
+
+      // NON APPLICABLE ≠ DÉGRADÉ. Sans provider ni canal de département,
+      // l'invitation n'était pas censée avoir lieu — et c'est le cas de TOUTE
+      // soumission de la modale Slack, qui passe `slackChannelId: null` faute
+      // de correspondance département → canal. La compter comme dégradation
+      // rendrait « dégradé » l'état NORMAL et détruirait le signal.
       if (!deps.slackProvider || !inputData.slackChannelId) {
         logger.info('Invitation Slack ignorée (provider ou channel absent)', {
           employeeId: inputData.employeeId,
           hasProvider: !!deps.slackProvider,
           hasChannel: !!inputData.slackChannelId,
         });
-        return {
-          employeeId: inputData.employeeId,
-          emailSent: inputData.emailSent,
-          slackInvited: false,
-        };
+        return conclude({ slackInvited: false });
       }
 
       try {
         const member = await deps.slackProvider.findUserByEmail(inputData.email);
 
         if (!member) {
+          // Ici le canal EST configuré : l'invitation était attendue et n'a pas
+          // eu lieu. C'est un trou réel dans l'accueil (l'arrivant n'atterrit
+          // dans aucun canal), pas une étape hors sujet.
           logger.warn('Utilisateur Slack non trouvé', { email: inputData.email });
-          return {
-            employeeId: inputData.employeeId,
-            emailSent: inputData.emailSent,
-            slackInvited: false,
-          };
+          degraded.push({
+            step: BestEffortStep.SlackInvite,
+            reason: 'aucun compte Slack ne correspond à cet email',
+          });
+          return conclude({ slackInvited: false });
         }
 
         await deps.slackProvider.inviteToChannel(inputData.slackChannelId, member.id);
@@ -437,22 +429,14 @@ export function createEmployeeOnboardingWorkflow(deps: {
           channelId: inputData.slackChannelId,
         });
 
-        return {
-          employeeId: inputData.employeeId,
-          emailSent: inputData.emailSent,
-          slackInvited: true,
-          slackUserId: member.id,
-        };
+        return conclude({ slackInvited: true, slackUserId: member.id });
       } catch (err) {
         logger.error('Échec invitation Slack (non bloquant)', {
           error: err instanceof Error ? err.message : String(err),
           employeeId: inputData.employeeId,
         });
-        return {
-          employeeId: inputData.employeeId,
-          emailSent: inputData.emailSent,
-          slackInvited: false,
-        };
+        degraded.push({ step: BestEffortStep.SlackInvite, reason: toFailureReason(err) });
+        return conclude({ slackInvited: false });
       }
     },
   });
@@ -465,12 +449,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
     description:
       "Processus complet d'onboarding : création employé → onboarding progress → email de bienvenue → invitation Slack",
     inputSchema: onboardingInputSchema,
-    outputSchema: z.object({
-      employeeId: z.string().uuid(),
-      emailSent: z.boolean(),
-      slackInvited: z.boolean(),
-      slackUserId: z.string().optional(),
-    }),
+    outputSchema: onboardingOutputSchema,
   });
 
   workflow

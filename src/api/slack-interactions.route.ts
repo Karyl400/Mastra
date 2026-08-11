@@ -36,6 +36,11 @@ import {
   type SlackViewState,
   type ValidatedProfile,
 } from '../features/notification/infrastructure/handlers/profile-modal';
+import {
+  OnboardingOutcome,
+  describeDegradation,
+  type StepFailure,
+} from '../features/onboarding/domain/value-objects/onboarding-outcome';
 import { scheduleBackgroundWork } from './slack-events.route';
 import { verifySlackSignature } from '../shared/security/slack-signature';
 import { logger } from '../shared/logger';
@@ -184,7 +189,12 @@ async function runOnboarding(mastra: Mastra, profile: ValidatedProfile): Promise
     createRun(options?: { runId?: string }): Promise<{
       start(args: { inputData: unknown }): Promise<{
         status: string;
-        result?: { emailSent?: boolean; slackInvited?: boolean };
+        result?: {
+          outcome?: OnboardingOutcome;
+          emailSent?: boolean;
+          slackInvited?: boolean;
+          degradedSteps?: StepFailure[];
+        };
         error?: unknown;
       }>;
     }>;
@@ -212,14 +222,35 @@ async function runOnboarding(mastra: Mastra, profile: ValidatedProfile): Promise
   });
 
   if (result.status !== 'success') {
-    logger.error('Onboarding workflow failed', { email: profile.email, error: result.error });
+    logger.error('Onboarding workflow failed', {
+      email: profile.email,
+      outcome: OnboardingOutcome.Failed,
+      error: result.error,
+    });
     return;
   }
 
-  // ⚠️ Lire `result.result.emailSent`, JAMAIS le statut de l'étape : celle-ci
-  // avale son exception et se déclare `success` même quand l'email a échoué.
+  // ⚠️ `result.status === 'success'` ne signifie QUE « le workflow est allé au
+  // bout ». Le verdict est `result.result.outcome` : les étapes best-effort
+  // (email, invitation Slack, tâches) avalent leur exception et laissent le run
+  // en `success` même quand rien n'est parti. Journaliser le seul `status`
+  // reproduirait exactement le faux « PASS » que ce champ existe pour éliminer.
+  const degradedSteps = result.result?.degradedSteps ?? [];
+
+  if (result.result?.outcome === OnboardingOutcome.Degraded) {
+    logger.error('Onboarding workflow completed in DEGRADED mode', {
+      email: profile.email,
+      outcome: result.result.outcome,
+      degradedSteps: describeDegradation(degradedSteps),
+      emailSent: result.result?.emailSent,
+      slackInvited: result.result?.slackInvited,
+    });
+    return;
+  }
+
   logger.info('Onboarding workflow completed', {
     email: profile.email,
+    outcome: result.result?.outcome,
     emailSent: result.result?.emailSent,
     slackInvited: result.result?.slackInvited,
   });

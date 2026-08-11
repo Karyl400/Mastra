@@ -39,6 +39,7 @@ import type { EmailProvider } from '../features/notification/domain/ports/provid
 import { SlackAdapter } from '../features/notification/infrastructure/providers/slack.adapter';
 import { SlackWorkspaceService } from '../features/notification/infrastructure/providers/slack-workspace.service';
 import { PdfmakeService } from '../features/document/infrastructure/services/pdfmake.service';
+import { DocxService } from '../features/document/infrastructure/services/docx.service';
 
 import { createEmployeeOnboardingWorkflow } from '../features/onboarding/application/workflows/employee-onboarding';
 import { questionnaireCycleWorkflow } from '../features/questionnaire/application/workflows/questionnaire-cycle';
@@ -106,6 +107,15 @@ console.log('ENV CHECK', {
 const chatProvider = new SlackAdapter(process.env.SLACK_BOT_TOKEN ?? '');
 const slackWorkspace = new SlackWorkspaceService(process.env.SLACK_BOT_TOKEN ?? '');
 const pdfService = new PdfmakeService();
+/**
+ * Renderers de documents — c'est CE câblage qui fait entrer `docx` dans le bundle.
+ *
+ * `DocxService` importe `docx` statiquement : tant qu'aucun module atteignable depuis ce
+ * fichier ne le référençait, le bundler Mastra/Vercel ne l'embarquait pas. Le garde-fou
+ * `verify:bundle` exige désormais sa présence (`--require …,docx` dans package.json) —
+ * les deux vont ensemble, ajouter l'exigence sans ce câblage casserait le build.
+ */
+const docxService = new DocxService();
 
 const findEmployeeByEmail = makeFindEmployeeByEmail(employeeRepo);
 const getEmployeeProfile = makeGetEmployeeProfile(employeeRepo, onboardingRepo, taskRepo);
@@ -113,7 +123,22 @@ const updateOnboardingStatus = makeUpdateOnboardingStatus(onboardingRepo);
 const getTaskList = makeGetTaskList(taskRepo);
 const generateQuestionnaire = makeGenerateQuestionnaire(questionnaireRepo);
 const evaluateResponse = makeEvaluateResponse(questionnaireRepo, responseRepo);
-const generateDocument = makeGenerateDocument(documentRepo);
+// `generateDocument` ne se contente plus d'écrire une ligne : il rend le fichier, le
+// livre dans Slack (upload) ou par email (pièce jointe), et rend compte de la livraison.
+// Le canal et le thread ne sont PAS injectés ici — ils viennent du `requestContext` par
+// requête (`src/shared/slack-request-context.ts`) ; l'adresse email, elle, est résolue
+// depuis l'annuaire. Aucune destination ne transite par le modèle.
+const generateDocument = makeGenerateDocument({
+  documentRepo,
+  employeeRepo,
+  renderers: [pdfService, docxService],
+  // `SlackAdapter` porte `uploadFile` en plus de `sendMessage` : un seul WebClient, un
+  // seul jeton. ⚠️ Le scope `files:write` n'est pas accordé aujourd'hui — l'upload
+  // échoue donc en `missing_scope` et le tool dégrade (repli email, puis verdict
+  // `failed`) jusqu'à ce qu'un humain ajoute le scope ET réinstalle l'app.
+  fileUpload: chatProvider,
+  emailProvider,
+});
 const sendNotification = makeSendNotification(
   notificationRepo,
   employeeRepo,

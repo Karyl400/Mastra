@@ -1,6 +1,225 @@
 # CHANGELOG.md — Kisso Onboarding
 
 ## [Unreleased] - 2026-08-11
+### Added (livraison réelle de documents — lots 1 à 4)
+
+⚠️ **Dans le dépôt, pas en production** : aucun déploiement n'a suivi. Trois gestes humains
+restent nécessaires avant l'entrée en service (scope `files:write`, DDL `documents.content`,
+DDL `slack_event_dedup`) — voir `TODO.md`, section « Actions humaines ».
+
+- **Port `DocumentRenderer`** (`src/features/document/domain/ports/document-renderer.ts`) :
+  `render()` → `{ bytes: Uint8Array, filename, mimeType }`. `Uint8Array` et non `Buffer` — la
+  couche `domain` doit rester du TypeScript pur (garde-fou `tests/unit/quality/architecture.test.ts`),
+  et un `Buffer` EST un `Uint8Array` : la contrainte ne coûte rien au runtime.
+  - `PdfmakeService implements PdfService, DocumentRenderer` : `render()` **n'écrit jamais sur
+    disque** — seul chemin utilisable sur Vercel (FS en lecture seule hors `/tmp`, et éphémère).
+    L'ancienne `generate()`, qui écrit dans `./data/documents` et rend un chemin local, est
+    **conservée** : `documentGenerationWorkflow` en dépend et n'a pas été touché.
+  - **`DocxService`** (`docx@9.7.1`), nouveau. Import **statique**, contrairement au
+    `createRequire` de `pdfmake.service.ts` : c'est l'invisibilité du `require()` dynamique pour
+    l'analyse du bundler qui avait produit le `Cannot find module 'js-md5'` en production — on ne
+    reproduit pas ce montage.
+- **Templates format-agnostiques** (`document/domain/services/document-template.ts`) : modèle
+  logique en blocs pauvres (`heading | paragraph | bullets | fields`), dénominateur commun que
+  PDF et DOCX rendent tous deux sans approximation. 4 gabarits dédiés (`contract`,
+  `welcome_letter`, `certificate`, `guide`) + 1 **générique** couvrant les 5 autres valeurs de
+  `DocumentType`. Les templates vivaient en `TDocumentDefinitions` pdfmake : les dupliquer pour
+  DOCX aurait garanti que deux rendus du même type finissent par ne plus dire la même chose.
+- **Nom de fichier assaini par liste BLANCHE** (`document/domain/services/document-file.ts`) :
+  `[a-z0-9]` après décomposition NFD et retrait des diacritiques, jamais une liste noire — le
+  titre est rédigé par un LLM à partir d'un texte utilisateur et SORT du processus (nom du
+  fichier Slack, nom de la pièce jointe). `../../etc/passwd` → `etc-passwd.docx`, « Émilie » →
+  `emilie`, titre vide → `document`. Base tronquée à 80 caractères (eCryptfs plafonne à 143
+  octets, plusieurs clients mail tronquent au-delà de 100).
+- **`SlackAdapter.uploadFile()`** via `files.uploadV2`, derrière le port `FileUploadProvider` —
+  aucun type `@slack/*` dans `domain/`. Deux pièges consignés, tous deux constatés dans les
+  typings installés (`@slack/web-api` 8.0.0) :
+  - le permalink est **doublement imbriqué** (`res.files[0].files[0].permalink`) : la v2 est un
+    enrobage client (`getUploadURLExternal` → PUT → `completeUploadExternal`) et non l'ancienne
+    `files.upload`, qui rendait un unique objet `file` ;
+  - l'accesseur public `client.files.uploadV2` est typé `WebAPICallResult`, soit
+    `{ ok, response_metadata? }` : **le champ `files` n'existe pas pour TypeScript**, seule la
+    méthode `WebClient.filesUploadV2()` porte le type riche. La lecture se fait donc depuis
+    `unknown`, défensivement — et l'absence de permalink n'est PAS un échec, le fichier est livré.
+  - `channel_id` (et non `channels`, déprécié) ; `file: Buffer.from(bytes)` — le SDK refuse un
+    `Uint8Array` nu et interpréterait une **chaîne** comme un CHEMIN à lire sur le disque.
+  - Un `missing_scope` est retraduit en `Error` de prose nommant les DEUX gestes humains requis
+    (ajouter `files:write`, PUIS réinstaller l'app), erreur d'origine conservée dans `cause`.
+- **Pièces jointes email** : `EmailProvider.sendEmail` gagne un 4ᵉ paramètre **optionnel**
+  `attachments` — optionnel à dessein, `send-notification` et le workflow d'onboarding ne sont pas
+  modifiés et produisent exactement le même message. Nouvelle policy de domaine
+  `notification/domain/services/email-attachment-policy.ts`, borne **5 Mio sur le TOTAL**,
+  vérifiée **avant toute E/S**.
+  - Elle vit dans le domaine et non dans un adaptateur : SMTP et Brevo doivent refuser exactement
+    les mêmes envois, sinon un basculement de fournisseur changerait silencieusement ce que le
+    produit accepte de livrer. Sur le total et non par pièce : c'est le volume transféré qui fait
+    expirer le socket.
+  - Pourquoi 5 Mio : `SMTP_TIMEOUT_MS` = 10 s sur une connexion TCP tenue depuis une fonction
+    serverless, et le base64 ajoute +33 % sur le fil (5 Mio ≈ 6,7 Mio transférés, ~12 Mio de pic
+    mémoire). Les documents réellement produits pèsent quelques dizaines de kilo-octets — deux
+    ordres de grandeur sous la borne : un dépassement signale un contenu non borné en amont,
+    c'est-à-dire un bug, pas un document légitime.
+  - `assertEmailAttachmentsFit` **lève** au lieu de rendre un booléen : un refus silencieux
+    reproduirait le piège `emailSent: false` sous `status: 'success'`.
+- **Contexte Slack jusqu'aux tools** (`src/shared/slack-request-context.ts`) — c'était le point
+  **bloquant** recensé dans `TODO.md`. Un tool reçoit son `inputData` du modèle, et le modèle ne
+  connaît pas — et ne doit pas connaître — l'identifiant d'un canal.
+  - `agent.generate(messages, { requestContext })` : ⚠️ en Mastra 1.57 c'est **`requestContext`**,
+    plus `runtimeContext`. Lecture côté tool par `readSlackContext(ctx.requestContext)`, par
+    contrat structurel (`get(key)`) et non par `instanceof` — le runtime peut fournir un proxy, et
+    un `instanceof` casserait aussi si deux copies du paquet cohabitaient dans le bundle.
+  - **Coût en tokens : NUL.** Le `RequestContext` est un canal d'injection de dépendances côté
+    serveur : il ne traverse ni le prompt, ni les schémas de tools, ni le tool-result.
+  - Module dans `src/shared/` parce que le producteur (`notification/infrastructure/handlers`) et
+    les consommateurs (`application/tools` d'AUTRES features) ne peuvent pas s'importer sans
+    violer la règle de dépendance. Les trois clés sont le CONTRAT entre les deux bords : les
+    dupliquer en littéraux ferait qu'un renommage d'un seul côté couperait la livraison sans
+    qu'aucun type ne bouge ni aucun test ne rougisse.
+  - **En DM, `threadTs` reste délibérément absent** : threader un DM enfouit le message hors de la
+    conversation principale (incident de production déjà documenté). Un fichier uploadé avec un
+    `thread_ts` en DM serait pire — la personne verrait « voici ton document » sans jamais voir le
+    document.
+  - `readSlackContext` ne lève jamais et rend `undefined` hors Slack (playground, route HTTP,
+    workflow, test) : c'est le cas NORMAL de ces chemins, au tool de dégrader.
+
+### Changed (capacité réellement atteignable — lot 4)
+- **`generateDocument` rend, enregistre, livre et rend compte.** Il se réduisait à un
+  `repo.save()` : aucun fichier produit, aucune livraison. C'est ce vide qui a fabriqué en
+  production le faux lien `https://kisso.internal/docs/<uuid>/download` — sommé de livrer un
+  document, le modèle en a inventé la seule chose qu'il savait produire, une URL.
+  - `inputSchema` : `format` restreint de **10 à 2 valeurs** (`pdf`/`docx`, les seules qui aient
+    un renderer — annoncer les huit autres promettrait au modèle ce que le code ne sait pas faire,
+    c'est-à-dire exactement le piège corrigé ici, et les réémettrait à chaque aller-retour sous
+    plafond Groq), **défaut `pdf`** au lieu de `txt` (le défaut `txt` produisait des documents que
+    personne n'avait demandés dans ce format) ; nouveau champ `deliverTo`
+    (`slack | email | none`, défaut `slack` — la demande arrive d'une conversation Slack dans la
+    quasi-totalité des cas, et un défaut obligeant à demander « où veux-tu le recevoir ? » coûte
+    un aller-retour complet, plus cher que le champ lui-même).
+  - **Ni canal, ni thread, ni adresse dans le schéma.** Le canal et le thread viennent du
+    `requestContext` : le modèle ne voit jamais un identifiant de canal, il ne peut donc ni
+    l'inventer ni le détourner. L'adresse email est résolue depuis l'annuaire via `employeeId` —
+    même modèle de menace que `send-notification.ts` : le tool est atteignable depuis un message
+    Slack arbitraire, donc toute valeur produite par le LLM est réputée contrôlée par un
+    attaquant.
+  - **Tool-result projeté : 685 → 39 tokens** en nominal (91 quand un `hint` de dégradation est
+    joint). Le tool retournait l'entité complète, `content` compris : il renvoyait au modèle, à
+    ses frais, le texte que le modèle venait lui-même d'écrire, et ce texte restait ensuite dans
+    l'historique de TOUS les tours suivants. La propriété qui compte n'est pas le chiffre mais
+    l'**indépendance** : la taille ne dépend plus de la longueur de `content` (test : Δ = 0
+    caractère entre 10 et 11 000 caractères de corps), sous 60 tokens verdict compris.
+    Même défaut, même correction que `getEmployeeProfile` (2 506 → 329).
+  - **Le permalink Slack est journalisé, jamais retourné au modèle** : remettre une URL dans le
+    contexte rouvrirait précisément la porte par laquelle le faux lien est passé — et le fichier
+    est déjà dans le fil.
+  - Verdicts : `delivery` ∈ `slack | email | none | failed`, `reason` ∈ `employee_not_found |
+    no_slack_context | missing_scope | no_email | delivery_failed | not_rendered`, plus un `hint`
+    **payé uniquement dans les cas dégradés** (pas un caractère de plus quand la livraison
+    réussit). Chaque `hint` dit au modèle ce qu'il doit ANNONCER, faute de quoi il comble le vide —
+    c'est la mécanique exacte du faux lien.
+  - ⚠️ **`missing_scope` déclenche un repli sur l'email ; un échec Slack ordinaire NON.** Un scope
+    manquant est un manque de configuration durable (son ajout exige une réinstallation de l'app),
+    donc réessayer autrement a du sens ; une panne Slack passagère (`not_in_channel`, 5xx) n'est
+    pas une raison d'écrire à quelqu'un qui n'a rien demandé.
+  - Le document est **toujours enregistré**, même quand la livraison échoue — seule une livraison
+    réussie pose `status: Sent`, unique trace persistée du départ d'un document. Un `employeeId`
+    inconnu n'enregistre rien (`documents.employee_id` porte une clé étrangère) et ne lève pas :
+    il rend un résultat qui INSTRUIT, comme `get-employee-profile.ts`.
+- **Bloc DOCUMENTS de `onboardingOrchestrator` réécrit** — pas ajouté : 203 → 198 caractères
+  (58 → 57 tokens au ratio 3,5, mesuré). L'ancien texte (« il ne renvoie AUCUN fichier
+  téléchargeable ni URL ») constatait un vide fonctionnel ; le garder aurait bridé la capacité en
+  interdisant à l'agent d'annoncer ce qu'il vient de faire. Deux choses n'ont pas bougé :
+  l'interdiction d'inventer un lien (le fichier est livré par UPLOAD, il n'existe aucune URL de
+  téléchargement dans ce système) et le budget. Ajout de fond : lire le champ `delivery` du
+  tool-result plutôt que supposer — c'est ce qui permet l'énoncé honnête « le document est prêt
+  mais je n'ai pas pu te l'envoyer ».
+- **`docx` ajouté à `ORCHESTRATOR_INTENTS`** (`slack-events.handler.ts`) : une extension de
+  fichier, servie par le seul agent qui porte `generateDocument`, sans autre sens en français
+  comme en anglais — le critère « sans ambiguïté » exigé par ce palier.
+  - **« word » a été examiné et volontairement ÉCARTÉ.** C'est un mot anglais courant (« in other
+    words »), et ce palier **prime sur le palier collant** : un faux positif n'y coûte pas un
+    repli anodin, il ARRACHE le message au fil en cours. Or « envoie-le en Word » n'a pas besoin
+    de ce palier — c'est une réponse de suivi, précisément ce que le palier collant sait router
+    vers l'agent qui mène la conversation.
+- **Garde-fou de bundle** : `verify:bundle` exige désormais `docx`
+  (`--require pdfkit,pdfmake,js-md5,fontkit,docx`). C'est le **câblage** de `DocxService` dans
+  `src/mastra/index.ts` (import statique) qui fait entrer le paquet dans le bundle — les deux vont
+  ensemble, exiger sans câbler casserait le build. Vérifié : build OK, `docx@9.7.1` et ses 5
+  dépendances (`hash.js`, `jszip`, `nanoid`, `xml`, `xml-js`) présents, smoke test PDF depuis le
+  bundle → 7 082 octets, en-tête `%PDF-` valide.
+
+### Fixed (lot 5 — l'échec d'email n'est plus silencieux)
+- **`employeeOnboardingWorkflow` rend un verdict lisible.** Il ne connaissait que « réussi » et
+  « échoué » : l'envoi de l'email étant best-effort, un email jamais parti se rendait par un
+  `emailSent: false` noyé dans un run `status: 'success'`. Trois lecteurs successifs — rapports
+  humains, `scripts/production-*.ts`, agents — y ont conclu à tort qu'un email avait été envoyé,
+  produisant de faux « ✅ PASS ». C'est le piège « l'échec d'email est SILENCIEUX » de `CLAUDE.md`.
+  - Nouveau `onboarding/domain/value-objects/onboarding-outcome.ts` : `OnboardingOutcome`
+    (`completed | degraded | failed`) et `degradedSteps: { step, reason }[]`. Le couple
+    QUOI/POURQUOI est indissociable — un booléen dit qu'il faut réparer, jamais quoi réparer, et
+    le diagnostic repartait alors des logs quand ils existaient encore.
+  - ⚠️ **`run.status` reste `'success'`** : c'est un champ de Mastra, non modifiable. Le verdict
+    vit dans la charge utile — c'est `outcome` qu'il faut lire, pas `run.status`. `failed` ne
+    figure jamais dans le résultat (un run en échec n'a pas de résultat, Mastra rend
+    `{ status: 'failed', error }`) ; la valeur existe pour que les appelants qui traduisent
+    `run.status` disposent du même vocabulaire.
+  - **Trois** étapes best-effort inventoriées, et c'est la moitié du correctif : `onboardingTasks`,
+    `welcomeEmail`, `slackInvite`. Ne traiter que l'email aurait laissé l'invitation Slack et la
+    création des tâches dans le même angle mort, avec exactement le même symptôme.
+  - **Arbitrage : « non applicable » ≠ « dégradé ».** Sans provider ni canal de département,
+    l'invitation n'était pas censée avoir lieu — et c'est le cas de TOUTE soumission de la modale,
+    qui passe `slackChannelId: null` faute de correspondance département → canal. La compter comme
+    dégradation aurait rendu « dégradé » l'état NORMAL et détruit le signal. En revanche, canal
+    configuré + compte Slack introuvable EST une dégradation : l'arrivant n'atterrit dans aucun
+    canal.
+  - **On ne lève pas.** Transformer l'échec d'une étape best-effort en exception avorterait le run
+    et ferait perdre l'employé créé, ses tâches et son invitation — pour une indisponibilité SMTP
+    de trente secondes. `Degraded` est un aboutissement, pas un échec.
+  - `emailSent` et `slackInvited` sont **conservés** bien que redondants avec `degradedSteps` :
+    les instructions des agents les nomment explicitement.
+  - Appelants adaptés : `src/api/slack-interactions.route.ts`, `scripts/production-scenarios.mjs`,
+    `scripts/production-test.ts`, `scripts/production-test-mocked.ts`,
+    `docs/guides/tests-manuels.md`, `docs/SLACK_BOT_SETUP.md`.
+  - Vérifié et laissé tel quel : le tool `sendNotification` n'a jamais porté ce défaut — il échoue
+    bruyamment sur la résolution du destinataire (`throw NotFoundError`) et, sur échec de
+    transport, enregistre puis **retourne** l'entité avec `status: 'failed'` / `sentAt: null`.
+
+### Fixed (perte de données et double réponse)
+- **`documents.content` — perte de données silencieuse.** L'entité `Document` déclare
+  `content: string`, `generateDocument` l'exige en entrée (`z.string().min(1)`)… et **aucune
+  colonne** ne l'accueillait. Drizzle IGNORE silencieusement toute clé de `.values()` sans colonne
+  déclarée, et le `as unknown as` des mappers du repository effaçait l'écart pour le compilateur.
+  État constaté sur la Turso de production le 2026-08-11 : **6 lignes sur 6 sans contenu,
+  irrécupérables**.
+  - Colonne ajoutée à `schema.ts`, DDL manuel `scripts/ddl-documents-content.sql` (les migrations
+    `drizzle/` sont désynchronisées et `drizzle-kit push` se bloque contre un `libsql://` distant).
+  - ⚠️ **Ordre imposé : DDL d'abord, déploiement ensuite.** Une fois `content` déclarée, Drizzle la
+    NOMME dans l'INSERT : `generateDocument` échoue alors en `no such column: content` — échec
+    bruyant, préférable à la perte muette, mais il impose l'ordre.
+  - Colonne **nullable** à dessein : les 6 lignes existantes n'ont pas de contenu à rétablir, un
+    `NOT NULL` exigerait une valeur de remplissage, c'est-à-dire un document vide présenté comme
+    complet. Le bloc « stockage » de la table (`storage_key`, `storage_bucket`, `file_name`,
+    `file_size`, `mime_type`) décrit une référence S3/GCS qui n'existe pas — NULL sur 6 lignes / 6,
+    aucun bucket configuré nulle part. Tant qu'aucun stockage objet n'existe, la base EST le
+    stockage.
+- **Déduplication Slack partagée** (table `slack_event_dedup`, port
+  `slack-event-dedup.repository.ts`, implémentations Drizzle et in-memory). Le cache LRU est en
+  mémoire, donc **par instance** : incapable par construction d'écarter un rejeu routé vers une
+  AUTRE instance. C'est la double réponse du 2026-08-11 12:38 UTC — l'instance A était occupée par
+  le `waitUntil` de l'appel LLM, donc le rejeu (`retryNum: 1`, provoqué par un ACK à 6,7 s sur
+  démarrage à froid) est parti sur une instance neuve, au cache vide, qui a répondu une seconde
+  fois avec un texte différent.
+  - `claimEvent()` prend la clé en deux temps : cache local (aucune E/S, cas le plus fréquent sur
+    instance chaude) puis store partagé. La clé du handler (`ts:<channel>:<ts>` ou
+    `id:<event_id>`) sert de PRIMARY KEY : c'est elle qui rend la prise atomique via
+    `INSERT … ON CONFLICT DO NOTHING`.
+  - **Dégradation assumée** : store indisponible → repli sur le seul cache local, événement
+    **accepté**. Un doublon possible vaut mieux qu'un message perdu — le doublon est visible et
+    corrigeable, le silence ne l'est pas. Journalisé en `error`
+    (`Shared Slack dedup unavailable — falling back to the per-instance cache`).
+  - ⚠️ **Aucun script DDL n'existe pour cette table et elle n'est appliquée nulle part** : tant que
+    ce n'est pas fait, la dégradation ci-dessus est le comportement permanent. Voir `TODO.md`.
+
+## [Unreleased] - 2026-08-11
 ### Changed (lot 0 — coût en tokens d'entrée)
 
 Mesures au ratio **3,5 caractères/token** (calibré sur les relevés de production du projet),

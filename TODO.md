@@ -207,9 +207,31 @@
       `…@kisso.com`. Envoyer au nom de « Kisso » depuis une adresse `@gmail.com` est
       structurellement exposé au spam. `SmtpAdapter` fonctionnera tel quel avec le SMTP du
       domaine.
-- [ ] Rendre l'échec d'email **visible** : `sendWelcomeEmail` avale l'erreur et pose
-      `emailSent: false`, mais le workflow retourne `status: 'success'` — source de faux
-      « ✅ PASS » dans les rapports de test.
+- [x] **Échec d'email rendu visible** (2026-08-11). `sendWelcomeEmail` avalait l'erreur et
+      posait `emailSent: false` sous un `status: 'success'` — trois lecteurs successifs
+      (rapports humains, `scripts/production-*.ts`, agents) en ont conclu à tort qu'un email
+      était parti, d'où de faux « ✅ PASS ». Nouveau value-object
+      `src/features/onboarding/domain/value-objects/onboarding-outcome.ts` :
+      `OnboardingOutcome` (`completed | degraded | failed`) + `degradedSteps: { step, reason }[]`,
+      le couple QUOI/POURQUOI étant indissociable (un booléen dit qu'il faut réparer, jamais quoi).
+      - **`run.status` reste `'success'`** — c'est un champ de Mastra, non modifiable : le verdict
+        vit dans la charge utile, et c'est `outcome` qu'il faut lire.
+      - **Trois** étapes best-effort inventoriées, pas seulement l'email : `onboardingTasks`,
+        `welcomeEmail`, `slackInvite`. N'en traiter qu'une aurait laissé les deux autres dans le
+        même angle mort.
+      - Arbitrage : **« non applicable » ≠ « dégradé »**. Toute soumission de la modale passe
+        `slackChannelId: null` ; compter ce saut comme dégradation aurait rendu « dégradé » l'état
+        NORMAL et détruit le signal. Canal configuré + compte Slack introuvable, en revanche, EST
+        une dégradation.
+      - On ne lève pas : avorter le run pour une indisponibilité SMTP de 30 s ferait perdre
+        l'employé créé, ses tâches et son invitation.
+      - Appelants adaptés : `src/api/slack-interactions.route.ts`,
+        `scripts/production-scenarios.mjs`, `scripts/production-test.ts`,
+        `scripts/production-test-mocked.ts`, `docs/guides/tests-manuels.md`,
+        `docs/SLACK_BOT_SETUP.md`.
+      - Vérifié au passage : le tool `sendNotification` n'a **jamais** eu ce défaut — il lève sur
+        la résolution du destinataire et retourne `status: 'failed'` / `sentAt: null` sur échec de
+        transport. Rien à corriger de ce côté.
 - [ ] Décider du sort du repli Brevo : soit demander l'activation du compte transactionnel à
       Brevo (`403 permission_denied`, blocage au niveau **compte**), soit retirer
       `BrevoAdapter` et `BREVO_API_KEY`.
@@ -218,9 +240,20 @@
 - [ ] **File durable pour le traitement en tâche de fond.** Risque réel et **non testé** :
       Vercel peut geler la fonction dès l'ACK envoyé et tuer l'appel LLM en vol — symptôme
       « le bot ACK mais ne répond jamais ». `inngest` est déjà une dépendance.
-- [ ] **Déduplication multi-instance.** Le cache LRU sur `event_id` est en mémoire, donc
-      **par instance** : plusieurs instances serverless concurrentes peuvent traiter deux fois
-      le même rejeu. Déporter vers la base ou un cache partagé.
+- [x] **Déduplication multi-instance — code fait, table à appliquer.** Le cache LRU sur
+      `event_id` est en mémoire, donc **par instance** : incapable par construction d'écarter un
+      rejeu routé vers une autre instance. C'est la cause de la double réponse du 2026-08-11
+      12:38 UTC (instance A occupée par le `waitUntil` de l'appel LLM, rejeu parti sur une
+      instance neuve au cache vide). `claimEvent()` prend désormais la clé en deux temps :
+      cache local (aucune E/S) puis store partagé Turso — table `slack_event_dedup`, clé du
+      handler en PRIMARY KEY, prise atomique par `INSERT … ON CONFLICT DO NOTHING`, port
+      `slack-event-dedup.repository.ts` + implémentations Drizzle et in-memory.
+      Dégradation assumée si le store est indisponible : repli sur le cache local et événement
+      **accepté** — un doublon visible vaut mieux qu'un message perdu, ligne journalisée en
+      `error`.
+      ⚠️ **La table n'a aucun script DDL et n'est appliquée nulle part** : voir « Actions
+      humaines » ci-dessous. Tant que ce n'est pas fait, la dégradation est le comportement
+      permanent et la double réponse reste possible.
 - [ ] **Pas de 3ᵉ maillon LLM.** Si Mistral échoue aussi (quota, panne), l'erreur brute de
       Mistral remonte quand même au client en `HTTP 500` — la bascule Groq → Mistral (voir
       `src/shared/llm/model-fallback.ts`) n'aide pas dans ce cas, elle ne fait que journaliser
@@ -245,15 +278,16 @@
 - [x] **Lot 1 — feature `conversation`** : entité, value-object `deriveConversationId`, service
       `selectWindow` (fenêtre en tokens), port `ConversationRepository`, dépôts Drizzle et
       in-memory, table `conversation_turns`.
-- [ ] **Appliquer `scripts/ddl-conversation-turns.sql`** sur `data/kisso.db` ET sur la Turso de
-      production. Sans ça, `DrizzleConversationRepository` échoue sur `no such table` —
-      et le lot 1 n'est pas branché tant que ce n'est pas fait.
-- [ ] **Câbler la mémoire dans `slack-events.handler.ts`** : lecture de la fenêtre avant
+- [x] **`scripts/ddl-conversation-turns.sql` appliqué** sur la Turso de production le
+      2026-08-11 (table + 2 index vérifiés).
+- [x] **Mémoire câblée dans `slack-events.handler.ts`** : lecture de la fenêtre avant
       `agent.generate`, écriture du tour `user` *après* `wrapAgentInput` et du tour `assistant`
       *après* `sanitizeAgentOutput` (décision D4 — sinon un marqueur `kisso_XXXX` se rejouerait
-      à chaque tour, et un message bloqué pour injection entrerait en mémoire).
-- [ ] **Appeler `prune()` opportunément** (aucun cron ne le fera) — sinon `conversation_turns`
-      croît indéfiniment.
+      à chaque tour, et un message bloqué pour injection entrerait en mémoire). Dégradation
+      silencieuse si le dépôt est indisponible : le bot redevient amnésique mais répond.
+- [x] **`prune()` appelé opportunément** (aucun cron ne le fera), sur la fenêtre
+      `conversationTtlMs` — et de même pour la rétention du store de déduplication Slack
+      (`SLACK_EVENT_DEDUP_RETENTION_MS`).
 
 ## [Coût en tokens] — lot 0
 - [x] **Borner et projeter les tool-results** (`task-summary.mapper.ts`, `MAX_TASKS_IN_RESULT = 5`) :
@@ -264,20 +298,85 @@
 - [x] **Alléger les schémas** `scheduleReminder` (232 → 183) et `generateDocument` (212 → 172),
       sans toucher aux champs ni à la validation.
 - [x] **Floor des 3 agents : 4 306 → 3 816 tokens (−490).**
-- [ ] **Livraison d'un PDF téléchargeable dans la conversation Slack** — capacité attendue côté
-      produit, **inexistante aujourd'hui**. En l'état l'agent ne peut qu'enregistrer une ligne en
-      base, d'où la consigne « n'invente jamais de lien » sur l'orchestrateur. Il manque quatre
-      choses, dont une bloquante :
-      1. `generateDocument` n'appelle jamais `PdfmakeService` — il ne fait que `repo.save()`.
-      2. `PdfmakeService.generate()` écrit dans `./data/documents` et rend un **chemin local** :
-         inutilisable sur Vercel (FS en lecture seule hors `/tmp`, et éphémère). Il devrait rendre
-         un `Buffer`.
-      3. Aucun upload Slack n'existe (`files.upload` / `files.uploadV2` n'apparaissent nulle part)
-         et le scope **`files:write` n'est pas accordé** au bot — l'ajouter impose une
-         réinstallation de l'app dans le workspace.
-      4. **Bloquant** : un tool n'a aujourd'hui aucun moyen de savoir dans QUEL canal / thread
-         poster. Il faut faire descendre le contexte Slack jusqu'au tool (`runtimeContext` Mastra),
-         donc modifier `slack-events.handler.ts`.
+- [x] **Livraison d'un document dans la conversation Slack** (2026-08-11). Les quatre manques
+      sont levés — **sauf le scope**, désormais le seul obstacle restant (voir « Actions
+      humaines »). Il n'existe toujours aucune URL de téléchargement : le fichier est livré par
+      **upload**, et la consigne « n'invente jamais de lien » reste sur l'orchestrateur.
+      1. [x] `generateDocument` rend, enregistre, livre et **rend compte** : `delivery` ∈
+         `slack | email | none | failed`, `reason` ∈ `employee_not_found | no_slack_context |
+         missing_scope | no_email | delivery_failed | not_rendered`, `hint` payé uniquement dans
+         les cas dégradés. `missing_scope` déclenche un repli sur l'email ; un échec Slack
+         ordinaire (`not_in_channel`) **non** — une panne passagère n'est pas une raison d'écrire
+         à quelqu'un qui n'a rien demandé. `inputSchema` : `format` restreint de 10 à 2 valeurs
+         (`pdf`/`docx`, défaut `pdf` et non plus `txt`), nouveau `deliverTo`
+         (`slack | email | none`, défaut `slack`). Ni canal ni adresse dans le schéma : le
+         serveur les connaît mieux que le modèle. Tool-result projeté **685 → 39 tokens** en
+         nominal (91 en dégradé), taille désormais indépendante de la longueur de `content` — le
+         tool renvoyait auparavant l'entité complète, donc le texte que le modèle venait
+         d'écrire. Le permalink est journalisé, **jamais retourné au modèle**.
+      2. [x] Nouveau port `document/domain/ports/document-renderer.ts` :
+         `render()` → `{ bytes: Uint8Array, filename, mimeType }`, aucune écriture disque.
+         `PdfmakeService implements PdfService, DocumentRenderer` — `generate()` (chemin local)
+         est **conservée** pour `documentGenerationWorkflow`, son seul appelant restant. Nouveau
+         `DocxService` (`docx@9.7.1`). Templates format-agnostiques dans
+         `domain/services/document-template.ts` : 4 dédiés + 1 générique couvrant les 5 autres
+         valeurs de `DocumentType`. Nom de fichier assaini par liste blanche
+         (`../../etc/passwd` → `etc-passwd.docx`).
+      3. [x] `SlackAdapter.uploadFile()` via `files.uploadV2` ; `EmailProvider.sendEmail` gagne
+         un 4ᵉ paramètre **optionnel** `attachments`, borné à 5 Mio sur le total et vérifié
+         AVANT toute E/S (`email-attachment-policy.ts`). Le scope `files:write` reste à accorder.
+      4. [x] **Le point bloquant est levé** : `src/shared/slack-request-context.ts` fait
+         descendre canal / thread / auteur jusqu'aux tools via
+         `agent.generate(messages, { requestContext })` — ⚠️ en Mastra 1.57 c'est
+         `requestContext`, **plus `runtimeContext`**. En DM `threadTs` reste délibérément absent
+         (threader y enfouit la réponse). Coût en tokens : **nul**, le `requestContext` ne
+         traverse pas le contexte du modèle.
+      5. [x] Bundle : `verify:bundle` exige `docx` (`--require pdfkit,pdfmake,js-md5,fontkit,docx`)
+         et `DocxService` est câblé dans `src/mastra/index.ts` — les deux vont ensemble, exiger
+         sans câbler casserait le build. Vérifié : build OK, `docx@9.7.1` présent, smoke test PDF
+         depuis le bundle → 7 082 octets, en-tête `%PDF-` valide.
+- [x] **Perte de données corrigée : `documents.content`.** L'entité `Document` déclare
+      `content: string` et `generateDocument` l'exige en entrée, mais **aucune colonne** ne
+      l'accueillait — Drizzle ignore silencieusement toute clé de `.values()` sans colonne
+      déclarée, et le `as unknown as` des mappers effaçait l'écart pour le compilateur. Constat
+      sur la Turso de production : **6 lignes sur 6 sans contenu, irrécupérables**. Colonne
+      ajoutée à `schema.ts` + DDL `scripts/ddl-documents-content.sql` à appliquer à la main
+      (voir « Actions humaines » — ⚠️ **avant** tout déploiement).
 - [ ] **Postes de coût restants** (hors périmètre du lot 0, appartiennent à d'autres lots) :
       `generateQuestionnaire` 247 tokens de schéma et `sendNotification` 173 — les deux plus
       lourds du dépôt après ce lot.
+
+## [Actions humaines] — rien de ce qui suit ne peut être scripté
+
+Tout le chantier du 2026-08-11 est **dans le dépôt, pas en production** : aucun déploiement n'a
+suivi. Ces quatre gestes conditionnent son entrée en service, et les trois premiers doivent être
+faits **avant** le déploiement.
+
+- [ ] ⚠️ **Accorder le scope Slack `files:write` — SEUL obstacle restant à la livraison Slack.**
+      **Deux gestes, dans cet ordre** :
+      1. ajouter `files:write` dans *OAuth & Permissions* ;
+      2. **réinstaller l'app dans le workspace** (*Settings → Install App → Reinstall to
+         Workspace*, jusqu'au bouton *Allow*).
+      L'ajout seul ne propage **rien** : le jeton conserve les scopes de l'installation en cours.
+      C'est exactement le piège vécu et documenté le 2026-08-08, où seule la réinstallation avait
+      débloqué la livraison des événements. Tant que ce n'est pas fait, `files.uploadV2` répond
+      `missing_scope`, `generateDocument` se rabat sur l'email puis rend `delivery: 'failed'`.
+- [ ] **Appliquer `scripts/ddl-documents-content.sql`** sur `data/kisso.db` ET sur la Turso de
+      production. ⚠️ **Avant le déploiement** : une fois `content` déclarée dans `schema.ts`,
+      Drizzle la NOMME dans l'INSERT, donc `generateDocument` échoue en `no such column: content`
+      tant que la base n'est pas migrée. Sans ce DDL, le contenu des documents est perdu en
+      silence (6 lignes sur 6 déjà vides en production, irrécupérables).
+      - Local : `sqlite3 data/kisso.db < scripts/ddl-documents-content.sql`
+      - Turso : `turso db shell <base> < scripts/ddl-documents-content.sql` (le blocage de
+        `drizzle-kit push` ne concerne pas le client turso)
+      - Vérification : `SELECT name FROM pragma_table_info('documents') WHERE name = 'content';`
+- [ ] **Créer puis appliquer le DDL de `slack_event_dedup`.** La table est déclarée dans
+      `schema.ts` et le code s'en sert, mais **aucun script DDL n'existe** et elle n'est appliquée
+      nulle part — ni en local, ni en production. Sans elle, `DrizzleSlackEventDedupRepository`
+      échoue à chaque prise de clé, le handler retombe en permanence sur le cache par instance
+      (journalisé en `error`) et la double réponse reste possible. Une colonne `key` en PRIMARY
+      KEY, `status` (`in-flight | done`), `started_at` en INTEGER millisecondes, plus l'index
+      `idx_slack_event_dedup_started_at`. Calquer la forme sur `ddl-conversation-turns.sql`.
+- [ ] **Déployer, puis vérifier que le dépôt et la production convergent** —
+      `npx vercel ls` puis `git log --oneline -1`. Tant que ce n'est pas fait, l'avertissement en
+      tête de `CLAUDE.md` s'applique intégralement à tout ce chantier.

@@ -300,6 +300,137 @@ export async function ensureTransitiveDependencies({ projectRoot, bundleDir, see
 }
 
 /**
+ * Recense, pour chaque nom de paquet, TOUS les paquets du bundle qui le déclarent.
+ *
+ * Sert à prouver qu'un remplacement de version est sans effet de bord : si un seul paquet
+ * déclare `dep`, changer la version de `dep` ne peut affecter que celui-là.
+ *
+ * @returns {Map<string, Array<{name:string, version:string, range:string, peerOnly:boolean}>>}
+ */
+export function collectDependents({ bundleDir }) {
+  const dependents = new Map();
+  const seen = new Set();
+
+  const walk = (nodeModulesDir) => {
+    for (const { name, dir } of listPackages(nodeModulesDir)) {
+      if (seen.has(dir)) continue;
+      seen.add(dir);
+      const pkg = readPackageJson(dir);
+      if (pkg) {
+        for (const dep of declaredDependencies(pkg).all) {
+          const { range, peerOnly } = dependencyDeclaration(pkg, dep);
+          if (!dependents.has(dep)) dependents.set(dep, []);
+          dependents.get(dep).push({ name, version: pkg.version ?? '?', range, peerOnly });
+        }
+      }
+      const nested = join(dir, 'node_modules');
+      if (existsSync(nested)) walk(nested);
+    }
+  };
+
+  walk(join(bundleDir, 'node_modules'));
+  return dependents;
+}
+
+/**
+ * Réaligne les dépendances des modules recopiés « en entier » (`MODULES_TO_COPY`).
+ *
+ * POURQUOI C'EST NÉCESSAIRE. Le bundler Mastra écrit dans le `package.json` de la fonction des
+ * versions qui ne sont PAS celles du lockfile du projet — il y épingle notamment
+ * `@mastra/core: 0.24.9` alors que le projet installe `1.57.0`. Le `npm install` du build
+ * matérialise donc l'arbre de dépendances de la VIEILLE version, puis
+ * `fix-vercel-output.js` recopie par-dessus le `@mastra/core` du projet. Le paquet est alors
+ * à jour mais son voisinage ne l'est plus : `@isaacs/ttlcache@1.4.1` là où `^2.1.5` est exigé,
+ * `lru-cache@7.18.3` là où `^11.2.7` est exigé, etc.
+ *
+ * Ce n'est pas un simple avertissement cosmétique : entre ces majeures, le format de module
+ * change (CJS sans export nommé → ESM). Node échoue alors au LINK, avant toute exécution :
+ *
+ *   SyntaxError: Named export 'TTLCache' not found. The requested module '@isaacs/ttlcache'
+ *   is a CommonJS module, which may not support all module.exports as named exports.
+ *
+ * La fonction entière devient inchargeable — chaque requête part en erreur, à froid comme à
+ * chaud. `ensureTransitiveDependencies` ne corrigeait pas ce cas : sa règle d'imbrication ne
+ * s'applique qu'aux paquets qu'elle vient elle-même d'ajouter (`isNew`), jamais aux modules
+ * recopiés en entier, qui sont pourtant précisément ceux dont NOUS avons invalidé la résolution.
+ *
+ * CONDITION DE SÛRETÉ. Le remplacement n'est effectué que si le module recopié est le SEUL
+ * paquet du bundle à déclarer cette dépendance, et si la version installée dans le projet
+ * satisfait l'intervalle. Sous ces deux conditions, aucun autre consommateur ne peut être
+ * affecté — et le code applicatif, issu du même lockfile, attend de toute façon cette
+ * version-là. Tout cas qui ne les remplit pas est signalé, jamais corrigé à l'aveugle.
+ *
+ * Les peer dependencies sont exclues : ce sont des singletons partagés (dédoubler `zod`
+ * suffirait à faire échouer tous les `instanceof ZodType` traversant la frontière).
+ *
+ * À exécuter AVANT `ensureTransitiveDependencies`, pour que la fermeture transitive soit
+ * calculée sur les versions réellement embarquées.
+ *
+ * @returns {Promise<{realigned: Array, blocked: Array}>}
+ */
+export async function realignSeedDependencies({ projectRoot, bundleDir, seeds, log }) {
+  const sourceNodeModules = join(projectRoot, 'node_modules');
+  const bundleNodeModules = join(bundleDir, 'node_modules');
+  const emit = log ?? (() => {});
+  const seedNames = new Set(seeds);
+
+  const realigned = [];
+  const blocked = [];
+  const dependents = collectDependents({ bundleDir });
+
+  for (const seed of seeds) {
+    const seedDir = join(bundleNodeModules, seed);
+    const pkg = readPackageJson(seedDir);
+    if (!pkg) continue;
+
+    for (const dep of declaredDependencies(pkg).all) {
+      const { range, peerOnly } = dependencyDeclaration(pkg, dep);
+      if (peerOnly) continue;
+
+      // Absente du bundle : ce n'est pas notre cas, `ensureTransitiveDependencies` la copiera.
+      const resolved = resolveFrom(seedDir, dep, bundleDir);
+      if (!resolved) continue;
+
+      const bundleVersion = readPackageJson(resolved)?.version;
+      if (versionSatisfies(bundleVersion, range)) continue;
+
+      const source = rootSource(sourceNodeModules, dep);
+      const sourceVersion = source ? readPackageJson(source)?.version : undefined;
+
+      // Un autre paquet du bundle dépend-il de celui-ci ? Si oui, on ne touche à rien.
+      const others = (dependents.get(dep) ?? []).filter((d) => !seedNames.has(d.name));
+
+      if (!source || !versionSatisfies(sourceVersion, range) || others.length > 0) {
+        blocked.push({
+          name: dep,
+          requiredBy: seed,
+          bundleVersion,
+          sourceVersion,
+          range,
+          otherDependents: others.map((d) => `${d.name}@${d.version}`),
+        });
+        continue;
+      }
+
+      await copyPackage(source, resolved);
+      realigned.push({
+        name: dep,
+        requiredBy: seed,
+        from: bundleVersion,
+        to: sourceVersion,
+        location: relative(bundleNodeModules, resolved),
+      });
+      emit(
+        `✅ Réalignement : ${dep} ${bundleVersion} → ${sourceVersion} ` +
+          `(exigé en ${range} par ${seed}, recopié en entier ; seul consommateur du bundle).`
+      );
+    }
+  }
+
+  return { realigned, blocked };
+}
+
+/**
  * Contrôle a posteriori : pour CHAQUE paquet présent dans le bundle (racine et imbriqués),
  * chaque dépendance déclarée doit être résolvable depuis le bundle lui-même.
  *
