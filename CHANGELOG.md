@@ -1,11 +1,265 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-11 (soir)
+### Fixed — campagne de production 19:19→19:40, quatre lots de correction
+
+⚠️ **Dans l'arbre de travail, pas déployé.** `npm run typecheck` : 0 erreur ;
+`npm run test:unit` : **833 verts**.
+
+#### La croyance centrale du projet était fausse — c'est le quota JOURNALIER, pas le seau/minute
+
+`CLAUDE.md` consacrait une longue section à « PLAFOND GROQ 12 000 tokens/minute — c'est la
+limite qui casse la production ». Les logs du 2026-08-11 18:21:50 UTC (déploiement `l71qz4x5f`,
+message « Tu peux prévenir Awa que son parcours démarre lundi ? ») disent l'inverse :
+
+- Le seau par MINUTE était **PLEIN** au moment de l'échec — `x-ratelimit-remaining-tokens: 12000`
+  dans **56 échantillons sur 64**.
+- La limite réellement atteinte est **`TPD: Limit 100000, Used 98207`** : 100 000 tokens par
+  JOUR, soit — à **5 168 tokens par message** mesurés sur la campagne — ≈ **19 messages par
+  jour, tous canaux confondus**.
+- Le repli **Mistral plafonne à 4 REQUÊTES par minute** (`x-ratelimit-limit-req-minute: '4'`),
+  limite **insensible à tout dégraissage de prompt**, documentée nulle part jusqu'ici. Groq mort
+  sur sa journée, chaque étape retombait sur Mistral ; le message est tombé sur la 5ᵉ requête.
+  `LAST_RESORT_MAX_RETRIES = 1` avec 1 s de back-off ne peut structurellement pas franchir un
+  seau par minute.
+
+**Conséquence de doctrine, écrite noir sur blanc dans `CLAUDE.md`** : le poste de coût dominant
+n'est plus la TAILLE du prompt mais le **NOMBRE D'ÉTAPES** — chaque étape est une requête pleine
+chez les deux fournisseurs. Les mesures de dégraissage des campagnes précédentes restent vraies ;
+c'est leur **rendement** qui était surestimé. Le correctif à effet réel est humain (palier
+payant), pas logiciel : voir `TODO.md` section [0].
+
+- **Nouveau message utilisateur `QUOTA_FAILURE`** (`userFacingFailure`, reconnaissance sur
+  `statusCode` 429 ou `AI_APICallError` parlant de quota, en suivant la chaîne `cause`). C'est le
+  seul échec où **réessayer a un sens** ; le générique laissait croire à une panne, et
+  l'utilisatrice est passée au message suivant, qui a échoué pour la même raison.
+
+#### `files:write` était accordé — la documentation affirmait le contraire partout
+
+Preuve : `{"filename":"guide-d-accueil-….pdf","hasPermalink":true}`, PDF réellement posté dans
+le fil pendant la campagne. `CLAUDE.md`, `TODO.md` et `CHANGELOG.md` le déclaraient « SEUL
+obstacle restant », et l'en-tête de `CLAUDE.md` — qui existe précisément pour éviter ce piège —
+annonçait le chantier de livraison « pas en production ». Corrigé dans les trois fichiers.
+- **Conséquence de code** : le repli email de `generateDocument` n'était armé que sur
+  `missing_scope`. Le scope étant accordé, la condition était devenue du **CODE MORT** :
+  `not_in_channel`, un 5xx Slack ou un réseau coupé rendaient `delivery: 'failed'` sec, alors
+  qu'un fichier réel était prêt et qu'une adresse d'annuaire était connue. Rebranché sur **tout**
+  échec de livraison Slack. L'argument d'origine (« ne pas écrire à quelqu'un qui n'a rien
+  demandé ») ne tenait pas : le destinataire est l'employé concerné par le document qu'on vient
+  de demander, et l'alternative n'était pas « ne rien envoyer » mais « perdre le document ».
+- ⚠️ Deux commentaires de `src/` affirment encore le contraire (`src/mastra/index.ts` au point de
+  câblage de `fileUpload`, en-tête de `SlackAdapter.uploadFile`) : ils n'ont pas été touchés.
+
+#### Lot 1 — routage, identité, vérité (`slack-events.handler.ts`, `src/mastra/index.ts`)
+
+- **Le palier collant faisait de `onboardingOrchestrator` un ÉTAT ABSORBANT.** `stickyAgentId`
+  est renseigné dès le premier tour, donc les paliers thématiques étaient **morts à partir du
+  message 2** ; et le seul palier capable de déplacer un fil ne menait **qu'à** l'orchestrateur,
+  sans retour. Mesuré : `notificationAgent` n'a **jamais** été atteignable en série A (en DM la
+  clé de conversation est le canal — tous les sujets d'une heure partagent ce verrou), tandis que
+  B6 et C7 ont **arraché** leur fil vers un agent qui a hérité de la mémoire d'un autre et promis
+  des capacités qu'il n'a pas : les deux réponses les plus fausses de la campagne.
+  - Remplacé par **4 temps avec un palier d'ÉCHAPPEMENT SYMÉTRIQUE** — chaque agent y a ses
+    termes, donc aucun n'absorbe — et les termes de suivi (`pdf`, `docx`, `guide`, `email`,
+    `message`, `test`, `document`, `tâche`, `onboarding`) redescendent **sous** le collant : ce
+    sont eux qui détournaient les réponses de suivi. Listes contractuelles, reproduites dans
+    `CLAUDE.md`.
+  - **« ajoute » retiré** : verbe français générique, il a envoyé « ajoute une question à choix
+    multiple » vers un agent sans aucun tool de questionnaire. Même critère que celui qui avait
+    fait écarter « word ».
+- **Bord droit de la regex : désinences déclarées PAR MOT.** Le `s?(?![\p{L}])` cassait tous les
+  infinitifs — `retrouver`, `rechercher`, `enregistrer` ne matchaient plus, soit le retour **par
+  la conjugaison** du bug « recherche par email structurellement inatteignable » du 2026-08-10.
+  Les radicaux verbaux déclarés (`VERB_STEM_KEYWORDS`) tolèrent `(?:s|r|z|nt)?` ; les mots-clés
+  nominaux (`rappel`, `message`, `test`) gardent le seul pluriel, sinon `rappelle`, `messagerie`
+  et `testez` redeviendraient des faux positifs.
+- **Injection de l'identité du demandeur** dans un message `system` (≈ 38 tokens/tour, ≈ 69 avec
+  l'avertissement d'attribution ; nom résolu via `users.info`, **assaini** — un nom d'affichage
+  est contrôlé par son porteur — et caché par instance). Cause racine du « **Ton** profil » /
+  « **Tu** as 5 tâches » quand on interroge un tiers : `cleanText` retirait les mentions,
+  `slackUserId` ne voyageait que par le `requestContext` (hors fenêtre du modèle), donc le seul
+  humain nommé était le SUJET de la requête — et le bloc STYLE impose le tutoiement.
+  ⚠️ **Jamais dans le bloc `<kisso_XXXX_user_input>`**, que la DIRECTIVE 3.1 déclare non fiable :
+  y glisser une affirmation du serveur la dévaluerait, et un seul bloc ouvrant est autorisé.
+- **`cleanText` ne détruit plus que la mention DU BOT** : il les détruisait toutes, donc
+  `@mastra crée un profil pour <@U0AWA>` perdait son sujet avant d'atteindre le modèle.
+- **Les tours `assistant` d'un AUTRE agent sont préfixés** dans l'historique rejoué (≈ 4 tokens,
+  zéro sur un fil homogène). On ne filtre pas par `agentId` — l'UUID rendu par l'orchestrateur
+  est la donnée dont `notificationAgent` a besoin — mais sans marque, un agent lit la voix d'un
+  autre **comme la sienne** : en C7, l'orchestrateur a repris le motif de `notificationAgent`
+  (redemander sujet, texte, canal) pour cette seule raison.
+- **Nouveau garde-fou déterministe : réconciliation FAIT / NARRATION.** Le handler est le seul
+  point qui voit à la fois la réponse et `response.toolCalls` ; il les confronte désormais. Une
+  affirmation d'accompli (liste FERMÉE de formules, relevées telles quelles sur la campagne)
+  alors que zéro outil a tourné est **requalifiée** par une note accolée — jamais bloquée — et
+  journalisée en `error`. Réponse au verdict de la testeuse : « il parle exactement de la même
+  façon quand il a fait le travail et quand il l'a inventé ».
+  - On cherche une CONTRADICTION, jamais une invraisemblance : « je peux t'envoyer… » n'en est
+    pas une, et l'inclure transformerait chaque tour ordinaire en accusation.
+  - ⚠️ `null` (trace illisible) **n'est pas** `[]` (zéro appel) : sans preuve positive, on se tait.
+  - La note n'entre **pas** en mémoire — la rejouer apprendrait au modèle à imiter le démenti et
+    coûterait ses tokens à chaque tour, sur un budget de ≈ 19 messages/jour.
+- **`readToolCalls` journalisait `"unknown"` sur 100 % des appels** (19 runs de production) : le
+  nom vit sous `chunk.payload.toolName`, la lecture `call.toolName ?? call.name` ne trouvait
+  jamais rien. Le champ ajouté précisément pour distinguer une action d'une narration ne
+  répondait à aucune question. Les deux formes plates restent en repli.
+- **Un `message` de canal est accepté dans un fil DÉJÀ ENGAGÉ** ; `not_a_dm` ne couvre plus que
+  les messages de canal hors fil. Le filtre était plus large que son motif : le doublon
+  `message`/`app_mention` est **déjà** traité par `dedupKey` (`ts:<channel>:<ts>`), tandis que son
+  effet de bord rendait **toute la mémoire conversationnelle inerte en canal** sans re-mention à
+  chaque tour — friction signalée par le propriétaire.
+  - Deux gardes : le message **racine** d'un fil est exclu (prise de parole neuve), et en tâche
+    de fond `shouldAbandonThreadReply` abandonne tout fil où le bot n'a jamais parlé — sans quoi
+    chaque phrase entre humains dans #kisso-hq deviendrait un run LLM.
+  - ⚠️ Le **jumeau `message`** d'une mention reste traité : il peut prendre la clé de dédup le
+    premier, et l'abandonner ferait écarter l'`app_mention` comme doublon — la mention resterait
+    **sans réponse**, régression pire que le défaut corrigé.
+- **`findEmployeeByEmail` exposé aux TROIS agents** — correctif de CÂBLAGE, pas de rédaction.
+  Tous les tools de `questionnaireEngine` et `notificationAgent` exigent un UUID, aucun ne fait
+  email → UUID, le `.describe()` de `recipientId` renvoyait vers `getEmployeeProfile` qui exige
+  déjà un UUID (consigne **circulaire**), et `AGENT_ANTI_INVENTION_BLOCK` interdit d'en deviner
+  un : la boucle de la série C était **garantie par le câblage**, pas probabiliste. Coût ≈ +120
+  tokens de schéma par agent, assumé — un agent qui ne peut pas résoudre une personne ne peut
+  RIEN faire.
+
+#### Lot 2 — outils de notification : ils posaient les questions au lieu de faire le travail
+
+Bilan de la série C avant correction : **7 messages, 0 email, 0 rappel, 0 document**.
+
+- **`sendNotification` : 5 champs obligatoires sans défaut → 3, avec 2 défauts**
+  (`channel` → `email`, `recipientType` → `employee`) — le profil exact de `generateDocument`,
+  seul outil de la campagne qui ait abouti. Un champ obligatoire sans défaut est une question
+  posée à l'humain, donc un aller-retour, donc un message sur les 19 de la journée.
+  - Enum `channel` ramené de **7 à 2** valeurs : `in_app`, `teams`, `push`, `sms` et `webhook`
+    n'ont aucun transport ici ni aucun lecteur ailleurs. Le « tu préfères quel canal (email,
+    Slack, in-app) ? » observé en production **est** cette énumération remontée à l'humain.
+    `recipientType` restreint de même aux types qui peuvent avoir une ligne d'annuaire.
+  - ⚠️ **La dérogation de rédaction vit dans le `.describe()` de `subject`/`body`, PAR CHAMP.**
+    Posée par agent dans le prompt, elle contredirait frontalement `AGENT_ANTI_INVENTION_BLOCK`
+    et reviendrait à tirer à pile ou face à chaque tour. La distinction : un email ou un UUID se
+    **retrouvent**, une prose se **produit**.
+  - **`status = Sent` était posé AVANT le `try`**, donc par défaut : les canaux non transportés
+    repartaient « envoyé », horodatés, sans qu'aucun octet ne parte — **et un test verrouillait
+    ce mensonge** (supprimé et remplacé). Troisième occurrence du même défaut dans ce dépôt,
+    après `emailSent: false` sous `status: 'success'` et `documents.content` perdu en silence.
+- **`getNotificationHistory` rendait les lignes Drizzle brutes** : 18 colonnes, `body` non borné,
+  `limit` par défaut à 50 → **≈ 9 600 tokens → 177**, taille désormais indépendante du nombre de
+  lignes. `limit` **retiré du schéma** (il ne servait qu'à laisser le modèle choisir combien on
+  lui facture) et tri déterministe ajouté — il n'y en avait aucun, deux appels identiques
+  pouvaient rendre deux ordres différents.
+- **`scheduleReminder` : aucun automate ne le reprend.** Le statut `Scheduled` n'est lu nulle
+  part, `findPending()` n'a aucun site d'appel. On ne construit pas l'ordonnanceur (hors lot) ;
+  on corrige le **mensonge** : description en « enregistre » et non « planifie » — le mot que lit
+  le modèle est celui qu'il répétera — et résultat portant `willBeSentAutomatically: false`.
+  Deux refus bruyants ajoutés, alignés sur `sendNotification` : destinataire inconnu et date
+  passée.
+- **`getTaskList` rend `found: false`** : un UUID inconnu donnait `{tasks: [], totalTasks: 0}`,
+  **indiscernable d'un employé sans tâche** — le modèle affirmait « aucune tâche en cours » pour
+  un identifiant qui ne désigne personne.
+
+#### Lot 3 — SÉCURITÉ : le contenu d'un document ne passait par AUCUN filtre
+
+- **`sanitizeAgentOutput` n'a qu'un site d'appel** (`response.text`) : **les arguments de tool
+  n'y passent jamais**. Or `title` et `content` d'un document sont écrits intégralement par le
+  modèle. Vérifié en générant de vrais PDF et en décodant leur CMap : `[SECURITY_BLOCK]`, les
+  délimiteurs `kisso_XXXX`, `DIRECTIVE 3.1` et `https://kisso.internal/…` **s'imprimaient
+  intégralement**, sans le moindre log. Dans Slack, chacun aurait déclenché `NEUTRAL_REFUSAL` ou
+  le retrait du lien, avec une ligne en `error`. **Le document contournait donc le filet
+  unique** — et il est téléchargeable et repartageable.
+- Assainissement posé en **DEUX points**, et ce n'est pas une redondance : au seuil du RENDU
+  (couche `domain`, seul point qu'aucun renderer ni `documentGenerationWorkflow` ne peut
+  contourner) et dans le tool, parce que la **persistance** et la **journalisation** vivent en
+  dehors du renderer — une ligne enregistrée avec un marqueur ressortirait telle quelle au
+  premier code qui la relirait. L'opération est idempotente.
+- **Contrat volontairement différent de celui de Slack** : on retire l'occurrence et on GARDE le
+  document. Un PDF signé de l'entreprise ne contenant qu'un refus serait pire que le défaut
+  corrigé. La détection ne se perd pas : elle remonte à l'appelant, qui journalise en `error`.
+- **Les emojis sortaient en glyphe `.notdef`** (Roboto est la seule police du VFS) : c'est le
+  « caractère indésirable » signalé par le propriétaire. Retirés, jamais transcrits — « [emoji] »
+  rendrait visible une trace de filtrage dans un document d'accueil.
+- **Le markdown est TRADUIT en structure** (`#` → titre, `- ` → puce, tableau à deux colonnes →
+  bloc `fields`) au lieu d'être imprimé. Le modèle en écrit quoi qu'on lui demande (démenti en
+  production sur les trois agents) ; le retirer aurait aplati tout le document en un pavé, soit
+  le défaut d'origine sous une autre forme.
+- **Le nom de fichier dérive désormais du titre ASSAINI** — il était dérivé du titre brut, et il
+  sort du processus (nom du fichier Slack, nom de la pièce jointe).
+
+#### Lot 4 — l'espace négatif : ce que l'agent NE PEUT PAS faire
+
+- **A3 est le seul refus correct de toute la campagne, et la seule frontière écrite noir sur
+  blanc.** Un `Agent` Mastra ne reçoit qu'une **énumération POSITIVE** de ses tools ; le
+  complément était comblé par de la prose inventée — « je peux lui renvoyer le lien » (aucun tool
+  n'envoie de lien), « donne-moi son email pro » (aucun tool de cet agent ne consomme un email),
+  « je ne peux pas modifier un questionnaire qu'elle n'a pas encore reçu » (règle métier
+  entièrement inventée), un rappel « programmé pour lundi 9h » annoncé sans jamais appeler
+  `scheduleReminder`.
+- **Nouvelle frontière `agentToolBoundary(tools)`** : `TES SEULS OUTILS : … Rien d'autre
+  n'existe`, **dérivée de `Object.keys(tools)`** et jamais rédigée — ce dépôt a déjà connu des
+  instructions nommant `discoverSlackWorkspace` et `createEmployee` longtemps après leur retrait.
+  Une liste écrite à la main se désynchronise au premier changement de câblage ; celle-ci ne le
+  peut pas. 38 à 48 tokens.
+- **Supprimé : « passe la main à l'agent de notification ».** **Aucun mécanisme de passation
+  n'existe** — le routage vit dans le handler Slack, hors de portée du modèle. Cette ligne
+  ordonnait l'impossible, invitait à NARRER une délégation qui n'a jamais lieu, et était repayée
+  à chaque aller-retour. Deux tests protègent la suppression.
+- **Le formulaire « Compléter mon profil » n'est PAS inventé** — `handleTeamJoin` l'envoie
+  réellement. Ce qui manquait était sa **condition de déclenchement** : il ne part que quand la
+  personne rejoint le workspace Slack. Le citer sans le dire laisse croire à une RH que le
+  dossier est réglé, alors que rien ne partira tant que l'arrivée n'a pas eu lieu.
+- **`TUTOIEMENT` → « Tutoie ton interlocuteur, jamais le sujet dont on parle »** : le bloc
+  imposait le tutoiement sans jamais dire QUI tutoyer. Ajout de « ton neutre, sans exclamation ni
+  liste numérotée » — constat de la testeuse : les points d'exclamation arrivaient précisément
+  dans les phrases où l'agent ne faisait rien.
+- **« pas de markdown, pas d'emoji » rétabli UNIQUEMENT dans le bloc DOCUMENTS** de
+  l'orchestrateur : le rétablir dans le bloc STYLE partagé le ferait payer trois fois pour un cas
+  qui n'en concerne qu'un.
+- **FLOOR mesuré sur le câblage réel** (ratio 3,5 car./token) : `onboardingOrchestrator` **1 476**,
+  `questionnaireEngine` **1 244**, `notificationAgent` **1 352**, somme **4 072**. Les lots sont
+  **autofinancés** — la frontière et les consignes ajoutées sont payées par les suppressions.
+  L'écart avec les chiffres de lot (1 476 / 1 118 / 1 239) est l'exposition de
+  `findEmployeeByEmail` aux trois agents.
+  ⚠️ **`_measure.mts` est PÉRIMÉ** : son câblage codé en dur n'inclut pas `findEmployeeByEmail`
+  sur `questionnaireEngine` ni `notificationAgent`, il sous-estime donc deux agents sur trois.
+  Même défaut dans la constante `WIRING` de `agent-instructions-budget.test.ts` (sans
+  conséquence : ce test vérifie la forme de la frontière, pas le total).
+- **Fusion des trois agents en un seul : examinée puis REJETÉE.** Les schémas des 10 tools réunis
+  pèsent **≈ 1 622 tokens**, davantage que le FLOOR entier de l'orchestrateur — soit ≈ +80 % par
+  aller-retour. À réexaminer si Groq passe en palier payant.
+
+#### Corrections directes, hors lots
+
+- **`NEUTRAL_REFUSAL` disait « contactez l'équipe RH » — à la responsable RH, qui testait.** Et il
+  vouvoyait quand les trois agents tutoient : le basculement de registre exact au moment où ça
+  casse donnait l'impression de deux interlocuteurs différents. Réécrit en « Je ne peux pas
+  répondre à cette demande. Reformule-la autrement. » — le bot ne connaît pas son interlocuteur
+  au point de savoir vers qui le renvoyer. Reste muet sur la règle touchée, ce qui était déjà
+  l'intention d'origine.
+- **`getTaskList` et `scheduleReminder` reçoivent l'annuaire** dans `src/mastra/index.ts`.
+
+#### Base de production (déjà appliqué, consigné ici)
+
+- DDL `documents.content` et `slack_event_dedup` **appliquées et vérifiées** ; prise atomique de
+  la déduplication testée (1 ligne, puis 0). La déduplication inter-instances **fonctionne** en
+  production : `Dropping duplicate Slack event (claimed by another instance)` avec un `requestId`
+  différent, et `Shared Slack dedup unavailable` : **0 occurrence**.
+- Nettoyage : 6 documents sans contenu, 1 notification orpheline, 1 questionnaire non rattaché
+  supprimés. Les 2 employés ont été rattrapés (1 parcours + 5 tâches + 5 étapes chacun).
+
+#### Ce qui est SACRIFIÉ, et assumé
+
+`generateQuestionnaire` est une boucle d'écho (`status: Published` sans rien publier) ; **aucun
+tool ne sait LIRE un questionnaire ou une réponse** — « Awa a-t-elle répondu ? » est
+structurellement insoluble ; aucun ordonnanceur ne reprend les rappels ;
+`notificationCycleWorkflow` est un stub qui renvoie `successCount: N` sans aucune E/S ;
+« étape 0 sur 5 » reste indicible. Détail et raisons dans `TODO.md`, section « Sacrifié ».
+
 ## [Unreleased] - 2026-08-11
 ### Added (livraison réelle de documents — lots 1 à 4)
 
-⚠️ **Dans le dépôt, pas en production** : aucun déploiement n'a suivi. Trois gestes humains
-restent nécessaires avant l'entrée en service (scope `files:write`, DDL `documents.content`,
-DDL `slack_event_dedup`) — voir `TODO.md`, section « Actions humaines ».
+⚠️ **Note du soir du 2026-08-11 : cet avertissement était FAUX.** Le chantier ci-dessous **a**
+été déployé (déploiement `l71qz4x5f`) et le scope `files:write` **était accordé** — un PDF a été
+rendu et posté dans Slack pendant la campagne (`hasPermalink: true`). Les DDL `documents.content`
+et `slack_event_dedup` ont depuis été appliquées et vérifiées.
 
 - **Port `DocumentRenderer`** (`src/features/document/domain/ports/document-renderer.ts`) :
   `render()` → `{ bytes: Uint8Array, filename, mimeType }`. `Uint8Array` et non `Buffer` — la

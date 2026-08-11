@@ -193,11 +193,16 @@ export class PdfmakeService implements PdfService, DocumentRenderer {
   }
 
   async render(input: DocumentRenderInput): Promise<RenderedDocument> {
-    const bytes = await this.renderBytes(buildDocumentOutline(input));
+    const outline = buildDocumentOutline(input);
+    const bytes = await this.renderBytes(outline);
 
     return {
       bytes,
-      filename: buildDocumentFilename(input.title, DocumentFormat.Pdf),
+      // Le nom vient du titre ASSAINI de l'outline, jamais de `input.title`. La
+      // translittération de `buildDocumentFilename` ne protège que la FORME du nom :
+      // un titre `Guide [SECURITY_BLOCK]` en sortait `guide-security-block.pdf`, et ce
+      // nom part dans Slack et en pièce jointe email — un canal de fuite de plus.
+      filename: buildDocumentFilename(outline.title, DocumentFormat.Pdf),
       mimeType: documentMimeType(DocumentFormat.Pdf),
     };
   }

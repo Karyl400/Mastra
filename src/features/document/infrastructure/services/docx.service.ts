@@ -43,7 +43,9 @@ export class DocxService implements DocumentRenderer {
 
     const bytes = await Packer.toBuffer(document);
 
-    const filename = buildDocumentFilename(input.title, DocumentFormat.Docx);
+    // Le titre ASSAINI de l'outline, jamais `input.title` : le nom de fichier part
+    // dans Slack et en pièce jointe email (voir `pdfmake.service.ts`).
+    const filename = buildDocumentFilename(outline.title, DocumentFormat.Docx);
 
     logger.info('DOCX generated', { filename, type: input.type, size: bytes.length });
 

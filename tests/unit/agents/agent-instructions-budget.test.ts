@@ -2,34 +2,73 @@
  * Garde-fou sur le PRÉFIXE d'instructions des trois agents.
  *
  * Le préfixe système est réémis à CHAQUE aller-retour avec le modèle (2-3 fois
- * sur un flux avec appel d'outil), sous un plafond Groq de 12 000 tokens/minute.
- * Chaque token économisé ici est donc multiplié par le nombre d'allers-retours.
+ * sur un flux avec appel d'outil). La contrainte réelle mesurée sur les logs de
+ * production du 2026-08-11 n'est pas le seau par minute (il était PLEIN au
+ * moment de l'incident) mais le plafond JOURNALIER de Groq — `TPD: Limit
+ * 100000` — soit ≈ 19 messages par jour tous canaux confondus. Chaque token
+ * d'instruction économisé ici est donc multiplié par le nombre d'allers-retours
+ * ET rend directement des messages à la journée.
  *
- * Deux propriétés sont verrouillées :
+ * Trois propriétés sont verrouillées :
  *   1. le bloc STYLE reste COURT — et partagé, pour n'avoir qu'un endroit à
  *      raccourcir la prochaine fois ;
  *   2. le raccourcissement n'a emporté aucune des consignes issues d'une
  *      régression réelle en production (tutoiement, mrkdwn, pas d'emojis, pas de
  *      « prochaines étapes », pas de récitation de capacités, secret de
- *      l'identifiant interne, anti-invention).
+ *      l'identifiant interne, anti-invention) ;
+ *   3. chaque agent porte une FRONTIÈRE NÉGATIVE dérivée de son câblage.
  *
  * ⚠️ Sur le point 2, une protection a CHANGÉ DE SUPPORT le 2026-08-11 sans être
  * abandonnée : « pas de markdown GitHub » et « pas d'emojis » ne sont plus dans
- * le texte du bloc, ils sont désormais garantis par `sanitizeAgentOutput`, point
- * de passage unique de toute réponse d'agent. L'assertion correspondante a donc
- * été RÉÉCRITE sur le code, pas supprimée — sans quoi la protection pourrait
- * disparaître des deux côtés à la fois sans qu'aucun test ne rougisse.
+ * le texte du bloc STYLE, ils sont garantis par `sanitizeAgentOutput`, point de
+ * passage unique de toute réponse d'agent. L'assertion correspondante a donc été
+ * RÉÉCRITE sur le code, pas supprimée.
+ *
+ * ⚠️ Mais cette garantie ne couvre QUE le chemin Slack : les ARGUMENTS de tool
+ * n'y passent jamais. Le `content` d'un document part donc sans filtre — emojis
+ * rendus en carrés `.notdef` par Roboto, markdown imprimé en toutes lettres.
+ * La consigne « ni markdown ni emoji » est donc réintroduite là, et là seulement :
+ * dans le bloc DOCUMENTS de l'agent qui porte `generateDocument`.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { makeOnboardingOrchestrator } from '../../../src/features/onboarding/application/agents/onboarding-orchestrator';
 import { makeQuestionnaireEngine } from '../../../src/features/questionnaire/application/agents/questionnaire-engine';
 import { makeNotificationAgent } from '../../../src/features/notification/application/agents/notification-agent';
-import { AGENT_STYLE_BLOCK, AGENT_ANTI_INVENTION_BLOCK } from '../../../src/shared/agent-style';
+import {
+  AGENT_STYLE_BLOCK,
+  AGENT_ANTI_INVENTION_BLOCK,
+  agentToolBoundary,
+} from '../../../src/shared/agent-style';
 import { sanitizeAgentOutput } from '../../../src/shared/security/agent-output';
 
 const CHARS_PER_TOKEN = 3.5;
 const tok = (s: string) => Math.round(s.length / CHARS_PER_TOKEN);
+
+/**
+ * Câblage RÉEL de `src/mastra/index.ts`, reproduit ici comme jeu d'essai — c'est
+ * ce que `_measure.mts` fait aussi. Les valeurs sont des doublures vides : seules
+ * les CLÉS comptent, ce sont elles que la frontière négative énumère.
+ */
+const WIRING = {
+  onboardingOrchestrator: [
+    'findEmployeeByEmail',
+    'getEmployeeProfile',
+    'updateOnboardingStatus',
+    'getTaskList',
+    'generateDocument',
+  ],
+  questionnaireEngine: ['generateQuestionnaire', 'evaluateResponse', 'getEmployeeProfile'],
+  notificationAgent: [
+    'sendNotification',
+    'scheduleReminder',
+    'getNotificationHistory',
+    'getEmployeeProfile',
+  ],
+} as const;
+
+const toolsOf = (names: readonly string[]) =>
+  Object.fromEntries(names.map((n) => [n, {}])) as Record<string, never>;
 
 const agents = [
   ['onboardingOrchestrator', makeOnboardingOrchestrator],
@@ -39,8 +78,9 @@ const agents = [
 
 async function instructionsOf(
   make: (tools: Record<string, never>) => { getInstructions: () => unknown },
+  tools: Record<string, never> = {} as Record<string, never>,
 ) {
-  return String(await make({}).getInstructions());
+  return String(await make(tools).getInstructions());
 }
 
 beforeEach(() => {
@@ -55,19 +95,47 @@ afterEach(() => {
 describe('Blocs partagés STYLE / ANTI-INVENTION', () => {
   it('tient le bloc STYLE sous 100 tokens', () => {
     // Mesure avant le premier dégraissage : ~170 tokens, répliqués dans chacun des
-    // 3 agents. Après : 81. Aujourd'hui 86 — le budget repris au formatage (voir le
-    // test suivant) a été redéployé sur le ton, il n'a pas été rendu.
+    // 3 agents. Puis 81, puis 86. Aujourd'hui 78 — et il porte DEUX consignes de
+    // plus qu'alors (pas d'exclamation, distinction interlocuteur / sujet).
     const tokens = tok(AGENT_STYLE_BLOCK);
     expect(tokens, `bloc STYLE de ${tokens} tokens`).toBeLessThan(100);
   });
 
+  it('ne coûte pas plus que la version qu il remplace, malgré deux consignes de plus', () => {
+    // Le lot « espace négatif » AJOUTE une frontière à chaque agent. Elle doit être
+    // FINANCÉE, pas empilée : les blocs partagés ne doivent donc pas grossir.
+    // Références mesurées avant le lot : STYLE 86 tokens, ANTI-INVENTION 88.
+    expect(tok(AGENT_STYLE_BLOCK), 'bloc STYLE').toBeLessThanOrEqual(86);
+    expect(tok(AGENT_ANTI_INVENTION_BLOCK), 'bloc ANTI-INVENTION').toBeLessThanOrEqual(88);
+  });
+
   it('conserve chaque consigne de style issue d une régression de production', () => {
-    expect(AGENT_STYLE_BLOCK).toMatch(/tutoiement/i);
+    // « TUTOIEMENT » (nom) est devenu « Tutoie ton interlocuteur » (verbe + cible) :
+    // l'assertion est réécrite sur le nouveau texte, pas supprimée. Le tutoiement
+    // reste imposé ; ce qui change est qu'il DÉSIGNE désormais quelqu'un.
+    expect(AGENT_STYLE_BLOCK).toMatch(/tutoie/i);
     expect(AGENT_STYLE_BLOCK).toContain('prochaines étapes');
     // Les réponses de production récitaient des listes de capacités avant de répondre.
     // Aucun filtre de sortie ne sait corriger cela : seul le texte le peut.
-    expect(AGENT_STYLE_BLOCK).toMatch(/réciter/i);
+    expect(AGENT_STYLE_BLOCK).toMatch(/récit/i);
     expect(AGENT_STYLE_BLOCK).toContain('KISSO-AGENT-v3');
+  });
+
+  it('distingue l interlocuteur du sujet dont on parle', () => {
+    // A1/A2 en production : « Ton profil », « Tu as 5 tâches » — alors que la
+    // question portait sur un TIERS. Le bloc imposait « TUTOIEMENT » sans jamais
+    // dire QUI tutoyer ; le « tu » ne pouvait se résoudre que sur la seule personne
+    // nommée dans le contexte, c'est-à-dire le sujet de la requête.
+    expect(AGENT_STYLE_BLOCK).toMatch(/interlocuteur/i);
+    expect(AGENT_STYLE_BLOCK).toMatch(/sujet/i);
+  });
+
+  it('bannit les marqueurs d enthousiasme et les plans numérotés', () => {
+    // Constat de l'utilisatrice testeuse (responsable RH) : « les points
+    // d'exclamation arrivent précisément dans les phrases où il ne fait rien », et
+    // « Je te propose : 1. … 2. … » en réponse à une demande de dix mots.
+    expect(AGENT_STYLE_BLOCK).toMatch(/exclamation/i);
+    expect(AGENT_STYLE_BLOCK).toMatch(/numérotée/i);
   });
 
   /**
@@ -109,7 +177,60 @@ describe('Blocs partagés STYLE / ANTI-INVENTION', () => {
   });
 });
 
-describe.each(agents)('%s — instructions', (_id, make) => {
+/**
+ * FRONTIÈRE NÉGATIVE — l'espace négatif du câblage.
+ *
+ * Un `Agent` Mastra ne reçoit qu'une ÉNUMÉRATION POSITIVE de ses tools ; il ne
+ * reçoit jamais le complément. Toute la campagne du 2026-08-11 l'a payé : « je
+ * peux lui renvoyer le lien » (aucun tool n'envoie de lien), « donne-moi son email
+ * pro » (aucun tool ne consomme un email sur cet agent), « je ne peux pas modifier
+ * un questionnaire qu'elle n'a pas reçu » (règle métier entièrement inventée —
+ * aucun tool de modification n'existe), un rappel « programmé pour lundi 9h »
+ * proposé par un agent qui n'a pas `scheduleReminder`.
+ *
+ * Preuve par contraste : A3 est le SEUL refus correct de la campagne, et c'est la
+ * seule frontière qui était écrite noir sur blanc dans un prompt.
+ *
+ * La frontière est DÉRIVÉE de `Object.keys(tools)` et non rédigée : ce dépôt a
+ * déjà connu des instructions qui nommaient des tools retirés depuis
+ * (`discoverSlackWorkspace`, `createEmployee`). Une liste écrite à la main se
+ * désynchronise au premier changement de câblage ; celle-ci ne le peut pas.
+ */
+describe('Frontière négative dérivée du câblage', () => {
+  it('énumère exactement les clés de l objet tools, dans leur ordre de câblage', () => {
+    expect(agentToolBoundary({ beta: {}, alpha: {} })).toBe(
+      "TES SEULS OUTILS : beta, alpha. Rien d'autre n'existe : dis-le, n'invente rien.",
+    );
+  });
+
+  it('suit un ajout de tool sans la moindre retouche de texte', () => {
+    // Un autre lot expose `findEmployeeByEmail` à `questionnaireEngine` et
+    // `notificationAgent`. La frontière doit rester JUSTE après ce changement,
+    // sans qu'aucune phrase n'ait à être réécrite.
+    const avant = agentToolBoundary({ generateQuestionnaire: {} });
+    const apres = agentToolBoundary({ generateQuestionnaire: {}, findEmployeeByEmail: {} });
+
+    expect(avant).not.toContain('findEmployeeByEmail');
+    expect(apres).toContain('findEmployeeByEmail');
+  });
+
+  it('reste lisible quand aucun tool n est câblé', () => {
+    // `make({})` est le cas des tests de construction : la phrase doit rester une
+    // phrase française, pas « TES SEULS OUTILS : . ».
+    expect(agentToolBoundary({})).toContain('aucun');
+    expect(agentToolBoundary({})).not.toContain(' : .');
+  });
+
+  it('coûte quelques dizaines de tokens, pas une centaine', () => {
+    // Mesuré sur le câblage réel le plus lourd (5 tools). Le préfixe est repayé à
+    // chaque aller-retour : une frontière à 100 tokens coûterait plus cher que le
+    // défaut qu'elle corrige.
+    const tokens = tok(agentToolBoundary(toolsOf(WIRING.onboardingOrchestrator)));
+    expect(tokens, `frontière de ${tokens} tokens`).toBeLessThan(60);
+  });
+});
+
+describe.each(agents)('%s — instructions', (id, make) => {
   it('reprend les blocs partagés STYLE et ANTI-INVENTION', async () => {
     const instructions = await instructionsOf(make as never);
 
@@ -125,6 +246,23 @@ describe.each(agents)('%s — instructions', (_id, make) => {
     // une seconde signalerait le retour d'une variante recopiée dans un agent.
     expect(instructions.match(/^STYLE\b/gm)).toHaveLength(1);
     expect(instructions.match(/RÈGLE ANTI-INVENTION/g)).toHaveLength(1);
+  });
+
+  it('porte la frontière négative DÉRIVÉE de ses propres tools', async () => {
+    // Le test injecte un câblage arbitraire : si la phrase était écrite à la main
+    // dans le fichier de l'agent, elle ne pourrait pas contenir ces noms-là.
+    const tools = toolsOf(['toolPremier', 'toolSecond']);
+    const instructions = await instructionsOf(make as never, tools);
+
+    expect(instructions).toContain(agentToolBoundary(tools));
+  });
+
+  it('porte la frontière négative correspondant à son câblage réel', async () => {
+    const tools = toolsOf(WIRING[id]);
+    const instructions = await instructionsOf(make as never, tools);
+
+    for (const name of WIRING[id]) expect(instructions).toContain(name);
+    expect(instructions).toContain(agentToolBoundary(tools));
   });
 });
 
@@ -145,13 +283,18 @@ describe.each(agents)('%s — instructions', (_id, make) => {
  *   • l'interdiction d'inventer un lien reste, mot pour mot — le fichier est livré par
  *     UPLOAD, aucune URL de téléchargement n'existe dans ce système ;
  *   • l'agent doit LIRE le verdict `delivery` au lieu de supposer, seule façon de dire
- *     « le document est prêt mais je n'ai pas pu te l'envoyer » quand le scope
- *     `files:write` manque encore ;
+ *     « le document est prêt mais je n'ai pas pu te l'envoyer » quand la livraison échoue ;
+ *   • le contenu du document ne traverse AUCUN filtre — voir l'en-tête de ce fichier ;
  *   • le budget est mesuré, pas estimé.
  */
 describe('onboardingOrchestrator — promesses de documents', () => {
-  /** Longueur du bloc avant réécriture (2 lignes, 203 caractères ≈ 58 tokens). */
-  const ANCIEN_BLOC_CHARS = 203;
+  /**
+   * Longueur de référence. Le bloc valait 203 caractères avant sa réécriture, puis
+   * 198. Il en vaut 258 depuis qu'il porte la seule contrainte existante sur le
+   * CONTENU d'un document — le plafond est relevé d'exactement ce qu'a coûté cette
+   * phrase, et l'agent reste sous son FLOOR (mesure dans le rapport de lot).
+   */
+  const PLAFOND_CHARS = 260;
 
   async function documentsBlock() {
     const instructions = await instructionsOf(makeOnboardingOrchestrator as never);
@@ -175,7 +318,7 @@ describe('onboardingOrchestrator — promesses de documents', () => {
     const bloc = await documentsBlock();
 
     expect(bloc).toContain('delivery');
-    // « prêt mais non livré » est l'énoncé honnête quand `files:write` manque encore.
+    // « prêt mais non livré » est l'énoncé honnête quand la livraison échoue.
     expect(bloc).toMatch(/non livré/i);
   });
 
@@ -184,14 +327,56 @@ describe('onboardingOrchestrator — promesses de documents', () => {
     expect(await documentsBlock()).toMatch(/n'invente jamais de lien/i);
   });
 
-  it('ne coûte pas plus cher que le bloc qu il remplace', async () => {
+  it('interdit markdown et emoji dans le CONTENU du document', async () => {
+    // `sanitizeAgentOutput` ne s'applique qu'à `response.text` : les arguments de tool
+    // n'y passent jamais. Vérifié en décodant la CMap de vrais PDF : les emojis sortent
+    // en glyphe `.notdef` (carrés) — Roboto est la seule police du VFS — et le markdown
+    // s'imprime littéralement (`**`, `#`, `---`, `|`).
+    const bloc = await documentsBlock();
+
+    expect(bloc).toMatch(/markdown/i);
+    expect(bloc).toMatch(/emoji/i);
+  });
+
+  it('ne coûte pas plus cher que le plafond mesuré', async () => {
     const bloc = await documentsBlock();
     const tokens = Math.round(bloc.length / CHARS_PER_TOKEN);
 
     expect(
       bloc.length,
-      `bloc DOCUMENTS de ${bloc.length} caractères (${tokens} tokens), contre ` +
-        `${ANCIEN_BLOC_CHARS} avant réécriture`,
-    ).toBeLessThanOrEqual(ANCIEN_BLOC_CHARS);
+      `bloc DOCUMENTS de ${bloc.length} caractères (${tokens} tokens), plafond ${PLAFOND_CHARS}`,
+    ).toBeLessThanOrEqual(PLAFOND_CHARS);
+  });
+});
+
+/**
+ * Ce que l'orchestrateur ne doit PLUS dire.
+ *
+ * Ces deux assertions protègent une SUPPRESSION. Sans elles, la ligne reviendrait
+ * à la première relecture qui la trouverait « utile ».
+ */
+describe('onboardingOrchestrator — instructions impossibles retirées', () => {
+  it('n ordonne plus une passation vers un autre agent : aucun mécanisme n existe', async () => {
+    // « Pour une notification ou un email, passe la main à l'agent de notification. »
+    // Il n'existe NI tool NI primitive de routage accessible à l'agent : le routage
+    // vit dans le handler Slack, hors de portée du modèle. Cette ligne ordonnait
+    // l'impossible, invitait à NARRER une délégation qui n'a jamais lieu, et était
+    // repayée à chaque aller-retour.
+    const instructions = await instructionsOf(makeOnboardingOrchestrator as never);
+
+    expect(instructions).not.toMatch(/passe la main/i);
+    expect(instructions).not.toMatch(/agent de notification/i);
+  });
+
+  it('garde le refus explicite de créer un employé — le seul refus correct de la campagne', async () => {
+    const instructions = await instructionsOf(makeOnboardingOrchestrator as never);
+
+    expect(instructions).toMatch(/CRÉATION D'EMPLOYÉ/);
+    expect(instructions).toMatch(/tu ne peux PAS créer d'employé/);
+    // Le chemin de remplacement est RÉEL (handler `team_join` → DM « Compléter mon
+    // profil » → modale → workflow). Il reste cité, mais il est désormais rattaché à
+    // sa condition de déclenchement : la personne doit rejoindre Slack.
+    expect(instructions).toMatch(/Compléter mon profil/);
+    expect(instructions).toMatch(/rejoint Slack/i);
   });
 });

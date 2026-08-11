@@ -155,23 +155,95 @@ describe('SendNotification Tool', () => {
       expect(await deps.notificationRepo.findByRecipient(EMPLOYEE_ID)).toHaveLength(1);
     });
 
-    it('should persist an in-app notification without contacting any provider', async () => {
+    // ---------------------------------------------------------------------
+    // ⚠️ CE TEST A REMPLACÉ « should persist an in-app notification without
+    // contacting any provider », qui VERROUILLAIT LE MENSONGE : il exigeait
+    // `status: Sent` sur le canal `in_app`, c'est-à-dire un verdict d'envoi
+    // alors qu'aucun octet ne partait et qu'aucun lecteur d'`in_app` n'existe
+    // dans ce produit. Les cinq canaux non transportés (`in_app`, `teams`,
+    // `push`, `sms`, `webhook`) sont désormais hors du schéma : un canal qu'on
+    // ne sait pas acheminer n'a rien à faire dans l'énumération offerte au
+    // modèle — c'est elle qu'il remontait à l'humain sous la forme « tu
+    // préfères quel canal ? ».
+    // ---------------------------------------------------------------------
+    it('should NEVER report Sent without an actual provider call', async () => {
       const tool = makeTool(deps);
 
-      const result = (await tool.execute!(
-        {
-          recipientId: EMPLOYEE_ID,
-          recipientType: RecipientType.Employee,
-          channel: NotificationChannel.InApp,
-          subject: 'Rappel',
-          body: 'Pensez à signer votre contrat.',
-        } as any,
-        {} as any,
-      )) as any;
+      for (const channel of ['email', 'slack'] as const) {
+        if (channel === 'slack') {
+          (deps.slackWorkspace.findUserByEmail as any).mockResolvedValue(
+            makeSlackMember('U0EMPLOYEE', EMPLOYEE_EMAIL),
+          );
+        }
+        const result = (await tool.execute!(
+          {
+            recipientId: EMPLOYEE_ID,
+            channel,
+            subject: 'Rappel',
+            body: 'Pense à signer ton contrat.',
+          } as any,
+          {} as any,
+        )) as any;
 
-      expect(result.status).toBe(NotificationStatus.Sent);
-      expect(deps.emailProvider.sendEmail).not.toHaveBeenCalled();
-      expect(deps.chatProvider.sendMessage).not.toHaveBeenCalled();
+        const calls =
+          (deps.emailProvider.sendEmail as any).mock.calls.length +
+          (deps.chatProvider.sendMessage as any).mock.calls.length;
+
+        expect(result.status).toBe(NotificationStatus.Sent);
+        expect(result.sentAt).toBeTruthy();
+        expect(calls).toBeGreaterThan(0);
+      }
+    });
+
+    it('should reject an untransported channel at the schema level', () => {
+      const tool = makeTool(deps);
+      const channel = (tool.inputSchema as any).shape.channel;
+
+      for (const untransported of ['in_app', 'teams', 'push', 'sms', 'webhook']) {
+        expect(channel.safeParse(untransported).success).toBe(false);
+      }
+      expect(channel.safeParse('email').success).toBe(true);
+      expect(channel.safeParse('slack').success).toBe(true);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Le schéma est la cause racine de l'interrogatoire observé en production :
+  // 5 champs obligatoires, 0 défaut. `generateDocument`, qui a fonctionné,
+  // en a 4 obligatoires et 2 avec défaut.
+  // -------------------------------------------------------------------------
+  describe('schéma — ne pas déclencher un interrogatoire', () => {
+    it('should default channel to email and recipientType to employee', () => {
+      const tool = makeTool(deps);
+      const parsed = (tool.inputSchema as any).parse({
+        recipientId: EMPLOYEE_ID,
+        subject: 'Bienvenue',
+        body: 'Corps',
+      });
+
+      expect(parsed.channel).toBe('email');
+      expect(parsed.recipientType).toBe('employee');
+    });
+
+    it('should leave only three fields without a default', () => {
+      const tool = makeTool(deps);
+      const shape = (tool.inputSchema as any).shape as Record<string, any>;
+
+      const sansDefaut = Object.keys(shape).filter((k) => shape[k].isOptional() === false);
+      expect(sansDefaut.sort()).toEqual(['body', 'recipientId', 'subject']);
+    });
+
+    // La dérogation de rédaction se pose DANS LE SCHÉMA, par champ — jamais dans
+    // le prompt, où elle contredirait frontalement `AGENT_ANTI_INVENTION_BLOCK`
+    // (« N'invente jamais une donnée absente : demande-la »). Une donnée à
+    // RETROUVER (un email, un UUID) ne s'invente pas ; une prose à PRODUIRE
+    // (le corps d'un email de bienvenue) doit être écrite par l'agent.
+    it('should carry the drafting mandate on subject and body', () => {
+      const tool = makeTool(deps);
+      const shape = (tool.inputSchema as any).shape as Record<string, any>;
+
+      expect(shape.subject.description).toMatch(/rédige/i);
+      expect(shape.body.description).toMatch(/rédige/i);
     });
   });
 
@@ -262,7 +334,7 @@ describe('SendNotification Tool', () => {
       expect(await deps.notificationRepo.findByRecipient(UNKNOWN_ID)).toHaveLength(0);
     });
 
-    it('should FAIL LOUDLY when recipientId is unknown even on the in-app channel', async () => {
+    it('should FAIL LOUDLY when recipientId is unknown on the Slack channel too', async () => {
       const tool = makeTool(deps);
 
       await expect(
@@ -270,13 +342,15 @@ describe('SendNotification Tool', () => {
           {
             recipientId: UNKNOWN_ID,
             recipientType: RecipientType.Employee,
-            channel: NotificationChannel.InApp,
+            channel: NotificationChannel.Slack,
             subject: 'Bienvenue',
             body: 'Corps',
           } as any,
           {} as any,
         ),
       ).rejects.toThrow(/introuvable|not found/i);
+
+      expect(deps.slackWorkspace.findUserByEmail).not.toHaveBeenCalled();
     });
 
     it('should FAIL LOUDLY when the Slack account cannot be resolved, without falling back', async () => {

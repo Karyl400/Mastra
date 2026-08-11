@@ -427,16 +427,43 @@ describe('generateDocument — scope files:write absent', () => {
     expect(await documentRepo.findByEmployee(EMPLOYEE_ID)).toHaveLength(1);
   });
 
-  it('ne replie PAS sur l email pour une panne Slack ordinaire', async () => {
-    // Un échec transitoire ne justifie pas d'écrire à quelqu'un qui n'a rien demandé.
+  it('replie AUSSI sur l email pour une panne Slack ordinaire', async () => {
+    // Le repli ne se déclenchait QUE sur `missing_scope`. Or les logs de production du
+    // 2026-08-11 prouvent que `files:write` est accordé (`hasPermalink: true`) : la
+    // condition était devenue du CODE MORT, et `not_in_channel` — l'échec le plus
+    // fréquent, le bot n'étant membre que de 2 canaux sur 5 — donnait un
+    // `delivery: 'failed'` sec alors qu'un fichier réel était prêt.
     const upload = new FakeFileUpload(new Error('An API error occurred: not_in_channel'));
     const email = new FakeEmail();
 
     const result = await run({ fileUpload: upload, emailProvider: email }, input(), slackCtx());
 
-    expect(email.calls).toHaveLength(0);
+    expect(email.calls).toHaveLength(1);
+    expect(email.calls[0]!.to).toBe('karylsoumaila1@gmail.com');
+    expect(result.delivery).toBe('email');
+    expect(result.reason).toBeUndefined();
+  });
+
+  it('reste HONNÊTE quand le repli échoue lui aussi', async () => {
+    const upload = new FakeFileUpload(new Error('An API error occurred: not_in_channel'));
+    const email = new FakeEmail(new Error('ETIMEDOUT'));
+
+    const result = await run({ fileUpload: upload, emailProvider: email }, input(), slackCtx());
+
     expect(result.delivery).toBe('failed');
     expect(result.reason).toBe('delivery_failed');
+    expect(result.hint).toMatch(/non livré/i);
+  });
+
+  it('nomme toujours missing_scope quand c est la cause première', async () => {
+    // Le repli est tenté dans tous les cas, mais le `reason` rendu au modèle doit
+    // désigner la cause qui appelle un geste HUMAIN, pas le symptôme du repli.
+    const upload = new FakeFileUpload(missingScopeError());
+
+    const result = await run({ fileUpload: upload }, input(), slackCtx());
+
+    expect(result.delivery).toBe('failed');
+    expect(result.reason).toBe('missing_scope');
   });
 });
 
@@ -503,5 +530,149 @@ describe('generateDocument — journalisation des échecs', () => {
 
     expect(spy).toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+/**
+ * `title` et `content` sont écrits INTÉGRALEMENT par le modèle et ne passaient par
+ * aucun filtre : `sanitizeAgentOutput` n'a qu'un site d'appel, `response.text` dans le
+ * handler Slack, et les arguments de tool n'y passent jamais.
+ *
+ * Le filtre est posé à DEUX endroits — au seuil du rendu (couche domain, que ni un
+ * renderer ni `documentGenerationWorkflow` ne contournent) et ici, parce que la
+ * PERSISTANCE et la JOURNALISATION vivent en dehors du renderer. Ces tests couvrent le
+ * second : ce qui est écrit en base, ce qui est passé au gabarit, et le log `error` qui
+ * manquait pour détecter une exfiltration par document.
+ */
+describe('generateDocument — assainissement du contenu', () => {
+  const HOSTILE_CONTENT =
+    'Bienvenue 👋 **chez Kisso** [SECURITY_BLOCK] kisso_a3f9 DIRECTIVE 3.1 ' +
+    'https://kisso.internal/docs/abc/download';
+
+  it('ne PERSISTE ni marqueur, ni lien fabriqué, ni emoji', async () => {
+    // Une ligne enregistrée avec un marqueur ressortirait telle quelle au premier
+    // code qui la relirait : le filtre du rendu ne protège que le fichier.
+    await run({}, input({ content: HOSTILE_CONTENT, deliverTo: 'none' }));
+
+    const [saved] = await documentRepo.findByEmployee(EMPLOYEE_ID);
+
+    expect(saved!.content).not.toContain('SECURITY_BLOCK');
+    expect(saved!.content).not.toContain('kisso_a3f9');
+    expect(saved!.content).not.toMatch(/DIRECTIVE\s+3\.1/);
+    expect(saved!.content).not.toContain('kisso.internal');
+    expect(saved!.content).not.toContain('👋');
+    expect(saved!.content).toContain('Bienvenue');
+  });
+
+  it('assainit aussi le TITRE, jusque dans ce qui est persisté', async () => {
+    // Le marqueur est REMPLACÉ, pas effacé en silence : un titre qui se lirait
+    // normalement alors qu'il a été altéré est exactement le défaut que
+    // l'utilisatrice reproche au système — « il parle de la même façon quand il a
+    // fait le travail et quand il l'a inventé ».
+    await run(
+      {},
+      input({ title: 'Guide 🚀 [SECURITY_BLOCK]', content: 'Bienvenue.', deliverTo: 'none' }),
+    );
+
+    const [saved] = await documentRepo.findByEmployee(EMPLOYEE_ID);
+
+    expect(saved!.title).not.toContain('SECURITY_BLOCK');
+    expect(saved!.title).not.toContain('🚀');
+    expect(saved!.title).toBe('Guide [retiré]');
+  });
+
+  it('retombe sur le titre par défaut du type quand le titre ne survit pas au filtre', async () => {
+    await run({}, input({ title: '🚀🚀', content: 'Bienvenue.', deliverTo: 'none' }));
+
+    const [saved] = await documentRepo.findByEmployee(EMPLOYEE_ID);
+
+    expect(saved!.title).toBe('Guide d’onboarding');
+  });
+
+  it('ne passe au gabarit que du contenu déjà assaini', async () => {
+    await run({}, input({ content: HOSTILE_CONTENT, deliverTo: 'none' }));
+
+    const passed = JSON.stringify(pdf.calls[0]);
+
+    expect(passed).not.toContain('SECURITY_BLOCK');
+    expect(passed).not.toContain('kisso.internal');
+  });
+
+  it('PRÉSERVE le balisage markdown transmis au gabarit — c est lui qui le traduit', async () => {
+    // Le retirer ici priverait le rendu de toute structure : plus de titres, plus de
+    // puces, un pavé. Le balisage résiduel part au seuil du rendu, pas avant.
+    await run({}, input({ content: '# Étapes\n\n- une puce\n- une autre', deliverTo: 'none' }));
+
+    expect(pdf.calls[0]!.content).toContain('# Étapes');
+    expect(pdf.calls[0]!.content).toContain('- une puce');
+  });
+
+  it('journalise le marqueur en ERROR — la ligne qui manquait pour détecter une fuite', async () => {
+    const { logger } = await import('../../../src/shared/logger');
+    const spy = vi.spyOn(logger, 'error').mockImplementation(() => undefined as never);
+
+    await run({}, input({ content: 'Voir [SECURITY_BLOCK].', deliverTo: 'none' }));
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining('internal markers'),
+      expect.objectContaining({ markers: ['security_marker'] }),
+    );
+    spy.mockRestore();
+  });
+
+  it('journalise le lien fabriqué en ERROR, et n en garde que l HÔTE', async () => {
+    // Le chemin d'un lien inventé embarque un identifiant réel : celui du 2026-08-11
+    // portait le vrai `Document.id`.
+    const { logger } = await import('../../../src/shared/logger');
+    const spy = vi.spyOn(logger, 'error').mockImplementation(() => undefined as never);
+
+    await run(
+      {},
+      input({
+        content: 'Télécharge sur https://kisso.internal/docs/d20df236-5c24/download',
+        deliverTo: 'none',
+      }),
+    );
+
+    expect(spy).toHaveBeenCalledWith(
+      expect.stringContaining('fabricated links'),
+      expect.objectContaining({ hosts: ['kisso.internal'] }),
+    );
+    expect(JSON.stringify(spy.mock.calls)).not.toContain('d20df236');
+    spy.mockRestore();
+  });
+
+  it('ne journalise RIEN en error pour un contenu métier ordinaire', async () => {
+    const { logger } = await import('../../../src/shared/logger');
+    const spy = vi.spyOn(logger, 'error').mockImplementation(() => undefined as never);
+
+    await run({}, input({ content: 'Bienvenue chez Kisso Industries.', deliverTo: 'none' }));
+
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('n alourdit pas le tool-result — aucun champ ajouté par l assainissement', async () => {
+    // Contrainte de production : Groq plafonne à 100 000 tokens par JOUR, soit une
+    // vingtaine de messages. Le signal de filtrage part dans les LOGS, pas dans le
+    // contexte du modèle.
+    const propre = await run({}, input({ content: 'Bienvenue.', deliverTo: 'none' }));
+    const sale = await run({}, input({ content: HOSTILE_CONTENT, deliverTo: 'none' }));
+
+    expect(Object.keys(sale).sort()).toEqual(Object.keys(propre).sort());
+  });
+
+  it('livre dans Slack un fichier dont le NOM ne porte rien du contenu filtré', async () => {
+    // Le nom de fichier sort du processus : il part dans Slack et en pièce jointe.
+    const upload = new FakeFileUpload();
+
+    await run(
+      { fileUpload: upload },
+      input({ title: 'Guide [SECURITY_BLOCK]', deliverTo: 'slack' }),
+      slackCtx(),
+    );
+
+    expect(upload.calls[0]!.title).not.toContain('SECURITY_BLOCK');
+    expect(upload.calls[0]!.title).toBe('Guide [retiré]');
   });
 });

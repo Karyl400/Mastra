@@ -156,13 +156,14 @@ export class SlackAdapter implements ChatProvider, FileUploadProvider {
   /**
    * Livre un fichier dans un canal ou dans un fil, et rend son permalink.
    *
-   * ⚠️ **Le scope `files:write` n'est PAS accordé au bot aujourd'hui.** Cet appel
-   * échoue donc avec `missing_scope` tant qu'un humain n'est pas intervenu — et
-   * ajouter le scope dans la console ne suffit pas : le jeton du workspace
-   * conserve le jeu de scopes de l'installation en cours, seule une
-   * réinstallation le propage. C'est exactement le piège qui a coûté plusieurs
-   * heures le 2026-08-08, où le manifeste était conforme mais l'installation
-   * périmée. Le message d'erreur nomme donc les DEUX gestes.
+   * Le scope `files:write` **est accordé** — vérifié en production le 2026-08-11, un PDF
+   * réellement posté (`hasPermalink: true`). La branche `missing_scope` ci-dessous n'est
+   * donc plus le cas nominal, mais elle reste : une réinstallation de l'app peut à tout
+   * moment repartir sur un jeu de scopes plus étroit, et son message nomme alors les DEUX
+   * gestes requis. Ajouter le scope dans la console ne suffit en effet pas — le jeton du
+   * workspace conserve les scopes de l'installation en cours, seule une réinstallation les
+   * propage. C'est le piège qui a coûté plusieurs heures le 2026-08-08, manifeste conforme
+   * et installation périmée.
    *
    * On ne dégrade pas ici : l'erreur remonte à l'appelant, à qui il revient de
    * choisir un repli (email) ou de rendre `delivery: 'failed'`. Un adaptateur qui

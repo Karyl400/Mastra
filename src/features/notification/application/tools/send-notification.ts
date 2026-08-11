@@ -1,15 +1,3 @@
-import { createTool } from '@mastra/core/tools';
-import { z } from 'zod';
-import type { NotificationRepository } from '../../domain/ports/notification.repository';
-import type { EmployeeRepository } from '../../domain/ports/employee.repository';
-import type { EmailProvider, ChatProvider } from '../../domain/ports/providers';
-import type { SlackWorkspaceProvider } from '../../domain/ports/slack-workspace.port';
-import { createNotification } from '../../domain/entities/notification';
-import { uuidSchema } from '../../../../shared/validation';
-import { logger } from '../../../../shared/logger';
-import { NotificationChannel, NotificationStatus, RecipientType } from '../../../../shared/types';
-import { NotFoundError } from '../../../../shared/errors';
-
 /**
  * Envoi de notification — outil exposé au LLM.
  *
@@ -34,6 +22,42 @@ import { NotFoundError } from '../../../../shared/errors';
  * 2. **Envoi** — un échec de transport (SMTP indisponible, API Slack en erreur) est enregistré
  *    en base avec `status: Failed`. C'est une panne opérationnelle, pas une tentative d'abus.
  */
+import { createTool } from '@mastra/core/tools';
+import { z } from 'zod';
+import type { NotificationRepository } from '../../domain/ports/notification.repository';
+import type { EmployeeRepository } from '../../domain/ports/employee.repository';
+import type { EmailProvider, ChatProvider } from '../../domain/ports/providers';
+import type { SlackWorkspaceProvider } from '../../domain/ports/slack-workspace.port';
+import { createNotification } from '../../domain/entities/notification';
+import { uuidSchema } from '../../../../shared/validation';
+import { logger } from '../../../../shared/logger';
+import { NotificationChannel, NotificationStatus, RecipientType } from '../../../../shared/types';
+import { NotFoundError } from '../../../../shared/errors';
+
+/**
+ * Canaux RÉELLEMENT transportés par cet outil.
+ *
+ * `NotificationChannel` en compte sept ; cinq (`teams`, `in_app`, `push`, `sms`,
+ * `webhook`) n'ont AUCUN transport ici et aucun lecteur ailleurs dans le produit.
+ * Les exposer coûtait deux fois : en tokens (l'énumération est réémise à chaque
+ * aller-retour) et surtout en dialogue — le « tu préfères quel canal (email, Slack,
+ * in-app) ? » observé en production le 2026-08-11 est littéralement cette
+ * énumération remontée à l'humain. Un canal qu'on ne sait pas acheminer n'a rien à
+ * faire dans le schéma offert au modèle.
+ *
+ * `z.enum` LOCAL et non `z.nativeEnum(NotificationChannel)` : on ne touche pas à
+ * l'énumération partagée de `src/shared/types.ts`, qui décrit le domaine, pas ce que
+ * cet outil sait faire.
+ */
+const TRANSPORTED_CHANNELS = ['email', 'slack'] as const;
+
+/**
+ * Types de destinataire acceptés — restreints à ceux qui peuvent avoir une ligne
+ * d'annuaire. `team` et `department` n'en ont jamais : les offrir revenait à
+ * proposer au modèle un chemin dont la seule issue est un `NotFoundError`.
+ */
+const RECIPIENT_TYPES = ['employee', 'manager', 'hr', 'admin'] as const;
+
 export function makeSendNotification(
   repo: NotificationRepository,
   employeeRepo: EmployeeRepository,
@@ -47,25 +71,38 @@ export function makeSendNotification(
     // ce que le nom du champ ne dit pas déjà. Ce qui reste est le contrat de sécurité
     // (destinataire par UUID, jamais par adresse) — il doit rester lisible par le modèle.
     description:
-      'Envoie une notification (email/Slack/in-app) à un employé déjà enregistré, ' +
-      'désigné par son recipientId — jamais par une adresse.',
+      'Envoie un message à un employé enregistré, désigné par son recipientId — ' +
+      'jamais par une adresse.',
     inputSchema: z.object({
       // Pas de `recipientEmail` ni de `recipientSlackId` : voir le modèle de menace ci-dessus.
       // Un LLM qui les émettrait quand même les verrait supprimés par Zod (`z.object` retire
       // les clés inconnues), et `execute` ne les lit de toute façon jamais.
-      recipientId: uuidSchema.describe(
-        'UUID annuaire (via getEmployeeProfile) ; adresse résolue côté serveur.',
-      ),
-      recipientType: z.nativeEnum(RecipientType),
-      channel: z.nativeEnum(NotificationChannel),
-      subject: z.string().min(1).max(200),
-      body: z.string().min(1),
+      recipientId: uuidSchema.describe('UUID annuaire ; adresse résolue côté serveur.'),
+      // ⚠️ DÉROGATION DE RÉDACTION, POSÉE PAR CHAMP — jamais dans les instructions de
+      // l'agent. `AGENT_ANTI_INVENTION_BLOCK` lui interdit d'inventer une donnée absente ;
+      // c'est juste pour un email ou un UUID, qui se RETROUVENT, et faux pour une prose,
+      // qui se PRODUIT. Poser « compose le corps toi-même » dans le prompt contredirait
+      // frontalement cette règle et reviendrait à tirer à pile ou face à chaque tour. Ici,
+      // la dérogation ne porte que sur les deux champs qui sont effectivement de la prose.
+      subject: z.string().min(1).max(200).describe('rédige-le, ne le demande pas'),
+      body: z.string().min(1).describe('rédige-le, ne le demande pas'),
+      // Défauts, comme `generateDocument` (`format` → pdf, `deliverTo` → slack), le seul
+      // outil de la campagne qui ait abouti. Un champ obligatoire sans défaut est une
+      // question posée à l'humain ; il n'en reste que trois, et les trois sont
+      // irremplaçables.
+      channel: z.enum(TRANSPORTED_CHANNELS).default('email'),
+      recipientType: z.enum(RECIPIENT_TYPES).default('employee'),
     }),
     execute: async (data, _ctx) => {
+      // Les défauts du schéma sont appliqués par la validation Mastra ; ces replis
+      // couvrent l'appel direct (tests, workflows) qui court-circuite le parseur.
+      const channel = data.channel ?? 'email';
+      const recipientType = (data.recipientType ?? 'employee') as RecipientType;
+
       logger.info('Envoi notification', {
         recipientId: data.recipientId,
-        recipientType: data.recipientType,
-        channel: data.channel,
+        recipientType,
+        channel,
         subject: data.subject,
       });
 
@@ -76,7 +113,7 @@ export function makeSendNotification(
       if (supplied.recipientEmail !== undefined || supplied.recipientSlackId !== undefined) {
         logger.warn(
           'Destination fournie par le modèle ignorée — la résolution se fait depuis la base',
-          { recipientId: data.recipientId, channel: data.channel },
+          { recipientId: data.recipientId, channel },
         );
       }
 
@@ -89,27 +126,27 @@ export function makeSendNotification(
       // auto-référent), il se résout donc exactement comme un employé. On n'interprète
       // jamais `recipientType: manager` comme « le manager DE cet identifiant » : l'annuaire
       // ne permet pas de lever l'ambiguïté entre les deux lectures, et se tromper enverrait
-      // le message à la mauvaise personne. Si un manager (ou un destinataire `hr`, `admin`,
-      // `team`, `department`) n'a pas d'enregistrement d'annuaire, on échoue — jamais de
-      // repli sur une valeur proposée par le modèle.
+      // le message à la mauvaise personne. Si un manager (ou un destinataire `hr`, `admin`)
+      // n'a pas d'enregistrement d'annuaire, on échoue — jamais de repli sur une valeur
+      // proposée par le modèle.
       const recipient = await employeeRepo.findById(data.recipientId);
       if (!recipient) {
         logger.error("Destinataire introuvable dans l'annuaire — envoi refusé", {
           recipientId: data.recipientId,
-          recipientType: data.recipientType,
-          channel: data.channel,
+          recipientType,
+          channel,
         });
         throw new NotFoundError('Destinataire introuvable', data.recipientId);
       }
 
-      let destination: string | null = null;
+      let destination: string;
 
-      if (data.channel === NotificationChannel.Email) {
+      if (channel === 'email') {
         if (!recipient.email) {
           throw new NotFoundError("Adresse email absente de l'annuaire", data.recipientId);
         }
         destination = recipient.email;
-      } else if (data.channel === NotificationChannel.Slack) {
+      } else {
         // Le compte Slack se déduit de l'email d'annuaire : le LLM ne choisit ni le canal
         // ni l'utilisateur. `chat.postMessage` accepte un identifiant utilisateur et ouvre
         // la conversation directe correspondante.
@@ -126,22 +163,27 @@ export function makeSendNotification(
       // ---------------------------------------------------------------------
       // Phase 2 — Envoi (un échec de transport est enregistré, pas propagé)
       // ---------------------------------------------------------------------
-      let status = NotificationStatus.Sent;
+      // `Sent` était posé AVANT le `try`, donc par DÉFAUT : les cinq canaux non
+      // transportés repartaient « envoyé », horodatés, sans qu'aucun octet ne parte —
+      // troisième occurrence dans ce dépôt du même défaut (`emailSent: false` avec
+      // `status: 'success'`, `documents.content` perdu en silence). Le statut est
+      // désormais posé APRÈS l'`await` du transport : aucun chemin ne peut plus
+      // atteindre `Sent` sans qu'un fournisseur ait réellement rendu la main.
+      let status: NotificationStatus;
 
       try {
-        if (data.channel === NotificationChannel.Email) {
-          await emailProvider.sendEmail(destination!, data.subject, data.body);
-        } else if (data.channel === NotificationChannel.Slack) {
-          await chatProvider.sendMessage(destination!, `*${data.subject}*\n\n${data.body}`);
+        if (channel === 'email') {
+          await emailProvider.sendEmail(destination, data.subject, data.body);
+        } else {
+          await chatProvider.sendMessage(destination, `*${data.subject}*\n\n${data.body}`);
         }
-        // Les autres canaux (in_app, teams, push, sms, webhook) ne sont pas transportés ici :
-        // la notification est seulement persistée.
+        status = NotificationStatus.Sent;
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : 'Erreur inconnue';
         logger.error("Erreur lors de l'envoi de la notification", {
           error: message,
           recipientId: data.recipientId,
-          channel: data.channel,
+          channel,
         });
         status = NotificationStatus.Failed;
       }
@@ -149,8 +191,8 @@ export function makeSendNotification(
       const notif = createNotification({
         id: crypto.randomUUID(),
         recipientId: data.recipientId,
-        recipientType: data.recipientType,
-        channel: data.channel,
+        recipientType,
+        channel: channel as NotificationChannel,
         subject: data.subject,
         body: data.body,
       });
@@ -164,7 +206,18 @@ export function makeSendNotification(
 
       await repo.save(sent);
       logger.info('Notification enregistrée', { id: sent.id, status });
-      return sent;
+
+      // Verdict PROJETÉ. On ne renvoie ni `subject` ni `body` : c'est le modèle qui
+      // vient de les écrire, les lui refacturer à chaque aller-retour suivant est un
+      // coût pur (même défaut que `documents.content`). `status` porte à lui seul la
+      // différence entre « parti » et « pas parti ».
+      return {
+        id: sent.id,
+        recipientId: sent.recipientId,
+        channel: sent.channel,
+        status: sent.status,
+        sentAt: sent.sentAt,
+      };
     },
   });
 }

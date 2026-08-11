@@ -120,7 +120,10 @@ const docxService = new DocxService();
 const findEmployeeByEmail = makeFindEmployeeByEmail(employeeRepo);
 const getEmployeeProfile = makeGetEmployeeProfile(employeeRepo, onboardingRepo, taskRepo);
 const updateOnboardingStatus = makeUpdateOnboardingStatus(onboardingRepo);
-const getTaskList = makeGetTaskList(taskRepo);
+// L'annuaire est le SECOND paramètre, et il n'est pas décoratif : sans lui, un UUID inconnu
+// rend `{tasks: [], totalTasks: 0}` — indiscernable d'un employé réellement sans tâche. Le
+// modèle affirmait alors « aucune tâche en cours » pour un identifiant qui ne désigne personne.
+const getTaskList = makeGetTaskList(taskRepo, employeeRepo);
 const generateQuestionnaire = makeGenerateQuestionnaire(questionnaireRepo);
 const evaluateResponse = makeEvaluateResponse(questionnaireRepo, responseRepo);
 // `generateDocument` ne se contente plus d'écrire une ligne : il rend le fichier, le
@@ -133,9 +136,9 @@ const generateDocument = makeGenerateDocument({
   employeeRepo,
   renderers: [pdfService, docxService],
   // `SlackAdapter` porte `uploadFile` en plus de `sendMessage` : un seul WebClient, un
-  // seul jeton. ⚠️ Le scope `files:write` n'est pas accordé aujourd'hui — l'upload
-  // échoue donc en `missing_scope` et le tool dégrade (repli email, puis verdict
-  // `failed`) jusqu'à ce qu'un humain ajoute le scope ET réinstalle l'app.
+  // seul jeton. Le scope `files:write` EST accordé — vérifié en production le 2026-08-11,
+  // un PDF réellement posté dans un DM (`hasPermalink: true` dans les logs). L'ancienne
+  // note affirmant le contraire a survécu à sa propre invalidation pendant une journée.
   fileUpload: chatProvider,
   emailProvider,
 });
@@ -146,7 +149,9 @@ const sendNotification = makeSendNotification(
   chatProvider,
   slackWorkspace,
 );
-const scheduleReminder = makeScheduleReminder(notificationRepo);
+// Même raison que `getTaskList` : l'annuaire permet de refuser un destinataire inexistant
+// AVANT d'enregistrer un rappel. Sans lui le tool dégrade — il ne ment pas, mais il accepte.
+const scheduleReminder = makeScheduleReminder(notificationRepo, employeeRepo);
 const getNotificationHistory = makeGetNotificationHistory(notificationRepo);
 
 // `discoverSlackWorkspace` a été retiré : il n'est mentionné dans AUCUNE instruction de
@@ -173,7 +178,22 @@ const onboardingOrchestrator = makeOnboardingOrchestrator({
   generateDocument,
 });
 
+// `findEmployeeByEmail` est exposé aux TROIS agents depuis le 2026-08-11, et c'est un
+// correctif de CÂBLAGE, pas de rédaction.
+//
+// Tous les tools de `questionnaireEngine` et de `notificationAgent` exigent un UUID
+// d'employé, et AUCUN ne sait faire email → UUID : ce tool n'était câblé que sur
+// l'orchestrateur. Pire, le `.describe()` de `recipientId` renvoyait vers
+// `getEmployeeProfile`, qui exige déjà un UUID — la consigne était circulaire. Et
+// `AGENT_ANTI_INVENTION_BLOCK` interdit au modèle d'en deviner un. La boucle infernale de la
+// série C (« donne-moi son identifiant » → « je ne l'ai pas » → …) était donc GARANTIE par le
+// câblage, pas probabiliste : c'est la répétition du bug du 2026-08-10, corrigé côté routage
+// et jamais côté outillage.
+//
+// Coût mesuré : ≈ +120 tokens de schéma par agent, repayés à chaque aller-retour. Assumé —
+// un agent qui ne peut pas résoudre une personne ne peut RIEN faire, quel que soit son prix.
 const questionnaireEngine = makeQuestionnaireEngine({
+  findEmployeeByEmail,
   generateQuestionnaire,
   evaluateResponse,
   getEmployeeProfile,
@@ -184,6 +204,10 @@ const questionnaireEngine = makeQuestionnaireEngine({
 // c'est actuellement le tool le plus coûteux en tokens du set (~356 caractères de
 // schéma JSON + 426 de description). Voir CHANGELOG pour la mesure avant/après.
 const notificationAgent = makeNotificationAgent({
+  // Voir le commentaire de `questionnaireEngine` ci-dessus : sans ce tool, les quatre autres
+  // sont inatteignables dès que l'humain désigne quelqu'un par son email — c'est-à-dire
+  // presque toujours.
+  findEmployeeByEmail,
   sendNotification,
   scheduleReminder,
   getNotificationHistory,

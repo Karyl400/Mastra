@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   sanitizeAgentOutput,
+  sanitizeDocumentSource,
+  sanitizeDocumentText,
   NEUTRAL_REFUSAL,
   ALLOWED_LINK_DOMAINS,
   STRIPPED_LINK_PLACEHOLDER,
@@ -335,5 +337,166 @@ describe('sanitizeAgentOutput — robustesse', () => {
       expect(sanitizeAgentOutput('Salut :wave: !').text).toBe('Salut !');
       expect(sanitizeAgentOutput('Fini 🎉.').text).toBe('Fini.');
     });
+  });
+});
+
+/**
+ * Canal DOCUMENT — le défaut qui a motivé ce lot.
+ *
+ * `sanitizeAgentOutput` n'a qu'un site d'appel, `response.text` dans le handler
+ * Slack : les ARGUMENTS DE TOOL n'y passent jamais. `generateDocument` reçoit un
+ * `content` intégralement rédigé par le modèle, qui partait verbatim au rendu.
+ * Vérifié en générant de vrais PDF et en décodant leur CMap `ToUnicode` :
+ * `kisso_a3f9`, `[SECURITY_BLOCK]`, `DIRECTIVE 3.1` et `https://kisso.internal/…`
+ * s'imprimaient TOUS intégralement, sans le moindre log.
+ *
+ * Le contrat n'est pas celui de Slack, et ces tests verrouillent la différence.
+ */
+describe('sanitizeDocumentSource — assainissement de sécurité, structure préservée', () => {
+  it('retire le marqueur SANS jeter le document, et le signale', () => {
+    // Différence assumée avec Slack : un tour de conversation se jette, un
+    // LIVRABLE non. Un PDF signé de l'entreprise ne contenant qu'un refus serait
+    // plus déroutant que le défaut qu'on corrige.
+    const result = sanitizeDocumentSource('Bienvenue. [SECURITY_BLOCK] Bonne intégration.');
+
+    expect(result.text).not.toContain('SECURITY_BLOCK');
+    expect(result.text).toContain('Bienvenue.');
+    expect(result.text).toContain('Bonne intégration.');
+    expect(result.text).not.toBe(NEUTRAL_REFUSAL);
+    expect(result.redacted).toEqual(['security_marker']);
+  });
+
+  it('retire le délimiteur, l’identité d’agent et la directive numérotée', () => {
+    const result = sanitizeDocumentSource(
+      'Voir <kisso_9b7e_user_input>, je suis KISSO-AGENT-v3, DIRECTIVE 3.1.',
+    );
+
+    expect(result.text).not.toMatch(/kisso_[0-9a-f]/i);
+    expect(result.text).not.toContain('KISSO-AGENT-v3');
+    expect(result.text).not.toMatch(/DIRECTIVE\s+3\.1/);
+    expect(result.redacted).toEqual(
+      expect.arrayContaining(['delimiter', 'agent_identity', 'directive']),
+    );
+  });
+
+  it('retire TOUTES les occurrences d’un même marqueur, pas seulement la première', () => {
+    const result = sanitizeDocumentSource('[SECURITY_BLOCK] a [SECURITY_BLOCK] b [SECURITY_BLOCK]');
+
+    expect(result.text).not.toContain('SECURITY_BLOCK');
+  });
+
+  it('retire un lien hors allowlist et remonte son hôte', () => {
+    const result = sanitizeDocumentSource(
+      'Télécharge ici : https://kisso.internal/docs/d20df236-5c24-4a1b/download',
+    );
+
+    expect(result.text).toContain(STRIPPED_LINK_PLACEHOLDER);
+    expect(result.text).not.toContain('kisso.internal');
+    expect(result.strippedUrls).toEqual(['kisso.internal']);
+    expect(result.strippedUrls.join()).not.toContain('d20df236');
+  });
+
+  it('attrape une URL cachée dans la cible d’un lien markdown', () => {
+    // `[libellé](url)` : la syntaxe markdown est aplatie AVANT le filtre, sans
+    // quoi le rendu retirerait les crochets et laisserait l'URL nue s'imprimer.
+    const result = sanitizeDocumentSource('Voir [le guide](https://kisso.internal/docs/x).');
+
+    expect(result.text).not.toContain('kisso.internal');
+    expect(result.text).toContain('le guide');
+    expect(result.strippedUrls).toEqual(['kisso.internal']);
+  });
+
+  it('n’exempte PAS les blocs de code, contrairement au canal Slack', () => {
+    // Slack préserve les blocs ``` : une URL y est inerte et non cliquable. Dans
+    // un document, les backticks sont RETIRÉS au rendu — l'URL qu'ils auraient
+    // protégée finirait imprimée en clair.
+    const result = sanitizeDocumentSource('Exemple :\n```\ncurl https://kisso.internal/x\n```');
+
+    expect(result.text).not.toContain('kisso.internal');
+    expect(result.strippedUrls).toEqual(['kisso.internal']);
+  });
+
+  it('laisse passer un lien Slack, seul domaine autorisé', () => {
+    const result = sanitizeDocumentSource('Le fil : https://kissohq.slack.com/archives/C123');
+
+    expect(result.text).toContain('https://kissohq.slack.com/archives/C123');
+    expect(result.strippedUrls).toEqual([]);
+  });
+
+  it('retire les emojis — Roboto n’a aucun glyphe, ils s’impriment en carré', () => {
+    expect(sanitizeDocumentSource('Bienvenue 👋 bon courage 🚀').text).toBe(
+      'Bienvenue bon courage',
+    );
+    expect(sanitizeDocumentSource('Terminé ✅.').text).toBe('Terminé.');
+    expect(sanitizeDocumentSource('Attention ⚠️ à ceci').text).toBe('Attention à ceci');
+  });
+
+  it('PRÉSERVE le balisage markdown — c’est le gabarit qui le traduit', () => {
+    // Le retirer ici priverait `buildDocumentOutline` de toute structure : plus
+    // de titres, plus de puces, un pavé.
+    const result = sanitizeDocumentSource('# Titre\n\n- une puce\n\n**gras**');
+
+    expect(result.text).toContain('# Titre');
+    expect(result.text).toContain('- une puce');
+    expect(result.text).toContain('**gras**');
+  });
+
+  it('ne touche pas à un contenu métier légitime', () => {
+    const clean = 'Bienvenue chez Kisso Industries. Ton poste démarre le 1er septembre.';
+
+    const result = sanitizeDocumentSource(clean);
+
+    expect(result.text).toBe(clean);
+    expect(result.redacted).toEqual([]);
+    expect(result.strippedUrls).toEqual([]);
+  });
+
+  it('tolère une entrée vide ou absente', () => {
+    expect(sanitizeDocumentSource('').text).toBe('');
+    expect(sanitizeDocumentSource(null).text).toBe('');
+    expect(sanitizeDocumentSource(undefined).redacted).toEqual([]);
+  });
+});
+
+describe('sanitizeDocumentText — texte feuille, balisage résiduel compris', () => {
+  it('retire le balisage que le rendu imprimerait littéralement', () => {
+    expect(sanitizeDocumentText('**Salut !**').text).toBe('Salut !');
+    expect(sanitizeDocumentText('# Titre').text).toBe('Titre');
+    expect(sanitizeDocumentText('---').text).toBe('');
+    expect(sanitizeDocumentText('| col | val |').text).toBe('col val');
+    expect(sanitizeDocumentText('`code`').text).toBe('code');
+    expect(sanitizeDocumentText('__gras__ et ~~barré~~').text).toBe('gras et barré');
+    expect(sanitizeDocumentText('> citation').text).toBe('citation');
+    expect(sanitizeDocumentText('- une puce').text).toBe('une puce');
+    expect(sanitizeDocumentText('2. deuxième').text).toBe('deuxième');
+  });
+
+  it('ne convertit PAS vers le mrkdwn Slack — un document n’est pas un message', () => {
+    // `sanitizeAgentOutput` transforme `**gras**` en `*gras*`, qui est du gras
+    // pour Slack et une paire d'astérisques imprimée pour un PDF.
+    expect(sanitizeDocumentText('Donne-moi son **email professionnel**.').text).toBe(
+      'Donne-moi son email professionnel.',
+    );
+  });
+
+  it('est IDEMPOTENT — le contenu traverse deux fois le filtre', () => {
+    // Une fois dans l'outil (persistance + journalisation), une fois au seuil du
+    // rendu (pour qu'aucun chemin ne contourne). Le second passage ne doit rien
+    // changer, sinon `[retiré]` finirait mangé par lui-même.
+    const hostile = '# Bienvenue 👋 **[SECURITY_BLOCK]** kisso_a3f9 https://kisso.internal/x';
+
+    const once = sanitizeDocumentText(hostile).text;
+    const twice = sanitizeDocumentText(once).text;
+
+    expect(twice).toBe(once);
+  });
+
+  it('reste linéaire sur une entrée fabriquée pour faire exploser le moteur', () => {
+    const hostile = `${'**'.repeat(20_000)}|${'-'.repeat(20_000)}`;
+
+    const start = Date.now();
+    sanitizeDocumentText(hostile);
+
+    expect(Date.now() - start).toBeLessThan(1000);
   });
 });

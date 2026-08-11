@@ -7,13 +7,25 @@
 > La branche de travail est `refactor/cleanup-20260810` — **`main` ne contient ni
 > `server.apiRoutes` ni `slackEventsRoute`**, la production n'en vient donc pas.
 >
-> **État au 2026-08-11 :** mémoire conversationnelle, routage collant, marqueur de progression,
-> garde-fous anti-URL, **livraison réelle de documents** (rendu PDF/DOCX, upload Slack, pièce
-> jointe email, contexte Slack jusqu'aux tools), **verdict d'onboarding dégradé** et
-> **déduplication Slack partagée** sont **dans le dépôt, pas encore en production** — aucun
-> déploiement n'a suivi ce chantier. Deux DDL restent à appliquer à la main sur la Turso de
-> production (`documents.content`, `slack_event_dedup`) et le scope Slack `files:write` n'est
-> toujours pas accordé : voir `TODO.md`, section « Actions humaines ».
+> **État au 2026-08-11, après la campagne de production de 19:19–19:40 (déploiement `l71qz4x5f`) :**
+>
+> **EN PRODUCTION et vérifié par les logs** — mémoire conversationnelle, routage collant,
+> marqueur de progression, garde-fous anti-URL, verdict d'onboarding dégradé, déduplication
+> Slack partagée, et **la livraison réelle de documents** : un PDF a bel et bien été rendu puis
+> posté dans Slack (`{"filename":"guide-….pdf","hasPermalink":true}`). **Le scope `files:write`
+> EST accordé** — les affirmations contraires qui traînaient ici, dans `TODO.md` et dans deux
+> commentaires de `src/` sont FAUSSES. Les DDL `documents.content` et `slack_event_dedup` ont
+> été appliquées et vérifiées sur la Turso de production (prise atomique testée : 1 ligne, puis 0).
+>
+> **DANS LE DÉPÔT, PAS ENCORE DÉPLOYÉ** — les quatre lots de correction issus de cette campagne :
+> routage en 4 temps à palier d'échappement symétrique, injection de l'identité du demandeur,
+> réconciliation FAIT/NARRATION, schémas des outils de notification, assainissement du contenu
+> des documents, frontière négative dérivée du câblage. Ils sont dans l'arbre de travail, pas
+> même committés.
+>
+> Ce que la campagne a établi et qui change la doctrine du projet : **la limite qui casse la
+> production n'est PAS le seau Groq par minute mais le quota JOURNALIER (≈ 19 messages/jour)**,
+> et le repli Mistral plafonne en REQUÊTES (4/min). Voir « Pièges connus ».
 
 Plateforme d'onboarding intelligent (Kisso Industries) : agents Mastra orchestrant
 l'intégration des nouveaux employés (guidelines, canaux Slack, provisioning comptes).
@@ -187,57 +199,119 @@ verrouillent cette règle : `tests/unit/quality/architecture.test.ts` et `code-a
 - Endpoint Events API : `POST /slack/events` — **pas** `/api/slack-events`, voir ci-dessous
 - Le routage message → agent vit dans
   `src/features/notification/infrastructure/handlers/slack-events.handler.ts`.
-  **Quatre paliers, dans cet ordre :**
-  1. **Intentions de l'orchestrateur** (prioritaire) —
-     `crée|créer|création|cree|creer|ajoute|enregistre|retrouve|recherche|identifiant|document|tâche|tache|onboarding|pdf|guide|guideline|docx`
-     → `onboardingOrchestrator`
-  2. **Agent collant** — l'agent du dernier tour de la conversation, si celle-ci a moins de
-     60 min (`CONVERSATION_TTL_MS`). Ajouté le 2026-08-11, voir ci-dessous.
-  3. `questionnaire|évaluation|quiz|test` → `questionnaireEngine`
-  4. `notification|rappel|email|message` → `notificationAgent`
-  5. défaut → `onboardingOrchestrator`
+  **Quatre temps, dans cet ordre.** Les listes sont CONTRACTUELLES — les modifier sans mettre
+  à jour ce fichier fait mentir la doc :
+  1. **ÉCHAPPEMENT** (`ESCAPE_INTENTS`), **symétrique** — l'ordre du tableau EST la priorité :
+     - `crée|créer|création|cree|creer|enregistre|retrouve|recherche|identifiant`
+       → `onboardingOrchestrator`
+     - `questionnaire|évaluation|quiz` → `questionnaireEngine`
+     - `notification|rappel` → `notificationAgent`
+  2. **COLLANT** — l'agent du dernier tour du fil, si celui-ci a moins de 60 min
+     (`CONVERSATION_TTL_MS`). Un identifiant inconnu de `KNOWN_AGENT_IDS` est ignoré : le
+     suivre aveuglément ferait lever `getAgent` à chaque message et condamnerait le fil.
+  3. **THÉMATIQUE**, évalué seulement **hors d'un fil vivant** :
+     - `document|pdf|docx|guide|guideline|tâche|tache|onboarding` → `onboardingOrchestrator`
+     - `test` → `questionnaireEngine`
+     - `email|message` → `notificationAgent`
+  4. défaut → `onboardingOrchestrator`
 
-  **Le palier 2 corrige le défaut central mesuré le 2026-08-11.** Le routage était recalculé
-  sur le texte de CHAQUE message, isolément. Rejeu du fil réel : « Email: … » →
-  `notificationAgent`, « As-tu envoyé le rapport ? » → orchestrateur, « Par email » →
-  `notificationAgent`, « Donne le PDF alors » → orchestrateur. Le fil alternait
-  **A → B → A → B → A** entre deux agents amnésiques. « Par email » répondait à une question
-  posée par l'orchestrateur et arrivait chez un agent qui ne l'avait jamais posée — d'où le
-  « Quel est l'objet de cette notification ? », qui est littéralement le schéma d'entrée de
-  `sendNotification` redemandé à zéro.
+  **Le palier COLLANT (2026-08-11) corrige l'alternance A → B → A entre agents amnésiques.**
+  Le routage était recalculé sur le texte de CHAQUE message, isolément : « Par email »
+  répondait à une question posée par l'orchestrateur et arrivait chez un agent qui ne l'avait
+  jamais posée — d'où le « Quel est l'objet de cette notification ? », qui est littéralement le
+  schéma d'entrée de `sendNotification` redemandé à zéro.
 
-  Le palier collant est placé **après** les intentions de l'orchestrateur (une demande
-  explicite doit pouvoir sortir d'un fil, sinon une conversation collée sur le mauvais agent
-  serait un piège sans issue) et **avant** les paliers thématiques (ce sont eux qui
-  détournaient les réponses de suivi). Un identifiant d'agent inconnu du registre est ignoré :
-  le suivre aveuglément ferait lever `getAgent` à chaque message et condamnerait le fil.
+  **La forme à DEUX bandes qui l'entourait faisait de `onboardingOrchestrator` un ÉTAT
+  ABSORBANT — corrigé le 2026-08-11 après mesure sur la campagne.** `stickyAgentId` est
+  renseigné dès le premier tour, donc les paliers thématiques étaient **morts à partir du
+  message 2** ; et le seul palier capable de déplacer un fil ne menait **qu'à** l'orchestrateur,
+  sans retour. Conséquences mesurées : `notificationAgent` n'a **jamais** été atteignable en
+  série A (en DM la clé de conversation est le canal, donc tous les sujets d'une heure
+  partagent ce verrou), tandis que B6 (« ajoute ») et C7 (« guide »/« pdf ») ont **arraché**
+  leur fil vers un agent qui a hérité de la mémoire d'un autre et promis des capacités qu'il
+  n'a pas — les deux réponses les plus fausses de la campagne.
 
-  `pdf`, `guide` et `guideline` ont été ajoutés au palier 1 : seul l'orchestrateur porte
-  `generateDocument`, ils sont donc sans ambiguïté. `guideline` est listé séparément — le bord
-  droit du motif (`(?![\p{L}])`) empêche `guide` de matcher dans « guideline ». « génère »
-  reste volontairement exclu : il sert aussi `generateQuestionnaire`.
+  D'où la forme actuelle : **le palier d'échappement est SYMÉTRIQUE** (chaque agent y a ses
+  termes, aucun n'est un puits), et les termes qui détournaient les réponses de suivi
+  (`pdf`, `docx`, `guide`, `email`, `message`, `test`…) sont redescendus **sous** le collant.
 
-  **`docx` a rejoint la liste** quand `generateDocument` a su rendre ce format : une extension
-  de fichier, servie par le seul orchestrateur, sans autre sens en français comme en anglais.
-  **« word » a été examiné et volontairement ÉCARTÉ** — le critère de ce palier n'est pas
-  « désigne un document » mais « sans ambiguïté », et `word` est un mot anglais courant. Le
-  faux positif n'y est pas inoffensif : ce palier PRIME sur le palier collant, donc il
-  **arrache** le message au fil en cours. Or « envoie-le en Word » n'a pas besoin de ce
-  palier — c'est une réponse de suivi, exactement ce que le palier collant sait router.
+  Critère d'admission en bande 1, plus strict que « désigne cet agent » : le terme doit **ouvrir
+  une tâche nouvelle**, pas continuer celle en cours. Volontairement absents :
+  - **« ajoute »** — retiré le 2026-08-11. Verbe français générique : c'est lui qui a envoyé
+    « ajoute une question à choix multiple » vers un agent sans aucun tool de questionnaire.
+    Même critère que celui qui avait fait écarter « word » (mot anglais courant).
+  - « profil », « statut », « intégration » — trop courants (« planifie un rappel : compléter
+    son profil », « génère un questionnaire d'intégration »), et le défaut étant déjà
+    l'orchestrateur, les y mettre n'apporterait rien.
+  - « génère » — il sert aussi bien `generateDocument` que `generateQuestionnaire`.
 
-  Le palier 1 a été ajouté le 2026-08-10 après une campagne en production : le mot **« email »**
-  aiguillait vers `notificationAgent`, qui ne possède ni `createEmployee` ni `findEmployeeByEmail`.
-  Or une demande de recherche par email contient nécessairement ce mot — **la fonctionnalité était
-  structurellement inatteignable**, et les créations ne réussissaient que si la formulation évitait
-  le mot. N'y ajouter que des termes sans ambiguïté : « profil », « statut » et « intégration » en
-  sont **volontairement exclus** (ils captureraient « planifie un rappel : compléter son profil » ou
-  « génère un questionnaire d'intégration »), et le repli par défaut étant déjà l'orchestrateur,
-  les y mettre n'apporterait rien.
+  La bande 1 existe depuis le 2026-08-10, après une campagne où le mot **« email »** aiguillait
+  vers `notificationAgent` : une demande de recherche par email contient nécessairement ce mot,
+  donc **la recherche par email était structurellement inatteignable**.
 
-  La correspondance exige un **bord de mot des deux côtés**, avec pluriel toléré (`s?`). La garde
-  ne portait que sur le bord gauche : `rappelle`, `messagerie`, `testez` déclenchaient tous un
-  détournement, tandis que `emails` et `questionnaires` étaient ignorés.
-- Setup complet : `docs/SLACK_BOT_SETUP.md`.
+  **Bords de mot des DEUX côtés, mais désinences déclarées PAR MOT** — c'est la correction du
+  2026-08-11. La garde ne portait au départ que sur le bord gauche (`rappelle`, `messagerie`,
+  `testez` détournaient) ; le bord droit `s?(?![\p{L}])` les a écartés mais a cassé **tous les
+  infinitifs** : « tu peux **retrouver** l'employé dont l'email est X » retombait sur
+  `NOTIFICATION_TOPICS`, soit le retour du bug de 2026-08-10 **par la conjugaison**. Les
+  radicaux verbaux déclarés (`VERB_STEM_KEYWORDS` : `crée`, `cree`, `enregistre`, `retrouve`,
+  `recherche`) tolèrent donc `(?:s|r|z|nt)?` ; les mots-clés NOMINAUX (`rappel`, `message`,
+  `test`) gardent le seul pluriel `s?`. Ouvrir la tolérance à tous ferait revenir les faux
+  positifs d'origine.
+
+**Le modèle sait désormais QUI lui parle** (`buildContextPreamble`, 2026-08-11). L'identité du
+demandeur est injectée dans un message **`system`** : nom d'affichage résolu via `users.info`,
+**assaini** (`sanitizeDisplayName` — un nom d'affichage est contrôlé par son porteur, donc un
+vecteur d'injection de premier ordre) et mis en cache par instance.
+- ⚠️ **Jamais dans le bloc `<kisso_XXXX_user_input>`**, que la DIRECTIVE 3.1 déclare non
+  fiable : y glisser une affirmation du serveur la dévaluerait, et un seul bloc ouvrant est
+  autorisé par appel.
+- Le défaut corrigé : `cleanText` retirait les mentions et `slackUserId` ne voyageait que par
+  le `requestContext`, qui n'entre pas dans la fenêtre du modèle. Le seul humain nommé était le
+  **sujet** de la requête — et le bloc STYLE impose le tutoiement, donc « tu » ne pouvait se
+  résoudre que sur lui : « **Ton** profil », « **Tu** as 5 tâches » quand un manager interroge
+  un tiers. Invisible dans le cas fréquent (on demande son propre profil).
+- Coût ≈ 38 tokens par tour, ≈ 69 avec l'avertissement d'attribution — verrouillé par test.
+- `cleanText` ne retire plus **que la mention du bot** : elle les retirait TOUTES, donc
+  `@mastra crée un profil pour <@U0AWA>` perdait son sujet avant d'atteindre le modèle.
+- Les tours `assistant` d'un **autre agent** sont préfixés `[autre agent] ` dans l'historique
+  rejoué (≈ 4 tokens, zéro sur un fil homogène). On ne filtre pas par `agentId` — l'UUID rendu
+  par l'orchestrateur est la donnée dont `notificationAgent` a besoin — mais sans marque, un
+  agent lit la voix d'un autre **comme la sienne** (en C7 l'orchestrateur a repris le motif de
+  `notificationAgent` : redemander sujet, texte, canal).
+
+**Réconciliation FAIT / NARRATION** (2026-08-11) — garde-fou déterministe, réponse au verdict
+de l'utilisatrice testeuse : « il parle exactement de la même façon quand il a fait le travail
+et quand il l'a inventé ». Le handler est le seul point qui voit à la fois la réponse et la
+trace d'exécution ; il les confronte désormais.
+- Une formule d'accompli (`ACCOMPLISHMENT_CLAIMS` — liste FERMÉE : « c'est fait », « j'ai
+  envoyé », « je viens de », « a été envoyé », « est prêt ») alors que `response.toolCalls`
+  est **vide** ⇒ la réponse est **requalifiée** par une note accolée, jamais bloquée, et le
+  verdict part en `error`. On cherche une CONTRADICTION, jamais une invraisemblance : « je peux
+  t'envoyer… » n'en est pas une.
+- ⚠️ `null` (trace illisible) **n'est pas** `[]` (zéro appel) : sans preuve positive, on se tait.
+- La note n'entre **pas** en mémoire : la rejouer apprendrait au modèle à imiter le démenti.
+- Prérequis à tout cela : **`readToolCalls` journalisait `"unknown"` sur 100 % des appels**
+  (19 runs de production). Mastra met le nom sous `chunk.payload.toolName` ; la lecture
+  `call.toolName ?? call.name` ne trouvait jamais rien — le champ ajouté précisément pour
+  distinguer une action d'une narration ne répondait à aucune question.
+
+**Un `message` de canal est accepté dans un fil DÉJÀ ENGAGÉ** (2026-08-11). `not_a_dm` ne
+couvre plus que les messages de canal **hors fil**. Le filtre d'origine était plus large que
+son motif : il existait pour éviter la double réponse d'une mention (qui émet `message` ET
+`app_mention`), or ce doublon est **déjà** traité par `dedupKey`, qui préfère `ts:<channel>:<ts>`
+à `event_id` et unifie les deux événements. Son effet de bord, lui, était majeur : **toute la
+mémoire conversationnelle était inerte en canal** sans re-mention à chaque tour — friction
+signalée par le propriétaire.
+- Deux gardes encadrent l'ouverture. Le message **racine** d'un fil est exclu (`thread_ts === ts`) :
+  c'est une prise de parole neuve. Et en tâche de fond, `shouldAbandonThreadReply` **abandonne
+  tout fil où le bot n'a jamais parlé** — sans quoi chaque phrase échangée entre humains dans
+  #kisso-hq deviendrait un run LLM, sur un budget de ≈ 19 messages/jour.
+- ⚠️ Le **jumeau `message`** d'une mention doit rester traité : il peut prendre la clé de
+  déduplication le premier, et l'abandonner ferait ensuite écarter l'`app_mention` comme
+  doublon — la mention resterait **sans réponse**.
+
+Setup complet de l'app Slack : `docs/SLACK_BOT_SETUP.md`.
 
 **Une route HTTP n'existe que si elle est déclarée dans `server.apiRoutes` de
 `src/mastra/index.ts`** via `registerApiRoute()` (`@mastra/core/server`). Un fichier posé dans
@@ -289,18 +363,17 @@ pièges constatés dans les typings installés (`@slack/web-api` 8.0.0), aucun v
   un `Uint8Array` nu et interpréterait une **chaîne** comme un CHEMIN à lire sur le disque,
   inutilisable sur Vercel.
 
-⚠️ **Le scope `files:write` n'est PAS accordé au bot — c'est le SEUL obstacle restant entre le
-dépôt et une livraison Slack réelle.** Il exige **deux gestes humains**, dans cet ordre :
-1. ajouter `files:write` dans *OAuth & Permissions* ;
-2. **réinstaller l'app dans le workspace** (*Settings → Install App → Reinstall to Workspace*,
-   jusqu'au bouton *Allow*).
+✅ **Le scope `files:write` EST accordé, et l'upload fonctionne en production.** Vérifié par les
+logs du 2026-08-11 : `{"filename":"guide-d-accueil-….pdf","hasPermalink":true}`, fichier
+réellement visible dans le fil. **Toute affirmation contraire est périmée** — elle traîne
+encore dans deux commentaires du code (`src/mastra/index.ts` au point de câblage de
+`fileUpload`, et l'en-tête de `SlackAdapter.uploadFile`), qui n'ont PAS été mis à jour.
 
-L'ajout seul ne propage **rien** : le jeton conserve les scopes de l'installation en cours —
-c'est exactement le piège déjà vécu et documenté le 2026-08-08. Tant que ce n'est pas fait,
-`files.uploadV2` répond `missing_scope`, `generateDocument` se rabat sur l'email, puis rend
-`delivery: 'failed'` avec `reason: 'missing_scope'`. `SlackAdapter.uploadFile` retraduit ce
-refus en une `Error` de prose qui nomme les deux gestes et conserve l'erreur d'origine dans
-`cause` — d'où l'inspection de la **chaîne** de causes côté tool.
+Le chemin `missing_scope` reste néanmoins câblé, et c'est volontaire : un scope se retire aussi
+bien qu'il s'accorde. `SlackAdapter.uploadFile` retraduit ce refus en une `Error` de prose
+nommant les deux gestes humains (ajouter `files:write` dans *OAuth & Permissions*, **puis**
+réinstaller l'app — l'ajout seul ne propage rien, piège documenté le 2026-08-08) et conserve
+l'erreur d'origine dans `cause`, d'où l'inspection de la **chaîne** de causes côté tool.
 
 Contraintes Slack Events API à respecter dans tout handler :
 1. Répondre `200` en **moins de 3 s** — traiter l'agent en tâche de fond, jamais avant l'ACK.
@@ -315,10 +388,12 @@ Contraintes Slack Events API à respecter dans tout handler :
 rencontrés et corrigés) :
 - **Socket Mode doit être désactivé.** Il est mutuellement exclusif avec la Request URL HTTP :
   tant qu'il est actif, Slack ouvre un WebSocket et n'envoie **aucune** requête à l'endpoint.
-- **`app_mention` doit être abonné.** Le handler ne traite les mentions en canal que via
-  `app_mention` et n'accepte `message` que si `channel_type === 'im'` — c'est précisément ce
-  qui évite la double réponse (une mention émet les deux événements). Sans `app_mention`
-  abonné, les mentions en canal ne déclenchent rien.
+- **`app_mention` doit être abonné.** Le handler sert les mentions en canal par `app_mention`.
+  ⚠️ La formulation d'origine (« et n'accepte `message` que si `channel_type === 'im'` ») est
+  **périmée depuis le 2026-08-11** : un `message` de canal passe désormais s'il répond dans un
+  fil déjà engagé. Ce n'est pas ce filtre qui évite la double réponse d'une mention — c'est
+  `dedupKey`, qui unifie `message` et `app_mention` sous la même clé `ts:<channel>:<ts>`. Sans
+  `app_mention` abonné, les mentions en canal ne déclenchent toujours rien.
 
 Abonnements actuels : `app_mention`, `message.im`, `message.channels`, `message.groups`.
 
@@ -367,9 +442,9 @@ appel `conversations.join` explicite, qu'aucun code n'émet aujourd'hui.
 Scopes réellement accordés au bot : `channels:join`, `chat:write`, `chat:write.customize`,
 `im:write`, `channels:read`, `groups:read`, `users:read`, `users:read.email`,
 `groups:write.invites`, `channels:manage`, `groups:write`, `app_mentions:read`,
-`channels:history`, `groups:history`, `im:history`.
-**`files:write` en est ABSENT** — c'est le blocage décrit plus haut, et le code l'assume déjà
-(`src/mastra/index.ts` le commente au point de câblage).
+`channels:history`, `groups:history`, `im:history`, **`files:write`** (prouvé par un upload
+réussi le 2026-08-11 ; l'ancienne mention « ABSENT » était fausse).
+`users:read` est également ce qui alimente le préambule d'identité (`users.info`).
 
 ## Variables d'environnement
 
@@ -409,21 +484,44 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
     de 2, donc toute instanciation réelle levait `ERR_CRYPTO_INVALID_SCRYPT_PARAMS`. Le bug était
     masqué tant que rien n'instanciait la classe. Corrigé à `16384` (2^14, RFC 7914).
 
-- **PLAFOND GROQ 12 000 tokens/minute — c'est la limite qui casse la production aujourd'hui.**
-  Mesuré le 2026-08-07 (`x-ratelimit-limit-tokens: 12000`, recharge continue à ~200 tok/s).
-  Or **un seul appel agent consomme 3 384 tokens d'entrée** — non pas à cause du
-  `SYSTEM_SECURITY_PROMPT` (1 308 caractères ≈ 374 tokens seulement), mais des **schémas JSON
-  des outils**, réinjectés intégralement à chaque aller-retour. Un flux avec appel d'outil
-  (question → tool call → tool result → réponse) fait 3 allers-retours cumulant l'historique,
-  soit ~10–12 k tokens : le budget d'une minute entière est brûlé par **une seule requête**.
-  - Symptôme : `POST /api/agents/:id/generate` → `HTTP 500 {"error":"Rate limit exceeded"}`.
-    Un prompt trivial sans outil passe (3 384 tokens, testé 3×/3 OK) — c'est ce qui rend
-    l'échec trompeusement intermittent, et ce qui fait « flotter » `npm run test:integration`
-    entre 121/121 et 119/121 selon le quota résiduel du moment.
+- **PLAFOND GROQ : c'est le quota JOURNALIER qui casse la production, PAS le seau par minute.**
+  L'ancienne rédaction de cette section — « PLAFOND GROQ 12 000 tokens/minute, c'est la limite
+  qui casse la production » — était **FAUSSE**, et cette erreur a coûté un diagnostic entier :
+  la panne de la campagne du 2026-08-11 a d'abord été cherchée comme un bug logiciel.
+  - **Preuve** (déploiement `l71qz4x5f`, 18:21:50.917 UTC, message A6 « Tu peux prévenir Awa
+    que son parcours démarre lundi ? ») : `Error processing Slack message` /
+    `AI_APICallError: Rate limit exceeded`, avec dans les en-têtes **`TPD: Limit 100000,
+    Used 98207`**. Au même instant le seau par MINUTE était **PLEIN** —
+    `x-ratelimit-remaining-tokens: 12000` dans 56 échantillons sur 64.
+  - **Le budget réel est donc de 100 000 tokens par JOUR**, soit — à **5 168 tokens par message**
+    mesurés sur la campagne — ≈ **19 messages par jour, tous canaux confondus**. C'est la
+    contrainte qui gouverne toutes les décisions de coût de ce dépôt : elle borne le NOMBRE DE
+    MESSAGES, pas le débit.
+  - ⚠️ **Le repli Mistral plafonne à 4 REQUÊTES par minute** (`x-ratelimit-limit-req-minute: '4'`)
+    — une limite en **requêtes**, donc **insensible à tout dégraissage de prompt**. Elle n'était
+    documentée nulle part. Groq mort sur sa journée, chaque étape de chaque message retombait sur
+    Mistral ; le message d'Awa est tombé sur la 5ᵉ requête. `LAST_RESORT_MAX_RETRIES = 1` avec
+    1 s de back-off ne peut structurellement pas franchir un seau par minute.
+  - **CONSÉQUENCE DE DOCTRINE : le poste de coût dominant n'est plus la TAILLE du prompt mais le
+    NOMBRE D'ÉTAPES.** Chaque étape est une requête pleine chez les DEUX fournisseurs : elle
+    consomme le TPD chez Groq et une des 4 req/min chez Mistral. Un aller-retour épargné vaut
+    davantage que plusieurs centaines de tokens rabotés — et un tour de dialogue épargné
+    (un champ à défaut plutôt qu'une question posée à l'humain) vaut plus encore.
+  - Le seau de 12 000 tokens/minute existe toujours (mesuré le 2026-08-07,
+    `x-ratelimit-limit-tokens: 12000`, recharge ~200 tok/s) et reste franchissable par un flux
+    multi-étapes. Il n'est simplement **jamais** ce qui a cassé la production : le vérifier dans
+    les en-têtes AVANT de conclure est désormais la règle.
+  - Symptôme commun aux deux : `HTTP 500 {"error":"Rate limit exceeded"}`. C'est ce qui fait
+    « flotter » `npm run test:integration` entre 121/121 et 119/121 selon le quota résiduel.
   - Ce n'est **PAS** un bug de la chaîne de fallback. Vérifié empiriquement le 2026-08-08 : avec
     une clé Groq invalide et une clé Mistral valide, **Mistral prend bien le relais**. Le `500`
     signifie donc que les DEUX fournisseurs ont échoué. Le message remonté est l'erreur BRUTE du
     **dernier** maillon (Mastra appelle le dernier avec `shouldThrowError: false`).
+  - Côté utilisateur, ce cas a désormais **son propre message** (`QUOTA_FAILURE`, reconnu par
+    `userFacingFailure` sur un `statusCode` 429 ou un `AI_APICallError` parlant de quota, en
+    suivant la chaîne `cause`) : c'est le seul échec où **réessayer a un sens**, et le générique
+    laissait croire à une panne — l'utilisatrice a conclu à un bug et est passée au message
+    suivant, qui a échoué pour la même raison.
   - **Piège de journalisation Mastra** : le log `Upstream LLM API error` de FIN DE RUN attribue
     toujours l'erreur à `models[0]` (`getModel()` retourne inconditionnellement `#firstModel`), donc
     un échec Mistral apparaît sous `provider: 'groq.chat'`. C'est ce log trompeur qui a fait
@@ -433,18 +531,53 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
     `questionnaireEngine` 1 726, `onboardingOrchestrator` 3 308, `notificationAgent` 1 832 tokens
     d'entrée. Avant réduction : 1 936 / 3 979 / 7 849. Un flux de création d'employé (2 étapes)
     consomme 6 838 tokens et **passe désormais** — il échouait systématiquement avant.
-  - **Second dégraissage, 2026-08-11** (`npx tsx _measure.mts`, ratio 3,5 car./token) :
-    FLOOR `onboardingOrchestrator` 1 649 → **1 458**, `questionnaireEngine` 1 266 → **1 120**,
-    `notificationAgent` 1 391 → **1 238**. Le bloc STYLE et le bloc ANTI-INVENTION sont
-    factorisés dans `src/shared/agent-style.ts` — mais attention, **factoriser n'économise
-    aucun token** (chaque agent envoie quand même son bloc) : le gain vient du
-    RACCOURCISSEMENT, la factorisation sert à ne raccourcir qu'à un seul endroit.
-  - **Le vrai poste de coût était le tool-result, pas l'historique.** `getEmployeeProfile`
-    renvoyait `tasks` non borné avec les 19 colonnes de la table : **2 506 tokens** pour un
-    seul retour, davantage que six messages utilisateur. Projeté et borné à 5 tâches / 6 champs
-    via `src/features/employee/application/mappers/task-summary.mapper.ts` → **329 tokens**,
-    et la taille est désormais **indépendante du nombre de tâches** (verrouillé par test).
-    Deux tests garde-fou : `tests/unit/tools/tool-result-budget.test.ts` et
+  - **Second dégraissage, 2026-08-11** : FLOOR `onboardingOrchestrator` 1 649 → 1 458,
+    `questionnaireEngine` 1 266 → 1 120, `notificationAgent` 1 391 → 1 238. Le bloc STYLE et le
+    bloc ANTI-INVENTION sont factorisés dans `src/shared/agent-style.ts` — mais attention,
+    **factoriser n'économise aucun token** (chaque agent envoie quand même son bloc) : le gain
+    vient du RACCOURCISSEMENT, la factorisation sert à ne raccourcir qu'à un seul endroit.
+  - **FLOOR mesuré sur le câblage RÉEL, 2026-08-11 après les quatre lots** (ratio 3,5 car./token,
+    `zodToJsonSchema` + `getInstructions()`) :
+
+    | Agent                    | instructions | tools | FLOOR |
+    | ------------------------ | ------------ | ----- | ----- |
+    | `onboardingOrchestrator` | 785          | 691   | **1 476** |
+    | `questionnaireEngine`    | 625          | 619   | **1 244** |
+    | `notificationAgent`      | 624          | 728   | **1 352** |
+    | **Somme**                |              |       | **4 072** |
+
+    Les lots sont **autofinancés** : la frontière négative et les consignes ajoutées sont payées
+    par les suppressions (passation impossible, récitation de capacités). L'écart avec les
+    chiffres de lot (1 476 / 1 118 / 1 239) est l'exposition de `findEmployeeByEmail` aux TROIS
+    agents : ≈ +126 et +113 tokens, assumés — un agent qui ne sait pas résoudre une personne ne
+    peut RIEN faire, quel que soit son prix.
+    ⚠️ **`_measure.mts` (racine) est PÉRIMÉ** : son câblage est codé en dur et n'inclut pas
+    `findEmployeeByEmail` sur `questionnaireEngine` ni sur `notificationAgent`, donc il
+    sous-estime deux agents sur trois. Même défaut dans la constante `WIRING` de
+    `tests/unit/agents/agent-instructions-budget.test.ts` (sans conséquence : ce test vérifie la
+    forme de la frontière, pas le total). Les chiffres ci-dessus viennent d'une copie corrigée.
+  - **La fusion des trois agents en un seul a été examinée puis REJETÉE** : les schémas des
+    10 tools réunis pèsent **≈ 1 622 tokens**, davantage que le FLOOR entier de l'orchestrateur
+    — soit ≈ +80 % par aller-retour. À réexaminer si Groq passe en palier payant.
+  - **Le tool-result pèse plus lourd que l'historique — et c'est le poste où les gains sont
+    faits.** Un tool-result n'est pas payé une fois : il entre dans l'historique et est réémis à
+    chaque aller-retour suivant. Trois occurrences du même défaut, toutes corrigées :
+    - `getEmployeeProfile` renvoyait `tasks` non borné avec les 19 colonnes de la table :
+      **2 506 → 333 tokens** (12 tâches), projeté et borné à 5 tâches / 6 champs via
+      `src/features/employee/application/mappers/task-summary.mapper.ts` ;
+    - `generateDocument` retournait l'entité complète, `content` compris — il refacturait au
+      modèle le texte que le modèle venait d'écrire : **685 → 39 tokens** (91 en dégradé) ;
+    - `getNotificationHistory` rendait les lignes Drizzle BRUTES, 18 colonnes, `body` non borné,
+      `limit` par défaut à 50 : **≈ 9 600 tokens → 177** (mesuré ; le fichier du tool cite
+      10 223 sur un autre jeu d'essai — l'ordre de grandeur, lui, est stable : deux ordres).
+      Le paramètre `limit` a été **retiré du schéma** : il ne servait qu'à laisser le modèle
+      choisir combien on lui facture. Ajout d'un `ORDER BY` — il n'y en avait aucun, deux appels
+      identiques pouvaient rendre deux ordres différents.
+
+    La propriété qui compte n'est pas le chiffre mais l'**indépendance** : la taille de ces
+    résultats ne dépend plus du nombre de lignes ni de la longueur du contenu (verrouillé par
+    test). `subject`/`body` ne repartent jamais vers le modèle — c'est lui qui vient de les
+    écrire. Tests garde-fou : `tests/unit/tools/tool-result-budget.test.ts` et
     `tests/unit/agents/agent-instructions-budget.test.ts`.
   - **Même défaut, en pire, sur `generateDocument` — corrigé le 2026-08-11.** Il retournait
     l'entité `Document` COMPLÈTE, `content` compris : il renvoyait au modèle, à ses frais, le
@@ -464,10 +597,18 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
     `steps.length` mène à des conclusions fausses.
   - Attendre ne suffit pas : réessayé à quota plein après 60 s → même `500`, en 21 s
     (le back-off du dernier maillon).
-  - Correctifs possibles, par ordre d'efficacité : (1) passer Groq/Mistral sur un palier payant ;
-    (2) réduire le nombre d'outils exposés par agent (6 sur `onboardingOrchestrator`) ou alléger
-    leurs schémas — c'est le poste de coût dominant ; (3) accepter la dégradation et ne compter
-    que sur le fallback.
+  - **Correctifs, par ordre d'efficacité réelle** :
+    1. **Passer Groq en palier payant.** Sans cela, la prochaine campagne s'arrêtera au
+       ~19ᵉ message **quels que soient les correctifs logiciels**. Meilleur rapport
+       effort/effet du dossier, et pas une ligne de code. Idem Mistral, ou acter ses 4 req/min.
+    2. **Réduire le NOMBRE D'ÉTAPES** : défauts de schéma plutôt que questions posées à
+       l'humain (`sendNotification` est passé de 5 champs obligatoires à 3), tool-results qui
+       INSTRUISENT plutôt qu'ils n'échouent, frontière négative pour éviter un tour de
+       négociation stérile.
+    3. Alléger les schémas et les instructions — utile, mais rendement bien plus faible qu'on ne
+       l'a longtemps cru : c'est ce qui a été surestimé pendant deux campagnes.
+    4. Accepter la dégradation et ne compter que sur le fallback — sachant que le fallback a
+       lui-même son propre plafond, en requêtes.
 
 - **Zod est épinglé à `3.25.76`** : le parseur de schémas du Vercel AI SDK casse sur certaines
   constructions. Éviter `z.discriminatedUnion` (utiliser `z.object`) et les regex à classes
@@ -551,8 +692,10 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
   `as unknown as` des mappers effaçant l'écart pour le compilateur. État constaté sur la Turso de
   production le 2026-08-11 : **6 lignes sur 6 sans contenu, irrécupérables**. Le symptôme
   s'observe aussi dans l'autre sens (colonne présente en base mais absente de `schema.ts`).
-  - Colonne `content` ajoutée à `schema.ts`, DDL à appliquer **à la main** :
-    `scripts/ddl-documents-content.sql`. ⚠️ **Ordre imposé — DDL d'abord, déploiement ensuite** :
+  - Colonne `content` ajoutée à `schema.ts`, DDL `scripts/ddl-documents-content.sql`
+    **appliqué et vérifié sur la Turso de production le 2026-08-11** (les 6 lignes vides ont été
+    supprimées au passage, elles n'étaient pas récupérables).
+    ⚠️ **Ordre imposé — DDL d'abord, déploiement ensuite** :
     une fois `content` déclarée, Drizzle la NOMME dans l'INSERT, donc `generateDocument` échoue
     en `no such column: content` tant que la base n'est pas migrée. C'est le bon comportement
     (échec bruyant plutôt que perte muette), mais il faut respecter l'ordre.
@@ -580,9 +723,11 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
   sans traitement. Garde-fou d'observabilité : la route logge `Slack background work is detached
   on Vercel` en `error` si `waitUntil` venait à disparaître — c'est la ligne à chercher si le bot
   recommence à ne plus répondre. `maxDuration` est forcé à 60 s par `scripts/fix-vercel-output.js`.
-- **Déduplication Slack — désormais à DEUX niveaux** (l'ancienne note « LRU en mémoire, non
-  corrigé » est caduque *dans le dépôt* ; elle reste vraie en production tant que la table n'est
-  pas appliquée).
+- **Déduplication Slack — à DEUX niveaux, et elle FONCTIONNE en production** (les anciennes
+  notes « LRU en mémoire, non corrigé » puis « table non appliquée » sont toutes deux caduques :
+  `scripts/ddl-slack-event-dedup.sql` existe et a été appliqué sur la Turso de production le
+  2026-08-11. Ligne observée depuis, avec un `requestId` différent :
+  `Dropping duplicate Slack event (claimed by another instance)`).
   - Le LRU en mémoire est **par instance** : incapable par construction d'écarter un rejeu routé
     vers une AUTRE instance. C'est la cause de la **double réponse** du 2026-08-11 12:38 UTC
     (« Ton Guide en PDF est prêt » suivi de « Désolé, une erreur s'est produite ») — dans
@@ -601,8 +746,10 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
   - Autres signatures de log : `Dropping duplicate Slack event (claimed by another instance)`,
     et `Reprocessing an abandoned Slack event` — symptôme d'une invocation tuée en vol, la grâce
     d'abandon ayant expiré.
-  - ⚠️ **La table n'a PAS de script DDL et n'est appliquée nulle part.** Sans elle, la dégradation
-    ci-dessus est le comportement permanent et la double réponse reste possible. Voir `TODO.md`.
+  - La table est déclarée dans `schema.ts`, son DDL est `scripts/ddl-slack-event-dedup.sql`
+    (rejouable — `IF NOT EXISTS` partout) et il est **appliqué en production**. Reste à
+    l'appliquer sur toute base locale ou neuve, sans quoi la dégradation ci-dessus redevient le
+    comportement permanent.
 - **`mastra.getAgent()` LÈVE, elle ne retourne jamais `undefined`** : `MastraError` d'id
   `MASTRA_GET_AGENT_BY_NAME_NOT_FOUND`. Un `if (!agent)` posé sur son résultat est du code
   MORT, et l'erreur retombe alors sur le message générique du catch. ⚠️ Piège dans le piège :
@@ -632,15 +779,123 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
   - Verdicts rendus : `delivery` ∈ `slack | email | none | failed`, `reason` ∈
     `employee_not_found | no_slack_context | missing_scope | no_email | delivery_failed |
     not_rendered`, plus un `hint` **payé uniquement dans les cas dégradés**.
-    ⚠️ `missing_scope` déclenche un repli sur l'email ; un échec Slack ordinaire
-    (`not_in_channel`, panne passagère) **non** — une indisponibilité momentanée n'est pas une
-    raison d'écrire à quelqu'un qui n'a rien demandé, alors qu'un scope manquant est un manque
-    de configuration durable.
+  - **Le repli email se déclenche sur TOUT échec de livraison Slack** (corrigé le 2026-08-11).
+    Il ne portait que sur `missing_scope` — or ce scope est accordé, la condition était donc
+    devenue du **code mort** : `not_in_channel`, un 5xx Slack ou un réseau coupé rendaient
+    `delivery: 'failed'` sec, alors qu'un fichier réel était prêt et qu'une adresse d'annuaire
+    était connue. L'argument d'origine (« ne pas écrire à quelqu'un qui n'a rien demandé ») ne
+    tenait pas : le destinataire est l'employé concerné par le document qu'on vient de demander,
+    et l'alternative n'était pas « ne rien envoyer » mais « perdre le document ». Le verdict
+    reste honnête — `email` seulement si l'envoi a réussi, et `reason` nomme toujours
+    `missing_scope` quand il est en jeu, seule cause qui appelle un geste humain.
   - Le document est **toujours enregistré**, même quand la livraison échoue. Seule une livraison
     réussie pose `status: Sent` — c'est la seule trace persistée du départ d'un document.
   - `documentGenerationWorkflow` est inchangé : il utilise toujours `PdfmakeService.generate()`,
     qui écrit dans `./data/documents` et rend un chemin local — inutilisable sur Vercel. Les
     agents, eux, passent par `render()` qui ne touche jamais le disque.
+- **SÉCURITÉ — le CONTENU d'un document était un canal de sortie NON FILTRÉ** (corrigé le
+  2026-08-11). `sanitizeAgentOutput` n'a qu'un seul site d'appel, `response.text` dans le
+  handler Slack : **les arguments de tool n'y passent jamais**. Or le `title` et le `content`
+  d'un document sont écrits INTÉGRALEMENT par le modèle.
+  - Vérifié en générant de vrais PDF et en décodant leur CMap : `kisso_a3f9`,
+    `[SECURITY_BLOCK]`, `DIRECTIVE 3.1` et `https://kisso.internal/…` s'imprimaient
+    **intégralement**, sans le moindre log. Dans Slack, chacun aurait déclenché
+    `NEUTRAL_REFUSAL` ou le retrait du lien, avec une ligne en `error`. **Le document
+    contournait donc le filet unique** — et il est téléchargeable et repartageable.
+  - Le filtre est posé à **DEUX** endroits, et ce n'est pas une redondance : au seuil du RENDU
+    (`buildDocumentOutline`, couche `domain` — seul point qu'aucun renderer ni
+    `documentGenerationWorkflow` ne peut contourner), et dans le tool, parce que la
+    **persistance** et la **journalisation** vivent en dehors du renderer (une ligne enregistrée
+    avec un marqueur ressortirait telle quelle au premier code qui la relirait). L'opération est
+    idempotente.
+  - **Contrat volontairement différent de celui de Slack** : on retire l'occurrence et on GARDE
+    le document (`REDACTED_MARKER_PLACEHOLDER`). Remplacer le livrable entier produirait un PDF
+    signé de l'entreprise ne contenant qu'un refus — pire que le défaut corrigé. La détection ne
+    se perd pas : `redacted` / `strippedUrls` remontent et sont journalisés en `error`.
+  - **Les emojis sortaient en glyphe `.notdef`** (carrés) — Roboto est la seule police du VFS
+    pdfmake : c'est le « caractère indésirable » signalé par le propriétaire. Ils sont retirés,
+    jamais transcrits (« [emoji] » rendrait visible une trace de filtrage dans un document
+    d'accueil).
+  - **Le markdown est TRADUIT, pas imprimé** (`document-template.ts`) : `#` → titre, `- ` → puce,
+    tableau à deux colonnes → bloc `fields`. Le modèle écrit du markdown quoi qu'on lui demande
+    (démenti en production sur les trois agents) ; le retirer aurait aplati tout le document en
+    un pavé, ce qui est le défaut d'origine sous une autre forme.
+  - Deux fonctions distinctes, pas un détournement de `sanitizeAgentOutput` : un document n'est
+    pas du mrkdwn (on ÉLIMINE `**gras**` au lieu de le convertir) et n'a **pas** d'exemption
+    « bloc de code » (les backticks sont retirés au rendu, une URL qu'ils auraient protégée
+    finirait imprimée en clair).
+  - Le **nom de fichier** dérive désormais du titre ASSAINI. Il était dérivé du titre brut, et
+    il sort du processus : nom du fichier Slack et nom de la pièce jointe.
+  - Corollaire : « pas de markdown, pas d'emoji » est rétabli **uniquement** dans le bloc
+    DOCUMENTS de l'orchestrateur — le rétablir dans le bloc STYLE partagé le ferait payer trois
+    fois pour un cas qui n'en concerne qu'un.
+
+- **Les outils de notification posaient les questions à la place de faire le travail**
+  (corrigé le 2026-08-11 — bilan de la série C : 7 messages, 0 email, 0 rappel, 0 document).
+  - `sendNotification` passe de **5 champs obligatoires sans défaut à 3** (`channel` → `email`,
+    `recipientType` → `employee`) : exactement le profil de `generateDocument`, seul outil de la
+    campagne qui ait abouti. Son enum `channel` est ramené de 7 valeurs à **2** — les cinq
+    autres (`in_app`, `teams`, `push`, `sms`, `webhook`) n'ont aucun transport ; le « tu préfères
+    quel canal (email, Slack, in-app) ? » observé en production était littéralement cette
+    énumération remontée à l'humain. Idem `recipientType`, ramené aux types qui peuvent avoir
+    une ligne d'annuaire.
+  - ⚠️ **La dérogation de rédaction (« rédige-le, ne le demande pas ») vit dans le `.describe()`
+    de `subject`/`body`, PAR CHAMP — jamais dans le prompt.** Posée par agent, elle
+    contredirait frontalement `AGENT_ANTI_INVENTION_BLOCK` (« n'invente jamais une donnée
+    absente : demande-la ») et reviendrait à tirer à pile ou face à chaque tour. La distinction
+    est celle-ci : un email ou un UUID se **retrouvent**, une prose se **produit**.
+  - `status = Sent` était posé **avant** le `try` : les canaux non transportés repartaient
+    « envoyé », horodatés, sans qu'aucun octet ne parte — **et un test verrouillait ce
+    mensonge**. Troisième occurrence du même défaut dans ce dépôt, après `emailSent: false` sous
+    `status: 'success'` et `documents.content` perdu en silence.
+  - `scheduleReminder` : **aucun automate ne reprend le statut `Scheduled`** — il n'existe ni
+    cron ni poller, et `findPending()` n'a aucun site d'appel. On ne construit pas
+    l'ordonnanceur ; on corrige le MENSONGE. La description dit « enregistre » (jamais
+    « planifie » — le mot que lit le modèle est celui qu'il répétera) et le résultat porte
+    `willBeSentAutomatically: false`.
+  - **`findEmployeeByEmail` est exposé aux TROIS agents** — correctif de CÂBLAGE, pas de
+    rédaction. Tous les tools de `questionnaireEngine` et de `notificationAgent` exigent un
+    UUID, aucun ne fait email → UUID, le `.describe()` de `recipientId` renvoyait vers
+    `getEmployeeProfile` **qui exige déjà un UUID** (consigne circulaire), et
+    `AGENT_ANTI_INVENTION_BLOCK` interdit d'en deviner un : la boucle « donne-moi son
+    identifiant » → « je ne l'ai pas » était **garantie par le câblage**, pas probabiliste.
+    C'est la répétition du bug du 2026-08-10, corrigé côté routage et jamais côté outillage.
+  - `getTaskList` rend `found: false` : un UUID inconnu donnait `{tasks: [], totalTasks: 0}`,
+    **indiscernable d'un employé sans tâche** — le modèle affirmait « aucune tâche en cours »
+    pour un identifiant qui ne désigne personne. L'annuaire est câblé pour cela, comme sur
+    `scheduleReminder`.
+
+- **`NEUTRAL_REFUSAL` disait « contactez l'équipe RH » — à la responsable RH, qui testait.** Et
+  il vouvoyait quand les trois agents tutoient : le basculement de registre exact au moment où
+  ça casse donnait l'impression de deux interlocuteurs différents. Réécrit en « Je ne peux pas
+  répondre à cette demande. Reformule-la autrement. » — le bot ne connaît pas son interlocuteur
+  au point de savoir vers qui le renvoyer, il ne renvoie donc vers personne. Reste muet sur la
+  règle touchée, ce qui était déjà l'intention : `[SECURITY_BLOCK]` renseignait l'attaquant sur
+  la sonde qui avait porté.
+
+- **Un agent ne reçoit qu'une énumération POSITIVE de ses tools — l'espace négatif était
+  comblé par de la prose inventée.** Preuve par contraste : A3 (« tu ne peux PAS créer
+  d'employé ») est le SEUL refus correct de toute la campagne du 2026-08-11, et c'est la seule
+  frontière qui était écrite noir sur blanc. Partout ailleurs : « je peux lui renvoyer le lien »
+  (aucun tool n'envoie de lien), « donne-moi son email pro » (aucun tool de cet agent ne
+  consomme un email), « je ne peux pas modifier un questionnaire qu'elle n'a pas encore reçu »
+  (règle métier entièrement inventée — aucun tool de modification n'existe), un rappel
+  « programmé pour lundi 9h » annoncé sans jamais appeler `scheduleReminder`.
+  - Correctif : `agentToolBoundary(tools)` dans `src/shared/agent-style.ts` —
+    `TES SEULS OUTILS : … Rien d'autre n'existe`, **dérivé de `Object.keys(tools)`** et jamais
+    rédigé. Ce dépôt a déjà connu des instructions nommant `discoverSlackWorkspace` et
+    `createEmployee` longtemps après leur retrait : une liste écrite à la main se désynchronise
+    au premier changement de câblage, celle-ci ne le peut pas. 38 à 48 tokens.
+  - **Supprimé en contrepartie** : « pour une notification ou un email, passe la main à l'agent
+    de notification ». **Aucun mécanisme de passation n'existe** — le routage vit dans le
+    handler Slack, hors de portée du modèle. Cette ligne ordonnait l'impossible, invitait à
+    NARRER une délégation qui n'a jamais lieu, et était repayée à chaque aller-retour. Deux
+    tests protègent cette suppression.
+  - Le refus de créer un employé est **conservé et rattaché à sa condition** : le formulaire
+    « Compléter mon profil » n'est **pas** inventé — `handleTeamJoin` l'envoie réellement — mais
+    il ne part que quand la personne rejoint le workspace Slack. Le dire sans dire quand laisse
+    croire à une RH que le dossier est réglé.
+
 - **`verify:bundle` et le câblage de `DocxService` vont ENSEMBLE.** Le garde-fou exige désormais
   `docx` (`--require pdfkit,pdfmake,js-md5,fontkit,docx` dans `package.json`), mais c'est
   l'**import statique** de `docx` par `DocxService`, atteignable depuis `src/mastra/index.ts`,

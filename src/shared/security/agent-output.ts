@@ -27,8 +27,23 @@
  * Volontairement neutre et en français : il ne dit pas QUELLE règle a été
  * touchée, contrairement à `[SECURITY_BLOCK]` qui renseignait l'attaquant.
  */
-export const NEUTRAL_REFUSAL =
-  "Je ne peux pas répondre à cette demande. Reformulez-la, ou contactez l'équipe RH.";
+/**
+ * Deux corrections issues de la campagne du 2026-08-11, toutes deux relevées par la
+ * testeuse — responsable RH de son état :
+ *
+ *  1. Le texte disait « contactez l'équipe RH ». Elle EST l'équipe RH. Un renvoi vers un
+ *     tiers n'a de sens que si ce tiers existe pour la personne qui lit ; ici il ne fait
+ *     que signaler que personne n'a relu la phrase en se demandant qui la recevrait. Le
+ *     bot ne connaît pas son interlocuteur au point de savoir vers qui le renvoyer : il
+ *     ne renvoie donc vers personne.
+ *  2. Il vouvoyait, alors que les trois agents tutoient. Le basculement de registre exact
+ *     au moment où ça casse donnait l'impression de deux interlocuteurs différents — l'un
+ *     chaleureux, l'autre un guichet fermé.
+ *
+ * Reste volontairement muet sur la règle touchée, ce qui était déjà l'intention d'origine :
+ * `[SECURITY_BLOCK]` renseignait l'attaquant sur la sonde qui avait porté.
+ */
+export const NEUTRAL_REFUSAL = 'Je ne peux pas répondre à cette demande. Reformule-la autrement.';
 
 /**
  * Domaines dont un lien peut franchir la frontière vers Slack.
@@ -53,6 +68,20 @@ export const ALLOWED_LINK_DOMAINS: readonly string[] = ['kissohq.slack.com', 'sl
  * `strippedUrls`, donc dans les logs, jamais dans Slack.
  */
 export const STRIPPED_LINK_PLACEHOLDER = '[lien retiré]';
+
+/**
+ * Texte substitué à un marqueur interne DANS UN DOCUMENT.
+ *
+ * Slack et un document n'ont pas le même contrat, et c'est délibéré. Une réponse
+ * Slack porteuse d'un marqueur est REMPLACÉE en entier (`NEUTRAL_REFUSAL`) :
+ * c'est un tour de conversation, le jeter ne coûte qu'un tour. Un document est un
+ * LIVRABLE — le remplacer par une phrase de refus produirait un PDF signé de
+ * l'entreprise ne contenant qu'un refus, ce qui est à la fois inutilisable et
+ * plus déroutant que le défaut qu'on corrige. On retire donc l'occurrence et on
+ * garde le document ; la détection, elle, ne se perd pas : `redacted` remonte à
+ * l'appelant, qui journalise en `error` exactement comme le handler Slack.
+ */
+export const REDACTED_MARKER_PLACEHOLDER = '[retiré]';
 
 export interface SanitizedAgentOutput {
   /** Texte réellement postable dans Slack. */
@@ -257,48 +286,54 @@ function isAllowedHost(host: string): boolean {
 }
 
 /**
- * Retire les liens dont l'hôte n'est pas dans {@link ALLOWED_LINK_DOMAINS} et
- * remonte les hôtes concernés.
+ * Retire d'UN segment les liens dont l'hôte n'est pas dans
+ * {@link ALLOWED_LINK_DOMAINS}, et dépose les hôtes retirés dans `seen`.
  *
- * Les blocs de code sont préservés intégralement : un extrait de code peut
- * légitimement citer une URL, et il n'est pas cliquable dans Slack.
+ * Extrait de `stripDisallowedLinks` pour être réutilisable hors Slack : le
+ * canal document n'a pas d'exemption « bloc de code » (voir
+ * {@link sanitizeDocumentSource}), il applique donc ce filtre au texte entier.
  *
  * L'ordre des deux passes compte. La forme mrkdwn est traitée EN PREMIER, sinon
  * la passe « URL nue » viderait l'intérieur de `<…|…>` et laisserait derrière
  * elle une balise orpheline `<[lien retiré]|texte>`.
  */
+function filterLinks(segment: string, seen: Set<string>): string {
+  return segment
+    .replace(MRKDWN_TOKEN, (token) => {
+      const inner = token.slice(1, -1);
+      const pipe = inner.indexOf('|');
+      const target = pipe === -1 ? inner : inner.slice(0, pipe);
+
+      // Mentions Slack (`<@U123>`, `<#C123>`) et autres jetons non-http :
+      // rien à filtrer, on les rend intacts.
+      if (!HTTP_PREFIX.test(target)) return token;
+
+      const host = hostnameOf(target);
+      if (isAllowedHost(host)) return token;
+      if (host) seen.add(host);
+      // Le libellé part avec le lien : « clique ici » sans cible est au mieux
+      // inutile, au pire trompeur sur ce que le message prétendait offrir.
+      return STRIPPED_LINK_PLACEHOLDER;
+    })
+    .replace(BARE_URL, (match) => {
+      const trimmed = trimTrailingPunctuation(match);
+      const host = hostnameOf(trimmed);
+      if (isAllowedHost(host)) return match;
+      if (host) seen.add(host);
+      return STRIPPED_LINK_PLACEHOLDER + match.slice(trimmed.length);
+    });
+}
+
+/**
+ * Variante Slack : les blocs de code sont préservés intégralement — un extrait
+ * de code peut légitimement citer une URL, et il n'est pas cliquable dans Slack.
+ */
 function stripDisallowedLinks(text: string): { text: string; hostnames: string[] } {
   const seen = new Set<string>();
 
-  const filterSegment = (segment: string): string =>
-    segment
-      .replace(MRKDWN_TOKEN, (token) => {
-        const inner = token.slice(1, -1);
-        const pipe = inner.indexOf('|');
-        const target = pipe === -1 ? inner : inner.slice(0, pipe);
-
-        // Mentions Slack (`<@U123>`, `<#C123>`) et autres jetons non-http :
-        // rien à filtrer, on les rend intacts.
-        if (!HTTP_PREFIX.test(target)) return token;
-
-        const host = hostnameOf(target);
-        if (isAllowedHost(host)) return token;
-        if (host) seen.add(host);
-        // Le libellé part avec le lien : « clique ici » sans cible est au mieux
-        // inutile, au pire trompeur sur ce que le message prétendait offrir.
-        return STRIPPED_LINK_PLACEHOLDER;
-      })
-      .replace(BARE_URL, (match) => {
-        const trimmed = trimTrailingPunctuation(match);
-        const host = hostnameOf(trimmed);
-        if (isAllowedHost(host)) return match;
-        if (host) seen.add(host);
-        return STRIPPED_LINK_PLACEHOLDER + match.slice(trimmed.length);
-      });
-
   const filtered = text
     .split(CODE_BLOCK_SPLIT)
-    .map((segment, index) => (index % 2 === 1 ? segment : filterSegment(segment)))
+    .map((segment, index) => (index % 2 === 1 ? segment : filterLinks(segment, seen)))
     .join('');
 
   return { text: filtered, hostnames: [...seen] };
@@ -345,4 +380,156 @@ export function sanitizeAgentOutput(raw: string | undefined | null): SanitizedAg
   const { text: withoutLinks, hostnames } = stripDisallowedLinks(text);
 
   return { text: toSlackMrkdwn(withoutLinks), redacted: [], strippedUrls: hostnames };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Canal DOCUMENT
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// `sanitizeAgentOutput` n'a qu'un seul site d'appel : `response.text`, dans le
+// handler Slack. Les ARGUMENTS DE TOOL n'y passent jamais — or `generateDocument`
+// reçoit un `content` intégralement rédigé par le modèle, qui partait verbatim au
+// rendu. Vérifié en générant de vrais PDF : `kisso_a3f9`, `[SECURITY_BLOCK]`,
+// `DIRECTIVE 3.1` et `https://kisso.internal/…` s'imprimaient TOUS, sans le
+// moindre log. Le document était donc un canal de sortie non filtré — et, à la
+// différence d'un message Slack, il est téléchargeable et repartageable.
+//
+// Le contrat n'est PAS celui de Slack, d'où deux fonctions distinctes plutôt
+// qu'un détournement de `sanitizeAgentOutput` :
+//   - un document n'est pas du mrkdwn : on ne convertit pas `**gras**` en
+//     `*gras*`, on l'ÉLIMINE (voir `document-template.ts`, qui traduit d'abord
+//     le balisage en structure de document) ;
+//   - un document n'a pas d'exemption « bloc de code » : les triples backticks
+//     sont retirés au rendu, une URL qu'ils auraient protégée finirait donc
+//     imprimée en clair ;
+//   - un marqueur ne remplace pas le livrable entier, il est retiré sur place
+//     (voir {@link REDACTED_MARKER_PLACEHOLDER}).
+
+/**
+ * Mêmes motifs que {@link INTERNAL_MARKERS}, en version globale : ici on ne
+ * DÉTECTE pas, on REMPLACE toutes les occurrences. Les deux tableaux ne peuvent
+ * pas diverger — le second est dérivé du premier.
+ */
+const INTERNAL_MARKERS_GLOBAL = INTERNAL_MARKERS.map(({ label, pattern }) => ({
+  label,
+  // Construction non littérale assumée : la source vient d'une constante du module,
+  // jamais d'une entrée. Réécrire les quatre motifs à la main les ferait diverger.
+  // eslint-disable-next-line security/detect-non-literal-regexp
+  pattern: new RegExp(pattern.source, `${pattern.flags}g`),
+}));
+
+/**
+ * Lien markdown `[libellé](url)` aplati en « libellé url ».
+ *
+ * Indispensable AVANT le filtre de liens : sans cet aplatissement, une URL
+ * fabriquée cachée dans la cible d'un lien markdown ne serait pas vue comme une
+ * URL nue par {@link BARE_URL} si le rendu retirait la syntaxe autour d'elle.
+ *
+ * Les deux quantifiants sont BORNÉS. Non bornés, une entrée du type `[[[[[…` sans
+ * jamais de `]` faisait repartir le moteur de chaque position de départ, soit un
+ * coût quadratique sur une sortie de LLM non bornée. Un libellé de plus de 200
+ * caractères ou une cible de plus de 2 000 n'est pas aplati — l'URL reste alors
+ * traitée comme une URL nue par {@link BARE_URL}, donc filtrée quand même.
+ */
+const MARKDOWN_LINK = /\[([^\]\n]{0,200})\]\(([^)\s]{0,2000})\)/g;
+
+export interface SanitizedDocumentText {
+  text: string;
+  /** Étiquettes des marqueurs internes retirés — à journaliser en `error`. */
+  redacted: string[];
+  /** Hôtes des liens retirés, dédupliqués — à journaliser en `error`. */
+  strippedUrls: string[];
+}
+
+/**
+ * Assainissement de SÉCURITÉ d'un texte destiné à un document, structure
+ * markdown PRÉSERVÉE.
+ *
+ * C'est la forme à persister et à passer au gabarit : marqueurs internes,
+ * liens hors allowlist et emojis sont partis, mais `#`, `- ` et `**` sont encore
+ * là pour que `buildDocumentOutline` puisse les TRADUIRE en titres, puces et
+ * paragraphes. Les retirer ici priverait le rendu de toute structure.
+ *
+ * Les emojis sont retirés et non transcrits : Roboto est la seule police
+ * injectée dans le VFS de pdfmake et n'a aucun glyphe emoji — chaque emoji
+ * s'imprimait en `.notdef`, le carré signalé par le propriétaire. Aucune
+ * substitution textuelle (« [emoji] ») n'a été retenue : elle rendrait visible
+ * dans un document d'accueil une trace de filtrage, là où l'absence se lit comme
+ * une phrase normale.
+ */
+export function sanitizeDocumentSource(raw: string | undefined | null): SanitizedDocumentText {
+  const redacted: string[] = [];
+  let text = (raw ?? '').replace(/\r\n?/g, '\n');
+
+  for (const { label, pattern } of INTERNAL_MARKERS_GLOBAL) {
+    const next = text.replace(pattern, REDACTED_MARKER_PLACEHOLDER);
+    if (next === text) continue;
+    redacted.push(label);
+    text = next;
+  }
+
+  const seen = new Set<string>();
+  text = filterLinks(text.replace(MARKDOWN_LINK, '$1 $2'), seen);
+
+  return { text: stripEmojis(text).trim(), redacted, strippedUrls: [...seen] };
+}
+
+/**
+ * Balisage markdown résiduel, retiré une fois la structure déjà extraite.
+ *
+ * Appliqué aux textes FEUILLES d'un document (titre, texte d'un bloc) : ce qui
+ * reste ici est du balisage que le rendu ne saurait pas interpréter et qui
+ * s'imprimerait littéralement — c'est exactement ce que montraient les PDF
+ * produits (`**Salut !** # Titre --- | col |`).
+ *
+ * Tous les retraits se font par `split`/`join` ou par motifs ancrés en ligne :
+ * aucun quantifiant imbriqué, donc coût linéaire sur une entrée de LLM non
+ * bornée — même exigence que `convertBold` plus haut.
+ */
+function stripMarkdownMarkup(text: string): string {
+  return (
+    text
+      .split('```')
+      .join('')
+      .split('**')
+      .join('')
+      .split('__')
+      .join('')
+      .split('~~')
+      .join('')
+      .replace(/`/g, '')
+      // Marqueurs de début de ligne : titre, citation, puce, liste numérotée.
+      // L'indentation est BORNÉE à 8 : `[ \t]*` non borné rend le moteur quadratique
+      // sur une ligne entièrement blanche (il repart de chaque position).
+      .replace(/^[ \t]{0,8}#{1,6}[ \t]+/gm, '')
+      .replace(/^[ \t]{0,8}>[ \t]?/gm, '')
+      .replace(/^[ \t]{0,8}[-*+][ \t]+/gm, '')
+      .replace(/^[ \t]{0,8}\d{1,3}[.)][ \t]+/gm, '')
+      // Séparateur horizontal : une ligne entière, jamais rendue.
+      .replace(/^[ \t]{0,8}([-*_])\1{2,}[ \t]{0,8}$/gm, '')
+      // Le pipe d'un tableau markdown : le tableau a déjà été traduit en blocs,
+      // ce qui subsiste ici est un résidu qui s'imprimerait tel quel.
+      .replace(/\|/g, ' ')
+      .replace(/[ \t]{2,}/g, ' ')
+      // Un SEUL caractère : la ligne précédente a déjà réduit toute suite de blancs
+      // à un. Un `+` ici serait super-linéaire par retour arrière.
+      .replace(/[ \t]$/gm, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  );
+}
+
+/**
+ * Assainissement COMPLET d'un texte feuille de document : sécurité
+ * ({@link sanitizeDocumentSource}) puis retrait du balisage résiduel.
+ *
+ * Idempotent : `[retiré]` et `[lien retiré]` ne contiennent ni marqueur, ni URL,
+ * ni emoji, ni balisage. La fonction peut donc être appliquée deux fois sur le
+ * même chemin — c'est précisément ce qui arrive au `content` d'un document, une
+ * fois dans l'outil (pour la persistance et la journalisation) et une fois au
+ * seuil du rendu (pour qu'aucun chemin ne puisse contourner le filtre).
+ */
+export function sanitizeDocumentText(raw: string | undefined | null): SanitizedDocumentText {
+  const source = sanitizeDocumentSource(raw);
+  return { ...source, text: stripMarkdownMarkup(source.text) };
 }

@@ -18,7 +18,12 @@ import type {
   FileUploadProvider,
 } from '../../../notification/domain/ports/providers';
 import { createDocument } from '../../domain/entities/document';
+import { DEFAULT_TITLES } from '../../domain/services/document-template';
 import { uuidSchema } from '../../../../shared/validation';
+import {
+  sanitizeDocumentSource,
+  sanitizeDocumentText,
+} from '../../../../shared/security/agent-output';
 import { logger } from '../../../../shared/logger';
 import { readSlackContext } from '../../../../shared/slack-request-context';
 import { DocumentFormat, DocumentStatus, DocumentType } from '../../../../shared/types';
@@ -63,6 +68,23 @@ import { DocumentFormat, DocumentStatus, DocumentType } from '../../../../shared
  * `error` — jamais avalé. C'est la contrepartie du piège déjà documenté dans le dépôt
  * (`emailSent: false` sous `status: 'success'`) : dégrader sans le dire est pire que
  * d'échouer.
+ *
+ * ## Assainissement du contenu
+ *
+ * `title` et `content` sont écrits INTÉGRALEMENT par le modèle et ne passaient par
+ * aucun filtre : `sanitizeAgentOutput` n'a qu'un site d'appel, `response.text` dans le
+ * handler Slack, et les arguments de tool n'y passent jamais. Des PDF réellement produits
+ * imprimaient donc `kisso_a3f9`, `[SECURITY_BLOCK]`, `DIRECTIVE 3.1` et
+ * `https://kisso.internal/…` en clair, sans le moindre log — un canal d'exfiltration
+ * téléchargeable et repartageable, contournant le filet unique.
+ *
+ * Le filtre est posé À DEUX endroits, et ce n'est pas une redondance :
+ *   - au seuil du RENDU (`buildDocumentOutline`, couche domain), seul point que ni un
+ *     renderer ni `documentGenerationWorkflow` ne peuvent contourner ;
+ *   - ICI, parce que la PERSISTANCE (`documentRepo.save`) et la JOURNALISATION vivent en
+ *     dehors du renderer. Un document enregistré avec un marqueur en base serait ressorti
+ *     tel quel au premier code qui le relirait.
+ * L'opération est idempotente, la double application est donc sans effet de bord.
  */
 
 /** Verdict de livraison rendu au modèle. C'est LUI qui doit gouverner la réponse. */
@@ -181,10 +203,52 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       deliverTo: z.enum(['slack', 'email', 'none']).optional().default('slack'),
     }),
     execute: async (data, ctx) => {
+      // ---------------------------------------------------------------------
+      // Assainissement — AVANT tout usage du titre et du corps
+      // ---------------------------------------------------------------------
+      //
+      // Le titre est une feuille : rien à y traduire, on l'assainit à fond. Le corps
+      // conserve son balisage markdown, que `buildDocumentOutline` traduit ensuite en
+      // titres, puces et paragraphes ; le retirer ici aplatirait le document.
+      const safeTitle = sanitizeDocumentText(data.title);
+      const safeContent = sanitizeDocumentSource(data.content);
+
+      const markers = [...new Set([...safeTitle.redacted, ...safeContent.redacted])];
+      const hosts = [...new Set([...safeTitle.strippedUrls, ...safeContent.strippedUrls])];
+
+      if (markers.length > 0) {
+        // `error`, comme dans le handler Slack : un marqueur interne dans un DOCUMENT
+        // signifie que le modèle a écrit son propre garde-fou dans un livrable
+        // téléchargeable. C'est la ligne qui manquait pour détecter une exfiltration
+        // par document — il n'en existait aucune.
+        logger.error('Document content carried internal markers — markers removed', {
+          employeeId: data.employeeId,
+          type: data.type,
+          markers,
+        });
+      }
+
+      if (hosts.length > 0) {
+        // Seuls les HÔTES : le chemin d'un lien fabriqué embarque un identifiant réel
+        // (celui du 2026-08-11 portait le vrai `Document.id`).
+        logger.error('Document content carried fabricated links — links removed', {
+          employeeId: data.employeeId,
+          type: data.type,
+          hosts,
+        });
+      }
+
+      // Le titre assaini peut être VIDE (un titre qui n'était qu'un emoji, ou qu'un lien
+      // fabriqué). On retombe alors sur le titre par défaut du type — le même que celui
+      // que le gabarit aurait choisi — plutôt que d'enregistrer une chaîne vide et de
+      // livrer un fichier nommé `document.pdf`.
+      const title = safeTitle.text.length > 0 ? safeTitle.text : DEFAULT_TITLES[data.type];
+      const content = safeContent.text;
+
       logger.info('Génération document', {
         employeeId: data.employeeId,
         type: data.type,
-        title: data.title,
+        title,
         format: data.format,
         deliverTo: data.deliverTo,
       });
@@ -239,8 +303,8 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         try {
           rendered = await renderer.render({
             type: data.type,
-            title: data.title,
-            content: data.content,
+            title,
+            content,
             employee: {
               firstName: employee.firstName,
               lastName: employee.lastName,
@@ -282,12 +346,7 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
           reason = 'no_slack_context';
         } else if (data.deliverTo === 'slack' && slackContext) {
           try {
-            const { permalink } = await uploadToSlack(
-              fileUpload,
-              slackContext,
-              rendered,
-              data.title,
-            );
+            const { permalink } = await uploadToSlack(fileUpload, slackContext, rendered, title);
             delivery = 'slack';
             reason = undefined;
             // Le permalink est journalisé, JAMAIS retourné au modèle : le fichier est
@@ -306,14 +365,22 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
               error: errorMessage(error),
             });
 
-            // Repli email sur le SEUL cas `missing_scope` : c'est un manque de
-            // configuration durable (le scope `files:write` n'est pas accordé, et son
-            // ajout exige une réinstallation de l'app), donc réessayer autrement a du
-            // sens. Une panne Slack ponctuelle, elle, ne justifie pas d'écrire à
-            // quelqu'un qui n'a rien demandé.
-            const fallback = missingScope
-              ? await deliverByEmail(emailProvider, employee.email, data.title, rendered)
-              : { ok: false, reason: 'delivery_failed' as HintKey };
+            // Repli email sur TOUT échec de livraison Slack.
+            //
+            // Il ne se déclenchait que sur `missing_scope` — or les logs de production du
+            // 2026-08-11 prouvent que le scope `files:write` EST accordé
+            // (`{"filename":"guide-….pdf","hasPermalink":true}`). La condition était donc
+            // devenue du CODE MORT : `not_in_channel`, un 5xx Slack ou un réseau coupé
+            // donnaient `delivery: 'failed'` sec, sans qu'aucun repli ne soit tenté, alors
+            // qu'un fichier réel était prêt et qu'une adresse d'annuaire était connue.
+            //
+            // L'argument d'origine — « ne pas écrire à quelqu'un qui n'a rien demandé » —
+            // ne tient pas ici : le destinataire est l'employé concerné par le document,
+            // qui vient précisément d'être demandé, et l'alternative n'est pas « ne rien
+            // envoyer » mais « perdre le document ». Le verdict reste honnête : `email`
+            // seulement si l'envoi a réussi, et `reason` nomme toujours la cause première
+            // quand `missing_scope` est en jeu — c'est la seule qui appelle un geste humain.
+            const fallback = await deliverByEmail(emailProvider, employee.email, title, rendered);
 
             if (fallback.ok) {
               delivery = 'email';
@@ -324,7 +391,7 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
             }
           }
         } else {
-          const sent = await deliverByEmail(emailProvider, employee.email, data.title, rendered);
+          const sent = await deliverByEmail(emailProvider, employee.email, title, rendered);
           if (sent.ok) {
             delivery = 'email';
             reason = undefined;
@@ -342,8 +409,11 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         id: crypto.randomUUID(),
         employeeId: data.employeeId,
         type: data.type,
-        title: data.title,
-        content: data.content,
+        // Persistance : les valeurs ASSAINIES, jamais celles du modèle. Une ligne
+        // enregistrée avec un marqueur ressortirait telle quelle au premier code qui la
+        // relirait — le filtre du rendu ne protège que le fichier, pas la base.
+        title,
+        content,
         format: producedFormat,
       });
 

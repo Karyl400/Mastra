@@ -1,11 +1,30 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import type { TaskRepository } from '../../domain/ports/task.repository';
+import type { EmployeeRepository } from '../../domain/ports/employee.repository';
 import { uuidSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { summarizeTasks } from '../mappers/task-summary.mapper';
 
-export function makeGetTaskList(repo: TaskRepository) {
+/**
+ * Liste des tâches d'un employé.
+ *
+ * ## Pourquoi un `found`
+ *
+ * Un UUID inconnu et un employé sans tâche rendaient exactement le même résultat —
+ * `{tasks: [], totalTasks: 0}`. Le modèle n'avait alors aucun moyen de les
+ * distinguer et répondait « aucune tâche en cours » pour un identifiant qui ne
+ * désigne personne. C'est la même classe de mensonge silencieux que `emailSent: false`
+ * avec `status: 'success'` : la réponse est bien formée, elle est simplement fausse.
+ * `findEmployeeByEmail` résout déjà ce problème en rendant `{found: false}` ; on suit
+ * le même modèle.
+ *
+ * @param employeeRepo Annuaire. Optionnel UNIQUEMENT parce que `src/mastra/index.ts`
+ *   (possédé par un autre lot) câble encore `makeGetTaskList(taskRepo)`. Sans lui, le
+ *   tool n'a aucun moyen de savoir si l'employé existe : il OMET alors `found` plutôt
+ *   que d'affirmer une valeur qu'il ne peut pas connaître.
+ */
+export function makeGetTaskList(repo: TaskRepository, employeeRepo?: EmployeeRepository) {
   return createTool({
     id: 'getTaskList',
     description: 'Récupère la liste des tâches d un employé avec filtres optionnels',
@@ -18,6 +37,19 @@ export function makeGetTaskList(repo: TaskRepository) {
     }),
     execute: async (data, _ctx) => {
       logger.info('Récupération tâches', { employeeId: data.employeeId });
+
+      if (employeeRepo) {
+        const employee = await employeeRepo.findById(data.employeeId);
+        if (!employee) {
+          // On n'interroge même pas les tâches : il n'y a personne à qui elles
+          // pourraient appartenir, et une liste vide serait lue comme « rien à faire ».
+          logger.warn('Tâches demandées pour un employé inconnu', {
+            employeeId: data.employeeId,
+          });
+          return { found: false, tasks: [], totalTasks: 0, shown: 0 };
+        }
+      }
+
       let tasks = await repo.findByEmployee(data.employeeId);
       if (data.status) {
         tasks = tasks.filter((t) => t.status === data.status);
@@ -25,7 +57,8 @@ export function makeGetTaskList(repo: TaskRepository) {
       // Filtrage D'ABORD, troncature ENSUITE : `totalTasks` doit compter les
       // tâches qui correspondent à la demande, pas celles de l'employé.
       // Projection + borne : voir `task-summary.mapper.ts`.
-      return summarizeTasks(tasks);
+      const page = summarizeTasks(tasks);
+      return employeeRepo ? { found: true, ...page } : page;
     },
   });
 }
