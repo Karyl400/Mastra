@@ -128,4 +128,43 @@ describe('sanitizeAgentOutput — robustesse', () => {
 
     expect(result.text).toBe(NEUTRAL_REFUSAL);
   });
+
+  describe('emojis', () => {
+    it('retire les codes courts Slack', () => {
+      // Les 3 agents interdisent les emojis décoratifs dans leurs instructions.
+      // Le modèle en produit quand même : `:blush:` est apparu deux fois en
+      // production le 2026-08-11. Une règle de style dans un prompt n'est pas un
+      // mécanisme d'exécution.
+      expect(sanitizeAgentOutput('Bonjour :blush: comment vas-tu ?').text).toBe(
+        'Bonjour comment vas-tu ?',
+      );
+      expect(sanitizeAgentOutput('Prêt quand tu veux :point_down:').text).toBe(
+        'Prêt quand tu veux',
+      );
+    });
+
+    it('retire les emojis Unicode', () => {
+      expect(sanitizeAgentOutput('Bienvenue 👋 chez Kisso').text).toBe('Bienvenue chez Kisso');
+      expect(sanitizeAgentOutput('Terminé ✅').text).toBe('Terminé');
+      expect(sanitizeAgentOutput('Attention ⚠️ à ceci').text).toBe('Attention à ceci');
+    });
+
+    it('ne casse pas un rapport de ratio ni une heure', () => {
+      // `:[a-z]…:` exige une LETTRE en tête, sinon « 3:2:1 » et « 09:30 »
+      // seraient mutilés.
+      expect(sanitizeAgentOutput('Ratio 3:2:1 à 09:30').text).toBe('Ratio 3:2:1 à 09:30');
+    });
+
+    it('préserve le contenu des blocs de code', () => {
+      // Un extrait de code peut légitimement contenir `:key:` ou un emoji.
+      const code = 'Voici :\n```\nconst m = { ":blush:": "👋" };\n```';
+      expect(sanitizeAgentOutput(code).text).toContain(':blush:');
+      expect(sanitizeAgentOutput(code).text).toContain('👋');
+    });
+
+    it('ne laisse pas de double espace ni d’espace avant la ponctuation', () => {
+      expect(sanitizeAgentOutput('Salut :wave: !').text).toBe('Salut !');
+      expect(sanitizeAgentOutput('Fini 🎉.').text).toBe('Fini.');
+    });
+  });
 });

@@ -71,10 +71,57 @@ function convertBold(segment: string): string {
   return paired.map((part, index) => (index % 2 === 1 ? `*${part}*` : part)).join('') + tail;
 }
 
+/**
+ * Emojis Unicode : pictogrammes, symboles divers et flèches, plus les deux
+ * caractères de composition — sélecteur de variante `FE0F` et liaison `200D`.
+ *
+ * Ces deux-là sont indispensables : sans eux, une séquence composite comme
+ * « ⚠️ » laisserait son sélecteur orphelin dans le texte. Ils sont en
+ * ALTERNATION et non dans la classe de caractères — `no-misleading-character-class`
+ * l'interdit à juste titre, un caractère combinant n'ayant pas de sens isolé
+ * dans une classe. Les teintes de peau `1F3FB-1F3FF` ne sont pas listées : elles
+ * tombent déjà dans la plage `1F000-1FAFF`.
+ */
+const UNICODE_EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]|\u{FE0F}|\u{200D}/gu;
+
+/**
+ * Codes courts Slack — `:blush:`, `:point_down:`.
+ *
+ * La tête DOIT être une lettre : sans cette contrainte, « 3:2:1 » et « 09:30 »
+ * seraient mutilés, le motif consommant `:2:` puis `:30`. La borne haute évite
+ * qu'une phrase entière encadrée de deux-points ne disparaisse.
+ */
+const SLACK_SHORTCODE = /:[a-z][a-z0-9_+-]{1,30}:/g;
+
+/**
+ * Retire les emojis, puis répare les blancs que ce retrait laisse derrière lui.
+ *
+ * Sans la seconde passe, « Salut :wave: ! » devient « Salut  ! » — deux espaces
+ * et une ponctuation détachée, plus visible que l'emoji d'origine.
+ */
+function stripEmojis(segment: string): string {
+  const withoutEmojis = segment.replace(SLACK_SHORTCODE, '').replace(UNICODE_EMOJI, '');
+  if (withoutEmojis === segment) return segment;
+
+  return (
+    withoutEmojis
+      .replace(/[ \t]{2,}/g, ' ')
+      // Virgule et point SEULEMENT. En typographie française, « ! », « ? »,
+      // « ; » et « : » sont précédés d'une espace : les recoller produirait une
+      // faute là où l'on prétend nettoyer.
+      // Un seul caractère, pas `+` : la ligne précédente a déjà réduit toute
+      // suite d'espaces à un. Un quantificateur ici rendrait le motif
+      // super-linéaire par retour arrière sur une entrée hostile — le défaut
+      // que `convertBold` documente et évite plus haut.
+      .replace(/[ \t]([,.])/g, '$1')
+      .replace(/[ \t]$/gm, '')
+  );
+}
+
 /** Conversions de style, hors blocs de code. */
 function convertOutsideCode(segment: string): string {
   return (
-    convertBold(segment)
+    stripEmojis(convertBold(segment))
       // Un titre markdown devient du gras : Slack n'a pas de niveaux de titre.
       // Un seul séparateur consommé, puis `[^\n]*` : `[ \t]+` suivi de `.*`
       // laissait deux quantificateurs se disputer les mêmes espaces, donc du
