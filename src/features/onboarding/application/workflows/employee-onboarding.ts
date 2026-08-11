@@ -2,7 +2,12 @@ import { Workflow, createStep } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { logger } from '../../../../shared/logger';
 import { createEmployee } from '../../../employee/domain/entities/employee';
-import { createProgress } from '../../domain/entities/onboarding-progress';
+import {
+  createProgress,
+  createStep as createOnboardingStep,
+} from '../../domain/entities/onboarding-progress';
+import { createTask } from '../../../employee/domain/entities/task';
+import type { TaskRepository } from '../../../employee/domain/ports/task.repository';
 import type { EmployeeRepository } from '../../../employee/domain/ports/employee.repository';
 import type { OnboardingRepository } from '../../domain/ports/onboarding.repository';
 import type { NotificationRepository } from '../../../notification/domain/ports/notification.repository';
@@ -10,6 +15,8 @@ import type { EmailProvider } from '../../../notification/domain/ports/providers
 import type { SlackWorkspaceProvider } from '../../../notification/domain/ports/slack-workspace.port';
 import { createNotification } from '../../../notification/domain/entities/notification';
 import {
+  TaskType,
+  TaskPriority,
   OnboardingStatus,
   NotificationChannel,
   NotificationStatus,
@@ -101,6 +108,70 @@ const welcomeSentSchema = z.object({
   slackChannelId: z.string().nullable().optional(),
 });
 
+/**
+ * Parcours d'accueil : ce que le nouvel arrivant doit accomplir.
+ *
+ * Jusqu'ici, `initOnboarding` posait un compteur `totalSteps: 5` sans jamais
+ * créer la moindre tâche ni la moindre étape — `TaskRepository.save()` et
+ * `OnboardingRepository.saveStep()` n'étaient appelés par AUCUN code applicatif.
+ * Vérifié en production le 2026-08-10 : `tasks = 0`, `onboarding_progress = 0`.
+ * Le DM de suivi que porte le nouveau flux d'arrivée n'avait donc rien à suivre.
+ *
+ * `dueInDays` est compté à partir de la date de début, pas de la date de
+ * création : un profil complété trois semaines avant l'arrivée ne doit pas
+ * produire cinq tâches déjà en retard.
+ */
+const ONBOARDING_TASKS: ReadonlyArray<{
+  title: string;
+  description: string;
+  type: TaskType;
+  priority: TaskPriority;
+  dueInDays: number;
+}> = [
+  {
+    title: 'Configurer tes accès',
+    description: 'Activer ton compte email, rejoindre Slack et vérifier tes accès aux outils.',
+    type: TaskType.Onboarding,
+    priority: TaskPriority.Urgent,
+    dueInDays: 1,
+  },
+  {
+    title: 'Lire les guidelines de Kisso',
+    description: "Prendre connaissance des règles internes et des pratiques de l'entreprise.",
+    type: TaskType.Document,
+    priority: TaskPriority.High,
+    dueInDays: 3,
+  },
+  {
+    title: 'Rencontrer ton manager',
+    description: 'Premier point avec ton manager : objectifs, attentes et organisation.',
+    type: TaskType.Meeting,
+    priority: TaskPriority.High,
+    dueInDays: 3,
+  },
+  {
+    title: 'Découvrir ton équipe',
+    description: 'Rencontrer les membres de ton équipe et comprendre qui fait quoi.',
+    type: TaskType.Team,
+    priority: TaskPriority.Medium,
+    dueInDays: 7,
+  },
+  {
+    title: "Compléter le questionnaire d'intégration",
+    description: 'Répondre au questionnaire pour valider ta prise de poste.',
+    type: TaskType.Questionnaire,
+    priority: TaskPriority.Medium,
+    dueInDays: 14,
+  },
+];
+
+/** Échéance dérivée de la date de début. `startDate` est un ISO complet, donc non ambigu. */
+function dueDateFrom(startDate: string, days: number): string {
+  const due = new Date(startDate);
+  due.setUTCDate(due.getUTCDate() + days);
+  return due.toISOString();
+}
+
 // ============================================
 // FACTORY
 // ============================================
@@ -109,6 +180,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
   employeeRepo: EmployeeRepository;
   onboardingRepo: OnboardingRepository;
   notificationRepo: NotificationRepository;
+  taskRepo: TaskRepository;
   emailProvider: EmailProvider;
   slackProvider?: SlackWorkspaceProvider;
 }) {
@@ -181,7 +253,9 @@ export function createEmployeeOnboardingWorkflow(deps: {
         id: crypto.randomUUID(),
         employeeId: inputData.employeeId,
         currentStep: 0,
-        totalSteps: 5,
+        // Dérivé du catalogue, jamais d'un littéral : un `5` en dur mentirait
+        // dès la première tâche ajoutée ou retirée.
+        totalSteps: ONBOARDING_TASKS.length,
       });
 
       const started = {
@@ -192,6 +266,51 @@ export function createEmployeeOnboardingWorkflow(deps: {
       };
 
       await deps.onboardingRepo.save(started);
+
+      // Best-effort assumé : un échec ici ne doit PAS faire échouer le workflow.
+      // L'employé est déjà créé ; perdre la création pour un suivi incomplet
+      // serait un moins bon compromis que de livrer un parcours dégradé, qui
+      // reste réparable. L'erreur est journalisée, jamais avalée en silence.
+      try {
+        for (const [index, modele] of ONBOARDING_TASKS.entries()) {
+          const task = createTask({
+            id: crypto.randomUUID(),
+            employeeId: inputData.employeeId,
+            assigneeId: inputData.employeeId,
+            reviewerId: null,
+            title: modele.title,
+            description: modele.description,
+            type: modele.type,
+            priority: modele.priority,
+            dueDate: dueDateFrom(inputData.startDate, modele.dueInDays),
+            tags: ['onboarding'],
+            metadata: null,
+            estimatedHours: null,
+            actualHours: null,
+          });
+          await deps.taskRepo.save(task);
+
+          await deps.onboardingRepo.saveStep(
+            createOnboardingStep({
+              id: crypto.randomUUID(),
+              progressId: started.id,
+              taskId: task.id,
+              stepOrder: index + 1,
+            }),
+          );
+        }
+
+        logger.info("Tâches d'intégration créées", {
+          progressId: started.id,
+          count: ONBOARDING_TASKS.length,
+        });
+      } catch (error) {
+        logger.error("Échec de création des tâches d'intégration", {
+          error,
+          employeeId: inputData.employeeId,
+          progressId: started.id,
+        });
+      }
 
       logger.info('Onboarding progress créé', { progressId: started.id });
 

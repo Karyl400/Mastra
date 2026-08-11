@@ -174,6 +174,7 @@ const employeeOnboardingWorkflow = createEmployeeOnboardingWorkflow({
   employeeRepo,
   onboardingRepo,
   notificationRepo,
+  taskRepo,
   emailProvider,
   slackProvider: slackWorkspace,
 });
