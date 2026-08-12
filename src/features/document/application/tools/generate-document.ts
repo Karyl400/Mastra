@@ -27,6 +27,7 @@ import {
 import { logger } from '../../../../shared/logger';
 import { readSlackContext } from '../../../../shared/slack-request-context';
 import { buildRunKey, makeRunGuard } from '../../../../shared/tool-idempotency';
+import { DocumentFormat, DocumentStatus, DocumentType } from '../../../../shared/types';
 
 /**
  * Une garde par PROCESSUS, et non par instance de tool : `makeGenerateDocument` est
@@ -35,7 +36,6 @@ import { buildRunKey, makeRunGuard } from '../../../../shared/tool-idempotency';
  * le run, assurée par la clé, pas par la durée de vie de l'objet.
  */
 const runGuard = makeRunGuard();
-import { DocumentFormat, DocumentStatus, DocumentType } from '../../../../shared/types';
 
 /**
  * Génération de document — outil exposé au LLM.

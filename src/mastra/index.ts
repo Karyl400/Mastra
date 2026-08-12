@@ -244,10 +244,30 @@ const onboardingOrchestrator = makeOnboardingOrchestrator({
 //
 // Coût mesuré : ≈ +120 tokens de schéma par agent, repayés à chaque aller-retour. Assumé —
 // un agent qui ne peut pas résoudre une personne ne peut RIEN faire, quel que soit son prix.
+// ⚠️ `evaluateResponse` est DÉLIBÉRÉMENT ABSENT — retiré le 2026-08-12 après mesure.
+//
+// Son schéma était cassé (`z.record()` → objet sans `properties`), donc Groq refusait
+// l'appel à 100 % : le tool était inappelable, et cette panne masquait le vrai défaut.
+// Dès le schéma corrigé, le premier test de production a donné ceci — deux fois de suite,
+// sans qu'aucun humain n'ait répondu à quoi que ce soit :
+//
+//   questionnaire_responses: employee_id=d20df236…, score=100,
+//   answers={"q1":"Innovation","q2":"Innovation","q3":"Oui"}
+//
+// Le modèle a INVENTÉ les réponses de la personne et les a enregistrées comme une
+// soumission, horodatée, à son nom. C'est structurel, pas probabiliste : il n'existe
+// AUCUN chemin par lequel un humain puisse soumettre des réponses — ni formulaire Block
+// Kit, ni modale, ni route. Le seul appelant possible de ce tool est donc un modèle qui
+// fabrique son entrée, et `AGENT_ANTI_INVENTION_BLOCK` ne l'en empêche pas : le schéma
+// EXIGE des réponses, alors il en produit (même mécanique que l'email
+// `votre_email@example.com`, documentée dans `find-employee-by-email.ts`).
+//
+// Le tool reste dans le dépôt, corrigé et testé : il redeviendra câblable le jour où un
+// vrai chemin de soumission existera. Le rebrancher avant cela, c'est fabriquer des
+// données RH. Effet de bord favorable : ≈ 120 tokens de schéma en moins par aller-retour.
 const questionnaireEngine = makeQuestionnaireEngine({
   findEmployeeByEmail,
   generateQuestionnaire,
-  evaluateResponse,
   getEmployeeProfile,
 });
 
