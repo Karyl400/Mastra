@@ -96,9 +96,12 @@ export class DrizzleOnboardingRepository implements OnboardingRepository {
       })
       .onConflictDoUpdate({
         target: onboardingSteps.id,
+        // Même défaut que `save()` ci-dessus, même correctif : `updatedAt` était absent du
+        // `set`, donc gelé à l'insertion sur toute étape déjà existante.
         set: {
           status: step.status,
           completedAt: step.completedAt ?? null,
+          updatedAt: step.updatedAt,
         },
       });
   }
