@@ -6,11 +6,9 @@ export default defineConfig({
     globals: true,
     fileParallelism: false,
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        singleFork: true,
-      },
-    },
+    // Vitest 4 a REMONTÉ ces options au niveau racine : `poolOptions.forks.singleFork` y était
+    // silencieusement ignoré, donc l'isolation que ce fichier prétendait imposer n'existait pas.
+    singleFork: true,
     exclude: [
       '**/node_modules/**',
       '**/dist/**',

@@ -52,7 +52,7 @@ afterAll(() => {
 });
 
 describe('Infrastructure : PdfmakeService en tant que DocumentRenderer', () => {
-  const service = new PdfmakeService(OUTPUT_DIR);
+  const service = new PdfmakeService();
 
   it('annonce le format PDF', () => {
     expect(service.format).toBe(DocumentFormat.Pdf);
@@ -88,21 +88,6 @@ describe('Infrastructure : PdfmakeService en tant que DocumentRenderer', () => {
   it('n’écrit rien sur le disque en rendu pur', async () => {
     await service.render(inputFor(DocumentType.Other));
     expect(existsSync(OUTPUT_DIR)).toBe(false);
-  });
-
-  it('conserve `generate()` — l’ancien port PdfService écrit toujours sur disque', async () => {
-    const filepath = await service.generate(employee, 'TPL-welcome_letter');
-
-    expect(existsSync(filepath)).toBe(true);
-    expect(filepath).toContain('welcome_letter');
-
-    const buffer = readFileSync(filepath);
-    expect(buffer.subarray(0, 5).toString()).toBe('%PDF-');
-    expect(buffer.length).toBeGreaterThan(500);
-  });
-
-  it('rejette toujours un templateId inconnu', async () => {
-    await expect(service.generate(employee, 'TPL-unknown')).rejects.toThrow(/Unknown template/);
   });
 });
 
@@ -155,7 +140,7 @@ describe('Infrastructure : DocxService', () => {
 
 describe('Parité PDF / DOCX — le format est un choix de rendu, jamais de contenu', () => {
   it('les deux renderers acceptent exactement la même entrée pour tous les types', async () => {
-    const pdf = new PdfmakeService(OUTPUT_DIR);
+    const pdf = new PdfmakeService();
     const docx = new DocxService();
 
     for (const type of Object.values(DocumentType)) {
@@ -369,7 +354,7 @@ const FORBIDDEN: ReadonlyArray<readonly [string, string]> = [
 
 describe('Sécurité du rendu — le document est un canal de sortie FILTRÉ', () => {
   it('n’imprime aucun des cinq motifs dans les octets PDF réellement produits', async () => {
-    const rendered = await new PdfmakeService(OUTPUT_DIR).render({
+    const rendered = await new PdfmakeService().render({
       type: DocumentType.Guide,
       ...HOSTILE,
       employee,
@@ -412,7 +397,7 @@ describe('Sécurité du rendu — le document est un canal de sortie FILTRÉ', (
   it('TRADUIT le markdown en structure au lieu de l’imprimer', async () => {
     // Le corps garde son sens : le titre reste un titre, les puces restent des
     // puces, le tableau à deux colonnes devient un bloc de champs.
-    const rendered = await new PdfmakeService(OUTPUT_DIR).render({
+    const rendered = await new PdfmakeService().render({
       type: DocumentType.Other,
       ...HOSTILE,
       employee,
@@ -428,7 +413,7 @@ describe('Sécurité du rendu — le document est un canal de sortie FILTRÉ', (
   });
 
   it('le nom de fichier ne porte plus rien du contenu assaini', async () => {
-    const rendered = await new PdfmakeService(OUTPUT_DIR).render({
+    const rendered = await new PdfmakeService().render({
       type: DocumentType.Guide,
       ...HOSTILE,
       employee,

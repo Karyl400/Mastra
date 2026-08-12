@@ -1,9 +1,6 @@
 import { createRequire } from 'module';
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
 import type { Content, TDocumentDefinitions } from 'pdfmake/interfaces';
 
-import type { PdfService } from '../../domain/ports/pdf.service';
 import type {
   DocumentRenderInput,
   DocumentRenderer,
@@ -15,8 +12,7 @@ import {
   type DocumentBlock,
   type DocumentOutline,
 } from '../../domain/services/document-template';
-import { DocumentFormat, DocumentType } from '../../../../shared/types';
-import { logger } from '../../../../shared/logger';
+import { DocumentFormat } from '../../../../shared/types';
 
 const _require = createRequire(import.meta.url);
 
@@ -105,31 +101,6 @@ function ensureFonts(): void {
 }
 
 // ─────────────────────────────────────────────
-// Templates
-// ─────────────────────────────────────────────
-
-/**
- * Anciens identifiants de template, conservés pour `documentGenerationWorkflow`
- * qui les passe encore en clair. Ils ne sont plus qu'un alias vers un
- * `DocumentType` : le contenu réel vit désormais dans
- * `domain/services/document-template.ts`, partagé avec le rendu DOCX.
- */
-type TemplateId = 'TPL-contract' | 'TPL-welcome_letter' | 'TPL-certificate' | 'TPL-guide';
-
-const TEMPLATE_TYPES: Record<TemplateId, DocumentType> = {
-  'TPL-contract': DocumentType.Contract,
-  'TPL-welcome_letter': DocumentType.WelcomeLetter,
-  'TPL-certificate': DocumentType.Certificate,
-  'TPL-guide': DocumentType.Guide,
-};
-
-/** Champ employé lu depuis un enregistrement non typé (`generate()`). */
-function readField(source: Record<string, unknown>, key: string): string | undefined {
-  const value = source[key];
-  return typeof value === 'string' ? value : undefined;
-}
-
-// ─────────────────────────────────────────────
 // Traduction du modèle logique vers pdfmake
 // ─────────────────────────────────────────────
 
@@ -175,22 +146,21 @@ function toDocumentDefinition(outline: DocumentOutline): TDocumentDefinitions {
 /**
  * Rend un document en PDF.
  *
- * Deux ports, une seule mécanique de rendu :
- * - `DocumentRenderer.render()` — chemin PUR, rend des octets. C'est le seul
- *   utilisable sur Vercel, dont le système de fichiers est en lecture seule hors
- *   `/tmp` et éphémère.
- * - `PdfService.generate()` — chemin historique, écrit sur disque et rend un
- *   chemin local. Conservé tel quel pour `documentGenerationWorkflow`, mais il
- *   délègue désormais au rendu pur : un seul endroit produit le PDF.
+ * UN SEUL chemin depuis le 2026-08-12 : `DocumentRenderer.render()`, qui rend des OCTETS et
+ * ne touche jamais le disque.
+ *
+ * L'ancien `PdfService.generate()` écrivait un fichier et rendait un chemin local. Il
+ * n'existait que pour `documentGenerationWorkflow`, son unique appelant — un workflow supprimé
+ * parce qu'il était inutilisable en production : le système de fichiers de Vercel est en
+ * LECTURE SEULE hors `/tmp`, et `/tmp` est éphémère et propre à l'instance, donc le chemin
+ * rendu ne désignait rien que quiconque puisse lire. Le port `PdfService` a disparu avec lui.
+ *
+ * Ce qu'il faut retenir si l'envie revient d'écrire sur disque : sur cette plateforme, un
+ * chemin de fichier n'est pas une livraison. La livraison, c'est l'upload Slack ou la pièce
+ * jointe email, tous deux alimentés par les octets de `render()`.
  */
-export class PdfmakeService implements PdfService, DocumentRenderer {
+export class PdfmakeService implements DocumentRenderer {
   readonly format = DocumentFormat.Pdf;
-
-  private outputDir: string;
-
-  constructor(outputDir = './data/documents') {
-    this.outputDir = outputDir;
-  }
 
   async render(input: DocumentRenderInput): Promise<RenderedDocument> {
     const outline = buildDocumentOutline(input);
@@ -205,54 +175,6 @@ export class PdfmakeService implements PdfService, DocumentRenderer {
       filename: buildDocumentFilename(outline.title, DocumentFormat.Pdf),
       mimeType: documentMimeType(DocumentFormat.Pdf),
     };
-  }
-
-  async generate(employeeData: Record<string, unknown>, templateId: string): Promise<string> {
-    const type = TEMPLATE_TYPES[templateId as TemplateId];
-
-    if (!type) {
-      throw new Error(`Unknown template ${templateId}`);
-    }
-
-    const outline = buildDocumentOutline({
-      type,
-      // Le workflow ne fournit ni titre ni corps : le template s'appuie alors sur
-      // son titre par défaut et sur les seules données employé.
-      title: '',
-      content: '',
-      employee: {
-        firstName: readField(employeeData, 'firstName'),
-        lastName: readField(employeeData, 'lastName'),
-        email: readField(employeeData, 'email'),
-        department: readField(employeeData, 'department'),
-        position: readField(employeeData, 'position'),
-        startDate: readField(employeeData, 'startDate'),
-      },
-    });
-
-    const buffer = await this.renderBytes(outline);
-
-    if (!existsSync(this.outputDir)) {
-      mkdirSync(this.outputDir, {
-        recursive: true,
-      });
-    }
-
-    // Nom historique : `documentGenerationWorkflow` et ses tests s'appuient sur la
-    // présence du templateId dans le chemin rendu.
-    const filename = `${templateId}_${Date.now()}.pdf`;
-
-    const filepath = join(this.outputDir, filename);
-
-    writeFileSync(filepath, buffer);
-
-    logger.info('PDF generated', {
-      filepath,
-      templateId,
-      size: buffer.length,
-    });
-
-    return filepath;
   }
 
   private async renderBytes(outline: DocumentOutline): Promise<Uint8Array> {
