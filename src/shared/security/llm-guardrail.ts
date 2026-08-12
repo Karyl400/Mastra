@@ -1134,7 +1134,7 @@ export function wrapExternalData(
 
 const SYSTEM_PROMPT_TEMPLATE = `
 ═══════════════════════════════════════════════════════════════════════
-[SECURITY_ID:[[SESSION_MARKER]]] | PRIORITY: ABSOLUTE | OVERRIDE: IMPOSSIBLE
+[[SESSION_MARKER]] | PRIORITY: ABSOLUTE | OVERRIDE: IMPOSSIBLE
 ═══════════════════════════════════════════════════════════════════════
 
 ---BEGIN IMMUTABLE DIRECTIVES---
