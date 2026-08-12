@@ -17,11 +17,32 @@
 > commentaires de `src/` sont FAUSSES. Les DDL `documents.content` et `slack_event_dedup` ont
 > été appliquées et vérifiées sur la Turso de production (prise atomique testée : 1 ligne, puis 0).
 >
-> **DANS LE DÉPÔT, PAS ENCORE DÉPLOYÉ** — les quatre lots de correction issus de cette campagne :
-> routage en 4 temps à palier d'échappement symétrique, injection de l'identité du demandeur,
-> réconciliation FAIT/NARRATION, schémas des outils de notification, assainissement du contenu
-> des documents, frontière négative dérivée du câblage. Ils sont dans l'arbre de travail, pas
-> même committés.
+> **DÉPLOYÉ LE 2026-08-12** (commit `187b647`, déploiement `9t5yxexhg`) — les quatre lots de la
+> campagne du 11 (routage en 4 temps, identité du demandeur, réconciliation FAIT/NARRATION,
+> schémas des outils de notification, assainissement du contenu des documents, frontière
+> négative dérivée du câblage), les features `directory` et `knowledge`, **plus la revue croisée
+> du 12** : voir `CHANGELOG.md` pour le détail et `TODO.md` section [0 bis] pour ce qui reste en
+> creux. Vérifié après déploiement : `POST /slack/events` non signé → `401
+> missing_signature_headers` ; signé → `200 {"challenge":…}` en 1,4 s.
+>
+> ⚠️ **Le bundle Vercel NE DÉMARRAIT PAS en local pendant que le build sortait en vert** — le
+> déployeur Mastra épingle `@mastra/core` 0.24.9 et installe sa fermeture (`lru-cache@7`,
+> `@isaacs/ttlcache@1`), que `fix-vercel-output.js` laissait derrière en écrasant le noyau par le
+> vrai 1.57.0 : `SyntaxError: Named export 'TTLCache' not found`, donc mort avant la première
+> instruction. La production, elle, tournait — la fermeture y est différente (328 paquets contre
+> 659 en local). `verify:bundle` **importe désormais réellement `index.mjs`** : c'est le seul
+> contrôle qui distingue une liaison ESM rompue d'un pair non satisfait inoffensif, et il tourne
+> sur le builder Vercel. Ne pas le remplacer par une heuristique de version — cela a été essayé
+> le 2026-08-12 et dénonçait cinq écarts préexistants que la production fait tourner.
+>
+> ⚠️ **La suite de tests n'était verte que parce qu'une table MANQUAIT** de `data/kisso.db`.
+> Les tests unitaires ne chargent pas `.env`, donc `DATABASE_URL` est indéfini et
+> `connection.ts` retombe sur `file:./data/kisso.db` (la Turso de production n'est **jamais**
+> touchée par les tests). Mais tout handler construit sans `rateLimiter` injecté fabrique un
+> `DrizzleRateLimitRepository` : compteurs partagés entre tests et persistés d'un run à l'autre,
+> onze tests d'`accept()` en `rate_limited` dès que `rate_limit_counters` existe. Toute
+> construction manuelle d'un `SlackEventsHandler` en test doit neutraliser les **trois**
+> dépendances qui touchent la base — `conversationRepository`, `dedupRepository`, `rateLimiter`.
 >
 > Ce que la campagne a établi et qui change la doctrine du projet : **la limite qui casse la
 > production n'est PAS le seau Groq par minute mais le quota JOURNALIER (≈ 19 messages/jour)**,
@@ -423,21 +444,27 @@ Deux réglages bloquaient réellement, dans cet ordre :
 - Le badge *Verified* ne prouve rien sur la livraison courante — seulement qu'un challenge a réussi
   un jour. Un `Save` sur une URL **inchangée** ne redéclenche aucune vérification.
 
-**Appartenance aux canaux — vérifié le 2026-08-07 via `conversations.list` :** le bot n'est
-membre que de **2 des 5** canaux listés. `chat.postMessage` échoue avec `not_in_channel`
-partout ailleurs, et cet échec est **silencieux** pour l'utilisateur (le message d'erreur de
-repli est posté dans le même canal inaccessible, donc échoue aussi — cf. `handleMessage`).
+**Appartenance aux canaux — le bot est membre des 6 canaux, relevé le 2026-08-12** via
+`npx tsx --env-file=.env scripts/sync-slack-directory.mts --channels` (dry-run) :
+`#kisso-hq`, `#engineer-karyl` (privé), `#random`, `#signals`, `#alerts-dev`,
+`#engineering-chat`.
 
-| Canal             | ID            | `is_member` |
-| ----------------- | ------------- | ----------- |
-| `#kisso-hq`       | `CMLKC4S5T`   | ✅ oui      |
-| `#engineer-karyl` | `C0BJGBVB5HP` | ✅ oui (privé) |
-| `#alerts-dev`     | `CMA1TPCN6`   | ❌ non      |
-| `#random`         | `C09TRLL2KEW` | ❌ non      |
-| `#signals`        | `C0AV1B23V0U` | ❌ non      |
+⚠️ **L'ancien tableau « 2 sur 5 » qui figurait ici (relevé du 2026-08-07) était périmé** et a
+servi de prémisse à plusieurs diagnostics. Le bot a rejoint les autres canaux depuis, par
+`ChannelCoverageService` (`conversations.join`) — l'affirmation « aucun code n'émet
+`conversations.join` », elle aussi présente ici, ne vaut plus.
 
-Le scope `channels:join` est accordé mais **ne fait pas d'auto-join implicite** : il faut un
-appel `conversations.join` explicite, qu'aucun code n'émet aujourd'hui.
+Ce qui reste vrai et importe : `chat.postMessage` échoue en `not_in_channel` sur tout canal où
+le bot n'est pas membre, et cet échec est **silencieux** pour l'utilisateur (le message
+d'erreur de repli est posté dans le même canal inaccessible, donc échoue aussi — cf.
+`handleMessage`). Le scope `channels:join` **ne fait pas d'auto-join implicite** : il faut un
+appel explicite.
+
+⚠️ Ne pas relire cette liste comme une frontière d'autorisation. L'appartenance du BOT est une
+condition de FAISABILITÉ ; le droit du DEMANDEUR est une autre question, tranchée en direct
+auprès de Slack par `SlackChannelHistoryAdapter.isMember`. Les tables `slack_channels` /
+`slack_channel_members` sont un inventaire d'observabilité, et aucun événement ne vient jamais
+les démentir (ni `member_joined_channel`, ni `member_left_channel` ne sont abonnés).
 
 Scopes réellement accordés au bot : `channels:join`, `chat:write`, `chat:write.customize`,
 `im:write`, `channels:read`, `groups:read`, `users:read`, `users:read.email`,
