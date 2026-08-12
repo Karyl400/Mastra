@@ -16,7 +16,7 @@ import { DrizzleDocumentRepository } from '../features/document/infrastructure/r
 import { DrizzleNotificationRepository } from '../features/notification/infrastructure/repositories/drizzle-notification.repository';
 import { DrizzleOnboardingRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding.repository';
 
-import { getDb } from '../infrastructure/database/connection';
+import { getDb, healthCheck } from '../infrastructure/database/connection';
 
 import { makeFindEmployeeByEmail } from '../features/employee/application/tools/find-employee-by-email';
 import { makeGetEmployeeProfile } from '../features/employee/application/tools/get-employee-profile';
@@ -61,8 +61,38 @@ import { createApiAuthConfig } from '../shared/security/api-auth';
 import { createCallerErrorMiddleware } from '../shared/security/caller-error-mapping';
 import { logger } from '../shared/logger';
 
-// La connexion DB est établie à la première requête (lazy init via getConnectionManager)
-// getDb() appelé ici forcerait l'ouverture au démarrage — inutile en dev
+// ─────────────────────────────────────────────────────────────────────────────
+// AMORÇAGE DE LA CONNEXION — mesuré, et à contre-courant du commentaire précédent
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// L'ancienne note disait « getDb() appelé ici forcerait l'ouverture au démarrage — inutile
+// en dev ». Sa prémisse est fausse en production, et le prix a été mesuré le 2026-08-12 :
+//
+//     WARN | Slack ACK budget at risk | {"ackMs":1619,"admissionMs":1619}
+//
+// `ackMs === admissionMs` : la totalité du budget d'accusé de réception était consommée
+// À L'INTÉRIEUR de `handler.accept()`, c'est-à-dire dans Turso. Signature, parsing et
+// construction du handler pèsent ensemble moins d'une milliseconde.
+//
+// Ce que paie ce chemin : la déduplication partagée et le limiteur de débit font chacun un
+// aller-retour vers `aws-ap-northeast-1` (Tokyo) — mais surtout, le PREMIER d'entre eux
+// paie le handshake complet (DNS + TCP + TLS + upgrade WebSocket + hello hrana), soit 4 à
+// 5 allers-retours. Slack rejoue tout événement non acquitté en 3 s, et un rejeu est
+// exactement ce qui a produit la double réponse du 2026-08-11.
+//
+// `createClient` de libsql est SYNCHRONE et ouvre le socket de façon impérative : le coût
+// n'est payé qu'au premier `await`. L'amorcer ici fait donc chevaucher le handshake avec
+// l'évaluation du reste du bundle, au lieu de l'ajouter au chemin d'ACK. Ce n'est pas
+// « ouvrir plus tôt », c'est « ne plus le payer au pire moment ».
+//
+// `void` et `.catch()` : aucun `await` au niveau module (il bloquerait le démarrage), et
+// une base injoignable au boot ne doit pas faire échouer le chargement — chaque appelant
+// gère déjà sa propre dégradation. On journalise, on ne relance pas.
+void healthCheck().catch((error) => {
+  logger.warn('Amorçage de la connexion à la base sans succès — chaque appelant dégradera', {
+    error,
+  });
+});
 
 const employeeRepo = new DrizzleEmployeeRepository();
 const taskRepo = new DrizzleTaskRepository();

@@ -30,14 +30,6 @@ import { buildRunKey, makeRunGuard } from '../../../../shared/tool-idempotency';
 import { DocumentFormat, DocumentStatus, DocumentType } from '../../../../shared/types';
 
 /**
- * Une garde par PROCESSUS, et non par instance de tool : `makeGenerateDocument` est
- * appelée une fois au câblage (`src/mastra/index.ts`), mais la placer au niveau module
- * garantit que deux câblages éventuels partagent la même garde. La portée utile reste
- * le run, assurée par la clé, pas par la durée de vie de l'objet.
- */
-const runGuard = makeRunGuard();
-
-/**
  * Génération de document — outil exposé au LLM.
  *
  * ## Ce que l'outil fait, et pourquoi il le fait maintenant
@@ -83,7 +75,7 @@ const runGuard = makeRunGuard();
  * `title` et `content` sont écrits INTÉGRALEMENT par le modèle et ne passaient par
  * aucun filtre : `sanitizeAgentOutput` n'a qu'un site d'appel, `response.text` dans le
  * handler Slack, et les arguments de tool n'y passent jamais. Des PDF réellement produits
- * imprimaient donc `kisso_a3f9`, `[SECURITY_BLOCK]`, `DIRECTIVE 3.1` et
+ * imprimaient donc `kisso_<32 hex>`, `[SECURITY_BLOCK]`, `DIRECTIVE 3.1` et
  * `https://kisso.internal/…` en clair, sans le moindre log — un canal d'exfiltration
  * téléchargeable et repartageable, contournant le filet unique.
  *
@@ -193,6 +185,18 @@ const RENDERABLE_FORMATS = [DocumentFormat.Pdf, DocumentFormat.Docx] as const;
 export function makeGenerateDocument(deps: GenerateDocumentDeps) {
   const { documentRepo, employeeRepo, renderers, fileUpload, emailProvider } = deps;
 
+  /**
+   * Une garde par INSTANCE de tool, et non par module.
+   *
+   * En production cela ne change rien : `makeGenerateDocument` n'est appelée qu'une fois,
+   * au câblage de `src/mastra/index.ts`, donc la garde vit aussi longtemps que le
+   * processus — exactement la portée voulue. En test, en revanche, une garde de module
+   * rendait les cas dépendants de leur ordre d'exécution : le deuxième test qui demandait
+   * le même document retombait sur le résultat mémorisé par le premier. La portée utile
+   * est assurée par la clé (conversation) et le TTL, jamais par la durée de vie de l'objet.
+   */
+  const runGuard = makeRunGuard();
+
   return createTool({
     id: 'generateDocument',
     description: 'Génère un document (guide, contrat, lettre…) et le livre dans Slack ou par email',
@@ -263,37 +267,105 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       });
 
       // ---------------------------------------------------------------------
-      // Garde d'idempotence — un livrable par run
+      // Garde d'idempotence — un livrable par CONVERSATION, pas seulement par run
       // ---------------------------------------------------------------------
       //
-      // Production du 2026-08-12, 19:42 UTC : un seul message Slack, mais
-      // `toolCalls: ["generateDocument","findEmployeeByEmail","getEmployeeProfile",
-      // "generateDocument"]` — le modèle a régénéré le document après avoir « vérifié »
-      // l'employé. Deux lignes en base, deux uploads, deux pièces jointes dans le fil.
+      // Deux incidents distincts, même correctif.
       //
-      // La clé ignore délibérément `content` : les deux appels de l'incident avaient un
-      // contenu DIFFÉRENT (15 puis 249 caractères), donc hacher les arguments complets
-      // n'aurait rien attrapé. C'est l'identité du LIVRABLE qui compte.
+      // (1) 2026-08-12 19:42 UTC — un SEUL message Slack, et
+      //     `toolCalls: ["generateDocument","findEmployeeByEmail","getEmployeeProfile",
+      //     "generateDocument"]` : le modèle a régénéré après avoir « vérifié » l'employé.
       //
-      // Hors Slack, `buildRunKey` rend `undefined` et la garde est inactive — le
-      // playground, les workflows et les tests ne sont pas bornés par un run Slack.
-      const runKey = buildRunKey(
-        readSlackContext(ctx?.requestContext)?.eventTs,
-        'generateDocument',
-        [data.employeeId, data.type, title, data.format, data.deliverTo],
-      );
+      // (2) 2026-08-12 21:58–22:05 UTC — rejeu d'une conversation réelle : **7 documents
+      //     et 3 emails identiques en 8 minutes**. À « As-tu envoyé le rapport ? », le
+      //     modèle a REGÉNÉRÉ le guide au lieu de constater qu'il venait de l'envoyer,
+      //     puis encore, puis encore. Cause de fond : le système ne sait que CRÉER — il
+      //     n'existe aucun outil de relecture de document, donc refaire est la seule
+      //     action que le modèle puisse entreprendre quand on lui demande « où en est-ce ? ».
+      //
+      // La clé porte donc la CONVERSATION (`channel[:threadTs]`) et non le message : le
+      // cas (2) s'étale sur plusieurs messages. Le TTL fait le reste — redemander le même
+      // document, au même format, vers la même destination, dans les 10 minutes, n'est
+      // jamais intentionnel ; au-delà, c'est une demande neuve et elle passe.
+      //
+      // La clé ignore délibérément `content` : les deux appels de l'incident (1) avaient
+      // un contenu DIFFÉRENT (15 puis 249 caractères), donc hacher les arguments complets
+      // n'aurait rien attrapé. C'est l'identité du LIVRABLE qui compte. Elle inclut en
+      // revanche `deliverTo` : « et envoie-le par email » après une livraison Slack est
+      // une demande légitimement différente.
+      //
+      // ⚠️ Garde EN MÉMOIRE, donc par instance. Sur deux instances distinctes, le doublon
+      // repasse — on retombe alors exactement sur le comportement d'avant, jamais pire.
+      // Un store partagé coûterait une E/S Turso (Tokyo) sur un chemin déjà tendu côté ACK.
+      const slackCtx = readSlackContext(ctx?.requestContext);
+      const conversationKey = slackCtx
+        ? slackCtx.threadTs
+          ? `${slackCtx.channel}:${slackCtx.threadTs}`
+          : slackCtx.channel
+        : undefined;
 
-      const alreadyProduced = runKey ? runGuard.get<Record<string, unknown>>(runKey) : undefined;
-      if (alreadyProduced) {
-        logger.warn('Document déjà produit dans ce run — second appel ignoré', {
+      // ---------------------------------------------------------------------
+      // `none` est NEUTRALISÉ dans une conversation Slack — correctif du 2026-08-12
+      // ---------------------------------------------------------------------
+      //
+      // Mesuré en production : sur « Génère un guide en PDF **et donne-le moi pour que je
+      // puisse le télécharger** », le modèle a choisi `deliverTo: 'none'`, puis a annoncé
+      // à l'utilisateur que le document « n'est pas livré automatiquement cette fois » —
+      // en ayant la demande explicite sous les yeux.
+      //
+      // La valeur n'est pas retirée du schéma : elle est LÉGITIME hors Slack (workflow,
+      // playground, appel direct), où il n'y a personne à qui livrer. Mais à l'intérieur
+      // d'une conversation Slack, un document que personne ne reçoit n'est jamais ce qui
+      // a été demandé — c'est une porte de sortie offerte au modèle, pas une intention
+      // d'utilisateur. On livre donc dans le fil d'où vient la demande.
+      const effectiveDeliverTo =
+        data.deliverTo === 'none' && slackCtx ? ('slack' as const) : data.deliverTo;
+
+      if (effectiveDeliverTo !== data.deliverTo) {
+        logger.info('deliverTo=none ignoré dans une conversation Slack — livraison dans le fil', {
           employeeId: data.employeeId,
           type: data.type,
         });
+      }
+
+      // Hors Slack, `buildRunKey` rend `undefined` et la garde est INACTIVE : le
+      // playground, les workflows et les tests ne sont bornés par aucune conversation.
+      const dedupKey = buildRunKey(conversationKey, 'generateDocument', [
+        data.employeeId,
+        data.type,
+        title,
+        data.format,
+        effectiveDeliverTo,
+      ]);
+
+      const previous = dedupKey
+        ? runGuard.get<{ result: Record<string, unknown>; eventTs?: string }>(dedupKey)
+        : undefined;
+
+      if (previous) {
+        // Les deux incidents ne se diagnostiquent pas pareil : un second appel dans le
+        // MÊME message est un défaut de raisonnement du modèle, un second appel dans un
+        // message SUIVANT est l'utilisateur qui redemande faute d'avoir vu le fichier.
+        const sameRun = Boolean(slackCtx?.eventTs) && previous.eventTs === slackCtx?.eventTs;
+        logger.warn(
+          sameRun
+            ? 'Document déjà produit dans ce run — second appel ignoré'
+            : 'Document déjà livré dans cette conversation — régénération évitée',
+          { employeeId: data.employeeId, type: data.type, deliverTo: effectiveDeliverTo },
+        );
+
         // On rend le résultat du PREMIER appel, augmenté du fait qu'il n'y a rien à
         // refaire. Sans cette mention, le modèle reste devant un résultat identique au
         // précédent et peut conclure que son appel n'a pas abouti — c'est précisément
-        // l'absence de « l'effet existe déjà » qui a produit le doublon.
-        return { ...alreadyProduced, alreadyDelivered: true as const };
+        // l'absence de « l'effet existe déjà » qui a produit les doublons.
+        return {
+          ...previous.result,
+          alreadyDelivered: true as const,
+          hint:
+            "Ce document a DÉJÀ été produit et livré dans cette conversation ; rien n'a été " +
+            "refait. Dis-le et renvoie la personne vers l'envoi précédent — ne prétends pas " +
+            "l'avoir regénéré.",
+        };
       }
 
       // ---------------------------------------------------------------------
@@ -376,18 +448,17 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       let delivery: DeliveryVerdict = 'none';
       let reason: HintKey | undefined = failure;
 
-      if (rendered && data.deliverTo !== 'none') {
-        const slackContext =
-          data.deliverTo === 'slack' ? readSlackContext(ctx?.requestContext) : undefined;
+      if (rendered && effectiveDeliverTo !== 'none') {
+        const slackContext = effectiveDeliverTo === 'slack' ? slackCtx : undefined;
 
-        if (data.deliverTo === 'slack' && !slackContext) {
+        if (effectiveDeliverTo === 'slack' && !slackContext) {
           // Cas NORMAL, pas une panne : playground Mastra, route HTTP, workflow, test.
           // Il n'y a pas de canal à qui livrer — on le dit, on n'échoue pas.
           logger.info('Pas de contexte Slack — document enregistré sans livraison', {
             employeeId: data.employeeId,
           });
           reason = 'no_slack_context';
-        } else if (data.deliverTo === 'slack' && slackContext) {
+        } else if (effectiveDeliverTo === 'slack' && slackContext) {
           try {
             const { permalink } = await uploadToSlack(fileUpload, slackContext, rendered, title);
             delivery = 'slack';
@@ -499,8 +570,16 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       };
 
       // Mémorisé APRÈS le succès : un premier appel qui a échoué avant l'enregistrement
-      // ne doit pas condamner une seconde tentative du modèle dans le même run.
-      if (runKey) runGuard.remember(runKey, result);
+      // ne doit pas condamner une seconde tentative du modèle. `eventTs` est conservé
+      // pour distinguer, au prochain appel, « le modèle a rappelé le tool dans le même
+      // message » de « l'utilisateur a redemandé » — deux défauts différents à diagnostiquer.
+      //
+      // La livraison n'est mémorisée que si elle a ABOUTI : un envoi échoué doit pouvoir
+      // être retenté, sinon la garde transformerait une panne passagère en refus définitif
+      // pendant dix minutes.
+      if (dedupKey && (delivery === 'slack' || delivery === 'email')) {
+        runGuard.remember(dedupKey, { result, eventTs: slackCtx?.eventTs });
+      }
 
       return result;
     },

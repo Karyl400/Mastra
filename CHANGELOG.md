@@ -1,5 +1,123 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-13 — les sept défauts du rejeu de production
+
+Rejeu intégral d'une conversation réelle (9 messages, 21:58–22:05 UTC le 2026-08-12) contre
+le déploiement `6ubhhbtvp`, réponses Slack et appels d'outils relevés. Sept défauts, tous
+corrigés ici sauf mention contraire.
+
+### Fixed — « Bonjour » écrivait dans le dossier de la personne, et coûtait 13 % du budget
+
+Sept caractères, et cette trace :
+
+    toolCalls: ["findEmployeeByEmail","getEmployeeProfile","updateOnboardingStatus","getTaskList"]
+    steps: 5, inputTokens: 13376
+
+Deux dégâts distincts : une **tentative d'écriture non demandée** sur le statut d'onboarding,
+et **13 376 tokens** — 13 % du budget Groq quotidien — pour une formule de politesse.
+
+- **Nouveau** `src/shared/greeting.ts` : court-circuit déterministe, zéro appel LLM.
+- Le critère est l'**ÉGALITÉ**, jamais « commence par ». « Bonjour, que peux-tu faire pour
+  moi ? » et « Salut, tu peux me retrouver le profil de … ? » sont de vraies demandes
+  observées en production ; les court-circuiter serait bien pire que le défaut corrigé.
+- Placé APRÈS la garde de fil et AVANT le marqueur de progression. Les deux tours sont
+  mémorisés : sans cela, un fil ouvert par une salutation ne serait jamais « engagé » et le
+  message suivant, sans mention, serait abandonné.
+- Une consigne de prompt aurait été payée à chaque aller-retour de chaque message, y compris
+  ceux qui ne sont pas des salutations, et serait restée probabiliste.
+
+### Fixed — le statut d'onboarding ne se mettait jamais à jour, et le bot l'annonçait quand même
+
+`onConflictDoUpdate` dont le `set` **omettait `updatedAt` et `startedAt`** : les valeurs
+étaient bien passées à `.values()`, mais `values()` est ignoré dès qu'il y a conflit. Sur une
+ligne existante, `updated_at` restait gelé à la date d'insertion et le `startedAt` de la
+transition `not_started → in_progress` était jeté en silence.
+
+- `OnboardingRepository.update` rend désormais le **nombre de lignes affectées** — il rendait
+  `void`, donc `updateOnboardingStatus` retournait `updated: true` en constante, vrai par
+  construction. Cinquième occurrence de « le champ dit mieux que le fait ».
+- Le double `InMemoryOnboardingRepository` rend 0 sur une ligne absente, comme un UPDATE SQL.
+  **C'est cette divergence qui avait laissé passer le bug** : l'ancien double écrivait
+  inconditionnellement l'objet entier, donc il conservait les horodatages que Drizzle jetait.
+- ⚠️ `employees.onboarding_status` est une colonne **MORTE** — aucun lecteur, aucun écrivain
+  applicatif, son index compris. Le seul statut affiché vient d'`onboarding_progress`. Non
+  traitée ici : la retirer est un lot à part.
+
+### Fixed — 7 documents et 3 emails identiques en 8 minutes
+
+À « As-tu envoyé le rapport ? », le modèle **regénérait** le guide au lieu de constater qu'il
+venait de l'envoyer. Puis encore. Cause de fond : **le système ne sait que CRÉER** — aucun
+outil ne sait relire un document déjà produit, donc refaire est la seule action disponible.
+
+- La garde d'idempotence passe du RUN à la **CONVERSATION** (`channel[:threadTs]`), TTL 10 min :
+  le doublon s'étale sur plusieurs messages, une clé par message ne pouvait pas le voir.
+- La clé ignore `content` (les appels différaient par le contenu) mais inclut `deliverTo` :
+  « et envoie-le par email » après une livraison Slack est une demande légitimement différente.
+- Mémorisation seulement si la livraison a ABOUTI — sinon une panne passagère deviendrait un
+  refus de dix minutes.
+- La garde vit dans la FACTORY et non au niveau module : en production c'est identique
+  (un seul câblage), mais une garde de module rendait les tests dépendants de leur ordre.
+
+### Fixed — faux refus de sécurité sur des demandes anodines
+
+« Donne le PDF alors » → « Je ne peux pas répondre à cette demande. » (`redacted: 1`,
+`toolCalls: []`). Même symptôme sur « Il me faudrait le guide d'accueil de Karyl en PDF ».
+
+- Cause : `/kisso_[0-9a-f]{4,}/i`, hérité de l'époque où le préfixe de session était tronqué
+  à 4 hex. Il fait **32 hex** depuis le 2026-08-10, mais le motif matchait toujours
+  `kisso_2026`, `kisso_face`, `kisso_cafe`. Un modèle qui NARRE un nom de fichier
+  (`guide_kisso_2026.pdf`) faisait détruire toute sa réponse. Porté à `{16,}` (64 bits).
+- Le bloc STYLE **écrivait la chaîne interdite pour l'interdire** (« Jamais
+  "KISSO-AGENT-v3" »), à trois lignes de la fin des instructions — la position la plus
+  recopiable. Or `sanitizeAgentOutput` traite cette chaîne comme un marqueur et remplace la
+  réponse entière : le prompt fabriquait le motif que le code punit. Retiré ; la garantie
+  vit dans le code, pas dans le prompt. Assertion de test **inversée**, pas supprimée.
+- Fixtures de test portées à un préfixe réaliste de 32 hex, plus fidèle à la production.
+- ⚠️ **NON traité, et assumé** : `sanitizeAgentOutput` remplace toujours la réponse ENTIÈRE
+  dès qu'un marqueur apparaît, là où le canal document retire l'occurrence et garde le
+  contenu. Distinguer « le modèle a fuité un marqueur » de « le modèle a obéi à une
+  injection » change la posture de sécurité — lot à instruire à froid, pas à 1h du matin.
+
+### Fixed — `deliverTo: 'none'` sur une demande explicite de téléchargement
+
+Sur « génère un guide en PDF **et donne-le moi pour que je puisse le télécharger** », le
+modèle a choisi `none`, puis a annoncé que le document n'était pas livré.
+
+La valeur reste dans le schéma — elle est légitime hors Slack (workflow, playground) — mais
+elle est **neutralisée dès qu'une conversation Slack existe** : un document que personne ne
+reçoit n'y est jamais ce qui a été demandé. C'est une porte de sortie offerte au modèle, pas
+une intention d'utilisateur.
+
+### Fixed — l'accusé de réception Slack frôlait la limite de rejeu
+
+    WARN | Slack ACK budget at risk | {"ackMs":1619,"admissionMs":1619}
+
+`ackMs === admissionMs` : **la totalité** du budget était consommée dans `accept()`, donc
+dans Turso — signature, parsing et construction du handler pèsent ensemble moins d'une
+milliseconde. Le premier accès paie le handshake complet vers Tokyo (DNS + TCP + TLS +
+upgrade WebSocket + hello hrana). Slack rejoue tout événement non acquitté en 3 s, et un
+rejeu est exactement ce qui a produit la double réponse du 2026-08-11.
+
+`createClient` de libsql est synchrone : le coût n'est payé qu'au premier `await`. La
+connexion est donc **amorcée au chargement du module**, ce qui fait chevaucher le handshake
+avec l'évaluation du bundle. L'ancien commentaire (« getDb() ici forcerait l'ouverture au
+démarrage — inutile en dev ») reposait sur une prémisse fausse en production.
+
+Pistes mesurées et NON appliquées, par gain décroissant : déployer la fonction près de la
+base (`regions: ['hnd1']`, ~150-250 ms par aller-retour sur trois), activer Fluid Compute,
+rendre paresseux le `scryptSync(N=16384)` du vault (40-100 ms à froid, pour chiffrer puis
+déchiffrer un template dans le même processus).
+
+### Connu, mesuré, non corrigé
+
+- **Le budget Groq est bien de 100 000 tokens/JOUR**, et il était consommé à 97 % pendant le
+  rejeu : `TPD: Limit 100000, Used 97432`. Les neuf messages sont tous tombés sur Mistral.
+  Une sonde d'un seul token passe et n'affiche aucun en-tête TPD — c'est ce qui avait fait
+  conclure à tort « Groq est en pleine forme ».
+- Le **triplement des questionnaires** persiste : même cause racine que les 7 documents, mais
+  la garde n'a pas été étendue à `generateQuestionnaire` faute d'avoir pu la tester.
+
+
 ## [Unreleased] - 2026-08-12 (soir) — l'annuaire était là, personne ne le lisait
 
 Campagne de production de 19:39–19:58 UTC sur le déploiement `9t5yxexhg` (commit `187b647`),

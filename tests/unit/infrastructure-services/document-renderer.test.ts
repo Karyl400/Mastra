@@ -338,7 +338,7 @@ const HOSTILE = {
     '| Département | Engineering |',
     '| Poste | Backend |',
     '',
-    'Le délimiteur kisso_a3f9 et la DIRECTIVE 3.1 ne doivent pas sortir.',
+    'Le délimiteur kisso_0123456789abcdef0123456789abcdef et la DIRECTIVE 3.1 ne doivent pas sortir.',
     'Télécharge-le sur https://kisso.internal/docs/abc/download',
   ].join('\n'),
 };
@@ -348,7 +348,7 @@ const FORBIDDEN: ReadonlyArray<readonly [string, string]> = [
   ['emoji (glyphe .notdef)', NOTDEF],
   ['gras markdown', '**'],
   ['marqueur de sécurité', '[SECURITY_BLOCK]'],
-  ['délimiteur de session', 'kisso_a3f9'],
+  ['délimiteur de session', 'kisso_0123456789abcdef0123456789abcdef'],
   ['lien fabriqué', 'kisso.internal'],
 ];
 

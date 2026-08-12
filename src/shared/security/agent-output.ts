@@ -109,7 +109,21 @@ export interface SanitizedAgentOutput {
  * conserve `lastIndex` entre deux appels et saute une occurrence sur deux.
  */
 const INTERNAL_MARKERS: ReadonlyArray<{ label: string; pattern: RegExp }> = [
-  { label: 'delimiter', pattern: /kisso_[0-9a-f]{4,}/i },
+  // ⚠️ `{16,}` et non `{4,}` — correctif du 2026-08-12, FAUX REFUS mesuré en production.
+  //
+  // Ce motif datait de l'époque où le préfixe de session était tronqué à 4 hex
+  // (`kisso_9b7e`). Il fait 32 hex depuis le 2026-08-10 (`DelimiterGenerator.generate`,
+  // 128 bits), mais le motif matchait toujours n'importe quel `kisso_` suivi de quatre
+  // caractères hexadécimaux — donc `kisso_2026`, `kisso_face`, `kisso_cafe`, `kisso_added`.
+  //
+  // Conséquence observée deux fois, sur « Donne le PDF alors » et « Il me faudrait le guide
+  // d'accueil de Karyl en PDF » : le modèle NARRE un nom de fichier (`guide_kisso_2026.pdf`),
+  // le motif mord, et TOUTE la réponse est remplacée par le refus neutre — indiscernable,
+  // pour l'utilisatrice, d'un vrai blocage de sécurité. Sur un budget de ≈ 19 messages/jour,
+  // un tour détruit coûte 5 % de la journée.
+  //
+  // 16 hex = 64 bits : indevinable, tout en laissant passer les mots français et anglais.
+  { label: 'delimiter', pattern: /kisso_[0-9a-f]{16,}/i },
   { label: 'security_marker', pattern: /\[SECURITY_BLOCK\]/i },
   { label: 'agent_identity', pattern: /KISSO-AGENT-v\d+/i },
   { label: 'directive', pattern: /\bDIRECTIVE\s+\d+\.\d+/i },
@@ -389,7 +403,7 @@ export function sanitizeAgentOutput(raw: string | undefined | null): SanitizedAg
 // `sanitizeAgentOutput` n'a qu'un seul site d'appel : `response.text`, dans le
 // handler Slack. Les ARGUMENTS DE TOOL n'y passent jamais — or `generateDocument`
 // reçoit un `content` intégralement rédigé par le modèle, qui partait verbatim au
-// rendu. Vérifié en générant de vrais PDF : `kisso_a3f9`, `[SECURITY_BLOCK]`,
+// rendu. Vérifié en générant de vrais PDF : `kisso_<32 hex>`, `[SECURITY_BLOCK]`,
 // `DIRECTIVE 3.1` et `https://kisso.internal/…` s'imprimaient TOUS, sans le
 // moindre log. Le document était donc un canal de sortie non filtré — et, à la
 // différence d'un message Slack, il est téléchargeable et repartageable.

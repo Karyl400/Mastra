@@ -111,9 +111,11 @@ describe('generateDocument — garde d’idempotence par run', () => {
     expect(second.alreadyDelivered).toBe(true);
   });
 
-  it('ne bloque PAS un document demandé dans un autre message du même DM', async () => {
-    // Le piège que `eventTs` évite : en DM il n'y a pas de `thread_ts`, donc une garde
-    // portée par le seul canal aurait refusé ce second document, légitime.
+  it('bloque aussi la régénération dans un message SUIVANT de la conversation', async () => {
+    // C'est l'incident du 2026-08-12 21:58–22:05 : « As-tu envoyé le rapport ? » a fait
+    // REGÉNÉRER le guide, puis encore, puis encore — 7 documents et 3 emails en 8 minutes.
+    // La garde porte donc la CONVERSATION, pas le message : le doublon s'étale sur
+    // plusieurs tours, parce qu'aucun outil ne sait relire un document déjà produit.
     const { upload, deps } = makeDeps();
     const tool = makeGenerateDocument(deps as never);
 
@@ -126,8 +128,28 @@ describe('generateDocument — garde d’idempotence par run', () => {
       slackRun('1786564999.000003') as never,
     )) as Record<string, unknown>;
 
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(later.alreadyDelivered).toBe(true);
+    expect(String(later.hint)).toContain('DÉJÀ');
+  });
+
+  it('ne bloque PAS la même demande dans une AUTRE conversation', async () => {
+    // Deux personnes peuvent demander le même document au même moment, chacune dans son
+    // canal. La clé porte la conversation précisément pour que l'une ne prive pas l'autre.
+    const { upload, deps } = makeDeps();
+    const tool = makeGenerateDocument(deps as never);
+
+    await tool.execute!(
+      { ...INPUT, content: 'Bienvenue.' } as never,
+      { requestContext: buildSlackRequestContext({ channel: 'D0AAA', eventTs: '1.1' }) } as never,
+    );
+    const elsewhere = (await tool.execute!(
+      { ...INPUT, content: 'Bienvenue.' } as never,
+      { requestContext: buildSlackRequestContext({ channel: 'D0BBB', eventTs: '2.2' }) } as never,
+    )) as Record<string, unknown>;
+
     expect(upload).toHaveBeenCalledTimes(2);
-    expect(later.alreadyDelivered).toBeUndefined();
+    expect(elsewhere.alreadyDelivered).toBeUndefined();
   });
 
   it('ne bloque pas deux documents DIFFÉRENTS dans le même run', async () => {

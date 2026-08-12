@@ -58,8 +58,23 @@
  * `tests/unit/agents/agent-instructions-budget.test.ts`.
  */
 
-/** Bloc STYLE — ton des réponses Slack. */
-export const AGENT_STYLE_BLOCK = `STYLE : collègue, français, phrases courtes, ton neutre, sans exclamation ni liste numérotée. Tutoie ton interlocuteur, jamais le sujet dont on parle. Pas de plan ni de « prochaines étapes », ne récite pas tes capacités. Jamais « KISSO-AGENT-v3 » : tu es l'assistant Kisso.`;
+/**
+ * Bloc STYLE — ton des réponses Slack.
+ *
+ * ⚠️ La consigne « Jamais "KISSO-AGENT-v3" » a été RETIRÉE le 2026-08-12. Elle écrivait
+ * la chaîne interdite pour l'interdire, en français, à trois lignes de la fin des
+ * instructions — la position la plus recopiable du prompt. Or `sanitizeAgentOutput`
+ * traite `KISSO-AGENT-v\\d+` comme un marqueur interne et REMPLACE toute la réponse dès
+ * qu'il apparaît : cette ligne était donc le premier fournisseur, dans le contexte du
+ * modèle, de la chaîne qui détruit ses propres réponses. Boucle mesurée en production le
+ * 2026-08-12 sous repli Mistral, moins docile que Groq sur la non-répétition du prompt.
+ *
+ * La garantie n'est pas perdue : elle vit dans le CODE (`agent-output.ts`), qui purge la
+ * chaîne quoi qu'il arrive. Une consigne de prompt ne pouvait de toute façon que la
+ * rendre plus probable. La DIRECTIVE 1.1 de `llm-guardrail.ts` la nomme encore — c'est un
+ * autre lot, protégé par quatre tests.
+ */
+export const AGENT_STYLE_BLOCK = `STYLE : collègue, français, phrases courtes, ton neutre, sans exclamation ni liste numérotée. Tutoie ton interlocuteur, jamais le sujet dont on parle. Pas de plan ni de « prochaines étapes », ne récite pas tes capacités.`;
 
 /**
  * Bloc ANTI-INVENTION — n'affirmer que ce qu'un résultat de tool confirme.

@@ -26,6 +26,7 @@ import {
   type SlackTeamJoinEvent,
   type SlackEventsHandlerOptions,
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
+import { GREETING_REPLY } from '../../../src/shared/greeting';
 import { wrapAgentInput } from '../../../src/shared/security/llm-guardrail';
 import {
   SLACK_CHANNEL_KEY,
@@ -176,7 +177,9 @@ function envelope(event: SlackEvent, eventId = 'Ev0TEST0001'): SlackEventEnvelop
 const mention = (overrides: Partial<SlackMessageEvent> = {}): SlackMessageEvent => ({
   type: 'app_mention',
   user: HUMAN,
-  text: `<@${BOT_USER_ID}> bonjour`,
+  // Volontairement PAS une salutation nue : celles-ci sont court-circuitées sans
+  // appel LLM depuis le 2026-08-12 (voir `src/shared/greeting.ts`).
+  text: `<@${BOT_USER_ID}> où en est mon dossier ?`,
   channel: 'C0MOCKCHAN',
   channel_type: 'channel',
   ts: '1700000000.000100',
@@ -186,7 +189,7 @@ const mention = (overrides: Partial<SlackMessageEvent> = {}): SlackMessageEvent 
 const dm = (overrides: Partial<SlackMessageEvent> = {}): SlackMessageEvent => ({
   type: 'message',
   user: HUMAN,
-  text: 'bonjour',
+  text: 'où en est mon dossier ?',
   channel: 'D0MOCKDM01',
   channel_type: 'im',
   ts: '1700000000.000200',
@@ -1061,7 +1064,7 @@ describe('SlackEventsHandler — contexte Slack transmis à l’agent', () => {
   it('n’ajoute rien aux messages envoyés au modèle (budget de tokens inchangé)', async () => {
     const { handler, generate } = makeHandler();
 
-    await handler.handleEvent(envelope(dm({ text: 'bonjour' })));
+    await handler.handleEvent(envelope(dm({ text: 'où en est mon dossier ?' })));
 
     // Le `requestContext` est un canal d'injection de dépendances côté serveur : il ne doit
     // apparaître ni dans le prompt, ni dans les messages. Le plafond Groq (100 000
@@ -1071,7 +1074,7 @@ describe('SlackEventsHandler — contexte Slack transmis à l’agent', () => {
     // AUCUN identifiant de canal ni de thread : ceux-là restent au `requestContext`.
     expect(generate.mock.lastCall?.[0]).toEqual([
       preamble(),
-      { role: 'user', content: wrapAgentInput('bonjour') },
+      { role: 'user', content: wrapAgentInput('où en est mon dossier ?') },
     ]);
     expect(JSON.stringify(generate.mock.lastCall?.[0])).not.toContain('D0MOCKDM01');
   });
@@ -1129,11 +1132,13 @@ describe('SlackEventsHandler — mémoire conversationnelle', () => {
 
   it("ne stocke QUE du texte assaini, jamais l'entrée encadrée", async () => {
     const { handler } = makeHandler({ conversationRepository: repo });
-    await handler.handleEvent(envelope(dm({ text: 'bonjour', ts: nextTs() }), 'Ev1'));
+    await handler.handleEvent(
+      envelope(dm({ text: 'où en est mon dossier ?', ts: nextTs() }), 'Ev1'),
+    );
 
     const turns = await repo.recentTurns('D0MOCKDM01', { ttlMs: 60_000, limit: 10 });
 
-    expect(turns.map((t) => t.content)).toEqual(['bonjour', 'Réponse de l’agent']);
+    expect(turns.map((t) => t.content)).toEqual(['où en est mon dossier ?', 'Réponse de l’agent']);
     // Le délimiteur ne doit JAMAIS entrer en mémoire : `validateDelimiterIntegrity` rejette
     // toute seconde balise ouvrante, donc un historique encadré condamnerait tous les tours
     // suivants à lever `SecurityBlockError`.
@@ -1163,7 +1168,9 @@ describe('SlackEventsHandler — mémoire conversationnelle', () => {
     };
     const { handler, slack } = makeHandler({ conversationRepository: broken });
 
-    await handler.handleEvent(envelope(dm({ text: 'bonjour', ts: nextTs() }), 'Ev1'));
+    await handler.handleEvent(
+      envelope(dm({ text: 'où en est mon dossier ?', ts: nextTs() }), 'Ev1'),
+    );
 
     // La mémoire est un confort, jamais un point de panne : le bot doit répondre même si la
     // table n'a pas encore été appliquée sur la base de production.
@@ -1384,7 +1391,9 @@ describe('SlackEventsHandler — identité du demandeur dans la fenêtre du mod�
   it('place un message SYSTÈME nommant l’interlocuteur avant tout le reste', async () => {
     const { handler, generate } = makeHandler();
 
-    await handler.handleEvent(envelope(dm({ text: 'bonjour', ts: nextTs() }), 'EvID1'));
+    await handler.handleEvent(
+      envelope(dm({ text: 'où en est mon dossier ?', ts: nextTs() }), 'EvID1'),
+    );
 
     const first = firstMessage(generate);
     expect(first.role).toBe('system');
@@ -1410,7 +1419,9 @@ describe('SlackEventsHandler — identité du demandeur dans la fenêtre du mod�
     };
     const { handler, generate } = makeHandler({ workspaceProvider });
 
-    await handler.handleEvent(envelope(dm({ text: 'bonjour', ts: nextTs() }), 'EvID2'));
+    await handler.handleEvent(
+      envelope(dm({ text: 'où en est mon dossier ?', ts: nextTs() }), 'EvID2'),
+    );
     await handler.handleEvent(envelope(dm({ text: 'et sinon ?', ts: nextTs() }), 'EvID3'));
 
     expect(firstMessage(generate).content).toContain('Karyl Sadan');
@@ -1434,7 +1445,9 @@ describe('SlackEventsHandler — identité du demandeur dans la fenêtre du mod�
     };
     const { handler, generate } = makeHandler({ workspaceProvider });
 
-    await handler.handleEvent(envelope(dm({ text: 'bonjour', ts: nextTs() }), 'EvID4'));
+    await handler.handleEvent(
+      envelope(dm({ text: 'où en est mon dossier ?', ts: nextTs() }), 'EvID4'),
+    );
 
     const content = firstMessage(generate).content;
     // Le nom d'affichage Slack est modifiable par son porteur : injecté brut dans un message
@@ -1448,7 +1461,9 @@ describe('SlackEventsHandler — identité du demandeur dans la fenêtre du mod�
     const workspaceProvider = { getUserById: vi.fn().mockRejectedValue(new Error('ratelimited')) };
     const { handler, generate } = makeHandler({ workspaceProvider });
 
-    await handler.handleEvent(envelope(dm({ text: 'bonjour', ts: nextTs() }), 'EvID5'));
+    await handler.handleEvent(
+      envelope(dm({ text: 'où en est mon dossier ?', ts: nextTs() }), 'EvID5'),
+    );
 
     expect(firstMessage(generate).content).toContain(`<@${HUMAN}>`);
   });
@@ -1493,7 +1508,9 @@ describe('SlackEventsHandler — identité du demandeur dans la fenêtre du mod�
 
     const { handler, generate } = makeHandler({ directoryRepository });
 
-    await handler.handleEvent(envelope(dm({ text: 'bonjour', ts: nextTs() }), 'EvIDENT'));
+    await handler.handleEvent(
+      envelope(dm({ text: 'où en est mon dossier ?', ts: nextTs() }), 'EvIDENT'),
+    );
 
     const content = firstMessage(generate).content;
     // Sans ces deux valeurs dans la FENÊTRE du modèle, il fabrique une adresse plausible : la
@@ -1529,7 +1546,9 @@ describe('SlackEventsHandler — identité du demandeur dans la fenêtre du mod�
     const workspaceProvider = { getUserById: vi.fn() };
     const { handler, generate } = makeHandler({ directoryRepository, workspaceProvider });
 
-    await handler.handleEvent(envelope(dm({ text: 'bonjour', ts: nextTs() }), 'EvIDENT2'));
+    await handler.handleEvent(
+      envelope(dm({ text: 'où en est mon dossier ?', ts: nextTs() }), 'EvIDENT2'),
+    );
 
     expect(firstMessage(generate).content).toContain('connu@kissohq.com');
     expect(workspaceProvider.getUserById).not.toHaveBeenCalled();
@@ -1843,7 +1862,9 @@ describe('SlackEventsHandler — réconciliation fait / narration', () => {
     });
     const { handler, slack } = makeHandler({ mastra: agent.mastra });
 
-    await handler.handleEvent(envelope(dm({ text: 'bonjour', ts: nextTs() }), 'EvRC4'));
+    await handler.handleEvent(
+      envelope(dm({ text: 'où en est mon dossier ?', ts: nextTs() }), 'EvRC4'),
+    );
 
     expect(lastPosted(slack)).toBe('Bonjour Karyl, que puis-je faire pour toi ?');
   });
@@ -2002,5 +2023,42 @@ describe('userFacingFailure — distinguer un quota épuisé d’une panne', () 
     const a: { cause?: unknown } = {};
     a.cause = a;
     expect(userFacingFailure(a)).toBe(GENERIC_FAILURE);
+  });
+});
+
+/**
+ * Anti-régression du coût et de l'effet de bord d'une salutation.
+ *
+ * Production du 2026-08-12, 21:58 UTC — « Bonjour », sept caractères :
+ *
+ *   toolCalls: ["findEmployeeByEmail","getEmployeeProfile","updateOnboardingStatus","getTaskList"]
+ *   steps: 5, inputTokens: 13376
+ *
+ * Une tentative d'écriture non demandée sur le dossier de la personne, et 13 % du budget
+ * Groq quotidien (100 000 tokens/jour), pour un mot de politesse.
+ */
+describe('SlackEventsHandler — salutation nue', () => {
+  it('répond SANS appeler le modèle', async () => {
+    const { handler, slack, generate } = makeHandler();
+
+    await handler.handleEvent(envelope(dm({ text: 'Bonjour' })));
+
+    // La garantie qui compte : zéro étape LLM, donc zéro tool, donc aucune écriture.
+    expect(generate).not.toHaveBeenCalled();
+    expect(slack.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: GREETING_REPLY }),
+    );
+  });
+
+  it('une demande qui COMMENCE par une salutation atteint bien le modèle', async () => {
+    // Le faux positif serait bien pire que le défaut corrigé : « Salut, tu peux me
+    // retrouver le profil de … ? » est une vraie demande, observée en production.
+    const { handler, generate } = makeHandler();
+
+    await handler.handleEvent(
+      envelope(dm({ text: 'Salut, tu peux me retrouver le profil de a@b.com ?' })),
+    );
+
+    expect(generate).toHaveBeenCalled();
   });
 });

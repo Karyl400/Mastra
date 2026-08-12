@@ -57,8 +57,15 @@
  * instances entre requêtes : sans eux, la carte croîtrait sur toute la vie de l'instance.
  */
 
-/** Au-delà, l'appel n'appartient plus au même run : un run dépasse rarement 21 s. */
-const RUN_GUARD_TTL_MS = 2 * 60 * 1000;
+/**
+ * Fenêtre pendant laquelle un livrable identique est considéré comme déjà produit.
+ *
+ * Dix minutes, et non la durée d'un run (≈ 21 s au pire) : le doublon mesuré en production
+ * le 2026-08-12 s'étalait sur HUIT minutes et sept messages — « As-tu envoyé le rapport ? »
+ * régénérait à chaque fois. Trop court laisse passer ce cas ; trop long refuserait une
+ * demande légitimement répétée plus tard dans la journée.
+ */
+const RUN_GUARD_TTL_MS = 10 * 60 * 1000;
 
 /** Plafond de sécurité — l'instance est réutilisée entre requêtes. */
 const RUN_GUARD_MAX_ENTRIES = 200;

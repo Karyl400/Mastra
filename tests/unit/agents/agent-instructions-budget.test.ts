@@ -118,7 +118,20 @@ describe('Blocs partagés STYLE / ANTI-INVENTION', () => {
     // Les réponses de production récitaient des listes de capacités avant de répondre.
     // Aucun filtre de sortie ne sait corriger cela : seul le texte le peut.
     expect(AGENT_STYLE_BLOCK).toMatch(/récit/i);
-    expect(AGENT_STYLE_BLOCK).toContain('KISSO-AGENT-v3');
+    // ⚠️ Assertion INVERSÉE le 2026-08-12, après mesure en production.
+    //
+    // Le bloc nommait la chaîne interdite pour l'interdire. Or `sanitizeAgentOutput`
+    // traite `KISSO-AGENT-v\d+` comme un marqueur interne et REMPLACE la réponse entière
+    // dès qu'il apparaît : la consigne était donc le premier fournisseur, dans le contexte
+    // du modèle, de la chaîne qui détruit ses propres réponses. Sous repli Mistral — moins
+    // docile que Groq sur la non-répétition du prompt — cette boucle s'est refermée deux
+    // fois sur des demandes parfaitement anodines.
+    //
+    // La garantie n'est pas affaiblie : elle vit dans le code, pas dans le prompt.
+    expect(
+      AGENT_STYLE_BLOCK,
+      "le bloc STYLE ne doit plus NOMMER l'identifiant d'agent — voir agent-style.ts",
+    ).not.toContain('KISSO-AGENT-v3');
   });
 
   it('distingue l interlocuteur du sujet dont on parle', () => {

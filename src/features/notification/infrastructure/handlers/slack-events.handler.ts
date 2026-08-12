@@ -35,6 +35,7 @@ import type { DirectoryRepository } from '../../../directory/domain/ports/direct
 import { DrizzleDirectoryRepository } from '../../../directory/infrastructure/repositories/drizzle-directory.repository';
 import { SlackMemberSource } from '../../../directory/infrastructure/providers/slack-member-source.adapter';
 import { SlackRateLimiter } from '../services/slack-rate-limiter';
+import { GREETING_REPLY, isBareGreeting } from '../../../../shared/greeting';
 import { DrizzleRateLimitRepository } from '../repositories/drizzle-rate-limit.repository';
 import { writeAuditLog } from '../../../../infrastructure/audit/audit-log';
 
@@ -418,6 +419,15 @@ const VERB_SUFFIX_PATTERN = '(?:s|r|z|nt)?';
  * corrompue ou l'identifiant d'un agent retiré du registre ferait sinon lever
  * `mastra.getAgent()` à chaque message du fil, condamnant la conversation entière.
  */
+/**
+ * Agent porté par les tours mémorisés qui ne viennent d'AUCUN agent — aujourd'hui la seule
+ * réponse déterministe du système, celle aux salutations nues. On l'attribue au routage par
+ * défaut plutôt qu'à une valeur sentinelle : `conversation_turns.agent_id` sert à préfixer
+ * « [autre agent] » dans l'historique rejoué, et une valeur inconnue de `KNOWN_AGENT_IDS`
+ * ferait marquer ce tour comme étranger à chaque message suivant du fil.
+ */
+const DEFAULT_AGENT_ID = 'onboardingOrchestrator';
+
 const KNOWN_AGENT_IDS: ReadonlySet<string> = new Set([
   'onboardingOrchestrator',
   'questionnaireEngine',
@@ -1891,6 +1901,48 @@ export class SlackEventsHandler {
         channel,
         threadTs,
         historyTurns: history.length,
+      });
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SALUTATION NUE — réponse déterministe, aucun appel LLM
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // Mesuré en production le 2026-08-12 : « Bonjour » (7 caractères) a déclenché
+    // `["findEmployeeByEmail","getEmployeeProfile","updateOnboardingStatus","getTaskList"]`
+    // en 5 étapes et **13 376 tokens** — 13 % du budget Groq quotidien — dont une
+    // tentative d'ÉCRITURE non demandée sur le dossier de la personne.
+    //
+    // Placé APRÈS la garde de fil (on ne répond pas dans un fil où le bot n'a jamais
+    // parlé) et AVANT le marqueur de progression : la réponse est instantanée, donc
+    // « Je regarde ça, un instant… » n'a aucun sens ici.
+    //
+    // Les deux tours sont mémorisés comme n'importe quel échange : sans cela, un fil
+    // ouvert par une salutation ne serait jamais « engagé » et le message suivant, sans
+    // mention, serait abandonné par la garde ci-dessus.
+    if (isBareGreeting(text)) {
+      logger.info('Bare greeting — answered without any LLM call', { channel });
+
+      await this.slack.chat.postMessage({
+        channel,
+        text: GREETING_REPLY,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+      });
+
+      await this.rememberTurn({
+        conversationId,
+        role: 'user',
+        content: text,
+        agentId: DEFAULT_AGENT_ID,
+        slackUserId: user ?? null,
+      });
+      await this.rememberTurn({
+        conversationId,
+        role: 'assistant',
+        content: GREETING_REPLY,
+        agentId: DEFAULT_AGENT_ID,
+        slackUserId: null,
       });
       return;
     }

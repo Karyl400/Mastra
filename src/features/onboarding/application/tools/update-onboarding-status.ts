@@ -96,7 +96,22 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
         completedAt: data.status === OnboardingStatus.Completed ? now : null,
       };
 
-      await repo.update(updated);
+      const affected = await repo.update(updated);
+
+      if (affected === 0) {
+        // Écriture sur zéro ligne : le suivi a disparu entre la lecture et l'écriture.
+        // On le DIT au lieu d'annoncer un succès — c'est exactement le mensonge mesuré
+        // en production le 2026-08-12, où le bot affirmait « l'avancement de ton
+        // onboarding est mis à jour » sans qu'aucune ligne ne bouge.
+        logger.warn('Mise à jour du statut sans effet — aucune ligne affectée', {
+          employeeId: data.employeeId,
+        });
+        return {
+          updated: false as const,
+          reason: 'not_persisted' as const,
+          hint: "La mise à jour n'a pas été enregistrée. Ne dis pas qu'elle est faite ; propose de réessayer.",
+        };
+      }
 
       // Projection : `id`, `employeeId` et les horodatages techniques n'aident
       // en rien le modèle et sont repayés à chaque aller-retour (plafond Groq

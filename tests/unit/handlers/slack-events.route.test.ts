@@ -107,7 +107,9 @@ function eventCallback(event: Record<string, unknown>, eventId: string) {
 const dmEvent = (overrides: Record<string, unknown> = {}) => ({
   type: 'message',
   user: 'U000HUMAN01',
-  text: 'bonjour',
+  // Volontairement PAS une salutation nue : celles-ci reçoivent une réponse
+  // déterministe, sans appel LLM, depuis le 2026-08-12 (`src/shared/greeting.ts`).
+  text: 'où en est mon dossier ?',
   channel: 'D0MOCKDM01',
   channel_type: 'im',
   ts: '1700000000.000200',

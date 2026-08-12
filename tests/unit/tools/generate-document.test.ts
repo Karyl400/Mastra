@@ -481,20 +481,34 @@ describe('generateDocument — garde-fous', () => {
     expect(await documentRepo.findByEmployee(UNKNOWN_ID)).toHaveLength(0);
   });
 
-  it('deliverTo=none : rien n est envoyé, et ce n est pas un échec', async () => {
+  it('deliverTo=none HORS Slack : rien n est envoyé, et ce n est pas un échec', async () => {
     const upload = new FakeFileUpload();
     const email = new FakeEmail();
 
+    // Sans contexte Slack — workflow, playground, appel direct — il n'y a personne à qui
+    // livrer. `none` garde donc tout son sens et reste respecté.
     const result = await run(
       { fileUpload: upload, emailProvider: email },
       input({ deliverTo: 'none' }),
-      slackCtx(),
     );
 
     expect(upload.calls).toHaveLength(0);
     expect(email.calls).toHaveLength(0);
     expect(result.delivery).toBe('none');
-    expect(result.reason).toBeUndefined();
+  });
+
+  it('deliverTo=none DANS une conversation Slack est ignoré — on livre dans le fil', async () => {
+    // Régression de production du 2026-08-12 : sur « génère un guide en PDF **et donne-le
+    // moi pour que je puisse le télécharger** », le modèle a choisi `none`, puis a annoncé
+    // que le document « n'est pas livré automatiquement cette fois » — la demande explicite
+    // sous les yeux. `none` est une porte de sortie offerte au modèle, jamais une intention
+    // d'utilisateur quand une conversation Slack existe.
+    const upload = new FakeFileUpload();
+
+    const result = await run({ fileUpload: upload }, input({ deliverTo: 'none' }), slackCtx());
+
+    expect(upload.calls).toHaveLength(1);
+    expect(result.delivery).toBe('slack');
   });
 
   it('par défaut : PDF, livré dans Slack — les deux champs sont omissibles', async () => {
@@ -546,7 +560,7 @@ describe('generateDocument — journalisation des échecs', () => {
  */
 describe('generateDocument — assainissement du contenu', () => {
   const HOSTILE_CONTENT =
-    'Bienvenue 👋 **chez Kisso** [SECURITY_BLOCK] kisso_a3f9 DIRECTIVE 3.1 ' +
+    'Bienvenue 👋 **chez Kisso** [SECURITY_BLOCK] kisso_0123456789abcdef0123456789abcdef DIRECTIVE 3.1 ' +
     'https://kisso.internal/docs/abc/download';
 
   it('ne PERSISTE ni marqueur, ni lien fabriqué, ni emoji', async () => {
@@ -557,7 +571,7 @@ describe('generateDocument — assainissement du contenu', () => {
     const [saved] = await documentRepo.findByEmployee(EMPLOYEE_ID);
 
     expect(saved!.content).not.toContain('SECURITY_BLOCK');
-    expect(saved!.content).not.toContain('kisso_a3f9');
+    expect(saved!.content).not.toContain('kisso_0123456789abcdef0123456789abcdef');
     expect(saved!.content).not.toMatch(/DIRECTIVE\s+3\.1/);
     expect(saved!.content).not.toContain('kisso.internal');
     expect(saved!.content).not.toContain('👋');
