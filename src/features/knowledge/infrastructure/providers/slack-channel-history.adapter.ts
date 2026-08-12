@@ -6,6 +6,7 @@ import {
   type ChannelHistoryPort,
   type ChannelHistoryReadOptions,
   type ChannelMessage,
+  type ChannelUnavailableReason,
 } from '../../domain/ports/channel-history.port';
 
 /**
@@ -71,7 +72,16 @@ function toUnavailable(error: unknown, channelId: string): ChannelUnavailableErr
     // PAS membre : de son point de vue, le canal n'existe pas. Le traduire en
     // « canal inexistant » enverrait chercher une faute de frappe là où il faut
     // une invitation — c'est le même canal, vu à travers l'absence du bot.
-    const reason = code === 'channel_not_found' ? 'channel_not_found' : 'bot_not_in_channel';
+    // ⚠️ Le ternaire était INVERSÉ jusqu'au 2026-08-12 : il rendait `channel_not_found` pour
+    // le code `channel_not_found`, c'est-à-dire exactement ce que le commentaire ci-dessus
+    // explique qu'il ne faut PAS faire. L'utilisateur lisait « Cet identifiant ne désigne aucun
+    // canal » et allait chercher une faute de frappe, alors que le geste utile est une
+    // invitation.
+    //
+    // Et ce chemin n'est atteint qu'APRÈS `authorizeChannelRead`, qui a déjà prouvé que le
+    // DEMANDEUR est membre du canal : le canal existe donc forcément. « introuvable » y est
+    // structurellement impossible.
+    const reason: ChannelUnavailableReason = 'bot_not_in_channel';
     return new ChannelUnavailableError(
       reason,
       `Slack a refusé la lecture de ${channelId} (${code})`,

@@ -24,6 +24,36 @@ const MODULES_TO_COPY = [
   'pdfmake',
   'pdfkit',
   '@noble/hashes',
+  // ─────────────────────────────────────────────────────────────────────────
+  // Ajoutés le 2026-08-12 : SANS EUX LE BUNDLE NE DÉMARRE PAS, et le build sort
+  // pourtant en vert.
+  // ─────────────────────────────────────────────────────────────────────────
+  // Ce ne sont pas des points d'entrée mais des dépendances transitives, ce que
+  // l'en-tête ci-dessus dit précisément de ne pas lister. L'exception est
+  // délibérée et tient à `ensureTransitiveDependencies` : elle comble les
+  // modules ABSENTS, jamais ceux qui sont présents à une majeure PÉRIMÉE.
+  //
+  // Le mécanisme exact : le déployeur Mastra écrit un `package.json` de fonction
+  // qui épingle `@mastra/core` en 0.24.9 et installe SA fermeture de dépendances
+  // (`lru-cache@7`, `@isaacs/ttlcache@1`). Ce script écrase ensuite
+  // `@mastra/core` par le vrai 1.57.0 — mais laissait sa fermeture derrière,
+  // c'est-à-dire un noyau récent posé sur les dépendances d'un noyau d'il y a
+  // trois majeures.
+  //
+  // Les deux anciennes majeures font `module.exports = Class` ; les nouvelles
+  // exportent un espace de noms. `mastra.mjs` fait
+  // `import { LRUCache } from 'lru-cache'` et `import { TTLCache } from
+  // '@isaacs/ttlcache'` : c'est une erreur de LIAISON ESM, donc la fonction
+  // entière meurt avant la première instruction. Symptôme exact :
+  //     SyntaxError: Named export 'TTLCache' not found.
+  //
+  // ⚠️ Le vérificateur voyait l'écart (`lru-cache@7.18.3 vs ^11.2.7`) et le
+  // classait « non bloquant ». C'est la signature connue de ce dépôt — un
+  // contrôle vert sur un artefact mort, comme `emailSent: false` sous
+  // `status: 'success'`. `verify-vercel-bundle.js` échoue désormais sur un écart
+  // de MAJEURE, pour que ce mode de panne ne puisse plus repasser en silence.
+  'lru-cache',
+  '@isaacs/ttlcache',
 ];
 
 /** Nombre de passes de rattrapage si l'audit trouve encore un trou après la première. */

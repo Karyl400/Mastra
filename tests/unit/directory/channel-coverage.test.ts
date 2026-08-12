@@ -143,6 +143,23 @@ describe('Directory: couverture de canaux', () => {
     expect(report.outcome).toBe('completed');
   });
 
+  it('écarte un canal archivé même quand le bot en est resté MEMBRE', async () => {
+    const source = makeSource([
+      { id: 'COLD', name: 'projet-2019', isPrivate: false, isArchived: true, isMember: true },
+    ]);
+
+    const report = await makeChannelCoverage({ source }).run();
+
+    // `chat.postMessage` échoue en `is_archived` quel que soit `is_member` : annoncer ce canal
+    // comme accessible promettrait une écriture qui échouera à coup sûr, et
+    // `accessibleChannelIds` est précisément la liste de ceux où le bot PEUT écrire.
+    expect(report.accessibleChannelIds).toEqual([]);
+    expect(report.archivedSkipped).toBe(1);
+    expect(report.alreadyMember).toBe(0);
+    expect(source.join).not.toHaveBeenCalled();
+    expect(report.outcome).toBe('completed');
+  });
+
   it('arrête d appeler Slack dès le premier missing_scope, mais nomme tous les canaux en attente', async () => {
     const source = makeSource(
       [

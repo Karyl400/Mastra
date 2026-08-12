@@ -32,6 +32,9 @@ function facts(overrides: Partial<DirectoryMemberFacts> & { slackUserId: string 
     email: null,
     realName: '',
     displayName: '',
+    firstName: null,
+    lastName: null,
+    title: null,
     isBot: false,
     isAdmin: false,
     isRestricted: false,
@@ -116,10 +119,14 @@ describe('getUserConversations — résolution de la personne', () => {
   it('accepte un EMAIL — le câblage qui manquait', async () => {
     // Un humain ne connaît pas le `U…` de ses collègues, et le modèle non plus.
     // La boucle « donne-moi son identifiant » était garantie par le câblage.
+    //
+    // ⚠️ On assure ici sur le tour `user` et non sur la réponse du bot : depuis
+    // la fermeture de la fuite transitive, les tours `assistant` d'un TIERS ne
+    // sortent plus (voir « fuite transitive » plus bas).
     const result = await run('awa@kissohq.com', HR);
 
     expect(result.found).toBe(true);
-    expect(result.conversation).toContain('MacBook');
+    expect(result.conversation).toContain('matériel');
   });
 
   it('accepte un identifiant Slack, casse indifférente', async () => {
@@ -193,6 +200,86 @@ describe('getUserConversations — autorisation', () => {
     // seule l'identité du `requestContext` est utilisée.
     expect(result.found).toBe(true);
     expect(result.conversation).toContain('nouveau');
+  });
+});
+
+describe("getUserConversations — l'oracle d'annuaire", () => {
+  it("rend le MÊME verdict, que l'email soit dans l'annuaire ou non", async () => {
+    // Deux verdicts distinguables = un oracle d'appartenance à l'annuaire,
+    // actionnable en DM par un invité mono-canal : il énumère les adresses de
+    // l'entreprise une par une. Doctrine `NEUTRAL_REFUSAL` — ne jamais
+    // renseigner l'attaquant sur la sonde qui a porté.
+    const known = await run('awa@kissohq.com', GUEST);
+    const unknown = await run('jamais-vu@kissohq.com', GUEST);
+
+    expect(known.reason).toBe('insufficient_privilege');
+    expect(unknown).toEqual(known);
+  });
+
+  it("ne résout même pas la cible tant que l'autorisation n'est pas tranchée", async () => {
+    // La propriété structurelle, plus forte que l'égalité des deux verdicts :
+    // ce qu'on n'interroge pas ne peut pas fuiter — ni par le verdict, ni par le
+    // temps de réponse, ni par un journal.
+    let emailLookups = 0;
+    const counting = {
+      findBySlackUserId: (id: string) => directory.findBySlackUserId(id),
+      findByEmail: (email: string) => {
+        emailLookups += 1;
+        return directory.findByEmail(email);
+      },
+    };
+
+    const result = (await makeGetUserConversations({
+      directory: counting,
+      memory,
+      policy: POLICY,
+    }).execute!(
+      { person: 'awa@kissohq.com' } as never,
+      {
+        requestContext: buildSlackRequestContext({ channel: 'D_GUEST', slackUserId: GUEST }),
+      } as never,
+    )) as Result;
+
+    expect(result.reason).toBe('insufficient_privilege');
+    expect(emailLookups).toBe(0);
+  });
+});
+
+describe('getUserConversations — fuite transitive par la mémoire', () => {
+  beforeEach(() => {
+    // Awa est membre de `#engineer-karyl`, PRIVÉ ; elle en demande un résumé en
+    // DM — légitime, `getChannelHistory` a vérifié SON appartenance. Le résumé
+    // est ensuite persisté dans `conversation_turns` sous sa clé `D…`.
+    memory.seed(TARGET_DM, [
+      turn('user', 'résume-moi ce qui se dit dans #engineer-karyl', 20),
+      turn('assistant', 'côté ingénierie : la migration Turso est reportée à mars', 19),
+    ]);
+  });
+
+  it("ne sert pas les RÉPONSES du bot quand la conversation est celle d'un tiers", async () => {
+    // RH est `full` mais n'est PAS membre de `#engineer-karyl`. Sans ce filtre,
+    // le privilège `full` ouvre le canal privé PAR RICOCHET — ce que
+    // `disclosure-policy.ts` garantit explicitement ne pas faire.
+    const result = await run('awa@kissohq.com', HR);
+
+    expect(result.found).toBe(true);
+    expect(result.conversation).toContain('résume-moi');
+    expect(JSON.stringify(result)).not.toContain('Turso');
+  });
+
+  it('sert le fil ENTIER à la personne concernée', async () => {
+    // Le filtre ne porte que sur les échanges d'AUTRUI : sur les siens, tout
+    // sort. C'est sa conversation, et le bot ne lui a rien dit qu'elle ne l'ait
+    // déjà lu dans Slack.
+    await directory.rememberDmChannel(HR, HR_DM);
+    memory.seed(HR_DM, [
+      turn('user', 'et de mon côté ?', 10),
+      turn('assistant', 'ton onboarding est complet', 9),
+    ]);
+
+    const result = await run(undefined, HR);
+
+    expect(result.conversation).toContain('onboarding est complet');
   });
 });
 

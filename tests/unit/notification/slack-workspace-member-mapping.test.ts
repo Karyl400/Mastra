@@ -42,6 +42,9 @@ describe('Notification: projection SlackMember (toMember)', () => {
       firstName: 'Jean',
       lastName: 'Dupont',
       displayName: 'jdupont',
+      // `profile.title` absent de la réponse Slack : la projection rend la chaîne vide, pas
+      // `undefined` — `SlackMember` n'a aucun champ optionnel.
+      title: '',
       isRestricted: false,
       isUltraRestricted: false,
       isDeleted: false,
@@ -210,6 +213,7 @@ describe('Notification: projection SlackMember (toMember)', () => {
       firstName: '',
       lastName: '',
       displayName: '',
+      title: '',
       isRestricted: false,
       isUltraRestricted: false,
       isDeleted: false,

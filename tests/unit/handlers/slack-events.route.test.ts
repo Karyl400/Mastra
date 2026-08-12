@@ -17,17 +17,32 @@ vi.mock('@slack/web-api', () => ({
   },
 }));
 
+// La piste d'audit est le DERNIER accès base du chemin traité : `writeAuditLog` est une
+// fonction de module, pas une dépendance injectable, donc aucune option du handler ne la
+// neutralise. Sans cette doublure, chaque événement accepté écrit une ligne dans la VRAIE
+// `data/kisso.db` (elle en porte déjà plus d'un millier, laissées là par les tests).
+// Elle n'avale jamais ses erreurs ici : ces tests n'observent pas l'audit, ils observent
+// seulement qu'on n'y touche pas.
+vi.mock('../../../src/infrastructure/audit/audit-log', () => ({
+  writeAuditLog: vi.fn().mockResolvedValue(undefined),
+}));
+
 import {
   slackEventsRoute,
   SLACK_EVENTS_PATH,
   resetSlackEventsHandler,
+  setSlackEventsHandlerOptionsForTests,
   handleSlackEventRequest,
   scheduleBackgroundWork,
   getVercelWaitUntil,
+  classifyAckLatency,
+  SLACK_ACK_BUDGET_MS,
+  SLACK_ACK_AT_RISK_MS,
   type SlackRouteContext,
 } from '../../../src/api/slack-events.route';
 import { computeSlackSignature } from '../../../src/shared/security/slack-signature';
 import { PROGRESS_MARKER_TEXT } from '../../../src/features/notification/infrastructure/providers/slack-progress';
+import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
 
 const SECRET = 'unit-test-signing-secret';
 const BOT_USER_ID = 'U0BMBEJTBMJ';
@@ -99,6 +114,53 @@ const dmEvent = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+/**
+ * Réinitialise le singleton de route ET réinstalle des dépendances HERMÉTIQUES.
+ *
+ * À appeler dans le `beforeEach` de CHAQUE bloc qui traverse la route : la voie de production
+ * construit le handler sans options, et le handler construit alors paresseusement quatre dépôts
+ * Drizzle. Or les tests unitaires ne chargent pas `.env` (aucun `globalSetup` dans
+ * `vitest.config.ts`), donc `DATABASE_URL` est absent et `connection.ts` retombe sur
+ * `file:./data/kisso.db` — la vraie base de développement.
+ *
+ * Le mode d'échec précis, constaté : les compteurs de `rate_limit_counters` et les clés de
+ * `slack_event_dedup` PERSISTENT entre les tests et entre les runs. La rafale par défaut étant
+ * de 5 messages/minute pour un même auteur, le 6ᵉ événement du fichier repartait en
+ * `rate_limited`, aucun travail de fond n'était programmé, et quatre tests tombaient — dont
+ * « hands the Slack background work to waitUntil ». La suite ne passait auparavant que parce
+ * que ces deux tables étaient ABSENTES de la base locale : le limiteur et la déduplication
+ * dégradaient alors en mémoire, par instance. Un test vert par absence de table n'est pas un
+ * test vert, et il redevient rouge sur toute machine où `npm run db:init` a créé le schéma.
+ *
+ * Même doctrine que `makeHandler` dans `slack-events.handler.test.ts` : chaque dépôt est
+ * explicitement `null` (désactivé) ou remplacé par une doublure NEUVE à chaque test.
+ */
+function resetRouteHandlerWithTestDoubles(): void {
+  resetSlackEventsHandler();
+  setSlackEventsHandlerOptionsForTests({
+    // `null` et non `undefined` : `undefined` signifie « construis le dépôt Drizzle ».
+    conversationRepository: null,
+    // Doublure NEUVE à chaque test : c'est elle qui garantit qu'aucune clé de déduplication
+    // ne survit d'un test à l'autre. Elle reste partagée à l'intérieur d'un test, donc le cas
+    // « rejeu du même `event_id` » est toujours réellement exercé.
+    dedupRepository: new InMemorySlackEventDedupRepository(),
+    // `null` désactive l'annuaire — donc aussi la politique d'accès, qui en dérive. Ces tests
+    // portent sur la route (signature, ACK, ordonnancement du travail de fond), pas sur la
+    // frontière d'autorisation, qui a ses propres tests.
+    directoryRepository: null,
+    // ⚠️ La ligne dont l'absence a coûté les quatre échecs. Sans elle, `getRateLimiter()`
+    // construit un `DrizzleRateLimitRepository` et compte les messages de tous les tests
+    // ensemble, dans un fichier qui survit au run.
+    rateLimiter: null,
+  });
+}
+
+// Aucune injection de test ne survit à un test : la couture est rendue à son état de
+// production après chacun d'eux, y compris après le dernier du fichier.
+afterEach(() => {
+  resetSlackEventsHandler();
+});
+
 describe('Route: POST /slack/events', () => {
   const originalSecret = process.env.SLACK_SIGNING_SECRET;
   const originalToken = process.env.SLACK_BOT_TOKEN;
@@ -106,7 +168,7 @@ describe('Route: POST /slack/events', () => {
   beforeEach(() => {
     process.env.SLACK_SIGNING_SECRET = SECRET;
     process.env.SLACK_BOT_TOKEN = 'xoxb-unit-test';
-    resetSlackEventsHandler();
+    resetRouteHandlerWithTestDoubles();
     postMessage.mockClear();
     authTest.mockClear();
   });
@@ -283,6 +345,55 @@ describe('Route: POST /slack/events', () => {
 });
 
 /**
+ * Le chemin pré-ACK n'a que 3 secondes, et son dépassement n'est PAS observable depuis la
+ * fonction : quand l'ACK part à 3,4 s on voit un `200` parfaitement normal dans les logs, et
+ * un doublon inexplicable dans Slack. C'est exactement ce qui s'est passé le 2026-08-11
+ * 12:38 UTC — l'incident n'a été reconstruit qu'après coup, par déduction, à partir de deux
+ * messages contradictoires postés dans un fil.
+ */
+describe('Route: budget d’ACK Slack', () => {
+  // Chaque `describe` de ce fichier pose lui-même son secret de signature : les hooks d'un
+  // bloc frère ne s'appliquent pas ici, et sans secret la route échoue FERMÉ (401) avant
+  // même d'atteindre le chemin qu'on prétend mesurer. Le test lisait alors un 401 comme un
+  // défaut d'ACK — exactement le genre de faux signal que ce bloc existe pour éviter.
+  beforeEach(() => {
+    process.env.SLACK_SIGNING_SECRET = SECRET;
+    process.env.SLACK_BOT_TOKEN = 'xoxb-unit-test';
+    resetRouteHandlerWithTestDoubles();
+    postMessage.mockClear();
+  });
+
+  afterEach(() => {
+    delete process.env.SLACK_SIGNING_SECRET;
+    delete process.env.SLACK_BOT_TOKEN;
+  });
+
+  it('tient le contrat Slack : 3 s, et une alerte à mi-parcours', () => {
+    // Le chiffre n'est pas un réglage : c'est le délai au-delà duquel Slack REJOUE.
+    expect(SLACK_ACK_BUDGET_MS).toBe(3_000);
+    expect(SLACK_ACK_AT_RISK_MS).toBeLessThan(SLACK_ACK_BUDGET_MS);
+  });
+
+  it('nomme chaque état plutôt que de dégrader en silence', () => {
+    expect(classifyAckLatency(0)).toBe('ok');
+    expect(classifyAckLatency(SLACK_ACK_AT_RISK_MS - 1)).toBe('ok');
+    expect(classifyAckLatency(SLACK_ACK_AT_RISK_MS)).toBe('at_risk');
+    expect(classifyAckLatency(SLACK_ACK_BUDGET_MS - 1)).toBe('at_risk');
+    // À partir d'ici, Slack a déjà rejoué : un second traitement est en vol quelque part.
+    expect(classifyAckLatency(SLACK_ACK_BUDGET_MS)).toBe('exceeded');
+    expect(classifyAckLatency(6_700)).toBe('exceeded');
+  });
+
+  it('reste silencieux sur le cas nominal — un ACK rapide n’a rien à signaler', async () => {
+    const { mastra } = makeMastra();
+    const result = await callRoute(eventCallback(dmEvent(), 'Ev0BUDGET'), { mastra });
+
+    expect(result.status).toBe(200);
+    expect(classifyAckLatency(0)).toBe('ok');
+  });
+});
+
+/**
  * Le bug de production : Vercel gèle la fonction dès la réponse envoyée, ce qui tue
  * l'appel LLM lancé en `void promise`. La route doit déclarer ce travail au lanceur via
  * `waitUntil` — lu directement sur `globalThis[Symbol.for('@vercel/request-context')]`,
@@ -308,7 +419,7 @@ describe('Route: prolongation du traitement de fond (waitUntil)', () => {
   beforeEach(() => {
     process.env.SLACK_SIGNING_SECRET = SECRET;
     process.env.SLACK_BOT_TOKEN = 'xoxb-unit-test';
-    resetSlackEventsHandler();
+    resetRouteHandlerWithTestDoubles();
     postMessage.mockClear();
   });
 

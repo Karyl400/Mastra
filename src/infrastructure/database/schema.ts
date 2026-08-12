@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   index,
   foreignKey,
+  primaryKey,
   check,
 } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
@@ -703,6 +704,24 @@ export const slackDirectory = sqliteTable(
     realName: text('real_name').notNull().default(''),
     displayName: text('display_name').notNull().default(''),
 
+    // Prénom, nom et poste — lus TELS QUELS dans `profile.first_name`, `profile.last_name` et
+    // `profile.title`, jamais dérivés de `real_name`. Sur les données réelles du workspace,
+    // découper `real_name` sur l'espace marche quatre fois sur cinq et échoue sur
+    // `ridwanenico77`, qui n'a pas de prénom mais un pseudo. Une heuristique fausse une fois
+    // sur cinq n'est pas une heuristique, c'est une invention.
+    //
+    // NULLABLES, et la nullité veut dire quelque chose : Slack rend une CHAÎNE VIDE pour un
+    // champ non renseigné, qu'on normalise en `NULL`. `''` se lirait « renseigné, mais vide ».
+    // Et comme `synced_at` prouve qu'on a interrogé Slack, `NULL` signifie ici « Slack ne le
+    // précise pas » — une absence AVÉRÉE, pas une ignorance.
+    //
+    // ⚠️ `title` est le poste DÉCLARATIF, édité par son porteur. Distinct de
+    // `employees.position`, qui est le poste CONTRACTUEL : deux faits, deux sources, aucun
+    // arbitrage à écrire entre eux.
+    firstName: text('first_name'),
+    lastName: text('last_name'),
+    title: text('title'),
+
     // Flags de CONFIANCE — matière première de la politique d'autorisation. Aucun n'est
     // nullable : « on ne sait pas si c'est un invité » ne doit pas exister comme état, la
     // politique devrait alors décider sur un troisième cas où le défaut sûr serait
@@ -787,7 +806,132 @@ export const rateLimitCounters = sqliteTable(
 );
 
 // ============================================
-// 15. TYPES INFÉRÉS POUR LES REQUÊTES
+// 15. SLACK CHANNELS (Inventaire des canaux — feature `directory`)
+// ============================================
+//
+// ⚠️⚠️ CES DEUX TABLES SONT UN INVENTAIRE D'OBSERVABILITÉ, JAMAIS UNE SOURCE D'AUTORISATION.
+//
+// La tentation est écrite d'avance : « les membres de #engineer-karyl » RESSEMBLE à une liste
+// d'autorisation, et quelqu'un finira par la lire comme telle. Or `#engineer-karyl` est PRIVÉ,
+// et servir son contenu à un non-membre sur la foi de ces lignes est exactement le « deputy
+// confus » de `PLAN-ARCHITECTURE.md` §4.1 — que la feature `knowledge` ferme en interrogeant
+// Slack EN DIRECT à chaque décision de divulgation.
+//
+// L'aggravant est vérifiable et n'a rien d'hypothétique : **il n'existe AUCUN chemin
+// d'invalidation**. Les abonnements de l'app Slack sont `app_mention`, `message.im`,
+// `message.channels`, `message.groups` — ni `member_joined_channel`, ni `member_left_channel`.
+// Aucun événement ne viendra jamais démentir une ligne d'ici. Ces tables ne sont donc pas
+// « périmées dans trois jours » : elles sont fausses, et silencieuses, dès la première personne
+// qui quitte un canal entre deux synchronisations manuelles.
+//
+// La règle est rendue EXÉCUTABLE, et non recommandée, par
+// `tests/unit/directory/channel-inventory-not-an-acl.test.ts` : il échoue si `knowledge/**`,
+// `access-policy.ts` ou `access-guard.ts` importent le repository de canaux.
+//
+// Ce que ces tables servent, et rien d'autre : « dans quels canaux le bot est-il ?  »,
+// « combien de personnes y a-t-il ? », « qui y est ? », « depuis quand ? » — de l'inventaire.
+//
+// ⚠️ DDL : `scripts/ddl-slack-channels.sql`.
+
+export const slackChannels = sqliteTable(
+  'slack_channels',
+  {
+    // La PRIMARY KEY est l'identifiant, PAS le nom. Un canal se renomme (`#random` →
+    // `#random-fr`) sans que son `C…` bouge : une clé portée par le nom ferait qu'un renommage
+    // crée un SECOND canal et laisse l'ancien vivre à côté, avec ses membres périmés. Même
+    // arbitrage que `slack_directory`, dont la clé est le `U…` et non l'email.
+    channelId: text('channel_id').primaryKey(),
+
+    // NOT NULL DEFAULT '' : le nom est affiché et concaténé, un NULL y imprimerait « null ».
+    // Arbitrage identique à `real_name` / `display_name` de `slack_directory`.
+    name: text('name').notNull().default(''),
+
+    // Faits d'accès, tels que `conversations.list` les rend. `isMember` est le seul qui
+    // détermine si `chat.postMessage` peut aboutir — c'est lui, et non « le bot est invité »,
+    // qui décide d'un `not_in_channel`.
+    isPrivate: integer('is_private', { mode: 'boolean' }).notNull().default(false),
+    isArchived: integer('is_archived', { mode: 'boolean' }).notNull().default(false),
+    isMember: integer('is_member', { mode: 'boolean' }).notNull().default(false),
+
+    // ⚠️ LE NOM DE CETTE COLONNE EST LE COMMENTAIRE. C'est une ASSERTION DE SLACK
+    // (`conversations.list` → `num_members`), pas un cache du `COUNT(*)` de
+    // `slack_channel_members`. Les deux viennent d'appels DISTINCTS, donc d'instants distincts,
+    // et divergent normalement.
+    //
+    // Le VRAI compte est `COUNT(*)` sur la table de jointure. L'écart entre les deux est un
+    // signal de fraîcheur GRATUIT — et le nommer `member_count` tout court aurait garanti qu'on
+    // le prenne un jour pour l'autorité, puis qu'on « corrige » l'écart en le réécrivant.
+    //
+    // NULLABLE : Slack ne rend pas toujours `num_members` (canaux privés notamment). NULL dit
+    // « Slack n'a rien affirmé », ce qu'un `0` — indiscernable d'un canal vide — ne dirait pas.
+    memberCountReported: integer('member_count_reported'),
+
+    // Millisecondes (Drizzle `timestamp_ms`), comme `conversation_turns`, `slack_event_dedup` et
+    // `slack_directory` — et non le `datetime('now')` en text des 10 tables historiques.
+    syncedAt: integer('synced_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    // Sert « quand cet inventaire a-t-il été confirmé pour la dernière fois ? ». Sans fraîcheur
+    // lisible, une table sans chemin d'invalidation se lit « à jour ».
+    syncedAtIdx: index('idx_slack_channels_synced_at').on(table.syncedAt),
+  }),
+);
+
+export const slackChannelMembers = sqliteTable(
+  'slack_channel_members',
+  {
+    // FK DÉCLARÉE, et c'est un choix : les deux lignes sont écrites par la MÊME passe de
+    // synchronisation, le canal AVANT ses membres. `PRAGMA foreign_keys = 1` étant ACTIF sur la
+    // Turso de production (vérifié le 2026-08-12), une appartenance orpheline échoue
+    // bruyamment — ce qui est le comportement voulu : une appartenance sans canal ne désigne
+    // rien.
+    channelId: text('channel_id')
+      .notNull()
+      .references(() => slackChannels.channelId),
+
+    // ⚠️ AUCUNE FK VERS `slack_directory`, ET C'EST DÉLIBÉRÉ.
+    //
+    // Un membre de canal peut parfaitement être un compte que l'annuaire ne connaît pas encore :
+    // les deux synchronisations sont INDÉPENDANTES (`--members` et `--channels` s'exécutent
+    // séparément), une personne arrivée depuis le dernier balayage de `users.list` n'a pas de
+    // ligne, et les bots tiers n'en ont pas non plus.
+    //
+    // Avec le pragma actif, une FK ici ferait ÉCHOUER l'enregistrement précisément sur les
+    // comptes les plus intéressants — les nouveaux arrivants — et imposerait un ordre entre deux
+    // synchronisations qui n'en ont pas. Un inventaire enregistre ce qu'il OBSERVE ; il n'est
+    // pas la vérité référentielle des personnes.
+    slackUserId: text('slack_user_id').notNull(),
+
+    // Survit aux resynchronisations d'une personne toujours présente : c'est le champ que
+    // `replaceMembers` ne nomme JAMAIS dans son `set`, exactement comme `upsertFacts` protège
+    // `dm_channel_id`. Le mode d'échec évité est celui, déjà payé, de `documents.content` : une
+    // écriture qui perd une donnée en silence.
+    firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull(),
+
+    // Marqueur de passe. Il porte à lui seul la sémantique de REMPLACEMENT : la passe réécrit
+    // `synced_at` sur les membres présents, puis supprime du canal tout ce qui porte encore un
+    // `synced_at` antérieur. Une personne partie DISPARAÎT — les membres d'un canal à l'instant
+    // T sont un ENSEMBLE, jamais une accumulation.
+    syncedAt: integer('synced_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    // PK COMPOSITE, sans clé de substitution : la ligne n'a pas d'identité propre, elle EST
+    // l'appartenance. Un `id` autogénéré autoriserait deux lignes identiques pour le même
+    // couple, et le doublon ne se verrait qu'au `COUNT(*)`, c'est-à-dire dans le seul chiffre
+    // que cette table existe pour rendre.
+    pk: primaryKey({ columns: [table.channelId, table.slackUserId] }),
+
+    // « Dans quels canaux est cette personne ? » — la PK indexe (channel_id, slack_user_id),
+    // donc elle ne sait pas répondre dans ce sens.
+    userIdx: index('idx_slack_channel_members_user').on(table.slackUserId),
+
+    // Détection des départs : c'est la colonne sur laquelle porte la suppression de fin de passe.
+    syncedAtIdx: index('idx_slack_channel_members_synced_at').on(table.syncedAt),
+  }),
+);
+
+// ============================================
+// 16. TYPES INFÉRÉS POUR LES REQUÊTES
 // ============================================
 
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
@@ -807,6 +951,8 @@ export type ConversationTurnRow = InferSelectModel<typeof conversationTurns>;
 export type SlackEventDedupRow = InferSelectModel<typeof slackEventDedup>;
 export type SlackDirectoryRow = InferSelectModel<typeof slackDirectory>;
 export type RateLimitCounterRow = InferSelectModel<typeof rateLimitCounters>;
+export type SlackChannelRow = InferSelectModel<typeof slackChannels>;
+export type SlackChannelMemberRow = InferSelectModel<typeof slackChannelMembers>;
 
 // Insert types (création)
 export type NewEmployee = InferInsertModel<typeof employees>;
@@ -823,3 +969,5 @@ export type NewConversationTurnRow = InferInsertModel<typeof conversationTurns>;
 export type NewSlackEventDedupRow = InferInsertModel<typeof slackEventDedup>;
 export type NewSlackDirectoryRow = InferInsertModel<typeof slackDirectory>;
 export type NewRateLimitCounterRow = InferInsertModel<typeof rateLimitCounters>;
+export type NewSlackChannelRow = InferInsertModel<typeof slackChannels>;
+export type NewSlackChannelMemberRow = InferInsertModel<typeof slackChannelMembers>;

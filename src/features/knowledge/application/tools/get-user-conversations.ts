@@ -15,6 +15,8 @@ import type {
 } from '../../domain/ports/person-directory.port';
 import {
   authorizeMemoryRead,
+  authorizeOtherMemoryRead,
+  mayDiscloseBotUtterances,
   type DisclosureReason,
   type Requester,
 } from '../../domain/services/disclosure-policy';
@@ -139,6 +141,35 @@ async function resolveTarget(
   return 'unparsable';
 }
 
+/**
+ * La valeur demandée désigne-t-elle le DEMANDEUR lui-même ? Répondu SANS toucher
+ * l'annuaire — c'est toute la raison d'être de cette fonction.
+ *
+ * Elle sert à choisir la porte d'autorisation avant toute résolution : « soi »
+ * (toujours ouverte) ou « autrui » (réservée à `full`). Interroger l'annuaire
+ * pour le savoir rouvrirait l'oracle qu'on ferme, puisque le verdict dépendrait
+ * alors de la présence de l'adresse.
+ *
+ * ⚠️ CONSERVATRICE PAR CONSTRUCTION : dans le doute, elle rend `false`, donc
+ * « autrui », donc le contrôle le PLUS strict. Un demandeur que l'annuaire ne
+ * connaît pas encore n'a pas d'email connu : il ne peut se désigner que par son
+ * `U…` ou en ne disant rien — les deux cas fréquents, et les deux servis.
+ */
+function designatesRequester(
+  asked: string,
+  requesterId: string,
+  requesterPerson: DirectoryPerson | null,
+): boolean {
+  const value = asked.trim();
+
+  // Casse indifférente : `resolveTarget` normalise déjà en majuscules avant de
+  // chercher, et Slack n'émet jamais deux `U…` ne différant que par la casse.
+  if (SLACK_USER_ID_RE.test(value)) return value.toUpperCase() === requesterId.toUpperCase();
+
+  const ownEmail = requesterPerson?.email?.trim().toLowerCase();
+  return Boolean(ownEmail) && value.toLowerCase() === ownEmail;
+}
+
 export function makeGetUserConversations(deps: GetUserConversationsDeps) {
   return createTool({
     id: 'getUserConversations',
@@ -183,6 +214,36 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
       const requester: Requester = { slackUserId: requesterId, subject: requesterPerson };
 
       const asked = data.person?.trim();
+
+      // ── L'AUTORISATION D'ABORD, LA RÉSOLUTION ENSUITE ───────────────────────
+      // L'ordre EST le correctif. Résoudre la cible avant de trancher rendait
+      // deux verdicts DISTINGUABLES à un demandeur sans privilège :
+      // `person_not_found` si l'adresse est absente de l'annuaire,
+      // `insufficient_privilege` si elle y est. C'est un oracle d'appartenance
+      // à l'annuaire, actionnable en DM par un invité mono-canal : il énumère
+      // les adresses de l'entreprise une par une. Même doctrine que
+      // `NEUTRAL_REFUSAL` et qu'`isMember`, qui rend `false` sans dire pourquoi.
+      //
+      // La question posée ici ne dépend donc PAS de la cible, seulement de la
+      // distinction soi / autrui, tranchée sans la moindre E/S.
+      const targetsRequester = !asked || designatesRequester(asked, requesterId, requesterPerson);
+
+      const verdict = targetsRequester
+        ? authorizeMemoryRead(requester, requesterId, policy)
+        : authorizeOtherMemoryRead(requester, policy);
+
+      if (!verdict.allowed) {
+        logger.warn('Knowledge — récupération refusée par la politique de divulgation', {
+          scope: 'bot_memory',
+          requesterId,
+          // Jamais la cible demandée : un journal qui recopie la sonde d'un
+          // attaquant lui construit gratuitement sa liste d'adresses valides.
+          targetsRequester,
+          reason: verdict.reason,
+        });
+        return refuse(verdict.reason);
+      }
+
       const resolved = asked ? await resolveTarget(deps.directory, asked) : requesterPerson;
 
       if (resolved === 'unparsable') return refuse('person_not_resolved');
@@ -190,19 +251,8 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
       // Cas particulier utile : le demandeur nous écrit en DM et l'annuaire ne le
       // connaît pas encore. Le canal courant EST sa conversation — la refuser
       // reviendrait à lui cacher ce qu'il vient lui-même d'écrire.
-      const targetId = resolved?.slackUserId ?? (asked ? null : requesterId);
+      const targetId = resolved?.slackUserId ?? (targetsRequester ? requesterId : null);
       if (!targetId) return refuse('person_not_found');
-
-      const verdict = authorizeMemoryRead(requester, targetId, policy);
-      if (!verdict.allowed) {
-        logger.warn('Knowledge — récupération refusée par la politique de divulgation', {
-          scope: 'bot_memory',
-          requesterId,
-          targetId,
-          reason: verdict.reason,
-        });
-        return refuse(verdict.reason);
-      }
 
       const isSelf = targetId === requesterId;
       const dmChannelId =
@@ -230,10 +280,24 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
         return refuse('memory_unavailable');
       }
 
-      if (turns.length === 0) return refuse('no_recorded_conversation');
+      // ── CE QUE LE BOT A DIT NE SORT QUE VERS LA PERSONNE CONCERNÉE ──────────
+      // Fuite transitive, fermée ici : les résumés de canaux PRIVÉS rédigés par
+      // le bot sont persistés dans la conversation `D…` de celui qui les a
+      // demandés. Un membre `full` étranger au canal les lisait alors par
+      // ricochet — contournant la garantie posée par `authorizeChannelRead`.
+      // Seul un tour `assistant` peut porter ce contenu : les tool-results ne
+      // sont jamais persistés, un tour `user` est ce que la personne a tapé
+      // elle-même. On coupe donc l'amplification, pas l'accès.
+      const disclosable = mayDiscloseBotUtterances(requester, targetId)
+        ? turns
+        : turns.filter((turn) => turn.role === 'user');
+
+      const withheld = turns.length - disclosable.length;
+
+      if (disclosable.length === 0) return refuse('no_recorded_conversation');
 
       const speaker = resolved?.displayName || targetId;
-      const excerpts: ConversationExcerpt[] = turns.map((turn) => ({
+      const excerpts: ConversationExcerpt[] = disclosable.map((turn) => ({
         source: 'bot_memory',
         // « Kisso » et non l'identifiant de l'agent : le nom de l'agent est un
         // détail d'implémentation, et les tours viennent parfois d'agents
@@ -255,6 +319,7 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
         targetId,
         reason: verdict.reason,
         scanned: turns.length,
+        withheld,
         shown,
       });
 
@@ -265,7 +330,16 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
         // donne ». Voir `services/untrusted-excerpt.service.ts`.
         conversation: wrapRetrievedContent(lines),
         shown,
-        scanned: turns.length,
+        // Ce qui a été RETENU ne compte pas comme parcouru : le nombre de tours
+        // écartés dirait à un tiers combien de fois le bot a répondu.
+        scanned: disclosable.length,
+        // Payé UNIQUEMENT quand des tours ont été retenus (même arbitrage que le
+        // `hint` de `generateDocument`). Sans lui, le modèle voit une suite de
+        // questions sans réponse et conclut « tu ne lui as jamais répondu » —
+        // l'affirmation fausse que produit tout « rien trouvé » ambigu.
+        ...(withheld > 0
+          ? { hint: "Tu ne vois que SES messages, pas tes réponses : c'est la règle, pas un vide." }
+          : {}),
       };
     },
   });

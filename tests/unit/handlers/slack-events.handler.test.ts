@@ -37,6 +37,9 @@ import { InMemoryConversationRepository } from '../../../src/features/conversati
 import type { ConversationRepository } from '../../../src/features/conversation/domain/ports/conversation.repository';
 import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
 import type { SlackEventDedupRepository } from '../../../src/features/notification/domain/ports/slack-event-dedup.repository';
+import { InMemoryDirectoryRepository } from '../../../src/features/directory/infrastructure/repositories/in-memory-directory.repository';
+import type { DirectoryRepository } from '../../../src/features/directory/domain/ports/directory.repository';
+import type { SlackRateLimiter } from '../../../src/features/notification/infrastructure/services/slack-rate-limiter';
 
 const BOT_USER_ID = 'U0BMBEJTBMJ';
 const BOT_ID = 'B0BM9MK4G65';
@@ -116,6 +119,10 @@ function makeHandler(
     dedupRepository?: SlackEventDedupRepository | null;
     /** `0` simule un traitement dont la durée de vie maximale est déjà dépassée. */
     inFlightGraceMs?: number;
+    /** Annuaire. Laissé `undefined` par défaut (voir la note au point d'injection). */
+    directoryRepository?: DirectoryRepository | null;
+    /** Limitation de débit. `null` par défaut : ces tests restent hermétiques. */
+    rateLimiter?: SlackRateLimiter | null;
   } = {},
 ) {
   const slack = options.slack ?? makeSlackMock();
@@ -133,6 +140,22 @@ function makeHandler(
     // Doublure par défaut : sans elle le handler construirait un dépôt Drizzle et ouvrirait
     // une connexion base dans un test unitaire.
     dedupRepository: options.dedupRepository ?? new InMemorySlackEventDedupRepository(),
+    // ⚠️ PAS de `?? null` : laisser `undefined` est le comportement d'origine, et il est
+    // observable. `null` DÉSACTIVE l'annuaire, donc supprime le niveau d'accès que deux tests
+    // lisent dans le `requestContext` — un défaut par défaut qui aurait rendu ces tests verts
+    // sur une capacité éteinte.
+    directoryRepository: options.directoryRepository,
+    // Explicitement `null`, même raison que `conversationRepository` et `dedupRepository` —
+    // et l'oubli ici s'est payé. Sans cette ligne, `getRateLimiter()` construit un
+    // `DrizzleRateLimitRepository` qui écrit dans la VRAIE base configurée : les compteurs
+    // sont alors partagés entre tous les tests du fichier ET persistés d'un run à l'autre.
+    // La suite ne passait que parce que la table `rate_limit_counters` était ABSENTE de
+    // `data/kisso.db` — le limiteur dégradait en compteur local, par instance, donc inoffensif.
+    // Le jour où la table est appliquée (elle l'est en production), onze tests d'`accept()`
+    // basculent en `ignore`/`rate_limited` : la rafale par défaut est de 5 messages/minute et
+    // ces tests réutilisent le même auteur. Un test vert par absence de table n'est pas un
+    // test vert.
+    rateLimiter: options.rateLimiter ?? null,
   });
   return { handler, slack, ...mastraMock };
 }
@@ -670,12 +693,21 @@ describe('SlackEventsHandler — déduplication in-flight / done', () => {
     }
     const handler = new ExplodingHandler('xoxb-test-token', makeMastraMock().mastra, {
       slackClient: makeSlackMock() as unknown as WebClient,
-      // Sous-classe, donc `makeHandler` ne s'applique pas : les deux dépôts sont câblés à la
+      // Sous-classe, donc `makeHandler` ne s'applique pas : les dépendances sont câblées à la
       // main, sans quoi le handler construirait les dépôts Drizzle et ouvrirait une connexion
       // base dans un test unitaire. La mémoire est hors sujet ici (`handleMessage` est
       // remplacé), la déduplication partagée est au contraire ce que le test vérifie.
+      //
+      // ⚠️ `rateLimiter` a été OUBLIÉ ici jusqu'au 2026-08-12, et le commentaire disait « les
+      // deux dépôts », ce qui donnait l'inventaire pour complet. C'était le dernier écrivain
+      // du fichier vers `data/kisso.db` : deux lignes de `rate_limit_counters` par run,
+      // persistées. Le danger n'est pas les deux lignes, c'est qu'un compteur PARTAGÉ et
+      // durable rend le résultat des tests dépendant des runs précédents — et il ne se voyait
+      // pas tant que la table était absente de la base locale. Toute construction manuelle de
+      // ce handler doit neutraliser les TROIS dépendances qui touchent la base.
       conversationRepository: null,
       dedupRepository: new InMemorySlackEventDedupRepository(),
+      rateLimiter: null,
     });
     const payload = () => envelope(dm(), 'Ev0BOOM');
 
@@ -1411,6 +1443,88 @@ describe('SlackEventsHandler — identité du demandeur dans la fenêtre du mod�
     expect(firstMessage(generate).content).toContain(`<@${HUMAN}>`);
   });
 
+  /**
+   * CÂBLAGE DE BOUT EN BOUT, et non la forme du préambule.
+   *
+   * `buildContextPreamble` est une fonction pure, testée juste en dessous : elle savait déjà
+   * porter l'email et la fiche employé. Ce que RIEN ne vérifiait, c'est que le handler les lui
+   * TRANSMET — et c'est précisément là que le défaut vivait. `resolveRequesterIdentity` rendait
+   * les trois champs, le préambule savait les rendre, et entre les deux `buildMessages` ne
+   * passait que `displayName` : les deux seules valeurs capables de résoudre une personne
+   * s'arrêtaient à mi-chemin, silencieusement.
+   *
+   * C'est la classe de défaut la plus fréquente de ce dépôt : deux bords corrects, un câblage
+   * absent (cf. `findEmployeeByEmail` non exposé aux trois agents, cf. `documents.content`
+   * sans colonne). Un test par bord ne l'attrape JAMAIS — seul un test qui traverse le voit.
+   */
+  it('transmet au modèle l’email et la fiche employé que l’annuaire connaît', async () => {
+    const directoryRepository = new InMemoryDirectoryRepository();
+    await directoryRepository.upsertFacts(
+      {
+        slackUserId: HUMAN,
+        teamId: 'TMLKC4EPP',
+        email: 'karylsoumaila1@gmail.com',
+        realName: 'Karyl SOUMAILA',
+        displayName: 'karyl',
+        firstName: 'Karyl',
+        lastName: 'SOUMAILA',
+        title: null,
+        isBot: false,
+        isAdmin: false,
+        isRestricted: false,
+        isUltraRestricted: false,
+        isDeleted: false,
+      },
+      new Date(),
+    );
+    // Le rattachement passe par `linkEmployee` et JAMAIS par `upsertFacts` : Slack ignore
+    // `employees.id`, donc une synchronisation qui le réécrirait l'effacerait à chaque passage.
+    await directoryRepository.linkEmployee(HUMAN, 'd20df236-5c24-42a5-b205-d0d738d34fb4');
+
+    const { handler, generate } = makeHandler({ directoryRepository });
+
+    await handler.handleEvent(envelope(dm({ text: 'bonjour', ts: nextTs() }), 'EvIDENT'));
+
+    const content = firstMessage(generate).content;
+    // Sans ces deux valeurs dans la FENÊTRE du modèle, il fabrique une adresse plausible : la
+    // production du 2026-08-12 a mesuré 38 `findEmployeeByEmail` en 1,5 s, tous en échec.
+    expect(content).toContain('karylsoumaila1@gmail.com');
+    expect(content).toContain('d20df236-5c24-42a5-b205-d0d738d34fb4');
+  });
+
+  it('n’appelle même pas Slack quand l’annuaire a déjà répondu', async () => {
+    // L'ordre annuaire-d'abord n'est pas cosmétique : `users.info` ne rend JAMAIS d'`employeeId`,
+    // et c'est l'identifiant que consomme la moitié des outils. Interroger Slack en premier
+    // rendrait une identité systématiquement amputée de sa moitié la plus utile.
+    const directoryRepository = new InMemoryDirectoryRepository();
+    await directoryRepository.upsertFacts(
+      {
+        slackUserId: HUMAN,
+        teamId: 'TMLKC4EPP',
+        email: 'connu@kissohq.com',
+        realName: 'Personne Connue',
+        displayName: 'connue',
+        firstName: 'Personne',
+        lastName: 'Connue',
+        title: null,
+        isBot: false,
+        isAdmin: false,
+        isRestricted: false,
+        isUltraRestricted: false,
+        isDeleted: false,
+      },
+      new Date(),
+    );
+
+    const workspaceProvider = { getUserById: vi.fn() };
+    const { handler, generate } = makeHandler({ directoryRepository, workspaceProvider });
+
+    await handler.handleEvent(envelope(dm({ text: 'bonjour', ts: nextTs() }), 'EvIDENT2'));
+
+    expect(firstMessage(generate).content).toContain('connu@kissohq.com');
+    expect(workspaceProvider.getUserById).not.toHaveBeenCalled();
+  });
+
   it('coûte quelques dizaines de tokens, et pas davantage', () => {
     // Contrainte de coût établie par les logs : Groq plafonne à 100 000 tokens/JOUR, soit
     // ≈ 19 messages. Chaque token ajouté ici retire du budget quotidien.
@@ -1428,6 +1542,73 @@ describe('SlackEventsHandler — identité du demandeur dans la fenêtre du mod�
         }),
       ),
     ).toBeLessThanOrEqual(85);
+    // Avec l'identité résolue. Le surcoût est réel — et il est le MOINS CHER des deux termes :
+    // sans lui, le modèle devine une adresse, la recherche échoue, et il recommence. La
+    // production du 2026-08-12 a mesuré 38 `findEmployeeByEmail` en 1,5 s sur un seul tour,
+    // soit une étape entière brûlée (≈ 3 200 tokens) pour ne rien trouver.
+    expect(
+      tok(
+        buildContextPreamble({
+          slackUserId: HUMAN,
+          displayName: 'Karyl Sadan',
+          email: 'karylsoumaila1@gmail.com',
+          employeeId: 'd20df236-5c24-42a5-b205-d0d738d34fb4',
+        }),
+      ),
+    ).toBeLessThanOrEqual(105);
+  });
+
+  /* --------------------------------------------------------------------- *
+   * IDENTIFIANTS DU DEMANDEUR
+   *
+   * Le défaut corrigé, mesuré en production le 2026-08-12 à 15:42 UTC. « Il me faudrait le
+   * guide d'accueil de Karyl en PDF » — le préambule nommait « Karyl SOUMAILA » et RIEN
+   * d'autre. Or tous les outils qui résolvent une personne prennent un email ou un UUID ;
+   * aucun ne prend un nom d'affichage. Le modèle a donc fait la seule chose qui lui restait :
+   * FABRIQUER une adresse (`karyl.soumaila@kisso.com`, qui n'existe pas), puis en essayer
+   * d'autres — 38 appels en 1,5 seconde, tous en échec — avant de dériver et de recracher le
+   * délimiteur, ce qui a fait remplacer sa réponse par un refus neutre.
+   *
+   * L'annuaire connaissait pourtant les deux valeurs depuis le début : la ligne
+   * `U0BJBDGTJUD` porte `karylsoumaila1@gmail.com` ET `employee_id`. Elles n'étaient
+   * simplement jamais mises dans la fenêtre du modèle.
+   *
+   * ⚠️ Message SYSTÈME, jamais le bloc `<kisso_XXXX_user_input>` : c'est une affirmation du
+   * serveur, et la DIRECTIVE 3.1 déclare le contenu de ce bloc non fiable.
+   * --------------------------------------------------------------------- */
+
+  it('porte l’email et la fiche employé du demandeur quand l’annuaire les connaît', () => {
+    const preamble = buildContextPreamble({
+      slackUserId: HUMAN,
+      displayName: 'Karyl SOUMAILA',
+      email: 'karylsoumaila1@gmail.com',
+      employeeId: 'd20df236-5c24-42a5-b205-d0d738d34fb4',
+    });
+
+    expect(preamble).toContain('karylsoumaila1@gmail.com');
+    expect(preamble).toContain('d20df236-5c24-42a5-b205-d0d738d34fb4');
+  });
+
+  it('n’invente RIEN quand l’annuaire ne connaît ni email ni fiche', () => {
+    const preamble = buildContextPreamble({ slackUserId: HUMAN, displayName: 'Inconnu' });
+
+    // Le mode d'échec à éviter est celui d'un gabarit à trous : « email : null » apprendrait
+    // au modèle qu'une valeur existe et vaut la chaîne « null », qu'il passerait aux outils.
+    expect(preamble).not.toMatch(/null|undefined|inconnu@/i);
+    expect(preamble).not.toMatch(/email\s*:/i);
+  });
+
+  it('ne dit « employé » que lorsqu’une fiche existe réellement', () => {
+    // Une personne du workspace SANS fiche employé est le cas courant (5 humains réels,
+    // 1 seule fiche). Annoncer une fiche absente ferait inventer un UUID.
+    const preamble = buildContextPreamble({
+      slackUserId: HUMAN,
+      displayName: 'Nazer A.',
+      email: 'nazer@kissohq.com',
+    });
+
+    expect(preamble).toContain('nazer@kissohq.com');
+    expect(preamble).not.toMatch(/fiche employ/i);
   });
 
   it('ne détruit que la mention du BOT : le sujet de la demande survit', async () => {
@@ -1575,6 +1756,62 @@ describe('SlackEventsHandler — réconciliation fait / narration', () => {
     const { handler, slack } = makeHandler({ mastra: agent.mastra });
 
     await handler.handleEvent(envelope(dm({ text: 'envoie le guide', ts: nextTs() }), 'EvRC2'));
+
+    expect(lastPosted(slack)).not.toContain(UNSUPPORTED_CLAIM_NOTICE.trim());
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Le garde-fou ne portait que sur `toolCalls.length === 0`, donc il ne se
+  // déclenchait presque JAMAIS : le premier geste de presque tout run est une
+  // LECTURE (`findEmployeeByEmail`, `getEmployeeProfile`), qui suffisait à
+  // porter la longueur à 1 et à le désarmer entièrement. Le verdict de la
+  // testeuse — « il parle exactement de la même façon quand il a fait le
+  // travail et quand il l'a inventé » — restait donc vrai dans le cas courant.
+  // Ce qui contredit une annonce d'accompli, ce n'est pas « zéro outil », c'est
+  // « zéro outil qui AGIT ».
+  // ─────────────────────────────────────────────────────────────────────────
+  it('requalifie quand SEULS des outils de lecture ont tourné', async () => {
+    const agent = makeAgentMock({
+      text: "C'est fait ! Le guide t'a été envoyé.",
+      toolCalls: [
+        { type: 'tool-call', payload: { toolName: 'findEmployeeByEmail' } },
+        { type: 'tool-call', payload: { toolName: 'getEmployeeProfile' } },
+      ],
+    });
+    const { handler, slack } = makeHandler({ mastra: agent.mastra });
+
+    await handler.handleEvent(envelope(dm({ text: 'envoie le guide', ts: nextTs() }), 'EvRC4'));
+
+    expect(lastPosted(slack)).toContain(UNSUPPORTED_CLAIM_NOTICE.trim());
+  });
+
+  it('ne requalifie pas quand une lecture ACCOMPAGNE une action', async () => {
+    const agent = makeAgentMock({
+      text: "C'est fait ! Le guide t'a été envoyé.",
+      toolCalls: [
+        { type: 'tool-call', payload: { toolName: 'getEmployeeProfile' } },
+        { type: 'tool-call', payload: { toolName: 'generateDocument' } },
+      ],
+    });
+    const { handler, slack } = makeHandler({ mastra: agent.mastra });
+
+    await handler.handleEvent(envelope(dm({ text: 'envoie le guide', ts: nextTs() }), 'EvRC5'));
+
+    expect(lastPosted(slack)).not.toContain(UNSUPPORTED_CLAIM_NOTICE.trim());
+  });
+
+  it('n’accuse pas sur un nom d’outil illisible', async () => {
+    // Même doctrine que la trace `null` : sans preuve POSITIVE qu'aucune action n'a eu lieu,
+    // on se tait. Un nom non reconnu est un changement de forme de Mastra, pas un mensonge du
+    // modèle — c'est exactement l'erreur qu'avait produite `readToolCalls` en journalisant
+    // « unknown » sur 100 % des appels.
+    const agent = makeAgentMock({
+      text: "C'est fait ! Le guide t'a été envoyé.",
+      toolCalls: [{ type: 'tool-call', payload: {} }],
+    });
+    const { handler, slack } = makeHandler({ mastra: agent.mastra });
+
+    await handler.handleEvent(envelope(dm({ text: 'envoie le guide', ts: nextTs() }), 'EvRC6'));
 
     expect(lastPosted(slack)).not.toContain(UNSUPPORTED_CLAIM_NOTICE.trim());
   });

@@ -141,6 +141,11 @@ function isSamePerson(a: string, b: string): boolean {
  *     `is_ultra_restricted` — ne lit JAMAIS la conversation d'un tiers. C'est
  *     très exactement le scénario de §4.1, transposé de la porte « canal » à la
  *     porte « mémoire », par laquelle il serait autrement passé intact.
+ *     ⚠️ Ce palier n'ouvre que les tours `user` : voir `mayDiscloseBotUtterances`.
+ *
+ * ⚠️ Un appelant qui devrait résoudre la cible pour appeler cette fonction doit
+ * passer par `authorizeOtherMemoryRead` D'ABORD — sinon le couple
+ * « introuvable » / « pas le droit » devient un oracle d'annuaire.
  *
  * ⚠️ Le palier 2 se teste AVANT le palier 3 : l'inverse refuserait à un invité
  * l'accès à ses propres messages.
@@ -164,12 +169,94 @@ export function authorizeMemoryRead(
     return { allowed: true, reason: 'ok_self' };
   }
 
+  return authorizeOtherMemoryRead(requester, policy);
+}
+
+/**
+ * Le palier 3 SEUL : « ai-je le droit de lire les échanges de QUELQU'UN D'AUTRE ? »
+ * — sans savoir de qui, et c'est tout l'intérêt.
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * POURQUOI CETTE PORTE EXISTE À CÔTÉ DE `authorizeMemoryRead`
+ * ────────────────────────────────────────────────────────────────────────────
+ * `authorizeMemoryRead` exige un `targetSlackUserId`, donc oblige l'appelant à
+ * RÉSOUDRE la cible dans l'annuaire avant de savoir s'il en a le droit. Cet
+ * ordre-là fabriquait un ORACLE : « Personne inconnue de l'annuaire » pour une
+ * adresse absente contre « tu ne peux montrer que tes échanges » pour une
+ * adresse présente. Deux verdicts distinguables, et un invité mono-canal
+ * énumère en DM les adresses de l'entreprise, une par une.
+ *
+ * La réponse est celle de `NEUTRAL_REFUSAL` et celle d'`isMember` dans
+ * `slack-channel-history.adapter.ts` : le refus ne renseigne pas sur la sonde
+ * qui a porté. Le contrôle rendu indépendant de la cible, l'appelant peut le
+ * poser AVANT toute interrogation de l'annuaire — ce qu'on n'interroge pas ne
+ * fuite ni par le verdict, ni par le temps de réponse, ni par un journal.
+ *
+ * ⚠️ Ce n'est PAS un affaiblissement : le droit accordé ici (« lire autrui »)
+ * est strictement plus fort que « lire soi-même ». Un appelant qui l'obtient
+ * n'a plus rien à vérifier sur l'identité de la cible.
+ */
+export function authorizeOtherMemoryRead(
+  requester: Requester | null,
+  policy: AccessPolicyConfig,
+): DisclosureVerdict {
+  if (!requester) return { allowed: false, reason: 'no_requester' };
+
+  const denial = hardDenial(requester, policy);
+  if (denial) return denial;
+
   if (!requester.subject) return { allowed: false, reason: 'insufficient_privilege' };
 
   const decision = resolveAccess(requester.subject, policy);
   return decision.level === 'full'
     ? { allowed: true, reason: 'ok_org_member' }
     : { allowed: false, reason: 'insufficient_privilege' };
+}
+
+/**
+ * Les tours `assistant` de cette conversation peuvent-ils sortir vers ce
+ * demandeur ? **Uniquement s'il est la personne concernée.**
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * LA FUITE TRANSITIVE QUE CETTE RÈGLE FERME
+ * ────────────────────────────────────────────────────────────────────────────
+ * La garantie écrite plus bas dans ce fichier — « un membre de l'organisation
+ * non membre du canal ne le lit pas non plus » — était contournable par la
+ * mémoire, en trois temps :
+ *
+ *   1. Alice, membre de `#engineer-karyl` (PRIVÉ), en demande un résumé en DM.
+ *      `getChannelHistory` vérifie SON appartenance : c'est légitime.
+ *   2. La réponse du bot est persistée dans `conversation_turns`, sous la clé
+ *      `D…` d'Alice. Le contenu du canal privé a changé de domicile.
+ *   3. Bob, `full` mais étranger à `#engineer-karyl`, lit les échanges d'Alice
+ *      et récupère le résumé. Le privilège `full` vient d'ouvrir un canal privé
+ *      PAR RICOCHET, ce qu'il n'a jamais eu le droit de faire.
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * POURQUOI FILTRER LE RÔLE PLUTÔT QUE FERMER LA PORTE
+ * ────────────────────────────────────────────────────────────────────────────
+ * Restreindre `authorizeMemoryRead` à soi-même fermerait la fuite, mais
+ * supprimerait une capacité VOULUE et documentée (le palier 3 ci-dessus). Or
+ * l'asymétrie est réelle, et elle est exactement celle des deux rôles :
+ *
+ *  - un tour `user` est ce que la personne a TAPÉ elle-même. Le bot ne lui a
+ *    prêté aucun droit pour l'écrire ; il n'y a là aucune amplification ;
+ *  - un tour `assistant` est ce que le BOT a produit — et il le produit en
+ *    lisant des sources dont il détient l'union des droits. C'est le seul des
+ *    deux qui puisse contenir du canal privé, puisque les tool-results ne sont
+ *    jamais persistés (`conversation` ne stocke que du texte) : le contenu de
+ *    canal n'atteint la table QUE par la réponse rédigée.
+ *
+ * On coupe donc l'amplification, pas l'accès. Résiduel assumé et connu : un
+ * tour `user` peut recopier du contenu privé, mais c'est la personne elle-même
+ * qui l'a divulgué au bot — le bot n'y prête pas ses droits.
+ */
+export function mayDiscloseBotUtterances(
+  requester: Requester | null,
+  targetSlackUserId: string,
+): boolean {
+  if (!requester) return false;
+  return isSamePerson(requester.slackUserId, targetSlackUserId);
 }
 
 /**
@@ -186,7 +273,10 @@ export function authorizeMemoryRead(
  *    est membre. C'est le scénario §4.1, fermé ;
  *  - un membre de l'organisation non membre du canal ne le lit pas non plus. Le
  *    privilège `full` n'ouvre pas les canaux privés : il ouvre la mémoire du bot,
- *    ce qui n'est pas la même donnée.
+ *    ce qui n'est pas la même donnée. ⚠️ Cette garantie a été contournable
+ *    jusqu'au 2026-08-12 : la mémoire CONTIENT les résumés de canaux privés
+ *    rédigés par le bot. Ce qui la rétablit est `mayDiscloseBotUtterances`, pas
+ *    la présente fonction.
  *
  * ⚠️ `requesterIsChannelMember` est un FAIT constaté auprès de Slack
  * (`conversations.members`), jamais une valeur produite par le modèle ni lue

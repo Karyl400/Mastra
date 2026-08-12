@@ -193,6 +193,8 @@ describe('Infrastructure: SlackWorkspaceService', () => {
       isBot: false,
       isAdmin: false,
       displayName: 'Karyl SOUMAILA',
+      // Le profil de cette réponse ne porte pas de `title` : la projection rend `''`.
+      title: '',
       isRestricted: false,
       isUltraRestricted: false,
       isDeleted: false,

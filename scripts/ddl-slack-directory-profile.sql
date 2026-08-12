@@ -1,0 +1,82 @@
+-- ============================================================================
+-- slack_directory — colonnes de PROFIL : prénom, nom, poste
+-- ============================================================================
+--
+-- POURQUOI CE FICHIER EXISTE, plutôt qu'une migration `drizzle/` :
+-- même raison que les cinq DDL qui le précèdent — les migrations `drizzle/` sont
+-- désynchronisées de `src/infrastructure/database/schema.ts`, et `drizzle-kit push` se BLOQUE
+-- sans erreur contre une base `libsql://` distante. Voir `scripts/ddl-slack-directory.sql`.
+--
+-- ----------------------------------------------------------------------------
+-- CE QUE CES TROIS COLONNES AJOUTENT
+-- ----------------------------------------------------------------------------
+-- L'annuaire portait `real_name` et `display_name` — deux chaînes entières. La demande est
+-- « le nom et le prénom, l'email, l'ID et le Poste si précisé, sinon null ».
+--
+-- **Les trois valeurs sont lues TELLES QUELLES dans le profil Slack** (`profile.first_name`,
+-- `profile.last_name`, `profile.title`), jamais dérivées de `real_name`. C'est le point de
+-- conception de ce fichier, et il se démontre sur les données réelles du workspace :
+--
+--     real_name            first_name      last_name    title
+--     ─────────────────────────────────────────────────────────────────
+--     Nazer A.             Nazer           A.           General Manager
+--     Pamela Fourn         Pamela          Fourn        Product Manager
+--     Mistourath IDI       Mistourath      IDI          (vide)
+--     Karyl SOUMAILA       Karyl           SOUMAILA     Software Engineer
+--     ridwanenico77        ridwanenico77   (vide)       Software Engineer
+--
+-- Découper `real_name` sur l'espace marcherait sur quatre lignes et échouerait sur la
+-- cinquième : `ridwanenico77` n'a pas de prénom, il a un pseudo. Une heuristique qui se trompe
+-- sur un cas sur cinq n'est pas une heuristique, c'est une invention — exactement ce que ce
+-- dépôt combat ailleurs (`AGENT_ANTI_INVENTION_BLOCK`, le refus de deviner un UUID).
+--
+-- Corollaire à assumer : « Ridwane NICO » n'apparaîtra PAS en base tant que son profil Slack
+-- ne le porte pas. Le correctif est dans le profil, pas dans la base. Le faire à la main ici
+-- créerait un second écrivain pour l'identité d'une personne — et un écart que plus personne
+-- ne réconcilierait au premier changement de profil.
+--
+-- ----------------------------------------------------------------------------
+-- NULLABLES, ET LA NULLITÉ VEUT DIRE QUELQUE CHOSE
+-- ----------------------------------------------------------------------------
+-- Slack rend une CHAÎNE VIDE — jamais `undefined` — pour un champ de profil non renseigné. La
+-- projection normalise `''` en `NULL`, et ce n'est pas cosmétique : `''` se lit « renseigné,
+-- mais vide », ce qui est faux et produit un faux positif sur toute recherche par nom.
+--
+-- `NULL` signifie ici « Slack ne le précise pas », et c'est une réponse AVÉRÉE, pas une
+-- ignorance : `synced_at` prouve qu'on a interrogé Slack et qu'il a répondu. C'est le cas de
+-- Mistourath IDI, dont le profil ne porte aucun titre.
+--
+-- ⚠️ `title` est le poste DÉCLARATIF, édité par son porteur — donc, comme `display_name`, un
+-- vecteur d'injection de premier ordre s'il devait un jour entrer dans un prompt. Il est
+-- distinct de `employees.position`, qui est le poste CONTRACTUEL. Ce ne sont pas deux versions
+-- d'une même vérité : deux faits, deux sources, aucun `COALESCE` à écrire entre eux.
+--
+-- ----------------------------------------------------------------------------
+-- ⚠️ ORDRE IMPOSÉ — DDL D'ABORD, DÉPLOIEMENT ENSUITE
+-- ----------------------------------------------------------------------------
+-- Une fois ces colonnes déclarées dans `schema.ts`, Drizzle les NOMME dans l'INSERT de
+-- `upsertFacts`. La synchronisation échoue donc en `no such column: first_name` tant que la
+-- base n'est pas migrée. C'est le bon comportement — échec bruyant plutôt que perte muette,
+-- la leçon de `documents.content` — mais il faut respecter l'ordre.
+--
+-- ----------------------------------------------------------------------------
+-- APPLICATION
+-- ----------------------------------------------------------------------------
+--   npx tsx --env-file=.env scripts/apply-ddl.mts scripts/ddl-slack-directory-profile.sql
+--
+-- ⚠️ `ALTER TABLE … ADD COLUMN` N'A PAS de forme `IF NOT EXISTS` en SQLite : rejouer ce
+-- fichier échoue avec `duplicate column name: first_name`. C'est une erreur BÉNIGNE — elle
+-- signifie que c'est déjà fait. `scripts/apply-ddl.mts` l'affiche sans interrompre la suite.
+-- C'est le même compromis que `ddl-documents-content.sql`, et la raison pour laquelle ce
+-- fichier est séparé des DDL rejouables.
+--
+-- Vérification :
+--     SELECT slack_user_id, first_name, last_name, title FROM slack_directory
+--      WHERE is_bot = 0 AND is_deleted = 0 ORDER BY first_name;
+-- ============================================================================
+
+ALTER TABLE slack_directory ADD COLUMN first_name text;
+
+ALTER TABLE slack_directory ADD COLUMN last_name text;
+
+ALTER TABLE slack_directory ADD COLUMN title text;

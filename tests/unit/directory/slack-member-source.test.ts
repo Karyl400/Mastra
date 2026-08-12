@@ -30,6 +30,7 @@ function member(overrides: Partial<SlackMember> = {}): SlackMember {
     firstName: 'Awa',
     lastName: 'Diop',
     displayName: 'awa',
+    title: 'Backend Developer',
     isBot: false,
     isAdmin: false,
     isRestricted: false,
@@ -161,6 +162,12 @@ describe('Directory: SlackMemberSource', () => {
       email: 'x@kissohq.com',
       realName: 'Xavier',
       displayName: 'xav',
+      // Prénom, nom et poste traversent la projection : ce sont les champs de profil que
+      // l'annuaire doit porter (`slack_directory.first_name/last_name/title`). Les attendre
+      // vides ici décrivait une source qui les jetait — ce qu'elle ne fait plus.
+      firstName: 'Awa',
+      lastName: 'Diop',
+      title: 'Backend Developer',
       isBot: false,
       isAdmin: true,
       isRestricted: true,

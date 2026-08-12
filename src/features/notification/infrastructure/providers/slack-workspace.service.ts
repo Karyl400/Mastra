@@ -24,6 +24,7 @@ interface SlackApiUser {
     last_name?: string | null;
     display_name?: string | null;
     real_name?: string | null;
+    title?: string | null;
   };
 }
 
@@ -135,6 +136,9 @@ export function toMember(user: SlackApiUser): SlackMember {
     // inexploitable. C'est le champ que lit la politique quand elle doit dire QUI a été refusé.
     displayName:
       user.profile?.display_name || user.profile?.real_name || realName || user.name || '',
+    // Pas de cascade ici, contrairement à `displayName` : un poste ne se devine pas. Absent
+    // vaut absent — c'est le cas réel de Mistourath IDI, dont le profil ne porte aucun titre.
+    title: user.profile?.title || '',
     isBot: user.is_bot ?? false,
     isAdmin: user.is_admin ?? false,
     // Lus TELS QUELS, sans déduction : Slack pose les deux drapeaux sur un invité mono-canal, et

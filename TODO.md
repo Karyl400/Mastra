@@ -26,6 +26,94 @@ bug, ce qui a coûté des heures.
       travail, **pas même committés** : tant que ce n'est pas fait, l'avertissement en tête de
       `CLAUDE.md` s'applique intégralement à eux.
 
+## [0 bis] REVUE CROISÉE DU 2026-08-12 — ce qui reste en creux
+
+Six revues indépendantes sur l'arbre de travail. Les correctifs sont au CHANGELOG ; ce qui suit
+est ce qui a été CONSTATÉ et NON corrigé, pour qu'aucun diagnostic futur ne le redécouvre comme
+une régression.
+
+**Routage — le palier collant a DÉPLACÉ l'état absorbant, il ne l'a pas supprimé**
+- [ ] ⚠️ Simulation vérifiée sur les 8 messages d'une campagne type : après « Envoie un rappel
+      à Pamela » (échappement `rappel` → `notificationAgent`), le message « Génère-moi le guide
+      en PDF » **reste chez `notificationAgent`**, qui n'a pas `generateDocument`. `guide` et
+      `pdf` vivent en bande 3, évaluée SOUS le collant. C'est exactement le défaut « état
+      absorbant » que la refonte du 2026-08-11 prétend avoir corrigé — il a changé d'agent.
+      En DM la clé de conversation est le CANAL, donc le verrou tient une heure sur tous les
+      sujets.
+- [ ] **`knowledgeAgent` est inatteignable sur les phrases réelles.** Ses seuls mots d'entrée
+      sont `conversation` et `historique` (+ pluriel). « Résume ce qui s'est dit dans
+      #kisso-hq » et « De quoi on a parlé cette semaine ? » partent au défaut, donc chez
+      l'orchestrateur, qui n'a aucun tool de canal. Conséquence : **toute la
+      `disclosure-policy.ts` est du code mort sur la phrase que quelqu'un dirait vraiment** —
+      rien ne fuit, mais ce n'est pas la politique qui l'empêche, c'est l'inaccessibilité.
+      `résume`, `dit`, `parle` ont été écartés volontairement de la bande 1 (trop courants) ;
+      le manque est qu'il n'a **aucun** terme en bande 3, contrairement aux trois autres.
+      Piste : la bande 3 n'est évaluée que hors fil vivant, elle ne peut donc pas détourner une
+      réponse de suivi — c'est l'endroit sûr pour `résume`, ou pour la présence d'un jeton de
+      canal `<#C…>`, qui survit à `cleanText`.
+
+**Réconciliation FAIT/NARRATION — armée, mais son champ reste étroit**
+- [ ] Elle ne compare toujours pas l'annonce au **résultat** du tool. Un `scheduleReminder` qui
+      rend `willBeSentAutomatically: false`, ou un `generateDocument` qui rend
+      `delivery: 'failed'`, laissent le modèle annoncer un succès : un outil d'ACTION a tourné,
+      donc le garde-fou se tait. Le handler ne lit nulle part `toolResult`.
+- [ ] La liste `ACCOMPLISHMENT_CLAIMS` est fermée et 12 formulations naturelles sur 17 passent
+      au travers — le participe passé sans auxiliaire (« Rappel planifié lundi »), le futur
+      (« Pamela recevra un rappel »), « c'est réglé », « je te l'ai envoyé » (le motif exige
+      `je t'ai` ou `je l'ai` CONTIGUS).
+- [ ] Elle ne cherche que des ACCOMPLIS. Une donnée **inventée** — un poste, une liste de
+      membres de canal, un résumé d'un canal jamais lu — n'en est pas un et sort par
+      conception hors de son champ.
+
+**Résolution des personnes**
+- [ ] **Aucun tool ne résout un PRÉNOM.** `findEmployeeByEmail` n'accepte qu'un email. « Awa »,
+      « Pamela », « Karyl » ne sont résolubles par rien : le modèle redemande l'email (boucle,
+      donc un aller-retour de plus sur un budget de ≈ 19 messages/jour) ou fabrique une
+      adresse. L'annuaire porte pourtant `display_name`, `first_name` et `last_name`.
+
+**Sécurité — trou connu, non fermé**
+- [ ] **`requestContext` est forgeable par le corps HTTP sur `/api/*`.** Mastra fusionne
+      `body.requestContext` dans le contexte serveur et ne filtre que `RESERVED_CONTEXT_KEYS`
+      (`mastra__*`, `organizationId`) : `slackUserId`, `slackChannel` et `slackAccessLevel` n'y
+      sont pas. Un appelant porteur de `MASTRA_API_TOKEN` peut donc se faire passer pour
+      n'importe quel utilisateur Slack et lire les canaux dont il est membre. La route est
+      protégée par le bearer, ce n'est pas anonyme — mais **le jeton de service équivaut
+      désormais à l'usurpation totale**, et l'invariant écrit en tête de
+      `slack-request-context.ts` (« un canal que le modèle ne peut pas écrire ») ne vaut que
+      sur `/slack/events`. Correctif naturel : le middleware `/api/*` existe déjà, il peut
+      retirer les clés `slack*` du `requestContext` fourni par le corps.
+
+**Inventaire des canaux — écrit, testé, jamais exécuté par le code déployé**
+- [ ] `src/mastra/index.ts` construit `channelCoverage` **sans `inventory`** : `recordInventory()`
+      rend `undefined` et n'écrit rien. Les tables `slack_channels` / `slack_channel_members`
+      existent en production et ne sont alimentées que par
+      `npx tsx scripts/sync-slack-directory.mts --channels --apply`, à la main. `directorySync`
+      et `channelCoverage` sont exportés sans aucun consommateur (le script reconstruit ses
+      propres instances). Trois méthodes de port (`listObservedMembers`,
+      `listChannelsObservedForUser`, `listChannels` côté Drizzle) n'ont que des tests pour
+      appelants — et `idx_slack_channel_members_user` a été créé pour servir la deuxième.
+- [ ] `SlackRateLimiter.prune()` n'a **aucun site d'appel** : `rate_limit_counters` croît d'une
+      ligne par sujet et par fenêtre, indéfiniment. Les trois autres tables à TTL
+      (`conversation_turns`, `slack_event_dedup`) sont purgées opportunément, pas celle-ci.
+- [ ] Aucun des quatre scripts (`sync-slack-directory`, `show-directory`,
+      `prune-employees-without-slack`, `apply-ddl`) n'a de script npm.
+
+**Divers vérifiés**
+- [ ] `sync-slack-directory.mts` fait `import 'dotenv/config'` : il atteint la Turso de
+      production et l'API Slack **même sans variables d'environnement dans le shell**. Le
+      dry-run neutralise bien les écritures au niveau des ports (vérifié), mais la ligne
+      d'usage ne laisse pas deviner qu'une invocation sans identifiants touche la production.
+- [ ] Le bot est désormais membre de **6** canaux (`#kisso-hq`, `#engineer-karyl`, `#random`,
+      `#signals`, `#alerts-dev`, `#engineering-chat`) — `CLAUDE.md` dit encore « 2 sur 5 ».
+- [ ] `npm run lint` : 0 erreur, 104 warnings, dont **18 dans `llm-guardrail.ts`** —
+      plusieurs `security/detect-unsafe-regex` et `sonarjs/super-linear-regex` (ReDoS) sur un
+      module qui analyse de l'entrée Slack non fiable. C'est le seul lot de warnings qui mérite
+      un examen.
+- [ ] `tests/unit/handlers/slack-events.handler.test.ts` écrit toujours dans `audit_logs`
+      (`writeAuditLog` est une fonction de module, non injectable) — 1 528 lignes accumulées
+      dans `data/kisso.db`. Même classe de fuite que celle corrigée pour les compteurs, autre
+      table, sans effet sur le résultat des tests.
+
 ## [1] Créer les fichiers de règles projet
 - [x] GEMINI.md
 - [x] AGENT.md
@@ -352,7 +440,9 @@ bug, ce qui a coûté des heures.
          (`../../etc/passwd` → `etc-passwd.docx`).
       3. [x] `SlackAdapter.uploadFile()` via `files.uploadV2` ; `EmailProvider.sendEmail` gagne
          un 4ᵉ paramètre **optionnel** `attachments`, borné à 5 Mio sur le total et vérifié
-         AVANT toute E/S (`email-attachment-policy.ts`). Le scope `files:write` reste à accorder.
+         AVANT toute E/S (`email-attachment-policy.ts`). ⚠️ La phrase « le scope `files:write` reste
+         à accorder » qui figurait ici était **FAUSSE** — le scope EST accordé, prouvé par un
+         upload réel en production le 2026-08-11 (`hasPermalink: true`). Corrigé le 2026-08-12.
       4. [x] **Le point bloquant est levé** : `src/shared/slack-request-context.ts` fait
          descendre canal / thread / auteur jusqu'aux tools via
          `agent.generate(messages, { requestContext })` — ⚠️ en Mastra 1.57 c'est

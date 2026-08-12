@@ -56,6 +56,12 @@ function toFacts(member: SlackMember): DirectoryMemberFacts {
     email: member.email,
     realName: member.realName,
     displayName: member.displayName,
+    // `|| null` et non `?? null` : Slack rend une CHAÎNE VIDE pour un champ de profil non
+    // renseigné, jamais `undefined`. Avec `??` on stockerait `''`, qui se lit « renseigné,
+    // mais vide » — indiscernable d'un vrai vide et faux positif garanti sur toute recherche.
+    firstName: member.firstName || null,
+    lastName: member.lastName || null,
+    title: member.title || null,
     isBot: member.isBot,
     isAdmin: member.isAdmin,
     isRestricted: member.isRestricted,

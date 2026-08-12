@@ -164,6 +164,131 @@ describe('SlackRateLimiter', () => {
     });
   });
 
+  /**
+   * Le contrôle de débit tourne AVANT l'ACK Slack, qui n'a que 3 secondes — et ce dépôt a déjà
+   * payé un ACK à 6,7 s d'une double réponse en production (2026-08-11 12:38 UTC). Deux règles
+   * enchaînées séquentiellement, c'était deux latences réseau additionnées sur ce chemin-là.
+   *
+   * Ces tests verrouillent la propriété, pas le chrono : les allers-retours partagés sont EN
+   * VOL EN MÊME TEMPS, et le court-circuit local qui les évite tous n'a pas été sacrifié pour
+   * l'obtenir.
+   */
+  describe('coût du chemin pré-ACK', () => {
+    const BURST: RateLimitRule = { name: 'burst', limit: 2, windowMs: 60_000 };
+    const DAILY: RateLimitRule = { name: 'daily', limit: 100, windowMs: 86_400_000 };
+
+    /** Dépôt qui mesure le PARALLÉLISME réel, pas seulement le nombre d'appels. */
+    function tracingRepository(delayMs = 0) {
+      const counts = new Map<string, number>();
+      const state = { inFlight: 0, peakInFlight: 0, keys: [] as string[] };
+
+      const repository: RateLimitRepository = {
+        async increment(key) {
+          state.inFlight += 1;
+          state.peakInFlight = Math.max(state.peakInFlight, state.inFlight);
+          state.keys.push(key);
+          if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+          state.inFlight -= 1;
+          const next = (counts.get(key) ?? 0) + 1;
+          counts.set(key, next);
+          return next;
+        },
+        async prune() {
+          return 0;
+        },
+      };
+
+      return { repository, state };
+    }
+
+    it('lance les incréments des deux règles EN PARALLÈLE, pas l’un après l’autre', async () => {
+      const { repository, state } = tracingRepository(20);
+      const limiter = new SlackRateLimiter({ rules: [BURST, DAILY], repository });
+
+      await limiter.check('U1', new Date(0));
+
+      // 2 clés distinctes (`buildCounterKey` encode la règle) et les deux requêtes en vol
+      // simultanément : le contrôle coûte UN aller-retour de latence, plus deux.
+      expect(state.keys).toHaveLength(2);
+      expect(state.peakInFlight).toBe(2);
+    });
+
+    it('coûte une seule latence réseau, pas la somme des deux', async () => {
+      const { repository } = tracingRepository(50);
+      const limiter = new SlackRateLimiter({ rules: [BURST, DAILY], repository });
+
+      const startedAt = Date.now();
+      await limiter.check('U1', new Date(0));
+      const elapsed = Date.now() - startedAt;
+
+      // Séquentiel : ≥ 100 ms. Parallèle : ≈ 50 ms. La marge est large à dessein — c'est
+      // l'ordre de grandeur qui porte la propriété, pas le chiffre.
+      expect(elapsed).toBeLessThan(90);
+    });
+
+    it('n’incrémente AUCUN compteur des règles suivantes quand une règle refuse localement', async () => {
+      // C'est la sémantique que la parallélisation ne devait pas emporter. Un message refusé
+      // ne déclenche aucun appel LLM : il ne consomme pas un token du budget journalier que
+      // `daily` existe pour protéger. Le compter ferait brûler ses ≈12 messages du jour à
+      // quelqu'un qui n'aura jamais obtenu une seule réponse.
+      const { repository, state } = tracingRepository();
+      const limiter = new SlackRateLimiter({ rules: [BURST, DAILY], repository });
+      const now = new Date(0);
+
+      for (let i = 0; i < BURST.limit; i += 1) await limiter.check('U1', now);
+      const callsBeforeRefusal = state.keys.length;
+
+      const refused = await limiter.check('U1', now);
+      expect(refused.allowed).toBe(false);
+      expect(refused.rule).toBe('burst');
+
+      // Zéro aller-retour supplémentaire — ni pour `burst`, ni surtout pour `daily`.
+      expect(state.keys).toHaveLength(callsBeforeRefusal);
+      expect(state.keys.filter((key) => key.startsWith('daily:'))).toHaveLength(BURST.limit);
+    });
+
+    it('cite la règle par ORDRE DE DÉCLARATION, jamais par ordre d’arrivée des réponses', async () => {
+      // En parallèle, les réponses reviennent dans un ordre que le réseau décide. Le nom qui
+      // remonte jusqu'au message adressé à l'utilisateur, lui, ne doit pas en dépendre.
+      const bothFull: RateLimitRepository = {
+        async increment(key) {
+          // La règle déclarée en second répond la PREMIÈRE.
+          if (key.startsWith('burst:')) await new Promise((resolve) => setTimeout(resolve, 30));
+          return 999;
+        },
+        async prune() {
+          return 0;
+        },
+      };
+
+      const limiter = new SlackRateLimiter({ rules: [BURST, DAILY], repository: bothFull });
+      const decision = await limiter.check('U1', new Date(0));
+
+      expect(decision.allowed).toBe(false);
+      expect(decision.rule).toBe('burst');
+    });
+
+    it('reste dégradé-ouvert quand UNE des règles parallèles échoue', async () => {
+      // Fail-open bruyant, doctrine constante : un message de trop est visible et corrigeable,
+      // un bot muet ne l'est pas.
+      const halfBroken: RateLimitRepository = {
+        async increment(key) {
+          if (key.startsWith('daily:')) throw new Error('no such table: rate_limit_counters');
+          return 1;
+        },
+        async prune() {
+          return 0;
+        },
+      };
+
+      const limiter = new SlackRateLimiter({ rules: [BURST, DAILY], repository: halfBroken });
+      const decision = await limiter.check('U1', new Date(0));
+
+      expect(decision.allowed).toBe(true);
+      expect(decision.degraded).toBe(true);
+    });
+  });
+
   describe('prune', () => {
     it('ne lève jamais, même si le store échoue', async () => {
       const limiter = new SlackRateLimiter({ rules: [RULE], repository: failingRepository() });

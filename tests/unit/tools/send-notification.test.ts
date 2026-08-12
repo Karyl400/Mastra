@@ -37,6 +37,7 @@ function makeSlackMember(id: string, email: string): SlackMember {
     email,
     firstName: 'User',
     lastName: '',
+    title: '',
     isBot: false,
     isAdmin: false,
     displayName: '',

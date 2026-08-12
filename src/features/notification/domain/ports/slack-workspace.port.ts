@@ -21,6 +21,15 @@ export interface SlackMember {
    * descend jusqu'au bout : un refus d'autorisation doit TOUJOURS pouvoir nommer quelqu'un.
    */
   displayName: string;
+  /**
+   * `profile.title` — le poste DÉCLARÉ par la personne dans Slack.
+   *
+   * ⚠️ À ne pas confondre avec `employees.position`, qui est le poste CONTRACTUEL. Ce ne sont
+   * pas deux versions d'une même vérité mais deux faits distincts, de deux sources distinctes :
+   * l'un est édité par son porteur, l'autre par les RH. Quand ils divergent, il n'y a rien à
+   * arbitrer — et surtout aucun `COALESCE` à écrire.
+   */
+  title: string;
   isBot: boolean;
   isAdmin: boolean;
   /**

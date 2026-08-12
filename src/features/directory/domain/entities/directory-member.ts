@@ -17,6 +17,11 @@ export interface DirectoryMember {
   readonly email: string | null;
   readonly realName: string;
   readonly displayName: string;
+  /** Voir `DirectoryMemberFacts` : lus dans le profil Slack, jamais dérivés de `realName`. */
+  readonly firstName: string | null;
+  readonly lastName: string | null;
+  /** `profile.title` — le poste DÉCLARÉ dans Slack, distinct de `employees.position`. */
+  readonly title: string | null;
 
   readonly isBot: boolean;
   readonly isAdmin: boolean;
@@ -58,6 +63,24 @@ export interface DirectoryMemberFacts {
   readonly email: string | null;
   readonly realName: string;
   readonly displayName: string;
+  /**
+   * Prénom, nom et poste — lus TELS QUELS dans `profile.first_name`, `profile.last_name` et
+   * `profile.title`, jamais dérivés de `realName`.
+   *
+   * C'est le point. Découper « Karyl SOUMAILA » sur l'espace marche ; découper
+   * `ridwanenico77` — un profil réel de ce workspace, dont le nom n'est que le pseudo — donne
+   * un prénom qui n'en est pas un et un nom vide. Une heuristique qui échoue sur un cas sur
+   * cinq n'est pas une heuristique, c'est une invention. Slack porte ces trois champs
+   * séparément : on les lit.
+   *
+   * `null` signifie « Slack ne le précise pas », et c'est une réponse. Slack rend `''` pour un
+   * champ non renseigné (le titre de Mistourath IDI, par exemple) ; on normalise en `null`
+   * parce que `synced_at` prouve qu'on a bien interrogé — l'absence est donc AVÉRÉE, pas
+   * inconnue.
+   */
+  readonly firstName: string | null;
+  readonly lastName: string | null;
+  readonly title: string | null;
   readonly isBot: boolean;
   readonly isAdmin: boolean;
   readonly isRestricted: boolean;

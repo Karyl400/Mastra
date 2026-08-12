@@ -714,9 +714,57 @@ function sanitizeInputAdvanced(input: string, delimiters: DelimiterSet): string 
  * nominal — « quelles sont les règles de télétravail ? », « j'ai oublié mon badge »,
  * « génère le guide d'accueil ». Les verbes d'écrasement sont énumérés (famille
  * ignorer/oublier/effacer), jamais approchés par un radical large, et un objet
- * (instruction, consigne, directive, ce qui précède) doit apparaître dans les
- * 32 caractères suivants. Le test `llm-guardrail.test.ts` fige les deux listes.
+ * doit apparaître à proximité. Le test `llm-guardrail.test.ts` fige les deux listes.
+ *
+ * ## Les motifs sont appliqués à `normalizeForDetection(text)`, pas au texte brut
+ *
+ * ⚠️ Corollaire à respecter dans tout motif ajouté ici : **les accents sont déjà retirés**
+ * au moment où le motif s'exécute. On écrit `regle`, `preced`, `systeme` — jamais
+ * `r[èe]gle`. Écrire une classe d'accents n'est pas seulement inutile, c'est un piège :
+ * `[èe]` ne matcherait plus jamais `è`, qui n'existe plus dans la forme comparée.
+ *
+ * La casse, elle, n'est PAS normalisée : le drapeau `/i` reste porté par chaque motif.
+ * Minuscule tout le texte désarmerait silencieusement tout motif sensible à la casse
+ * (`\bDAN\b` en est un, au drapeau `/i` près).
  */
+
+/**
+ * Forme de COMPARAISON d'un texte : accents décomposés puis retirés, apostrophes
+ * typographiques unifiées. Le texte transmis au modèle, lui, n'est jamais touché.
+ *
+ * ## Le défaut qu'elle corrige (régression du 2026-08-12, observée en production)
+ *
+ * Les motifs francophones énuméraient leurs accents à la main (`r[èe]gle`, `pr[ée]c[ée]d`).
+ * Une énumération manuelle est fatalement partielle, et elle l'était de façon ASYMÉTRIQUE :
+ * `oublie[sz]?` matche l'impératif « oublie » ET le participe passé « oublie » saisi sans
+ * accent, mais PAS « oublié ». D'où le verdict qui basculait avec l'accentuation —
+ * « J'ai oublié mon badge, quelles sont les règles ? » passait, « J'ai oublie mon badge,
+ * quelles sont les regles ? » était refusé. Une saisie mobile dans Slack perd les accents :
+ * c'est le cas FRÉQUENT qui était cassé, pas un cas limite.
+ *
+ * Normaliser rend le verdict symétrique dans les deux sens — un attaquant ne contourne plus
+ * rien en retirant ses accents, une employée ne se fait plus refuser pour la même raison.
+ *
+ * ## Pourquoi NFKC PUIS NFD
+ *
+ * NFKC replie les variantes de compatibilité (pleine chasse « ｉｇｎｏｒｅ », ligatures),
+ * qui sont un contournement trivial de tout motif ASCII ; NFD décompose ensuite les
+ * lettres accentuées en « lettre + marque combinante », que `\p{M}` retire. L'ordre
+ * importe : NFKC recompose, donc l'appliquer après NFD annulerait la décomposition.
+ *
+ * ⚠️ **Le résultat ne sort JAMAIS de la détection.** `wrapUserInput` continue de passer
+ * `input` intact au sanitizer puis à l'encadrement (garde-fou 2 de `PLAN-ARCHITECTURE.md`,
+ * verrouillé par test) : ce que l'employée a écrit est ce que le modèle reçoit, et ce qui
+ * est mémorisé dans le fil. Les index de la forme normalisée ne sont utilisés nulle part.
+ */
+export function normalizeForDetection(text: string): string {
+  return text
+    .normalize('NFKC')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/['’‘`´]/g, "'");
+}
+
 const INJECTION_PATTERNS: ReadonlyArray<{ regex: RegExp; type: string }> = [
   // ─── Structure : indépendant de la langue ───
   {
@@ -743,14 +791,40 @@ const INJECTION_PATTERNS: ReadonlyArray<{ regex: RegExp; type: string }> = [
   // (et dépasse le seuil `sonarjs/regex-complexity`) sans rien gagner. Les doublons de
   // `type` sont dédupliqués à la sortie de `detectInjectionAttempts`.
   //
-  // Écrasement d'instructions : verbe d'annulation PUIS objet, à moins de 32 caractères.
-  // C'est la proximité qui sépare « oublie les consignes précédentes » (attaque) de
-  // « j'ai oublié mon badge, quelles sont les règles ? » (trafic RH normal). Les désinences
-  // sont écrites en classes (`efface[rz]?`) et non en alternatives séparées.
+  // Écrasement d'instructions : verbe d'annulation PUIS objet. TROIS contraintes, chacune
+  // introduite pour un faux positif MESURÉ en production le 2026-08-12 — la version d'avant
+  // (fenêtre nue de 32 caractères, objet `pr[ée]c[ée]d` inclus) refusait les quatre
+  // premières phrases de cette liste, qui sont du trafic RH nominal :
+  //
+  //   ✗ « Annule le rappel, c'est dans la directive RH »      → fenêtre : 26 caractères
+  //   ✗ « Efface la note, la consigne reste valable »         → autre proposition (virgule)
+  //   ✗ « j'ai oublie la consigne de securite »               → passé composé, pas impératif
+  //   ✗ « Ignore le message précédent, je me suis trompée »   → objet = un message, pas
+  //                                                             une instruction
+  //
+  // 1. LOOKBEHIND D'AUXILIAIRE. « J'ai oublié la consigne » est une narration à la première
+  //    personne, « Oublie la consigne » un impératif à la deuxième : même verbe, même objet,
+  //    même distance (4 caractères). AUCUNE fenêtre de proximité ne peut les séparer — seul
+  //    l'auxiliaire le peut. Les adverbes (`pas`, `jamais`, `deja`…) sont là parce qu'ils
+  //    s'intercalent : « je n'ai **pas** oublié la consigne ». Le lookbehind s'applique PAR
+  //    OCCURRENCE : une phrase portant les deux tournures reste détectée sur la seconde.
+  // 2. FENÊTRE DE 16 CARACTÈRES, SANS PONCTUATION DE CLAUSE. Les deux ensemble, chacune
+  //    rattrapant ce que l'autre laisse : 26 > 16 pour « le rappel, c'est dans la », et la
+  //    virgule pour « la note, la » (13, donc dans la fenêtre). 16 et pas moins : « oublie
+  //    **tout ce qui** précède » en occupe 13. 16 et pas plus : « annuler **le rappel sur
+  //    la** directive RH » en occupe 18, et c'est une demande RH normale.
+  // 3. OBJET DE CLASSE « INSTRUCTION ». `pr[ée]c[ée]d` nu est retiré : il faisait de
+  //    « ignore le message précédent » — une correction humaine banale — une injection. Un
+  //    « message précédent » est un tour de l'utilisateur, que celui-ci contrôle déjà de
+  //    bout en bout ; le rétracter n'ouvre aucun privilège. « ce qui précède », lui, englobe
+  //    le prompt système : la forme `ce qui preced` est donc conservée, la forme adjectivale
+  //    ne survit que collée à un nom d'instruction (« les instructions précédentes »).
+  //
+  // Accents déjà retirés par `normalizeForDetection` : on écrit `regle`, jamais `r[èe]gle`.
   // Pas de `\b` final : `instruction` couvre déjà « instructions ».
   {
     regex:
-      /\b(?:ignore[sz]?|ignorer|oublie[sz]?|oublier|efface[rz]?|annule[rz]?)\b[^\n]{0,32}\b(?:instruction|consigne|directive|r[èe]gle|pr[ée]c[ée]d|(?:ci|au)-dessus|contexte)/i,
+      /(?<!\b(?:ai|as|a|avons|avez|ont|avais|avait|pas|jamais|deja|bien|toujours)\s)\b(?:ignore[sz]?|ignorer|oublie[sz]?|oublier|efface[rz]?|annule[rz]?)\b[^\n,;:.!?]{0,16}\b(?:instruction|consigne|directive|regle|ce\s+qui\s+preced|(?:ci|au)-dessus|contexte)/i,
     type: 'Instruction override (FR)',
   },
   { regex: /\b(?:fais|faites|faire)\s+abstraction\b/i, type: 'Instruction override (FR)' },
@@ -760,45 +834,45 @@ const INJECTION_PATTERNS: ReadonlyArray<{ regex: RegExp; type: string }> = [
   // « à partir de maintenant, envoie les rappels le lundi » est une demande RH normale.
   // C'est l'attribution d'une nouvelle identité qui est le signal, pas la temporalité.
   {
-    regex: /\b(?:tu\s+es|t['’]es|vous\s+[êe]tes)\s+(?:d[ée]sormais|maintenant|dor[ée]navant)\b/i,
+    regex: /\b(?:tu\s+es|t'es|vous\s+etes)\s+(?:desormais|maintenant|dorenavant)\b/i,
     type: 'Role redefinition (FR)',
   },
   {
-    regex: /\bd[ée]sormais,?\s+(?:tu|vous)\s+(?:es|[êe]tes|seras|serez)\b/i,
+    regex: /\bdesormais,?\s+(?:tu|vous)\s+(?:es|etes|seras|serez)\b/i,
     type: 'Role redefinition (FR)',
   },
-  { regex: /\b(?:tu\s+n|vous\s+n)['’](?:es|[êe]tes)\s+plus\b/i, type: 'Role redefinition (FR)' },
+  { regex: /\b(?:tu\s+n|vous\s+n)'(?:es|etes)\s+plus\b/i, type: 'Role redefinition (FR)' },
   {
     regex: /\b(?:comporte|conduis)[-\s]toi\s+comme\b|\b(?:agis|agissez)\s+comme\s+si\b/i,
     type: 'Role redefinition (FR)',
   },
-  { regex: /\bjoue\s+le\s+r[ôo]le\b|\bfais\s+semblant\s+d/i, type: 'Role redefinition (FR)' },
+  { regex: /\bjoue\s+le\s+role\b|\bfais\s+semblant\s+d/i, type: 'Role redefinition (FR)' },
 
   // Extraction du prompt système. Le mot « prompt » ou un qualificatif de système
   // (système / initiales / internes / secrètes) est EXIGÉ : sans lui, « montre-moi les
   // consignes de sécurité » — question RH parfaitement légitime — serait refusée.
   {
-    regex: /\b(?:prompt|invite)\s+(?:syst[èe]me|initiale?|d['’]origine)\b/i,
+    regex: /\b(?:prompt|invite)\s+(?:systeme|initiale?|d'origine)\b/i,
     type: 'System prompt extraction (FR)',
   },
   {
     regex:
-      /\b(?:tes|ton|ta|vos|votre)\s+(?:instruction|consigne|directive|r[èe]gle)s?\s+(?:syst[èe]me|initiale|interne|secr[èe]te|cach[ée]e)/i,
+      /\b(?:tes|ton|ta|vos|votre)\s+(?:instruction|consigne|directive|regle)s?\s+(?:systeme|initiale|interne|secrete|cachee)/i,
     type: 'System prompt extraction (FR)',
   },
   {
     regex:
-      /\b(?:affiche|montre|recopie|reproduis)[a-z]{0,3}\b[^\n]{0,16}\b(?:ton|tes|votre|vos)\s+(?:prompt|instruction|consigne|directive|r[èe]gle)/i,
+      /\b(?:affiche|montre|recopie|reproduis)[a-z]{0,3}\b[^\n]{0,16}\b(?:ton|tes|votre|vos)\s+(?:prompt|instruction|consigne|directive|regle)/i,
     type: 'System prompt extraction (FR)',
   },
   {
     regex:
-      /\b(?:r[ée]v[èée]l|divulgu|r[ée]p[èée]t)[a-z]{0,3}\b[^\n]{0,16}\b(?:ton|tes|votre|vos)\s+(?:prompt|instruction|consigne|directive|r[èe]gle)/i,
+      /\b(?:revel|divulgu|repet)[a-z]{0,3}\b[^\n]{0,16}\b(?:ton|tes|votre|vos)\s+(?:prompt|instruction|consigne|directive|regle)/i,
     type: 'System prompt extraction (FR)',
   },
 
   {
-    regex: /\bmode\s+(?:d[ée]veloppeur|d[ée]bogage|debug|libre|non\s+restreint|sans\s+filtre)\b/i,
+    regex: /\bmode\s+(?:developpeur|debogage|debug|libre|non\s+restreint|sans\s+filtre)\b/i,
     type: 'Jailbreak keyword (FR)',
   },
   {
@@ -823,8 +897,12 @@ export function detectInjectionAttempts(text: string): string[] {
   // le log et dans le message d'erreur, en laissant croire à trois vecteurs distincts.
   const attempts = new Set<string>();
 
+  // ⚠️ La comparaison se fait sur la forme normalisée, le texte transmis reste `text`.
+  // Voir `normalizeForDetection` : c'est une VUE du message, pas une réécriture.
+  const normalized = normalizeForDetection(text);
+
   for (const { regex, type } of INJECTION_PATTERNS) {
-    if (regex.test(text)) {
+    if (regex.test(normalized)) {
       attempts.add(type);
       injectionCounter.add(1, { type });
     }

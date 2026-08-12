@@ -244,6 +244,17 @@ interface DedupEntry {
  */
 const DEFAULT_IN_FLIGHT_GRACE_MS = 60_000;
 
+/**
+ * Au-delà de cette ancienneté, les faits d'annuaire d'une personne sont rafraîchis depuis Slack
+ * — en tâche de fond, jamais sur le chemin de l'ACK.
+ *
+ * 24 h parce que ce que porte cette ligne ne change qu'à des gestes rares et humains : une
+ * désactivation de compte, un passage en invité, un changement d'adresse. Plus court ferait
+ * payer un `users.info` par personne et par jour sans rien apprendre ; beaucoup plus long
+ * laisserait un ex-salarié conserver son niveau d'accès pendant des semaines.
+ */
+const DIRECTORY_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
 /** Types d'événements Slack que le bot traite. Tout le reste est ignoré. */
 const SUPPORTED_EVENT_TYPES = new Set(['app_mention', 'message', 'team_join']);
 
@@ -298,20 +309,23 @@ export const COMPLETE_PROFILE_ACTION_ID = 'complete_profile';
  *  - « génère » — il sert aussi bien `generateDocument` que `generateQuestionnaire`.
  */
 const ESCAPE_INTENTS: ReadonlyArray<readonly [agentId: string, keywords: readonly string[]]> = [
-  [
-    'onboardingOrchestrator',
-    [
-      'crée',
-      'créer',
-      'création',
-      'cree',
-      'creer',
-      'enregistre',
-      'retrouve',
-      'recherche',
-      'identifiant',
-    ],
-  ],
+  // ─────────────────────────────────────────────────────────────────────────
+  // L'ORDRE EST : NOMS SPÉCIFIQUES D'ABORD, VERBES GÉNÉRIQUES ENSUITE.
+  // ─────────────────────────────────────────────────────────────────────────
+  // Réordonné le 2026-08-12. `onboardingOrchestrator` était en tête et possède `retrouve` et
+  // `recherche` — deux verbes que les DEUX tools de `knowledgeAgent` emploient pour se décrire
+  // (« Retrouve les échanges… », « Retrouve les derniers messages… »). Conséquence mesurée :
+  // « retrouve notre conversation avec Awa » partait chez l'orchestrateur, donc le quatrième
+  // agent était INATTEIGNABLE sur son propre verbe, et le commentaire affirmant que cette
+  // bande est symétrique était faux.
+  //
+  // Le critère est le même que celui qui a fait écarter « ajoute » : un verbe générique ne doit
+  // pas l'emporter sur un nom qui désigne sans ambiguïté un objet métier. « retrouve » ne dit
+  // rien de ce qu'on cherche ; « conversation », « questionnaire » ou « rappel », si.
+  //
+  // ⚠️ L'ordre RELATIF des trois bandes nominales est conservé, et il porte un cas réel :
+  // « quel est l'historique des notifications de l'employé 123 ? » doit aller à
+  // `notificationAgent`. `notification` est donc évalué AVANT `historique`.
   ['questionnaireEngine', ['questionnaire', 'évaluation', 'quiz']],
   ['notificationAgent', ['notification', 'rappel']],
   // Ajouté le 2026-08-12 avec `knowledgeAgent`. La bande 1 doit rester SYMÉTRIQUE : chaque
@@ -327,7 +341,26 @@ const ESCAPE_INTENTS: ReadonlyArray<readonly [agentId: string, keywords: readonl
   //    droit l'a attrapé sur « rappelle-toi de notre échange », qui est une réponse de SUIVI et
   //    non l'ouverture d'une tâche. Même verdict que « ajoute » et « word » avant lui : un nom
   //    français assez courant pour apparaître dans une phrase qui ne demande rien.
-  ['knowledgeAgent', ['conversation', 'conversations', 'historique']],
+  //  - « conversations » au pluriel — c'était du code MORT : `matchesKeyword` ajoute déjà `s?`
+  //    aux mots-clés nominaux. Le déclarer donnait l'illusion d'une couverture supplémentaire.
+  ['knowledgeAgent', ['conversation', 'historique']],
+  // Le puits, en DERNIER : ses termes sont majoritairement des verbes génériques, et le défaut
+  // du routage est de toute façon cet agent. Y placer un mot revient donc surtout à le retirer
+  // aux autres — ce qui est exactement ce qui s'est produit avec `retrouve`.
+  [
+    'onboardingOrchestrator',
+    [
+      'crée',
+      'créer',
+      'création',
+      'cree',
+      'creer',
+      'enregistre',
+      'retrouve',
+      'recherche',
+      'identifiant',
+    ],
+  ],
 ];
 
 /**
@@ -465,6 +498,46 @@ export function sanitizeDisplayName(raw: string | undefined | null): string {
 }
 
 /**
+ * Un IDENTIFIANT se VALIDE par sa forme ; il ne se rabote pas.
+ *
+ * `sanitizeDisplayName` remplace tout caractère hors patronyme par une espace — ce qui est le
+ * bon contrat pour un nom, et le mauvais pour une adresse : il en retire l'`@`, produisant
+ * « karylsoumaila1 gmail.com ». Une adresse mutilée est pire qu'une adresse absente, parce
+ * qu'elle est PLAUSIBLE : le modèle la passerait à `findEmployeeByEmail`, qui ne trouverait
+ * rien, et l'on aurait reconstruit à la main le bug qu'on corrige.
+ *
+ * Un email et un UUID ont une forme stricte et connue. On la vérifie donc, et tout ce qui n'y
+ * répond pas est OMIS — jamais réparé, jamais tronqué. Aucune injection ne survit à un
+ * contrôle de forme : il n'existe pas d'espace, de retour à la ligne ni de chevron dans les
+ * classes ci-dessous.
+ *
+ * Les deux motifs sont ANCRÉS et à quantifiants BORNÉS : coût linéaire garanti, même exigence
+ * que les filtres de `agent-output.ts` sur une entrée non bornée.
+ */
+const EMAIL_SHAPE = /^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,24}$/i;
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function safeIdentifier(raw: string | undefined | null, shape: RegExp): string {
+  const value = (raw ?? '').trim();
+  return shape.test(value) ? value : '';
+}
+
+/**
+ * Ce que le serveur SAIT du demandeur, par opposition à ce que le modèle en devine.
+ *
+ * `null` signifie « non connu », jamais « vide » : c'est cette distinction qui décide si le
+ * champ entre ou non dans le préambule. Un `''` traité comme une valeur produirait la ligne
+ * à trous que `buildContextPreamble` existe pour éviter.
+ */
+interface RequesterIdentity {
+  readonly displayName: string;
+  readonly email: string | null;
+  readonly employeeId: string | null;
+}
+
+const EMPTY_IDENTITY: RequesterIdentity = { displayName: '', email: null, employeeId: null };
+
+/**
  * Message SERVEUR placé avant l'historique et avant le bloc balisé du message courant.
  *
  * ## Pourquoi il existe
@@ -483,15 +556,45 @@ export function sanitizeDisplayName(raw: string | undefined | null): string {
  * appel (`validateDelimiterIntegrity`). Un message `system` distinct est le seul canal qui
  * soit à la fois dans la fenêtre du modèle et hors de la zone déclarée hostile.
  *
+ * ## Les IDENTIFIANTS du demandeur, et pourquoi le nom seul ne suffisait pas
+ *
+ * Défaut mesuré en production le 2026-08-12 à 15:42 UTC. Le préambule nommait « Karyl
+ * SOUMAILA » et rien d'autre. Or AUCUN tool ne consomme un nom d'affichage : ils prennent
+ * tous un email ou un UUID. Sommé de livrer un document « de Karyl », le modèle a donc
+ * fabriqué l'adresse qui lui paraissait plausible (`karyl.soumaila@kisso.com`, inexistante),
+ * puis en a essayé d'autres — **38 `findEmployeeByEmail` en 1,5 seconde, tous en échec** —
+ * avant de dériver et d'émettre le délimiteur, ce qui a fait remplacer sa réponse par un
+ * refus neutre. L'utilisatrice a vu « Je ne peux pas répondre à cette demande ».
+ *
+ * L'annuaire connaissait pourtant les deux valeurs : la ligne `U0BJBDGTJUD` porte
+ * `karylsoumaila1@gmail.com` et son `employee_id`. Elles n'étaient jamais mises dans la
+ * fenêtre du modèle — le `requestContext` ne la traverse pas, et c'est sa raison d'être.
+ *
+ * C'est le MÊME défaut de classe que celui corrigé le 2026-08-11 sur `findEmployeeByEmail`,
+ * exposé aux trois agents : une boucle « donne-moi son identifiant » / « je ne l'ai pas »
+ * GARANTIE PAR LE CÂBLAGE, pas probabiliste. Ici la personne concernée est le demandeur
+ * lui-même — la seule dont le serveur connaisse l'identité de façon certaine.
+ *
+ * ⚠️ Chaque champ n'est émis que s'il EXISTE. Un gabarit à trous (« email : null ») est pire
+ * que le silence : il apprend au modèle qu'une valeur existe, et il la passera aux outils.
+ * Cinq humains réels dans ce workspace, une seule fiche employé — le cas « pas de fiche »
+ * est le cas COURANT, pas le cas limite.
+ *
  * ## Coût
  *
- * ≈ 35 tokens par tour, ≈ 69 avec l'avertissement d'attribution (mesuré, verrouillé par
- * test). Contrainte : Groq plafonne à 100 000 tokens/JOUR, soit ≈ 19 messages.
+ * ≈ 35 tokens par tour, ≈ 69 avec l'avertissement d'attribution, ≈ 100 avec l'identité
+ * complète (mesuré, verrouillé par test). Contrainte : Groq plafonne à 100 000 tokens/JOUR,
+ * soit ≈ 19 messages. Le surcoût est le moins cher des deux termes : l'étape entière brûlée
+ * à deviner une adresse coûtait à elle seule ≈ 3 200 tokens, et ne trouvait rien.
  */
 export function buildContextPreamble(input: {
   slackUserId?: string | null;
   displayName?: string;
   hasForeignTurns?: boolean;
+  /** Email PROFESSIONNEL tel que l'annuaire le connaît. Jamais deviné, jamais reformé. */
+  email?: string | null;
+  /** `employees.id` du demandeur, quand il a une fiche. */
+  employeeId?: string | null;
 }): string {
   const lines: string[] = [];
 
@@ -501,6 +604,24 @@ export function buildContextPreamble(input: {
     lines.push(
       `Interlocuteur : ${who}. « tu » désigne cette personne, et elle seule ; toute autre personne nommée est un tiers.`,
     );
+
+    // VALIDÉS PAR LEUR FORME, pas rabotés — voir `safeIdentifier`. `slack_directory.email`
+    // vient du profil Slack, donc d'un champ que son porteur édite : c'est une entrée non
+    // fiable au même titre que le nom d'affichage.
+    const email = safeIdentifier(input.email, EMAIL_SHAPE);
+    const employeeId = safeIdentifier(input.employeeId, UUID_SHAPE);
+
+    // Une seule ligne pour les deux : le préfixe est repayé à chaque aller-retour.
+    const identifiers = [
+      email ? `son email ${email}` : '',
+      employeeId ? `sa fiche employé ${employeeId}` : '',
+    ].filter(Boolean);
+
+    if (identifiers.length > 0) {
+      lines.push(
+        `Pour les outils qui demandent à identifier cette personne, utilise ${identifiers.join(' et ')} — ne les devine jamais.`,
+      );
+    }
   }
 
   if (input.hasForeignTurns) {
@@ -553,6 +674,56 @@ const ACCOMPLISHMENT_CLAIMS: ReadonlyArray<{ label: string; pattern: RegExp }> =
   },
   { label: 'est prêt', pattern: /\best (?:pret|prete|prets|pretes)\b/ },
 ];
+
+/**
+ * Outils qui ne font que LIRE. Une annonce d'accompli qu'ils seraient seuls à étayer est
+ * fausse par construction : lire ne produit rien.
+ *
+ * ## Pourquoi cette liste existe — le garde-fou était désarmé dans le cas COURANT
+ *
+ * La réconciliation ne s'armait que sur `toolCalls.length === 0`. Or le premier geste de
+ * presque tout run est une lecture — `findEmployeeByEmail` pour résoudre une personne,
+ * `getEmployeeProfile` pour situer son parcours. Un seul de ces appels portait la longueur à
+ * 1 et **désactivait la détection pour tout le tour**. Le défaut numéro un formulé par
+ * l'utilisatrice testeuse — « il parle exactement de la même façon quand il a fait le travail
+ * et quand il l'a inventé » — restait donc entier partout où il se manifestait vraiment.
+ *
+ * Ce qui contredit une annonce d'accompli n'est pas « zéro outil », c'est « zéro outil qui
+ * AGIT ».
+ *
+ * ## Pourquoi une liste de LECTEURS, et non une liste d'ACTEURS
+ *
+ * Le défaut sûr doit être le SILENCE. Un outil inconnu de cette liste est traité comme un
+ * acteur, donc n'accuse jamais : un nouvel outil non classé, ou un nom de tool illisible
+ * (Mastra a déjà changé la forme de ce champ une fois — `readToolCalls` journalisait
+ * « unknown » sur 100 % des appels), produit au pire un silence, jamais une accusation à
+ * tort. L'inverse — lister les acteurs — ferait qu'un oubli de classement accuse le modèle
+ * d'avoir menti alors qu'il a réellement agi.
+ *
+ * ⚠️ Verrouillé par `tests/unit/quality/tool-classification.test.ts` : tout outil câblé dans
+ * `src/mastra/index.ts` doit être classé ici OU être un acteur assumé. Une liste écrite à la
+ * main se désynchronise au premier changement de câblage — ce dépôt en a déjà fait deux fois
+ * l'expérience, avec des instructions nommant des tools retirés depuis longtemps.
+ */
+const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'findEmployeeByEmail',
+  'getEmployeeProfile',
+  'getTaskList',
+  'getNotificationHistory',
+  'getUserConversations',
+  'getChannelHistory',
+]);
+
+/**
+ * Un outil susceptible d'AGIR a-t-il tourné ?
+ *
+ * `[]` (zéro appel) rend `false` — c'est le cas d'origine, conservé. Un nom absent de
+ * `READ_ONLY_TOOL_NAMES` rend `true` : voir l'arbitrage ci-dessus, l'inconnu ne doit jamais
+ * produire une accusation.
+ */
+function hasActingToolCall(toolCalls: readonly string[]): boolean {
+  return toolCalls.some((name) => !READ_ONLY_TOOL_NAMES.has(name));
+}
 
 /**
  * Note ACCOLÉE à la réponse quand elle annonce un accompli qu'aucun outil n'étaye.
@@ -797,7 +968,7 @@ export class SlackEventsHandler {
    * mémorise un échec — et l'échec doit être mis en cache comme le succès, sinon un
    * workspace qui refuse l'annuaire paie l'appel indéfiniment.
    */
-  private readonly requesterNames = new LRUCache<string, string>({
+  private readonly requesterNames = new LRUCache<string, RequesterIdentity>({
     max: 500,
     ttl: 12 * 60 * 60 * 1000,
     allowStale: false,
@@ -976,7 +1147,35 @@ export class SlackEventsHandler {
              */
             resolveSubject: async (slackUserId) => {
               const known = await repo.findBySlackUserId(slackUserId);
-              if (known) return known;
+
+              if (known) {
+                // ⚠️ PÉREMPTION — sans elle, l'annuaire est un cache ÉCRIT UNE FOIS et jamais
+                // relu : une personne dont le compte Slack est désactivé garderait son niveau
+                // d'accès indéfiniment, puisque la seule chose qui pourrait le lui retirer
+                // (`is_deleted`) n'est jamais rafraîchie. La frontière serait alors correcte
+                // le premier jour et fausse tous les suivants — le pire des deux mondes, parce
+                // qu'elle continuerait de rassurer.
+                //
+                // Le rafraîchissement est DÉTACHÉ, et c'est le point : il ne se paie pas sur le
+                // chemin des 3 secondes d'ACK. On rend la valeur connue tout de suite, et la
+                // ligne s'auto-répare pour le message SUIVANT. Le prix est un message servi sur
+                // des faits de la veille ; l'alternative — attendre `users.info` avant chaque
+                // décision — mettrait un aller-retour réseau sur le chemin le plus contraint du
+                // système, pour une donnée qui change quelques fois par an.
+                if (Date.now() - known.syncedAt.getTime() > DIRECTORY_STALE_AFTER_MS) {
+                  void source
+                    .fetchById(slackUserId)
+                    .then((fresh) => (fresh ? repo.upsertFacts(fresh, new Date()) : undefined))
+                    .catch((error) =>
+                      logger.warn('Directory refresh failed — keeping the known facts', {
+                        slackUserId,
+                        error,
+                      }),
+                    );
+                }
+
+                return known;
+              }
 
               const facts = await source.fetchById(slackUserId);
               if (!facts) return null;
@@ -1464,30 +1663,78 @@ export class SlackEventsHandler {
   }
 
   /**
-   * Nom d'affichage du demandeur, mis en cache. **Ne rejette jamais.**
+   * IDENTITÉ du demandeur — nom d'affichage, email, fiche employé. Mise en cache.
+   * **Ne rejette jamais.**
    *
-   * L'annuaire est un confort : sans lui, le préambule se rabat sur la seule mention
-   * `<@U…>`, qui suffit déjà à empêcher « tu » de se résoudre sur un tiers. Les échecs sont
-   * mémorisés au même titre que les succès — un workspace qui refuse `users.info` ne doit
-   * pas coûter un aller-retour réseau à chaque message.
+   * ## L'annuaire d'abord, Slack ensuite — et cet ordre est le fond du correctif
+   *
+   * `users.info` sait rendre un nom et une adresse ; il ne sait RIEN de `employees.id`, qui
+   * n'existe que chez nous. Or c'est l'identifiant que consomment la moitié des outils
+   * (`getTaskList`, `scheduleReminder`, `sendNotification`…). Interroger Slack en premier
+   * rendrait donc une identité systématiquement amputée de sa moitié la plus utile, alors
+   * qu'une lecture sur la PRIMARY KEY de l'annuaire les rend toutes les deux d'un coup.
+   *
+   * Le repli sur `users.info` est conservé pour la personne que l'annuaire ne connaît pas
+   * encore : sans lui, le préambule perdrait le nom pour tout nouvel arrivant tant que
+   * personne n'a lancé la synchronisation. Il ne rend jamais d'`employeeId` — c'est correct,
+   * et c'est exactement pourquoi le champ est OMIS plutôt que rendu vide.
+   *
+   * ## Ce qui est mis en cache
+   *
+   * Les ÉCHECS comme les succès (identité vide) : un workspace qui refuse `users.info` ne
+   * doit pas coûter un aller-retour réseau à chaque message. Le TTL de 12 h borne la
+   * péremption — une fiche employé rattachée après coup met au plus une demi-journée à
+   * apparaître, ce qui est sans conséquence : le rattachement est une opération d'annuaire,
+   * pas un geste de conversation.
    */
-  private async resolveRequesterName(slackUserId: string | undefined): Promise<string> {
-    if (!slackUserId) return '';
+  private async resolveRequesterIdentity(
+    slackUserId: string | undefined,
+  ): Promise<RequesterIdentity> {
+    if (!slackUserId) return EMPTY_IDENTITY;
 
     const cached = this.requesterNames.get(slackUserId);
     if (cached !== undefined) return cached;
 
-    let resolved = '';
+    let resolved: RequesterIdentity = EMPTY_IDENTITY;
+
     try {
-      const member = await this.workspaceProvider.getUserById(slackUserId);
-      resolved = sanitizeDisplayName(
-        member?.realName || [member?.firstName, member?.lastName].filter(Boolean).join(' '),
-      );
+      const known = await this.getDirectoryRepo()?.findBySlackUserId(slackUserId);
+
+      if (known) {
+        resolved = {
+          displayName: sanitizeDisplayName(
+            known.realName || [known.firstName, known.lastName].filter(Boolean).join(' '),
+          ),
+          email: known.email,
+          employeeId: known.employeeId,
+        };
+      }
     } catch (error) {
-      logger.debug('Unable to resolve the Slack display name — falling back to the user id', {
+      // Une panne d'annuaire ne doit pas devenir une panne du bot : on tombe sur Slack.
+      logger.debug('Directory lookup failed while resolving the requester identity', {
         slackUserId,
         error,
       });
+    }
+
+    if (!resolved.displayName) {
+      try {
+        const member = await this.workspaceProvider.getUserById(slackUserId);
+        resolved = {
+          ...resolved,
+          displayName: sanitizeDisplayName(
+            member?.realName || [member?.firstName, member?.lastName].filter(Boolean).join(' '),
+          ),
+          // `??` et non `||` : une adresse vide rendue par Slack ne doit pas écraser celle que
+          // l'annuaire vient peut-être de fournir.
+          email: resolved.email ?? member?.email ?? null,
+        };
+      } catch (error) {
+        logger.debug('Unable to resolve the Slack display name — falling back to the user id', {
+          slackUserId,
+          error,
+        });
+      }
     }
 
     this.requesterNames.set(slackUserId, resolved);
@@ -1629,9 +1876,9 @@ export class SlackEventsHandler {
     // la conversation EST le canal ; en canal, c'est le thread.
     const conversationId = deriveConversationId({ channel, threadTs });
 
-    // Lancée SANS `await` : la résolution du nom se recouvre avec la lecture de la mémoire
-    // au lieu de s'y ajouter. Elle ne rejette jamais (cf. `resolveRequesterName`).
-    const requesterName = this.resolveRequesterName(user);
+    // Lancée SANS `await` : la résolution de l'identité se recouvre avec la lecture de la
+    // mémoire au lieu de s'y ajouter. Elle ne rejette jamais (cf. `resolveRequesterIdentity`).
+    const requesterIdentity = this.resolveRequesterIdentity(user);
 
     // ⚠️ L'historique est chargé AVANT le marqueur de progression, et c'est nécessaire :
     // un fil de canal non engagé est abandonné juste en dessous, et poster « Je regarde
@@ -1690,7 +1937,15 @@ export class SlackEventsHandler {
         .catch((error) => logger.debug('Could not record the DM channel', { user, error }));
     }
 
-    logger.info('Processing Slack message', { user, channel, text });
+    // ⚠️ Le TEXTE n'est PAS journalisé, et c'est le même raisonnement que pour `audit_logs`
+    // vingt lignes plus bas : le DM au bot est le canal privilégié pour parler d'un salaire,
+    // d'un arrêt maladie ou d'un litige. Le recopier en clair en niveau `info` l'expose à tout
+    // ce qui lit les logs — plateforme comprise. `maskPii` ne rattrapait rien ici : `text`
+    // n'est pas dans `PII_KEYS`.
+    //
+    // Ce qu'on garde est ce qui sert au diagnostic : qui, où, et la TAILLE — c'est elle qui
+    // distingue un message vide d'un pavé, sans en révéler le contenu.
+    logger.info('Processing Slack message', { user, channel, textLength: text.length });
 
     void writeAuditLog({
       action: 'SLACK_MESSAGE',
@@ -1782,7 +2037,7 @@ export class SlackEventsHandler {
         this.buildMessages(history, safeInput, {
           agentId,
           slackUserId: user,
-          displayName: await requesterName,
+          identity: await requesterIdentity,
         }),
         {
           requestContext: buildSlackRequestContext({
@@ -1821,9 +2076,17 @@ export class SlackEventsHandler {
       // affirme un accompli alors que la trace prouve que zéro outil a tourné est fausse par
       // construction. `null` (trace illisible) n'est pas `[]` (zéro appel) — sans preuve
       // positive, on se tait.
+      //
+      // ⚠️ La condition porte sur « aucun outil qui AGIT », et non sur « aucun outil ». Le
+      // test `length === 0` d'origine ne se déclenchait presque jamais : une lecture
+      // (`findEmployeeByEmail`, `getEmployeeProfile`) ouvre presque tout run et suffisait à
+      // désarmer la détection pour le tour entier. Lire ne produit rien — une annonce
+      // d'accompli que seules des lectures étayent est fausse par construction.
       const toolCalls = readToolCallNames(response);
       const unsupportedClaim =
-        toolCalls?.length === 0 ? detectUnsupportedCompletionClaim(safeOutput.text) : null;
+        toolCalls !== null && !hasActingToolCall(toolCalls)
+          ? detectUnsupportedCompletionClaim(safeOutput.text)
+          : null;
 
       if (unsupportedClaim) {
         // Niveau `error`, comme pour les URL fabriquées : c'est le même genre de faute — le
@@ -2054,15 +2317,23 @@ export class SlackEventsHandler {
   private buildMessages(
     history: readonly ConversationTurn[],
     wrappedCurrentInput: string,
-    context: { agentId: string; slackUserId?: string; displayName: string },
+    context: { agentId: string; slackUserId?: string; identity: RequesterIdentity },
   ) {
     const window = selectWindow(history, this.conversationTokenBudget);
 
     // Fenêtrage AVANT construction du préambule : l'avertissement d'attribution ne doit être
     // payé (≈ 35 tokens) que si un tour étranger survit réellement au budget de tokens.
+    //
+    // ⚠️ `email` et `employeeId` sont transmis TELS QUELS, y compris `null`. C'est
+    // `buildContextPreamble` qui décide de les omettre — un champ absent y est silencieux,
+    // jamais rendu en gabarit à trous. Les filtrer ici dupliquerait cette décision à deux
+    // endroits, et c'est leur ABSENCE de la fenêtre du modèle qui a produit les 38
+    // `findEmployeeByEmail` en échec du 2026-08-12.
     const preamble = buildContextPreamble({
       slackUserId: context.slackUserId,
-      displayName: context.displayName,
+      displayName: context.identity.displayName,
+      email: context.identity.email,
+      employeeId: context.identity.employeeId,
       hasForeignTurns: window.some(
         (turn) => turn.role === 'assistant' && turn.agentId !== context.agentId,
       ),

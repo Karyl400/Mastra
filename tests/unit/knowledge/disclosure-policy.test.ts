@@ -3,6 +3,8 @@ import { describe, it, expect } from 'vitest';
 import {
   authorizeChannelRead,
   authorizeMemoryRead,
+  authorizeOtherMemoryRead,
+  mayDiscloseBotUtterances,
   type Requester,
 } from '../../../src/features/knowledge/domain/services/disclosure-policy';
 import type { AccessPolicyConfig } from '../../../src/features/directory/domain/services/access-policy';
@@ -165,6 +167,23 @@ describe('authorizeMemoryRead — la mémoire du bot', () => {
     expect(authorizeMemoryRead(orgMember(), HR, unconfigured).allowed).toBe(true);
   });
 
+  it('rend le même verdict que le palier « autrui », sans connaître la cible', () => {
+    // La porte sans cible existe pour être franchie AVANT toute résolution
+    // d'annuaire : c'est ce qui supprime l'oracle « existe / n'existe pas ».
+    // Elle doit dire exactement la même chose que le palier 3 — sinon elle
+    // devient une seconde politique, et deux copies divergent.
+    expect(authorizeOtherMemoryRead(orgMember(), POLICY)).toEqual(
+      authorizeMemoryRead(orgMember(), OTHER, POLICY),
+    );
+    expect(authorizeOtherMemoryRead(singleChannelGuest(), POLICY)).toEqual(
+      authorizeMemoryRead(singleChannelGuest(), OTHER, POLICY),
+    );
+    expect(authorizeOtherMemoryRead(null, POLICY)).toEqual({
+      allowed: false,
+      reason: 'no_requester',
+    });
+  });
+
   it('ne confond pas un domaine voisin avec le domaine de l’organisation', () => {
     // `notkissohq.com` s'enregistre pour quelques euros. La règle est celle de
     // `resolveAccess` — c'est précisément pour ne pas la réécrire qu'on l'importe.
@@ -181,5 +200,30 @@ describe('authorizeMemoryRead — la mémoire du bot', () => {
     };
 
     expect(authorizeMemoryRead(lookalike, HR, POLICY).allowed).toBe(false);
+  });
+});
+
+describe('mayDiscloseBotUtterances — la fuite transitive par la mémoire', () => {
+  it("interdit les tours du BOT dès que la conversation est celle d'un tiers", () => {
+    // Le bot résume des canaux PRIVÉS dont il est membre, et ce résumé est
+    // persisté dans la conversation `D…` du demandeur. Servi à un membre `full`
+    // étranger au canal, il ouvre ce canal par ricochet — précisément ce que
+    // `authorizeChannelRead` refuse en face.
+    expect(mayDiscloseBotUtterances(orgMember(), OTHER)).toBe(false);
+    expect(mayDiscloseBotUtterances(singleChannelGuest(), OTHER)).toBe(false);
+    expect(mayDiscloseBotUtterances(null, OTHER)).toBe(false);
+  });
+
+  it('les autorise sur ses PROPRES échanges, invité compris', () => {
+    // Aucune amplification : le bot ne lui apprend rien qu'il n'ait déjà lu
+    // dans Slack, c'est sa conversation.
+    expect(mayDiscloseBotUtterances(orgMember(), HR)).toBe(true);
+    expect(mayDiscloseBotUtterances(singleChannelGuest(), GUEST)).toBe(true);
+  });
+
+  it('ne dépend PAS du privilège : `full` n’ouvre pas la parole du bot', () => {
+    // La règle est le lien à la conversation, jamais le niveau d'accès — sinon
+    // elle se contournerait par un simple domaine email.
+    expect(mayDiscloseBotUtterances(orgMember(), GUEST)).toBe(false);
   });
 });

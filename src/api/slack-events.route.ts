@@ -22,6 +22,7 @@ import type { Mastra } from '@mastra/core';
 import {
   SlackEventsHandler,
   type SlackEventEnvelope,
+  type SlackEventsHandlerOptions,
 } from '../features/notification/infrastructure/handlers/slack-events.handler';
 import { verifySlackSignature } from '../shared/security/slack-signature';
 import { logger } from '../shared/logger';
@@ -91,6 +92,53 @@ export function scheduleBackgroundWork(work: Promise<unknown>): BackgroundMechan
   return 'detached';
 }
 
+/* ------------------------------------------------------------------------- *
+ * Budget d'ACK Slack — instrumentation
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Slack rejoue tout événement qu'il n'a pas vu accusé dans ce délai. Ce n'est pas une
+ * recommandation : c'est le mécanisme qui a produit la DOUBLE RÉPONSE du 2026-08-11 12:38 UTC.
+ * Un ACK à 6,7 s sur démarrage à froid a déclenché un rejeu (`retryNum: 1`) routé vers une
+ * instance NEUVE, au cache vide, qui a répondu une seconde fois avec un texte différent.
+ */
+export const SLACK_ACK_BUDGET_MS = 3_000;
+
+/**
+ * Seuil d'alerte, à la moitié du budget.
+ *
+ * Il existe parce que le dépassement, lui, n'est PAS observable depuis la fonction : quand
+ * l'ACK part à 3,4 s, on voit un `200` parfaitement normal dans les logs et un doublon
+ * inexplicable dans Slack. La seule trace exploitable de l'incident du 2026-08-11 a été
+ * reconstruite après coup, par déduction, à partir de deux messages contradictoires postés
+ * dans un fil. Mesurer le chemin pré-ACK est ce qui manquait pour le voir venir.
+ */
+export const SLACK_ACK_AT_RISK_MS = 1_500;
+
+/** État NOMMÉ du budget d'ACK — aucune dégradation de ce chemin ne doit être muette. */
+export type AckBudgetState = 'ok' | 'at_risk' | 'exceeded';
+
+export function classifyAckLatency(elapsedMs: number): AckBudgetState {
+  if (elapsedMs >= SLACK_ACK_BUDGET_MS) return 'exceeded';
+  if (elapsedMs >= SLACK_ACK_AT_RISK_MS) return 'at_risk';
+  return 'ok';
+}
+
+/**
+ * Journalise le coût du chemin pré-ACK, et seulement quand il devient intéressant.
+ *
+ * `exceeded` part en `error` et non en `warn` : à ce stade Slack a déjà rejoué, donc un second
+ * traitement est déjà en vol quelque part. C'est la ligne à chercher quand une double réponse
+ * réapparaît — avant d'aller soupçonner la déduplication, qui n'est que la victime.
+ */
+function reportAckBudget(state: AckBudgetState, details: Record<string, unknown>): void {
+  if (state === 'exceeded') {
+    logger.error('Slack ACK budget exceeded — Slack has already replayed this event', details);
+  } else if (state === 'at_risk') {
+    logger.warn('Slack ACK budget at risk', details);
+  }
+}
+
 /**
  * Sous-ensemble du `Context` Hono réellement utilisé par la route.
  * Permet de tester le handler sans démarrer un serveur.
@@ -111,21 +159,66 @@ export interface SlackRouteContext {
 let cachedHandler: SlackEventsHandler | undefined;
 let cachedMastra: Mastra | undefined;
 
+/**
+ * COUTURE D'INJECTION RÉSERVÉE AUX TESTS — `undefined` en production, toujours.
+ *
+ * La route construit le handler par la voie de production, donc SANS options : le handler
+ * construit alors PARESSEUSEMENT un `DrizzleRateLimitRepository`, un
+ * `DrizzleSlackEventDedupRepository`, un `DrizzleConversationRepository` et un
+ * `DrizzleDirectoryRepository`. C'est le bon comportement en production, et un piège en test
+ * unitaire : `vitest.config.ts` ne charge pas `.env`, donc `DATABASE_URL` est absent et
+ * `connection.ts` retombe sur `file:./data/kisso.db` — la VRAIE base de développement.
+ *
+ * Le mode d'échec est déjà arrivé : les compteurs de débit et les clés de déduplication y sont
+ * alors PERSISTÉS, partagés entre tous les tests du fichier ET d'un run à l'autre. Passé le
+ * 5ᵉ événement d'un même auteur (rafale par défaut de `rate-limit-policy.ts`), `accept()` rend
+ * `rate_limited` et plus aucun travail de fond n'est programmé. La suite ne passait que parce
+ * que ces tables étaient ABSENTES de la base locale — un test vert par absence de table n'est
+ * pas un test vert, et `npm run db:init` suffisait à le casser.
+ *
+ * Cette couture ne change RIEN à la voie de production : sans appel explicite, les options
+ * restent `undefined` et le constructeur reçoit exactement ce qu'il recevait avant.
+ */
+let handlerOptionsForTests: SlackEventsHandlerOptions | undefined;
+
 export function getSlackEventsHandler(mastra: Mastra): SlackEventsHandler {
   if (!cachedHandler || cachedMastra !== mastra) {
-    cachedHandler = new SlackEventsHandler(process.env.SLACK_BOT_TOKEN ?? '', mastra);
+    cachedHandler = new SlackEventsHandler(
+      process.env.SLACK_BOT_TOKEN ?? '',
+      mastra,
+      handlerOptionsForTests,
+    );
     cachedMastra = mastra;
   }
   return cachedHandler;
 }
 
-/** Réinitialise le singleton (tests). */
-export function resetSlackEventsHandler(): void {
+/**
+ * Installe les dépendances du handler construit par la route (tests uniquement).
+ *
+ * Invalide le singleton au passage : sans cela, un handler déjà mémorisé — donc déjà porteur
+ * de ses dépôts Drizzle — survivrait à l'injection et la rendrait silencieusement inopérante.
+ */
+export function setSlackEventsHandlerOptionsForTests(
+  options: SlackEventsHandlerOptions | undefined,
+): void {
+  handlerOptionsForTests = options;
   cachedHandler = undefined;
   cachedMastra = undefined;
 }
 
+/** Réinitialise le singleton ET l'injection de test — remise à l'état de production. */
+export function resetSlackEventsHandler(): void {
+  cachedHandler = undefined;
+  cachedMastra = undefined;
+  handlerOptionsForTests = undefined;
+}
+
 export async function handleSlackEventRequest(c: SlackRouteContext): Promise<Response> {
+  // Horloge du budget d'ACK. Prise AVANT toute lecture : le corps de la requête, la
+  // vérification HMAC et l'admission comptent tous dans les 3 s que Slack accorde.
+  const startedAt = Date.now();
+
   // 1. Corps BRUT obligatoire pour le HMAC. Parser puis re-sérialiser casserait la
   //    signature (espaces / ordre des clés).
   const rawBody = await c.req.text();
@@ -162,10 +255,19 @@ export async function handleSlackEventRequest(c: SlackRouteContext): Promise<Res
   // 3. Filtrage + déduplication SYNCHRONES, avant l'ACK, pour qu'un renvoi Slack ne
   //    déclenche pas un second traitement de fond.
   const retryNum = c.req.header('x-slack-retry-num');
+
   // `accept()` est asynchrone depuis la déduplication partagée : la prise de clé fait un
-  // aller-retour vers Turso. Il reste AVANT l'ACK — c'est la seule position d'où un rejeu
-  // routé vers une autre instance peut être écarté avant tout traitement.
+  // aller-retour vers Turso, et le contrôle de débit un second (les deux règles y partent
+  // désormais ENSEMBLE — cf. `SlackRateLimiter.check`). Il reste AVANT l'ACK, et c'est
+  // délibéré : les deux décisions qu'il prend gouvernent l'existence même du travail de fond.
+  // Les déplacer après l'ACK reviendrait à programmer d'abord et à décider ensuite — sur une
+  // plateforme où « programmer » veut dire tenir la fonction éveillée et où le premier geste
+  // du traitement est de poster un marqueur de progression dans Slack. Un rejeu écarté APRÈS
+  // avoir posté « Je regarde ça, un instant… » n'est plus un rejeu écarté : c'est la double
+  // réponse qu'on cherche à empêcher, avec une étape de plus.
+  const admissionStartedAt = Date.now();
   const decision = await handler.accept(body, { retryNum });
+  const admissionMs = Date.now() - admissionStartedAt;
 
   if (decision.action === 'process') {
     // 4. Slack renvoie tout événement non accusé en moins de 3 s, et un appel agent
@@ -210,6 +312,19 @@ export async function handleSlackEventRequest(c: SlackRouteContext): Promise<Res
   }
 
   // 5. ACK immédiat — toujours 200, sinon Slack rejoue puis désactive l'endpoint.
+  //    Le coût réel du chemin qui précède est mesuré et NOMMÉ : c'est le seul endroit d'où
+  //    l'on puisse constater qu'on s'approche des 3 s, et l'instrument qui manquait le
+  //    2026-08-11.
+  const ackMs = Date.now() - startedAt;
+  reportAckBudget(classifyAckLatency(ackMs), {
+    ackMs,
+    admissionMs,
+    eventId: body.event_id,
+    eventType: body.event?.type,
+    action: decision.action,
+    retryNum: retryNum ?? null,
+  });
+
   return c.json({ ok: true });
 }
 

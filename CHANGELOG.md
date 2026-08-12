@@ -1,5 +1,125 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-12 — revue croisée avant redéploiement
+
+Six revues indépendantes (contradiction code/commentaire, chaîne d'autorisation re-dérivée,
+câblage mort, parcours utilisateur simulé, build exécuté) sur l'arbre de travail. Ce qui suit
+est ce qu'elles ont trouvé et ce qui a été corrigé.
+
+### Fixed — le bundle Vercel ne DÉMARRAIT PAS, et le build sortait en vert
+
+C'est le défaut le plus grave de la passe, et il a exactement la signature récurrente de ce
+dépôt : un contrôle qui rassure sur un artefact mort, comme `emailSent: false` sous
+`status: 'success'` ou `documents.content` perdu en silence.
+
+- **Symptôme** : `node -e "import('./index.mjs')"` dans `.vercel/output/functions/index.func`
+  → `SyntaxError: Named export 'TTLCache' not found`. Erreur de LIAISON ESM, donc la fonction
+  entière meurt **avant sa première instruction** — pas une dégradation, une mort.
+- **Mécanisme** : le déployeur Mastra écrit un `package.json` de fonction épinglant
+  `@mastra/core` en **0.24.9** et installe SA fermeture (`lru-cache@7`, `@isaacs/ttlcache@1`).
+  `scripts/fix-vercel-output.js` écrase ensuite `@mastra/core` par le vrai **1.57.0** mais
+  laissait sa fermeture derrière : un noyau récent posé sur les dépendances d'un noyau d'il y a
+  trois majeures. Les anciennes majeures font `module.exports = Class`, les nouvelles exportent
+  un espace de noms — l'`import { TTLCache }` de `mastra.mjs` ne peut pas se lier.
+- **Pourquoi c'était invisible** : `ensureTransitiveDependencies` comble les modules ABSENTS,
+  jamais ceux présents à une majeure périmée. Et `verify-vercel-bundle.js` VOYAIT l'écart
+  (`lru-cache@7.18.3 vs ^11.2.7`) en le classant « non bloquant ».
+- **Correctifs** : `lru-cache` et `@isaacs/ttlcache` ajoutés à `MODULES_TO_COPY` (la copie
+  depuis la racine écrase, contrairement au comblement) ; et surtout un **contrôle de
+  DÉMARRAGE** dans `verify-vercel-bundle.js` — il importe réellement `index.mjs` et n'échoue
+  que sur une faute de résolution ou de liaison.
+  - ⚠️ Une première version bloquait sur tout écart de MAJEURE : elle a immédiatement dénoncé
+    cinq écarts **préexistants et inoffensifs** (`zod@4 vs ^3` exigé par `ai@4`, `ai@4 vs ^5`
+    exigé par un provider OpenRouter jamais chargé) que la production fait tourner depuis des
+    semaines. Une heuristique de version ne distingue pas un pair non satisfait d'une liaison
+    rompue ; **le démarrage, si**. Le rapport de versions reste informatif.
+- Vérifié après correctif : `✅ Démarrage du bundle : le graphe de modules se charge et se lie`,
+  puis `BOOT OK` à la main. La production déployée, elle, répondait déjà `401` — Vercel résout
+  cette fermeture autrement ; le défaut était local, le filet manquait des deux côtés.
+
+### Fixed — la réconciliation FAIT/NARRATION était désarmée dans le cas COURANT
+
+Réponse au verdict de l'utilisatrice testeuse (« il parle exactement de la même façon quand il
+a fait le travail et quand il l'a inventé »), qui restait **vrai** malgré le garde-fou.
+
+- La condition était `toolCalls?.length === 0`. Or le premier geste de presque tout run est une
+  LECTURE (`findEmployeeByEmail`, `getEmployeeProfile`) : un seul de ces appels portait la
+  longueur à 1 et **désactivait la détection pour tout le tour**. Le garde-fou ne couvrait donc
+  en pratique que le cas rare « zéro outil du tout ».
+- Ce qui contredit une annonce d'accompli n'est pas « zéro outil », c'est « zéro outil qui
+  AGIT ». Nouveau `READ_ONLY_TOOL_NAMES` + `hasActingToolCall()`.
+- **Liste de LECTEURS, jamais d'ACTEURS** : le défaut sûr doit être le silence. Un outil
+  inconnu de la liste — nouvel outil non classé, ou nom illisible après un changement de forme
+  de Mastra (`readToolCalls` a déjà journalisé « unknown » sur 100 % des appels) — est traité
+  comme un acteur, donc n'accuse jamais. L'inverse ferait qu'un oubli de classement accuse le
+  modèle d'avoir menti alors qu'il a réellement agi.
+
+### Fixed — sécurité : deux fuites dans `getUserConversations`
+
+- **Oracle d'annuaire.** `resolveTarget` interrogeait l'annuaire AVANT `authorizeMemoryRead` :
+  un demandeur non privilégié distinguait `person_not_found` de `insufficient_privilege`, donc
+  **énumérait les emails de l'entreprise** depuis un DM. L'autorisation soi/autrui est
+  désormais tranchée sans aucune E/S (`designatesRequester`) et **avant** toute résolution.
+- **Fuite transitive par la mémoire.** Tout membre `full` lisait les tours DM d'autrui — or les
+  tours `assistant` contiennent les RÉSUMÉS produits par le bot. Un non-membre de
+  `#engineer-karyl` pouvait donc lire un résumé de ce canal privé via le DM d'un membre,
+  contournant `authorizeChannelRead`. `mayDiscloseBotUtterances` filtre les tours `assistant`
+  hors du cas « la personne concernée ». On coupe l'AMPLIFICATION, pas l'accès : un tour `user`
+  est ce que la personne a tapé elle-même.
+- ⚠️ **Un test verrouillait la fuite** (`toContain('MacBook')` portait sur un tour `assistant`
+  d'un tiers). Troisième occurrence du motif dans ce dépôt.
+
+### Fixed — un canal ARCHIVÉ dont le bot est membre était déclaré accessible en écriture
+
+`channel-coverage.service.ts` testait `isMember` avant `isArchived`. `chat.postMessage` échoue
+en `is_archived` quel que soit `is_member`, et `listChannelMembershipsPage` ne pose
+délibérément pas `exclude_archived` : ces canaux arrivaient donc bien dans la boucle, entraient
+dans `accessibleChannelIds` (« ceux où le bot PEUT écrire ») et n'étaient jamais comptés dans
+`archivedSkipped`.
+
+### Fixed — la suite de tests n'était verte que parce qu'une table MANQUAIT
+
+Découvert en alignant la base locale sur la production.
+
+- Les tests unitaires ne chargent pas `.env` : `DATABASE_URL` est indéfini et
+  `connection.ts` retombe sur `file:./data/kisso.db`. (La Turso de production n'est donc
+  **jamais** touchée par les tests — vérifié.)
+- Mais le handler construit un `DrizzleRateLimitRepository` dès que `rateLimiter` n'est pas
+  injecté : les compteurs étaient **partagés entre tous les tests d'un fichier et persistés
+  d'un run à l'autre**. La rafale par défaut étant de 5 messages/minute pour un même auteur,
+  onze tests d'`accept()` basculaient en `rate_limited`.
+- Cela ne se voyait pas parce que `rate_limit_counters` était ABSENTE de `data/kisso.db` — le
+  limiteur dégradait alors en compteur local, par instance. **Un test vert par absence de table
+  n'est pas un test vert**, et sur une machine neuve où `npm run db:init` crée tout le schéma,
+  la suite échouait.
+- Le helper `makeHandler` injecte désormais `rateLimiter: null`, comme il le faisait déjà pour
+  `conversationRepository` et `dedupRepository` — même idiome, même commentaire, simple oubli.
+
+### Fixed — DDL invalide
+
+`scripts/ddl-rate-limit-counters.sql` commençait par `claud-- ===` : un fragment parasite en
+tête de fichier rendait le premier énoncé insyntaxique. C'était l'unique modification du
+fichier par rapport à sa version committée.
+
+### Vérifié sans correctif nécessaire
+
+- **Toutes les DDL sont appliquées en production** : `slack_channels`, `slack_channel_members`,
+  `rate_limit_counters`, et `slack_directory.first_name/last_name/title`. `PRAGMA
+  foreign_keys = 1` confirmé actif, comme le supposent les commentaires de `schema.ts`.
+  Le piège « DDL d'abord, déploiement ensuite » n'était donc pas en attente cette fois.
+- **La chaîne d'autorisation de `getChannelHistory` est structurellement sûre** : point de
+  contrôle unique, fail-closed porté par l'analyse de flux de TypeScript (`isMember` déclaré
+  sans initialiseur, le `catch` retourne), deux méthodes de port séparées plutôt qu'un
+  `fetchIfAllowed()`, et deux vocabulaires de refus **typés disjoints** (droit vs faisabilité).
+  Aucune identité dans les `inputSchema` : le LLM ne peut pas forger un élargissement de droits.
+- **Les données récupérées sont correctement encadrées** : `flatten` supprime `[<>]` du texte
+  ET du nom d'affichage avant l'encadrement, et les extraits ont leur propre préfixe de session
+  128 bits, distinct de celui du message utilisateur. Le contenu récupéré n'est jamais persisté.
+- **Le 4e agent est correctement câblé** : clé de registre identique à l'`id`, présent dans
+  `KNOWN_AGENT_IDS`, et `ESCAPE_INTENTS` a été réordonné pour que l'orchestrateur (qui possède
+  `retrouve`/`recherche`) ne le capture plus.
+- Aucune nouvelle dépendance npm ; la liste `--require` de `verify:bundle` n'avait pas à bouger.
+
 ## [Unreleased] - 2026-08-11 (soir)
 ### Fixed — campagne de production 19:19→19:40, quatre lots de correction
 
