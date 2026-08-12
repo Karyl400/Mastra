@@ -95,26 +95,73 @@ export function isCallerError(error: HttpErrorLike | undefined | null): boolean 
  *
  * Le corps et le message sont conservés à l'identique : seul le code de statut change.
  */
+/**
+ * Le corps d'une réponse d'erreur Mastra est-il une faute d'appelant ?
+ *
+ * Vérifié en production : l'`HTTPException` levée par le handler N'ARRIVE PAS jusqu'au
+ * middleware — Hono la convertit en `Response` en amont. Inspecter la réponse après
+ * `next()` est donc le SEUL point d'accroche qui fonctionne réellement ; le `try/catch`
+ * est conservé en second filet pour les chemins qui, eux, propagent.
+ */
+export function isCallerErrorBody(status: number, body: string): boolean {
+  if (status !== 500) return false;
+
+  // Le corps brut est le repli, PAS une initialisation : Mastra renvoie parfois du texte nu
+  // plutôt que du JSON, et l'y chercher quand même est exactement ce qui a permis de
+  // reconnaître les erreurs de validation. L'initialiser à `''` en plus rendait
+  // l'affectation du bloc `try` morte pour le compilateur — et masquait qu'aucune des deux
+  // branches ne peut laisser `message` indéfini.
+  let message: string;
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown; message?: unknown };
+    message = typeof parsed.error === 'string' ? parsed.error : String(parsed.message ?? '');
+  } catch {
+    message = body;
+  }
+
+  return isCallerError({ status, message });
+}
+
+interface MiddlewareContext {
+  res?: Response;
+}
+
 export function createCallerErrorMiddleware(options: { onRemap?: (message: string) => void } = {}) {
   return async (c: unknown, next: () => Promise<void>): Promise<Response | void> => {
     try {
       await next();
     } catch (error) {
       const httpError = error as HttpErrorLike & { getResponse?: () => Response };
-
       if (!isCallerError(httpError)) throw error;
 
       options.onRemap?.(String(httpError.message));
 
-      // Réutiliser le corps déjà construit en amont plutôt que d'en fabriquer un autre :
-      // le client reçoit exactement le même JSON, avec le bon statut.
-      const original = typeof httpError.getResponse === 'function' ? httpError.getResponse() : undefined;
-      const body = original ? await original.clone().text() : JSON.stringify({ error: httpError.message });
+      const original =
+        typeof httpError.getResponse === 'function' ? httpError.getResponse() : undefined;
+      const body = original
+        ? await original.clone().text()
+        : JSON.stringify({ error: httpError.message });
 
       return new Response(body, {
         status: CALLER_ERROR_STATUS,
         headers: original?.headers ?? { 'content-type': 'application/json' },
       });
     }
+
+    // Chemin NOMINAL : la réponse existe déjà, il n'y a jamais eu d'exception ici.
+    const ctx = c as MiddlewareContext;
+    const res = ctx?.res;
+    if (!res || res.status !== 500) return;
+
+    // `clone()` obligatoire : lire le corps de `res` le consommerait pour le client.
+    const body = await res.clone().text();
+    if (!isCallerErrorBody(res.status, body)) return;
+
+    options.onRemap?.(body);
+
+    return new Response(body, {
+      status: CALLER_ERROR_STATUS,
+      headers: res.headers,
+    });
   };
 }

@@ -20,7 +20,7 @@ describe('isCallerError', () => {
     });
   });
 
-  describe('ne touche à rien d\'autre', () => {
+  describe("ne touche à rien d'autre", () => {
     it('laisse un 401 (couche auth) intact', () => {
       expect(isCallerError({ status: 401, message: 'Unauthorized' })).toBe(false);
     });
@@ -39,7 +39,10 @@ describe('isCallerError', () => {
 
     it("ne requalifie pas si les mots-clés n'ouvrent pas le message", () => {
       expect(
-        isCallerError({ status: 500, message: 'Database crashed while reporting Invalid input data:' })
+        isCallerError({
+          status: 500,
+          message: 'Database crashed while reporting Invalid input data:',
+        }),
       ).toBe(false);
     });
 
@@ -61,11 +64,12 @@ describe('createCallerErrorMiddleware', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it('transforme une faute d\'appelant 500 en 400 en conservant le corps', async () => {
+  it("transforme une faute d'appelant 500 en 400 en conservant le corps", async () => {
     const body = JSON.stringify({ error: 'Invalid input data: \n- employeeId: Required' });
     const err = Object.assign(new Error('Invalid input data: \n- employeeId: Required'), {
       status: 500,
-      getResponse: () => new Response(body, { status: 500, headers: { 'content-type': 'application/json' } }),
+      getResponse: () =>
+        new Response(body, { status: 500, headers: { 'content-type': 'application/json' } }),
     });
 
     const onRemap = vi.fn();
@@ -99,5 +103,44 @@ describe('createCallerErrorMiddleware', () => {
     const mw = createCallerErrorMiddleware();
 
     await expect(mw({}, () => Promise.reject(err))).rejects.toThrow(/Unauthorized/);
+  });
+});
+
+describe('inspection de la RÉPONSE (chemin réel en production)', () => {
+  it('requalifie une réponse 500 dont le corps est une erreur de validation', async () => {
+    const body = JSON.stringify({ error: 'Invalid input data: \n- employeeId: Required' });
+    const c = {
+      res: new Response(body, { status: 500, headers: { 'content-type': 'application/json' } }),
+    };
+
+    const onRemap = vi.fn();
+    const mw = createCallerErrorMiddleware({ onRemap });
+    const out = (await mw(c, async () => undefined)) as Response;
+
+    expect(out.status).toBe(400);
+    await expect(out.text()).resolves.toBe(body);
+    expect(onRemap).toHaveBeenCalledOnce();
+  });
+
+  it('laisse une VRAIE panne 500 intacte', async () => {
+    const body = JSON.stringify({ error: "Cannot find module 'js-md5'" });
+    const c = { res: new Response(body, { status: 500 }) };
+
+    const out = await createCallerErrorMiddleware()(c, async () => undefined);
+    expect(out).toBeUndefined();
+  });
+
+  it('ne touche pas une réponse 200', async () => {
+    const c = { res: new Response('{"ok":true}', { status: 200 }) };
+    const out = await createCallerErrorMiddleware()(c, async () => undefined);
+    expect(out).toBeUndefined();
+  });
+
+  it('ne consomme pas le corps de la réponse originale', async () => {
+    const c = {
+      res: new Response(JSON.stringify({ error: 'Invalid input data: x' }), { status: 500 }),
+    };
+    await createCallerErrorMiddleware()(c, async () => undefined);
+    expect(c.res.bodyUsed).toBe(false);
   });
 });
