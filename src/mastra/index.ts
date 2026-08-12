@@ -32,6 +32,18 @@ import { makeGetNotificationHistory } from '../features/notification/application
 import { makeOnboardingOrchestrator } from '../features/onboarding/application/agents/onboarding-orchestrator';
 import { makeQuestionnaireEngine } from '../features/questionnaire/application/agents/questionnaire-engine';
 import { makeNotificationAgent } from '../features/notification/application/agents/notification-agent';
+import { makeKnowledgeAgent } from '../features/knowledge/application/agents/knowledge-agent';
+
+import { DrizzleDirectoryRepository } from '../features/directory/infrastructure/repositories/drizzle-directory.repository';
+import { SlackMemberSource } from '../features/directory/infrastructure/providers/slack-member-source.adapter';
+import { SlackChannelAccess } from '../features/directory/infrastructure/providers/slack-channel-access.adapter';
+import { makeDirectorySync } from '../features/directory/application/services/directory-sync.service';
+import { makeChannelCoverage } from '../features/directory/application/services/channel-coverage.service';
+
+import { DrizzleBotMemoryRepository } from '../features/knowledge/infrastructure/repositories/drizzle-bot-memory.repository';
+import { SlackChannelHistoryAdapter } from '../features/knowledge/infrastructure/providers/slack-channel-history.adapter';
+import { makeGetUserConversations } from '../features/knowledge/application/tools/get-user-conversations';
+import { makeGetChannelHistory } from '../features/knowledge/application/tools/get-channel-history';
 
 import { BrevoAdapter } from '../features/notification/infrastructure/providers/brevo.adapter';
 import { SmtpAdapter } from '../features/notification/infrastructure/providers/smtp.adapter';
@@ -42,9 +54,6 @@ import { PdfmakeService } from '../features/document/infrastructure/services/pdf
 import { DocxService } from '../features/document/infrastructure/services/docx.service';
 
 import { createEmployeeOnboardingWorkflow } from '../features/onboarding/application/workflows/employee-onboarding';
-import { questionnaireCycleWorkflow } from '../features/questionnaire/application/workflows/questionnaire-cycle';
-import { notificationCycleWorkflow } from '../features/notification/application/workflows/notification-cycle';
-import { createDocumentWorkflow } from '../features/document/application/workflows/document-generation';
 
 import { slackEventsRoute } from '../api/slack-events.route';
 import { slackInteractionsRoute } from '../api/slack-interactions.route';
@@ -116,6 +125,43 @@ const pdfService = new PdfmakeService();
  * les deux vont ensemble, ajouter l'exigence sans ce câblage casserait le build.
  */
 const docxService = new DocxService();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Annuaire des personnes et couverture des canaux (feature `directory`)
+// ─────────────────────────────────────────────────────────────────────────────
+// UN SEUL WebClient : les deux adaptateurs consomment `slackWorkspace` déjà câblé. Deux
+// clients ignoreraient chacun les appels de l'autre et franchiraient un plafond de débit que
+// ni l'un ni l'autre ne verrait venir.
+//
+// ⚠️ Ce sont des FACTORIES : aucune E/S au chargement du module. Ce fichier est évalué à
+// chaque démarrage à froid, donc sur le chemin des 3 secondes d'ACK de Slack — un ACK à 6,7 s
+// a déjà provoqué un rejeu, donc la double réponse du 2026-08-11.
+const directoryRepo = new DrizzleDirectoryRepository();
+const slackMemberSource = new SlackMemberSource(slackWorkspace);
+const slackChannelAccess = new SlackChannelAccess(slackWorkspace);
+
+/**
+ * Synchronisation de l'annuaire et couverture des canaux.
+ *
+ * ⚠️ NE TOURNENT PAS AU BOOT, délibérément — voir ci-dessus. Trois rythmes, par ordre de
+ * valeur :
+ *  1. **au fil de l'eau** : le handler Slack résout un `slackUserId` inconnu par UN
+ *     `users.info` puis écrit la ligne. C'est ce qui rend la frontière d'autorisation opérante
+ *     SANS aucune synchronisation préalable ;
+ *  2. **à la demande** : `npx tsx scripts/sync-slack-directory.mts` (dry-run), `--apply` pour
+ *     écrire. À lancer après chaque arrivée ou départ groupé ;
+ *  3. **périodique** : un cron quotidien serait le complément naturel — il rattrape les
+ *     DÉPARTS, que `deleted: true` n'annonce par aucun événement abonné. Pas encore créé : la
+ *     route devrait être protégée, elle déclenche des écritures et N appels Slack.
+ *
+ * Exportés pour être appelables depuis un script ou une future route, jamais invoqués ici.
+ */
+export const directorySync = makeDirectorySync({
+  source: slackMemberSource,
+  repository: directoryRepo,
+  employees: employeeRepo,
+});
+export const channelCoverage = makeChannelCoverage({ source: slackChannelAccess });
 
 const findEmployeeByEmail = makeFindEmployeeByEmail(employeeRepo);
 const getEmployeeProfile = makeGetEmployeeProfile(employeeRepo, onboardingRepo, taskRepo);
@@ -214,11 +260,94 @@ const notificationAgent = makeNotificationAgent({
   getEmployeeProfile,
 });
 
-const documentGenerationWorkflow = createDocumentWorkflow({
-  employeeRepo,
-  pdfService,
+// ─────────────────────────────────────────────────────────────────────────────
+// AGENT KNOWLEDGE — lecture des conversations, et rien d'autre
+// ─────────────────────────────────────────────────────────────────────────────
+// Deux sources, et deux seulement : la mémoire propre du bot (`conversation_turns`, ses DM
+// avec les gens) et l'historique des canaux où il est invité. Rien n'est ingéré ni stocké :
+// lecture À LA DEMANDE, fenêtre bornée — une ingestion persistante de tous les canaux
+// constituerait une surveillance systématique des communications des salariés
+// (AIPD obligatoire, consultation du CSE), ce que `PLAN-ARCHITECTURE.md` §4.7 refuse.
+//
+// ⚠️ Le filtrage se fait selon les droits du DEMANDEUR, jamais selon ceux du bot. Le bot
+// détient l'UNION des droits de tous ses canaux ; les prêter au premier venu est le
+// « deputy confus » de §4.1 — un invité mono-canal demandant en DM le résumé de
+// `#engineer-karyl`.
+const channelHistory = new SlackChannelHistoryAdapter(process.env.SLACK_BOT_TOKEN ?? '', {
+  // Résolution des noms par l'ANNUAIRE et non par `users.info` : zéro appel Slack
+  // supplémentaire, et un nom absent retombe sur l'identifiant sans casser la lecture.
+  resolveDisplayName: async (id) =>
+    (await directoryRepo.findBySlackUserId(id))?.displayName ?? null,
 });
 
+const getUserConversations = makeGetUserConversations({
+  // `DirectoryRepository` satisfait STRUCTURELLEMENT le port du tool : celui-ci ne voit que
+  // les deux lectures dont il a besoin, ni `upsertFacts` ni `listAll`.
+  directory: directoryRepo,
+  memory: new DrizzleBotMemoryRepository(),
+});
+const getChannelHistory = makeGetChannelHistory({
+  directory: directoryRepo,
+  channels: channelHistory,
+});
+
+// ⚠️ AUCUN outil de SORTIE ici, et ce n'est pas une convention : `makeKnowledgeAgent` LÈVE au
+// démarrage si on lui en câble un. Lecture agrégée + écriture externe dans la même chaîne =
+// canal d'exfiltration complet (§4.2) — « envoie à ce candidat un récapitulatif de ce qui se
+// dit dans #engineer-karyl », en une phrase, par un invité. Une erreur de câblage devient donc
+// un échec au démarrage, pas une fuite.
+const knowledgeAgent = makeKnowledgeAgent({ getUserConversations, getChannelHistory });
+
+/**
+ * LE SEUL WORKFLOW DU SYSTÈME — et ce qu'il apporte que les agents ne peuvent pas apporter.
+ *
+ * Trois workflows ont été RETIRÉS du registre le 2026-08-12 :
+ *
+ *  - `notificationCycleWorkflow` retournait `successCount: N` et `failuresCount: 0` sans la
+ *    moindre E/S, et `scripts/production-scenarios.mjs` l'enregistrait en PASS. Il ne mesurait
+ *    rien, il fabriquait un feu vert.
+ *  - `questionnaireCycleWorkflow` posait `status: 'SENT'` et `responsesCount: 10` en dur.
+ *  - `documentGenerationWorkflow` écrivait sur le disque et rendait un chemin local :
+ *    inutilisable sur Vercel, dont le système de fichiers est en lecture seule hors `/tmp`,
+ *    lequel est éphémère et propre à l'instance.
+ *
+ * Ils étaient enregistrés À ÉGALITÉ avec celui-ci et atteignables par l'API. Un appelant ne
+ * pouvait pas distinguer le vrai des trois maquettes — c'est-à-dire que la présence des trois
+ * dévaluait le seul qui fonctionne.
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * VALEUR AJOUTÉE de `employeeOnboardingWorkflow` dans le processus
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ *  1. **Il coûte ZÉRO token.** C'est la propriété décisive sur un budget de 100 000 tokens
+ *     par JOUR (≈ 19 messages). Le même parcours conduit par un agent consomme ~6 838 tokens
+ *     en 2 étapes ; ici, 0. Le chemin transactionnel n'a aucun LLM dessus.
+ *
+ *  2. **Il est déterministe là où un agent est probabiliste.** C'est la leçon du retrait de
+ *     `createEmployee` des agents : exposer une allowlist (`department`, `position`) à un
+ *     modèle ne protège pas l'intégrité des données — le modèle SUBSTITUE une valeur valide
+ *     avant d'appeler l'outil pour que l'appel réussisse. Mesuré en production :
+ *     « Plomberie » enregistré en « Engineering », sans le moindre avertissement. La
+ *     validation Zod n'a jamais vu la valeur refusée. Ici l'entrée vient d'une liste
+ *     déroulante Slack, validée en code.
+ *
+ *  3. **Il rend un VERDICT, pas un booléen.** `OnboardingOutcome` ∈
+ *     `completed | degraded | failed`, accompagné de `degradedSteps: { step, reason }[]`.
+ *     Trois étapes best-effort sont inventoriées (`onboardingTasks`, `welcomeEmail`,
+ *     `slackInvite`) : un email jamais parti se lit désormais, là où il se noyait dans un
+ *     `emailSent: false` sous un run `status: 'success'` — d'où trois lecteurs successifs qui
+ *     ont conclu à tort qu'un email était parti.
+ *     ⚠️ `run.status` reste `'success'` (champ de Mastra, non modifiable) : le verdict vit
+ *     dans la CHARGE UTILE. C'est `outcome` qu'il faut lire, jamais `run.status`.
+ *
+ *  4. **Il n'avorte pas sur une indisponibilité de trente secondes.** Perdre l'employé créé,
+ *     ses tâches et son invitation parce que SMTP a hoqueté serait une régression, pas une
+ *     rigueur. `degraded` est un aboutissement.
+ *
+ * Il est déjà INTÉGRÉ au produit : `src/api/slack-interactions.route.ts` le déclenche à la
+ * soumission de la modale « Compléter mon profil », elle-même envoyée par `handleTeamJoin`
+ * quand une personne rejoint le workspace. Aucun LLM sur ce chemin.
+ */
 const employeeOnboardingWorkflow = createEmployeeOnboardingWorkflow({
   employeeRepo,
   onboardingRepo,
@@ -235,16 +364,18 @@ if (!databaseUrl) {
 
 export const mastra = new Mastra({
   deployer: new VercelDeployer(),
+  // La clé du registre doit être IDENTIQUE à l'`id` de l'agent — c'est elle que résout
+  // `mastra.getAgent(id)`, et c'est cet identifiant que le routage collant relit en base.
   agents: {
     onboardingOrchestrator,
     questionnaireEngine,
     notificationAgent,
+    knowledgeAgent,
   },
+  // UN SEUL workflow, et c'est délibéré — voir le commentaire de `employeeOnboardingWorkflow`.
+  // Les trois autres ne faisaient aucune E/S et se déclaraient réussis.
   workflows: {
     employeeOnboardingWorkflow,
-    questionnaireCycleWorkflow,
-    notificationCycleWorkflow,
-    documentGenerationWorkflow,
   },
   storage: new LibSQLStore({
     id: 'mastra-store',

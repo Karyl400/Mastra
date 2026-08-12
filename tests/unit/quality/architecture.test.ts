@@ -106,14 +106,22 @@ describe('Règle de dépendance — la couche domain ne dépend de rien', () => 
     ).toEqual([]);
   });
 
-  it('scanne effectivement les 6 features et leurs fichiers domain (anti faux-négatif)', () => {
+  it('scanne effectivement les 8 features et leurs fichiers domain (anti faux-négatif)', () => {
     // Sans cette assertion, un renommage de dossier ferait passer le garde-fou
     // au vert à vide — exactement le défaut de la version précédente.
+    //
+    // La liste est écrite EN DUR, et elle doit le rester : c'est elle qui transforme
+    // l'apparition d'une feature en décision consciente. `directory` et `knowledge` ont été
+    // ajoutées le 2026-08-12 — la première porte la frontière d'autorisation, la seconde la
+    // lecture agrégée des conversations. Deux features dont le domaine est précisément ce
+    // qu'on ne veut pas voir dériver vers l'infrastructure sans que personne ne le remarque.
     const features = listFeatures();
     expect(features).toEqual([
       'conversation',
+      'directory',
       'document',
       'employee',
+      'knowledge',
       'notification',
       'onboarding',
       'questionnaire',
