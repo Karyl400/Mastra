@@ -1,6 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import type { EmployeeRepository } from '../../domain/ports/employee.repository';
+import type { DirectoryRepository } from '../../../directory/domain/ports/directory.repository';
 import { emailSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 
@@ -93,12 +94,31 @@ function isPlaceholderEmail(email: string): boolean {
   return PLACEHOLDER_LOCAL_PARTS.has(localPart.replace(/[._-]/g, ''));
 }
 
-export function makeFindEmployeeByEmail(repo: EmployeeRepository) {
+/**
+ * Deuxième source de résolution : l'ANNUAIRE SLACK (`slack_directory`).
+ *
+ * Constat de production du 2026-08-12 — c'est la panne que le propriétaire décrit par
+ * « il ne retrouve pas les autres profils à part le mien ». La table `employees` n'est
+ * peuplée que par la modale « Compléter mon profil », déclenchée par le seul événement
+ * `team_join` : elle contenait **une ligne vivante** pour un workspace de 6 personnes.
+ * Les deux emails déclarés introuvables ce soir-là (`ridwanenico77@gmail.com`,
+ * `mistourath@kissohq.com`) étaient présents dans `slack_directory`, avec prénom, nom et
+ * poste. La donnée était là ; aucun tool ne la lisait.
+ *
+ * L'annuaire est un MIROIR de Slack, `employees` une donnée PROPRE au produit. D'où
+ * l'ordre : `employees` d'abord — c'est lui qui porte l'UUID interne dont dépendent
+ * `getEmployeeProfile`, `getTaskList` et `scheduleReminder` — puis l'annuaire en repli.
+ * L'inverse ferait perdre l'identifiant interne d'un employé enregistré.
+ *
+ * ⚠️ Dépendance OPTIONNELLE : le tool reste appelable sans annuaire (tests, playground,
+ * base neuve). Sans lui, le comportement est exactement celui d'avant.
+ */
+export function makeFindEmployeeByEmail(repo: EmployeeRepository, directory?: DirectoryRepository) {
   return createTool({
     id: 'findEmployeeByEmail',
     description:
-      "Retrouve l'identifiant interne d'un employé à partir de son email professionnel. " +
-      "Renvoie found=false (jamais une exception) si l'email est inconnu.",
+      "Retrouve une personne par son email : son dossier d'onboarding si elle en a un, " +
+      "sinon l'annuaire Slack. Renvoie found=false (jamais une exception) si l'email est inconnu.",
     inputSchema: z.object({
       email: emailSchema.describe("Email professionnel de l'employé à rechercher"),
     }),
@@ -148,20 +168,57 @@ export function makeFindEmployeeByEmail(repo: EmployeeRepository) {
 
       const employee = await repo.findByEmail(normalizedEmail);
 
-      if (!employee) {
-        logger.info('Aucun employé trouvé pour cet email', { email: normalizedEmail });
-        return { found: false as const };
+      if (employee) {
+        return {
+          found: true as const,
+          source: 'employees' as const,
+          employee: {
+            id: employee.id,
+            firstName: employee.firstName,
+            lastName: employee.lastName,
+            status: employee.status,
+          },
+        };
       }
 
-      return {
-        found: true as const,
-        employee: {
-          id: employee.id,
-          firstName: employee.firstName,
-          lastName: employee.lastName,
-          status: employee.status,
-        },
-      };
+      // Repli sur l'annuaire Slack. Bots et comptes désactivés sont écartés : ce ne
+      // sont pas des personnes à onboarder, et les rendre inviterait le modèle à
+      // proposer de leur envoyer un document.
+      const member = directory ? await directory.findByEmail(normalizedEmail) : null;
+
+      if (member && !member.isBot && !member.isDeleted) {
+        logger.info("Employé absent de la base, résolu par l'annuaire Slack", {
+          slackUserId: member.slackUserId,
+          linked: Boolean(member.employeeId),
+        });
+
+        // `employeeId` est le pont posé par `directorySync` quand l'email Slack
+        // correspond déjà à une ligne `employees`. Il est `null` pour quelqu'un qui
+        // n'a jamais rempli le formulaire de profil — le cas de 5 personnes sur 6.
+        return {
+          found: true as const,
+          source: 'slack_directory' as const,
+          person: {
+            // Nom de clé distinct d'`employee` À DESSEIN : cette personne n'a pas
+            // de dossier d'onboarding. Réutiliser `employee.id` ferait passer un
+            // `U…` pour l'UUID interne qu'attendent les autres tools.
+            slackUserId: member.slackUserId,
+            firstName: member.firstName,
+            lastName: member.lastName,
+            // `profile.title` — le poste DÉCLARÉ dans Slack, pas le poste contractuel.
+            title: member.title,
+            employeeId: member.employeeId,
+          },
+          hint: member.employeeId
+            ? undefined
+            : "Cette personne est dans Slack mais n'a aucun dossier d'onboarding : " +
+              'getEmployeeProfile, getTaskList et les rappels ne fonctionneront pas pour elle. ' +
+              "N'invente aucun identifiant interne ; dis-le simplement.",
+        };
+      }
+
+      logger.info('Aucun employé trouvé pour cet email', { email: normalizedEmail });
+      return { found: false as const };
     },
   });
 }

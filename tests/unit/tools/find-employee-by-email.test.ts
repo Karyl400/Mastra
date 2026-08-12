@@ -199,3 +199,117 @@ describe('Tool: findEmployeeByEmail', () => {
     expect(exposedKeys).not.toContain('email');
   });
 });
+
+/**
+ * Repli sur l'annuaire Slack.
+ *
+ * Panne reproduite : le 2026-08-12 en production, `mistourath@kissohq.com` et
+ * `ridwanenico77@gmail.com` ont été déclarés introuvables alors que les deux
+ * personnes figuraient dans `slack_directory` avec prénom, nom et poste. Seule
+ * `employees` était interrogée, et elle ne contenait qu'une ligne vivante.
+ */
+function directoryStub(members: Array<Partial<Record<string, unknown>>>) {
+  return {
+    findByEmail: async (email: string) =>
+      (members.find((m) => String(m.email).toLowerCase() === email.toLowerCase()) as never) ?? null,
+    findBySlackUserId: async () => null,
+    upsertFacts: async () => {},
+    listAll: async () => [],
+  } as never;
+}
+
+const MISTOURATH = {
+  slackUserId: 'U0A1N067JGL',
+  email: 'mistourath@kissohq.com',
+  firstName: 'Mistourath',
+  lastName: 'IDI',
+  title: 'Product Designer',
+  isBot: false,
+  isDeleted: false,
+  employeeId: null,
+};
+
+describe('Tool: findEmployeeByEmail — repli sur l’annuaire Slack', () => {
+  it("résout une personne absente d'`employees` mais présente dans l'annuaire", async () => {
+    const tool = makeFindEmployeeByEmail(
+      new InMemoryEmployeeRepository(),
+      directoryStub([MISTOURATH]),
+    );
+
+    const result = (await tool.execute!(
+      { email: 'mistourath@kissohq.com' } as never,
+      {} as never,
+    )) as Record<string, unknown>;
+
+    expect(result.found).toBe(true);
+    expect(result.source).toBe('slack_directory');
+    const person = result.person as Record<string, unknown>;
+    expect(person.slackUserId).toBe('U0A1N067JGL');
+    expect(person.firstName).toBe('Mistourath');
+    expect(person.title).toBe('Product Designer');
+  });
+
+  it("n'expose PAS d'identifiant interne quand la personne n'a pas de dossier, et le dit", async () => {
+    // Sans cela, le modèle prendrait le `U…` pour l'UUID attendu par
+    // getEmployeeProfile / getTaskList, ou en inventerait un.
+    const tool = makeFindEmployeeByEmail(
+      new InMemoryEmployeeRepository(),
+      directoryStub([MISTOURATH]),
+    );
+
+    const result = (await tool.execute!(
+      { email: 'mistourath@kissohq.com' } as never,
+      {} as never,
+    )) as Record<string, unknown>;
+
+    expect(result.employee).toBeUndefined();
+    expect((result.person as Record<string, unknown>).employeeId).toBeNull();
+    expect(String(result.hint)).toContain("aucun dossier d'onboarding");
+  });
+
+  it('`employees` reste PRIORITAIRE — sinon on perdrait l’UUID interne', async () => {
+    const repo = new InMemoryEmployeeRepository();
+    await seedKaryl(repo);
+    const tool = makeFindEmployeeByEmail(
+      repo,
+      directoryStub([{ ...MISTOURATH, email: 'karyl.soumaila@kisso.com' }]),
+    );
+
+    const result = (await tool.execute!(
+      { email: 'karyl.soumaila@kisso.com' } as never,
+      {} as never,
+    )) as Record<string, unknown>;
+
+    expect(result.source).toBe('employees');
+    expect((result.employee as Record<string, unknown>).id).toBe('emp-karyl-uuid');
+  });
+
+  it('écarte bots et comptes désactivés', async () => {
+    const tool = makeFindEmployeeByEmail(
+      new InMemoryEmployeeRepository(),
+      directoryStub([
+        { ...MISTOURATH, email: 'bot@kissohq.com', isBot: true },
+        { ...MISTOURATH, email: 'parti@kissohq.com', isDeleted: true },
+      ]),
+    );
+
+    for (const email of ['bot@kissohq.com', 'parti@kissohq.com']) {
+      const result = (await tool.execute!({ email } as never, {} as never)) as Record<
+        string,
+        unknown
+      >;
+      expect(result.found, email).toBe(false);
+    }
+  });
+
+  it("sans annuaire injecté, le comportement d'origine est inchangé", async () => {
+    const tool = makeFindEmployeeByEmail(new InMemoryEmployeeRepository());
+
+    const result = (await tool.execute!(
+      { email: 'mistourath@kissohq.com' } as never,
+      {} as never,
+    )) as Record<string, unknown>;
+
+    expect(result.found).toBe(false);
+  });
+});

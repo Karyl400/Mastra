@@ -26,6 +26,15 @@ import {
 } from '../../../../shared/security/agent-output';
 import { logger } from '../../../../shared/logger';
 import { readSlackContext } from '../../../../shared/slack-request-context';
+import { buildRunKey, makeRunGuard } from '../../../../shared/tool-idempotency';
+
+/**
+ * Une garde par PROCESSUS, et non par instance de tool : `makeGenerateDocument` est
+ * appelée une fois au câblage (`src/mastra/index.ts`), mais la placer au niveau module
+ * garantit que deux câblages éventuels partagent la même garde. La portée utile reste
+ * le run, assurée par la clé, pas par la durée de vie de l'objet.
+ */
+const runGuard = makeRunGuard();
 import { DocumentFormat, DocumentStatus, DocumentType } from '../../../../shared/types';
 
 /**
@@ -254,6 +263,40 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       });
 
       // ---------------------------------------------------------------------
+      // Garde d'idempotence — un livrable par run
+      // ---------------------------------------------------------------------
+      //
+      // Production du 2026-08-12, 19:42 UTC : un seul message Slack, mais
+      // `toolCalls: ["generateDocument","findEmployeeByEmail","getEmployeeProfile",
+      // "generateDocument"]` — le modèle a régénéré le document après avoir « vérifié »
+      // l'employé. Deux lignes en base, deux uploads, deux pièces jointes dans le fil.
+      //
+      // La clé ignore délibérément `content` : les deux appels de l'incident avaient un
+      // contenu DIFFÉRENT (15 puis 249 caractères), donc hacher les arguments complets
+      // n'aurait rien attrapé. C'est l'identité du LIVRABLE qui compte.
+      //
+      // Hors Slack, `buildRunKey` rend `undefined` et la garde est inactive — le
+      // playground, les workflows et les tests ne sont pas bornés par un run Slack.
+      const runKey = buildRunKey(
+        readSlackContext(ctx?.requestContext)?.eventTs,
+        'generateDocument',
+        [data.employeeId, data.type, title, data.format, data.deliverTo],
+      );
+
+      const alreadyProduced = runKey ? runGuard.get<Record<string, unknown>>(runKey) : undefined;
+      if (alreadyProduced) {
+        logger.warn('Document déjà produit dans ce run — second appel ignoré', {
+          employeeId: data.employeeId,
+          type: data.type,
+        });
+        // On rend le résultat du PREMIER appel, augmenté du fait qu'il n'y a rien à
+        // refaire. Sans cette mention, le modèle reste devant un résultat identique au
+        // précédent et peut conclure que son appel n'a pas abouti — c'est précisément
+        // l'absence de « l'effet existe déjà » qui a produit le doublon.
+        return { ...alreadyProduced, alreadyDelivered: true as const };
+      }
+
+      // ---------------------------------------------------------------------
       // Résolution de l'employé — le gabarit ET l'adresse en dépendent
       // ---------------------------------------------------------------------
       //
@@ -446,7 +489,7 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // désigner le document, le format réellement produit (il peut différer du demandé),
       // le nom du fichier livré — et surtout le VERDICT DE LIVRAISON, sans lequel il ne
       // peut pas dire la vérité. La taille ne dépend plus de la longueur du contenu.
-      return {
+      const result = {
         saved: true as const,
         documentId: generated.id,
         format: producedFormat,
@@ -454,6 +497,12 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         ...(rendered ? { filename: rendered.filename } : {}),
         ...(reason ? { reason, hint: HINTS[reason] } : {}),
       };
+
+      // Mémorisé APRÈS le succès : un premier appel qui a échoué avant l'enregistrement
+      // ne doit pas condamner une seconde tentative du modèle dans le même run.
+      if (runKey) runGuard.remember(runKey, result);
+
+      return result;
     },
   });
 }

@@ -985,6 +985,12 @@ describe('SlackEventsHandler — contexte Slack transmis à l’agent', () => {
     expect(readSlackContext(lastRequestContext(generate))).toEqual({
       channel: 'C0MOCKCHAN',
       threadTs: '1700000000.000100',
+      // `event.ts` du message TRAITÉ — clé de run des gardes d'idempotence des tools.
+      // Ici il COÏNCIDE avec `threadTs`, parce que ce message ouvre le fil
+      // (`threadTs = thread_ts ?? ts`). Les deux divergent dès la première réponse dans
+      // le fil, et `threadTs` est absent en DM : c'est pourquoi la garde ne peut pas
+      // s'appuyer sur lui.
+      eventTs: '1700000000.000100',
       slackUserId: HUMAN,
       // `full` parce que le mode OBSERVATION est le défaut (`AUTHZ_ENFORCE` absent) : la
       // politique calcule sa décision et la journalise, mais n'applique rien. C'est le seul
@@ -1021,6 +1027,10 @@ describe('SlackEventsHandler — contexte Slack transmis à l’agent', () => {
     expect(requestContext.has(SLACK_THREAD_TS_KEY)).toBe(false);
     expect(readSlackContext(requestContext)).toEqual({
       channel: 'D0MOCKDM01',
+      // `eventTs` est présent MÊME EN DM, et c'est exactement sa raison d'être : sans lui,
+      // une garde d'idempotence portée par le seul canal confondrait tous les messages
+      // d'une même conversation directe et bloquerait le second document légitime.
+      eventTs: '1700000000.000200',
       slackUserId: HUMAN,
       accessLevel: 'full',
     });

@@ -2043,6 +2043,11 @@ export class SlackEventsHandler {
           requestContext: buildSlackRequestContext({
             channel,
             threadTs,
+            // Identifiant du RUN pour les gardes d'idempotence des tools. `event.ts` et non
+            // `threadTs` : en DM `threadTs` est absent par conception, donc deux messages
+            // successifs partageraient la même clé et la garde bloquerait le second document
+            // légitimement demandé.
+            eventTs: event.ts,
             slackUserId: user,
             // Coût en tokens : ZÉRO. Le `RequestContext` ne traverse ni le prompt, ni les
             // schémas de tools, ni le tool-result — c'est ce qui permet de faire descendre une

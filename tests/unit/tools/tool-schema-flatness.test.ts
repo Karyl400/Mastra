@@ -168,3 +168,63 @@ describe('Tool input schemas — JSON Schema flatness (LLM tool-call compatibili
     expect(json.properties.firstName.type).toBe('string');
   });
 });
+
+/**
+ * Deuxième classe de tool INAPPELABLE, distincte de la platitude — mesurée en
+ * production le 2026-08-12 sur `evaluateResponse`, à chaque message :
+ *
+ *   APICallError: tool call validation failed: parameters for tool evaluateResponse
+ *   did not match schema: errors: [`/answers`: additionalProperties 'q2','q3','q1' not allowed]
+ *
+ * Cause : `z.record(z.unknown())` sérialise en `{"type":"object","additionalProperties":{}}`
+ * — un objet SANS `properties`. Le validateur de tool-calls de Groq n'accepte alors
+ * AUCUNE clé : le tool est structurellement impossible à appeler, quel que soit ce
+ * que le modèle envoie. Le schéma est pourtant parfaitement PLAT, donc le garde-fou
+ * ci-dessus le déclarait conforme.
+ *
+ * La règle : tout noeud `type: "object"` doit déclarer des `properties` non vides.
+ * Une carte libre clé→valeur n'a pas sa place dans un schéma de tool ; la forme qui
+ * marche est un tableau de paires (`[{questionId, answer}]`), dont chaque champ est
+ * nommé et typé.
+ *
+ * ⚠️ Ce test balaie les MÊMES tools que ci-dessus. C'est le seul contrôle du dépôt
+ * qui traverse `zodToJsonSchema` : les tests de tools appellent `execute()` en
+ * direct et ne peuvent, par construction, détecter un tool que le fournisseur
+ * refuse d'appeler.
+ */
+function findUnfillableObjects(node: unknown, path = ''): string[] {
+  if (!node || typeof node !== 'object') return [];
+  const n = node as JsonNode;
+  const offenders: string[] = [];
+
+  if (n.type === 'object') {
+    const props = n.properties as Record<string, unknown> | undefined;
+    if (!props || Object.keys(props).length === 0) {
+      offenders.push(`${path || '<root>'} -> object sans properties`);
+    }
+  }
+
+  if (n.properties && typeof n.properties === 'object') {
+    for (const [prop, sub] of Object.entries(n.properties as JsonNode)) {
+      offenders.push(...findUnfillableObjects(sub, `${path}/${prop}`));
+    }
+  }
+  if (n.items) offenders.push(...findUnfillableObjects(n.items, `${path}[]`));
+
+  return offenders;
+}
+
+describe('Tool input schemas — appelabilité (aucun objet libre sans properties)', () => {
+  it.each(tools)('%s expose un schéma remplissable par le modèle', (name, tool) => {
+    const json = zodToJsonSchema(tool.inputSchema as never) as JsonNode;
+    const offenders = findUnfillableObjects(json);
+
+    expect(
+      offenders,
+      `${name} inputSchema contient un objet sans \`properties\` — Groq rejettera ` +
+        `TOUTE clé et le tool sera inappelable en production.\n` +
+        `Noeuds fautifs : ${offenders.join(', ')}\n` +
+        `Schéma : ${JSON.stringify(json)}`,
+    ).toEqual([]);
+  });
+});

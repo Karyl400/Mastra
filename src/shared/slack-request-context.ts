@@ -37,6 +37,16 @@ import { RequestContext } from '@mastra/core/request-context';
 export const SLACK_CHANNEL_KEY = 'slackChannel';
 export const SLACK_THREAD_TS_KEY = 'slackThreadTs';
 export const SLACK_USER_ID_KEY = 'slackUserId';
+/**
+ * `event.ts` du message TRAITÉ — l'identifiant du RUN, pas du fil.
+ *
+ * Distinct de `SLACK_THREAD_TS_KEY`, et la distinction est la raison d'être de cette clé :
+ * `threadTs` est `undefined` en DM par conception, donc `channel` seul ne discrimine pas
+ * deux messages successifs d'une même conversation directe. Sans ce champ, une garde
+ * d'idempotence portée par le canal bloquerait le deuxième document légitimement demandé
+ * dix minutes plus tard.
+ */
+export const SLACK_EVENT_TS_KEY = 'slackEventTs';
 export const SLACK_ACCESS_LEVEL_KEY = 'slackAccessLevel';
 
 /**
@@ -64,6 +74,14 @@ export interface SlackToolContext {
    * phrase « voici ton document » sans jamais voir le document.
    */
   threadTs?: string;
+  /**
+   * `event.ts` du message en cours de traitement — unique par message, DM compris.
+   *
+   * Sert de clé de RUN aux gardes d'idempotence des tools à effet de bord. Absent hors
+   * Slack (playground, workflow, test), où la garde doit alors se désactiver plutôt que
+   * de replier sur une clé partagée.
+   */
+  eventTs?: string;
   /** Auteur du message. Sert à adresser une livraison de repli (DM, email), pas à router. */
   slackUserId?: string;
   /**
@@ -97,6 +115,9 @@ export function buildSlackRequestContext(context: SlackToolContext): RequestCont
 
   const threadTs = nonEmptyString(context.threadTs);
   if (threadTs) entries.push([SLACK_THREAD_TS_KEY, threadTs]);
+
+  const eventTs = nonEmptyString(context.eventTs);
+  if (eventTs) entries.push([SLACK_EVENT_TS_KEY, eventTs]);
 
   const slackUserId = nonEmptyString(context.slackUserId);
   if (slackUserId) entries.push([SLACK_USER_ID_KEY, slackUserId]);
@@ -160,6 +181,9 @@ export function readSlackContext(requestContext: unknown): SlackToolContext | un
     // il ramène seulement au comportement « pas de thread » / « auteur inconnu ».
     const threadTs = nonEmptyString(read(SLACK_THREAD_TS_KEY));
     if (threadTs) context.threadTs = threadTs;
+
+    const eventTs = nonEmptyString(read(SLACK_EVENT_TS_KEY));
+    if (eventTs) context.eventTs = eventTs;
 
     const slackUserId = nonEmptyString(read(SLACK_USER_ID_KEY));
     if (slackUserId) context.slackUserId = slackUserId;

@@ -1,5 +1,126 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-12 (soir) — l'annuaire était là, personne ne le lisait
+
+Campagne de production de 19:39–19:58 UTC sur le déploiement `9t5yxexhg` (commit `187b647`),
+diagnostiquée sur les logs Vercel plutôt que sur le récit. Trois défauts signalés par le
+propriétaire, un quatrième que personne n'avait vu.
+
+### Fixed — « il ne retrouve pas les autres profils à part le mien »
+
+Le système avait DEUX annuaires, et les tools lisaient le mauvais.
+
+- `slack_directory` était en production, synchronisée depuis Slack, avec exactement les cinq
+  champs demandés par le propriétaire : `slack_user_id`, email, `first_name`, `last_name`,
+  `title` (le poste). Six personnes réelles.
+- `employees` n'est peuplée que par la modale « Compléter mon profil », déclenchée par le seul
+  événement `team_join` : **une ligne vivante** pour un workspace de six.
+- `findEmployeeByEmail` n'interrogeait que `employees`. Les deux emails déclarés introuvables ce
+  soir-là (`mistourath@kissohq.com`, `ridwanenico77@gmail.com`) étaient dans l'annuaire, avec
+  nom et poste. `directorySync` est exporté depuis `src/mastra/index.ts:159` et n'avait **aucun
+  appelant runtime** : la donnée était collectée et jamais lue.
+- **Correctif additif, aucune migration** : `makeFindEmployeeByEmail(employeeRepo, directoryRepo)`.
+  `employees` reste PRIORITAIRE — c'est lui qui porte l'UUID interne dont dépendent
+  `getEmployeeProfile`, `getTaskList` et `scheduleReminder` ; l'inverse ferait perdre cet
+  identifiant pour un employé enregistré.
+- Le résultat distingue `source: 'employees'` de `source: 'slack_directory'`, et la clé de
+  retour est `person` et non `employee` : réutiliser `employee.id` ferait passer un `U…` pour
+  l'UUID interne qu'attendent les autres tools. Sans dossier d'onboarding, un `hint` le dit —
+  au lieu de laisser le modèle inventer un identifiant.
+- Bots et comptes désactivés sont écartés : les rendre inviterait le modèle à proposer de leur
+  envoyer un document.
+- ⚠️ La réduction d'`employees` aux cinq champs demandés a été **examinée puis reportée** :
+  67 fichiers, 8 tables, 9 clés étrangères, reconstruction de table SQLite (pas de `DROP COLUMN`
+  sûr), pour un gain en tokens **nul** — les tools projettent déjà. L'additif satisfait le
+  besoin sans rien casser.
+
+### Fixed — deux PDF identiques pour une seule demande
+
+Ce n'était ni un rejeu d'événement Slack, ni une reprise du SDK : c'est le MODÈLE qui a appelé
+le tool deux fois dans le même run.
+
+    toolCalls: ["generateDocument","findEmployeeByEmail","getEmployeeProfile","generateDocument"]
+    steps: 3, inputTokens: 7804
+
+Deux lignes en base (`3f1399e2…`, `d05ff0cf…`), deux uploads, deux pièces jointes, une seule
+réponse texte. Mastra 1.57 autorise 5 étapes par défaut (`stopWhen ?? stepCountIs(5)`) et ne
+déduplique pas les appels d'outils.
+
+- **Nouveau** `src/shared/tool-idempotency.ts` — garde à l'échelle du RUN, en mémoire. Le
+  doublon visé naît de deux appels dans le même processus ; la leçon « le LRU en mémoire ne
+  suffit pas » de `slack_event_dedup` ne s'applique pas, là-bas les deux invocations étaient
+  sur des instances différentes par construction.
+- ⚠️ **La clé ignore `content`.** Les deux appels de l'incident avaient un contenu DIFFÉRENT
+  (15 puis 249 caractères — le modèle a étoffé son texte) : hacher les arguments complets
+  n'aurait rien attrapé. La clé décrit le LIVRABLE (destinataire, type, titre, format, canal),
+  jamais la prose. Le second contenu, plus riche, est perdu — arbitrage assumé : deux pièces
+  jointes dans un fil sont un défaut visible, un texte plus court ne l'est pas.
+- **Nouveau** `SLACK_EVENT_TS_KEY` dans `slack-request-context.ts`. `event.ts` et non `threadTs` :
+  en DM `threadTs` est `undefined` par conception, donc une garde portée par le canal seul
+  aurait bloqué le second document légitimement demandé dix minutes plus tard. Coût en tokens :
+  **zéro**, le `RequestContext` ne traverse pas le prompt.
+- Hors Slack (playground, workflow, test), `buildRunKey` rend `undefined` et la garde est
+  INACTIVE : se rabattre sur une clé constante ferait qu'un second appel dans un tout autre
+  contexte récupérerait le résultat du premier.
+- Mémorisation APRÈS succès : un premier appel échoué avant enregistrement ne condamne pas une
+  seconde tentative dans le même run.
+
+### Fixed — deux tools étaient INAPPELABLES, dont un à chaque message de questionnaire
+
+Défaut invisible à la lecture, invisible aux tests, visible dans les logs de production :
+
+    tool call validation failed: parameters for tool evaluateResponse did not match schema:
+    errors: [`/answers`: additionalProperties 'q2', 'q3', 'q1' not allowed]
+
+- Cause : `z.record(z.unknown())` sérialise en `{"type":"object","additionalProperties":{}}` —
+  un objet **sans `properties`** — et Groq refuse alors TOUTE clé. Le schéma est pourtant
+  parfaitement PLAT, donc `tool-schema-flatness.test.ts` le déclarait conforme. Chaque tentative
+  brûlait un aller-retour LLM complet, sous un quota de ≈ 19 messages/jour.
+- `evaluateResponse.answers` devient un **tableau de paires** `{questionId, answer}`. La
+  conversion vers le `Record` du domaine vit à la frontière du tool : aucune contrainte de
+  sérialisation LLM ne descend dans l'entité ni dans le repository.
+- `createEmployee.metadata` portait le même défaut, latent (le tool n'est pas câblé aux agents).
+  **Supprimé** plutôt que corrigé : `EmployeeDataSanitizer.sanitize()` ne le recopiait pas dans
+  `ValidatedEmployeeInput`, il n'atteignait donc jamais l'entité — exactement le défaut du bloc
+  `options` retiré au même endroit.
+- **Nouveau garde-fou** : `tool-schema-flatness.test.ts` gagne une suite d'APPELABILITÉ (aucun
+  noeud `type: "object"` sans `properties`). C'est le seul contrôle du dépôt qui traverse
+  `zodToJsonSchema` — tous les autres tests de tools appellent `execute()` en direct et ne
+  peuvent pas, par construction, détecter un tool que le fournisseur refuse d'appeler.
+
+### Changed — `evaluateResponse` ne prétend plus évaluer
+
+Il calculait `réponses fournies / questions × 100` et rapportait ce chiffre au modèle sous le
+nom `score`. Il ne comparait à **aucune bonne réponse** : `questionInputSchema` ne porte pas de
+champ `expectedAnswer`, donc rien ne pouvait comparer quoi que ce soit. Cinquième occurrence de
+la signature « le champ dit mieux que le fait » (`emailSent: false` sous `status: 'success'`,
+`documents.content` perdu en silence, `status = Sent` posé avant le `try`).
+
+- Sortie renommée `completionPercent`, plus `graded: false`. Description et nom d'outil disent
+  « enregistre » et « complétion », jamais « évalue » ni « note » — le mot que lit le modèle est
+  celui qu'il répétera.
+- Le comptage n'accepte plus n'importe quelle clé : seules les réponses portant l'ID d'une
+  question RÉELLE comptent. Trois clés inventées donnaient 100 % sur un questionnaire de trois
+  questions. `unknownAnswers` remonte l'écart, sans quoi un jeu de réponses entièrement mal
+  identifié rendait `answeredQuestions: 0` sans jamais dire pourquoi.
+- Une vraie correction reste à faire : c'est une fonctionnalité, pas un correctif.
+
+### Connu, non corrigé dans ce lot
+
+- **Le quiz n'est montré qu'après relance.** Les questions SONT dans le tool-result
+  (`generate-questionnaire.ts` retourne l'entité complète) ; c'est `AGENT_STYLE_BLOCK`
+  (`agent-style.ts:62`) qui interdit la **liste numérotée** — or un quiz en est une. À la
+  relance, aucun outil ne sait relire un questionnaire, donc le modèle en **recrée** un : trois
+  questionnaires créés le 2026-08-12 (`8d59b6d6`, `a359d6fa`, `b35f2ba7`) pour une seule demande.
+- **Le suivi de fil sans re-mention n'est pas tranché.** Le code accepte un message de fil
+  (`slack-events.handler.ts:1522`), mais la seule ligne de rejet est en `debug` alors que la
+  production tourne en `info` : l'événement n'apparaît ni comme traité, ni comme rejeté. Se
+  tranche avec `LOG_LEVEL=debug`, pas avec du code.
+- **`Authorization (observation mode) — this actor WOULD be restricted`** sur CHAQUE message du
+  propriétaire, `reason: foreign_domain` : son email Slack est un `gmail.com`, absent de
+  `SLACK_ORG_EMAIL_DOMAINS`. Inoffensif tant que `AUTHZ_ENFORCE=false` — piège armé sinon.
+
+
 ## [Unreleased] - 2026-08-12 — revue croisée avant redéploiement
 
 Six revues indépendantes (contradiction code/commentaire, chaîne d'autorisation re-dérivée,

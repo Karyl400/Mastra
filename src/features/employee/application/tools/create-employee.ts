@@ -122,8 +122,13 @@ const createEmployeeInputSchema = z.object({
     .optional()
     .describe("Clé d'idempotence pour éviter les doublons"),
 
-  // Métadonnées
-  metadata: z.record(z.string(), z.unknown()).optional().describe('Métadonnées additionnelles'),
+  // Aucun bloc `metadata` : il sérialisait en `{"type":"object","additionalProperties":{}}`
+  // — un objet SANS `properties` — que le validateur de tool-calls de Groq refuse
+  // en bloc, ce qui rendait le tool entier inappelable (même classe de bug que
+  // `evaluateResponse`, mesurée en production le 2026-08-12). Et il était de toute
+  // façon inerte : `EmployeeDataSanitizer.sanitize()` ne le recopie pas dans
+  // `ValidatedEmployeeInput`, donc il n'atteignait jamais l'entité — exactement le
+  // défaut du bloc `options` retiré juste en dessous.
 
   // Aucun bloc `options` : `skipUniquenessCheck` et `initialStatus` étaient
   // annoncés au modèle et n'ont JAMAIS été appliqués — l'appel au validateur

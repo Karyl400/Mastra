@@ -163,7 +163,13 @@ export const directorySync = makeDirectorySync({
 });
 export const channelCoverage = makeChannelCoverage({ source: slackChannelAccess });
 
-const findEmployeeByEmail = makeFindEmployeeByEmail(employeeRepo);
+// L'annuaire Slack est le SECOND paramètre, et c'est le correctif de la panne du
+// 2026-08-12 (« il ne retrouve pas les autres profils à part le mien ») : `employees`
+// n'est peuplée que par la modale « Compléter mon profil », donc elle contenait UNE
+// ligne pour 6 personnes réelles, tandis que `slack_directory` les portait toutes,
+// avec prénom, nom et poste. `directorySync` alimentait cette table depuis le
+// 2026-08-12 sans qu'aucun tool ne la lise.
+const findEmployeeByEmail = makeFindEmployeeByEmail(employeeRepo, directoryRepo);
 const getEmployeeProfile = makeGetEmployeeProfile(employeeRepo, onboardingRepo, taskRepo);
 const updateOnboardingStatus = makeUpdateOnboardingStatus(onboardingRepo);
 // L'annuaire est le SECOND paramètre, et il n'est pas décoratif : sans lui, un UUID inconnu
