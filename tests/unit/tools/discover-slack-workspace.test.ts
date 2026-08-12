@@ -24,6 +24,10 @@ const sampleMember: SlackMember = {
   lastName: 'Dupont',
   isBot: false,
   isAdmin: false,
+  displayName: '',
+  isRestricted: false,
+  isUltraRestricted: false,
+  isDeleted: false,
   teamId: 'T01',
 };
 
@@ -36,6 +40,10 @@ const botMember: SlackMember = {
   lastName: 'Bot',
   isBot: true,
   isAdmin: false,
+  displayName: '',
+  isRestricted: false,
+  isUltraRestricted: false,
+  isDeleted: false,
   teamId: 'T01',
 };
 

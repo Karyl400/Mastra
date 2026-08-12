@@ -1,0 +1,141 @@
+-- ============================================================================
+-- rate_limit_counters — limitation de débit PARTAGÉE entre instances (P3)
+-- ============================================================================
+--
+-- POURQUOI CE FICHIER EXISTE, plutôt qu'une migration `drizzle/` :
+--
+--   1. Les migrations `drizzle/` sont DÉSYNCHRONISÉES de `src/infrastructure/database/schema.ts`
+--      (0000_*.sql crée `employees` avec 11 colonnes, le schéma en déclare 20). Les appliquer
+--      sur une base vierge échoue. `npm run db:generate` exige en plus un vrai TTY, drizzle-kit
+--      posant des questions « added vs renamed ».
+--   2. `drizzle-kit push` SE BLOQUE contre une base `libsql://` distante (dialect `sqlite`) :
+--      aucune erreur, il ne rend jamais la main. Le schéma de la Turso de production a déjà dû
+--      être appliqué de cette façon — en exécutant le DDL exporté depuis `schema.ts`.
+--
+-- Même chemin, donc, que `ddl-conversation-turns.sql`, `ddl-documents-content.sql` et
+-- `ddl-slack-event-dedup.sql`.
+--
+-- ----------------------------------------------------------------------------
+-- CE QU'IL PROTÈGE — un budget qui se mesure à la JOURNÉE
+-- ----------------------------------------------------------------------------
+-- La limite qui casse réellement la production n'est pas le seau Groq par minute mais le quota
+-- JOURNALIER : `TPD: Limit 100000` (mesuré dans les en-têtes le 2026-08-11), soit — à
+-- ≈ 5 168 tokens par message — environ **19 messages par jour, tous canaux confondus**. Le repli
+-- Mistral, lui, plafonne en REQUÊTES (4/min), donc insensible à tout dégraissage de prompt.
+-- Sans compteur, une seule rafale consomme la journée entière du workspace.
+--
+-- ----------------------------------------------------------------------------
+-- POURQUOI PARTAGÉ, ET NON EN MÉMOIRE
+-- ----------------------------------------------------------------------------
+-- Un compteur en mémoire est PAR INSTANCE et disparaît au gel de la fonction serverless. Sur un
+-- budget qui se mesure sur 24 h, il ne protège donc RIEN : Vercel démarre une instance neuve
+-- sans que personne ait à le demander, et le compteur redémarre à zéro pendant que le quota du
+-- fournisseur, lui, continue de courir. Le compteur doit survivre à l'instance qui l'a
+-- incrémenté, sinon il ne compte pas la même chose que Groq.
+--
+-- C'est exactement la leçon de la DOUBLE RÉPONSE du 2026-08-11 (12:38 UTC) : le cache LRU de
+-- déduplication était lui aussi en mémoire, et un rejeu routé vers une AUTRE instance — au
+-- cache vide — a produit deux traitements du même événement. Un état par instance ne peut, par
+-- construction, rien dire de ce que fait sa voisine.
+--
+-- `SlackRateLimiter` combine donc les deux niveaux, comme `claimEvent()` : compteur local
+-- d'abord (gratuit, aucune E/S, écarte les rafales sur instance chaude), puis CE STORE, seul à
+-- voir les autres instances et seul à survivre au gel.
+--
+-- ----------------------------------------------------------------------------
+-- FENÊTRE FIXE — la contrepartie, et pourquoi elle est acceptée
+-- ----------------------------------------------------------------------------
+-- `key` porte la fenêtre : `<règle>:<sujet>:<numéro de fenêtre>`, le numéro valant
+-- `floor(now / windowMs)`. Une fenêtre FIXE tolère jusqu'à **2× la limite** à cheval sur une
+-- frontière — la fin d'une fenêtre et le début de la suivante sont deux compteurs distincts.
+--
+-- C'est assumé, et c'est le prix d'une prise ATOMIQUE en UN SEUL aller-retour
+-- (`INSERT … ON CONFLICT DO UPDATE … RETURNING`). Une fenêtre glissante exigerait de LIRE puis
+-- d'ÉCRIRE : deux allers-retours sur le chemin de l'ACK Slack — celui qui n'a que 3 secondes et
+-- qui exécute déjà la prise de clé de déduplication — et surtout un intervalle entre les deux
+-- où deux instances lisent la même valeur avant que l'une n'écrive. Autrement dit : la fenêtre
+-- glissante rouvrirait précisément la course que ce store existe pour fermer, tout en coûtant
+-- plus cher là où le budget de latence est le plus serré.
+--
+-- ----------------------------------------------------------------------------
+-- ⚠️ TANT QUE CETTE TABLE N'EXISTE PAS
+-- ----------------------------------------------------------------------------
+-- La dégradation est ASSUMÉE et penche du même côté que la déduplication : store indisponible
+-- ⇒ repli sur le seul compteur local, et l'événement est ACCEPTÉ. Une panne de la table ne doit
+-- pas devenir une panne du produit — un message de trop est visible et corrigeable, un bot muet
+-- ne l'est pas, et ce dépôt a déjà passé des heures à chercher pourquoi le bot semblait mort.
+--
+-- La ligne à chercher dans les logs, émise à CHAQUE message tant que la table manque
+-- (`slack-rate-limiter.ts`) :
+--       Shared rate limit unavailable — falling back to the per-instance counter
+--
+-- Elle porte en `cause` l'erreur brute de LibSQL (texte vérifié le 2026-08-12) :
+--       SQLITE_ERROR: no such table: rate_limit_counters
+--
+-- Autrement dit : sans cette table, la protection est présente dans le code mais **ne porte que
+-- sur une instance** — c'est-à-dire sur rien, s'agissant d'un budget journalier.
+--
+-- ----------------------------------------------------------------------------
+-- APPLICATION
+-- ----------------------------------------------------------------------------
+--
+--   Base locale :
+--       sqlite3 data/kisso.db < scripts/ddl-rate-limit-counters.sql
+--
+--   Turso / LibSQL distant (le blocage de `drizzle-kit push` ne concerne PAS le client turso) :
+--       turso db shell <nom-de-la-base> < scripts/ddl-rate-limit-counters.sql
+--
+--   Rejouable sans risque : `IF NOT EXISTS` partout, table ET index — contrairement à
+--   `ddl-documents-content.sql`, dont l'`ALTER TABLE … ADD COLUMN` n'a pas de forme idempotente.
+--
+--   Vérification (filtrer sur `tbl_name` et NON sur `name` : les index ne portent pas le
+--   préfixe de la table, un `name LIKE 'rate_limit_counters%'` les manquerait tous) :
+--       SELECT type, name FROM sqlite_master WHERE tbl_name = 'rate_limit_counters'
+--        ORDER BY type DESC, name;
+--       -- attendu : table rate_limit_counters,
+--       --           index idx_rate_limit_counters_expires_at
+--       --           (+ sqlite_autoindex_rate_limit_counters_1, créé par la PRIMARY KEY)
+--
+-- ----------------------------------------------------------------------------
+-- NOTES DE CONCEPTION
+-- ----------------------------------------------------------------------------
+-- **`key` EST la clé primaire**, et ce n'est pas un détail de modélisation : c'est elle qui rend
+-- l'incrément ATOMIQUE via `INSERT … ON CONFLICT DO UPDATE`. Deux instances qui incrémentent le
+-- même compteur au même instant sont départagées par la base, sans verrou applicatif — le seul
+-- mécanisme qui tienne quand les deux concurrents ne partagent aucune mémoire. Exactement le
+-- rôle de `slack_event_dedup.key`.
+--
+-- **La fenêtre est DANS la clé, pas dans une colonne comparée.** Un compteur par fenêtre plutôt
+-- qu'un compteur remis à zéro : remettre à zéro exigerait de lire l'horodatage, de décider s'il
+-- est périmé, puis d'écrire — donc de rouvrir la course. Ici, changer de fenêtre change de
+-- ligne, et l'ancienne meurt de sa propre expiration.
+--
+-- **`count` est un `integer` NOT NULL sans défaut** : une ligne n'existe que parce qu'un
+-- incrément l'a créée, il n'y a donc pas de « compteur à zéro » à représenter. Un DEFAULT 0
+-- laisserait croire qu'une ligne peut naître vide.
+--
+-- **`window_start` et `expires_at` en INTEGER (millisecondes, Drizzle `mode: 'timestamp_ms'`)**
+-- et non en TEXT `datetime('now')` comme les 10 tables historiques — même écart assumé que
+-- `conversation_turns` et `slack_event_dedup`. Ces valeurs sont comparées sur le chemin de
+-- l'ACK ; un TEXT imposerait un reparsing à chaque prise, et `datetime('now')` a une résolution
+-- à la SECONDE, trop grossière pour une fenêtre de rafale.
+--
+-- `window_start` est REDONDANT avec le numéro de fenêtre encodé dans la clé, et c'est voulu :
+-- la clé est une chaîne opaque, illisible à l'inspection manuelle. Cette colonne est ce qui
+-- permet de répondre « depuis quand ce compteur court-il ? » sans reparser un identifiant.
+--
+-- **L'index sur `expires_at` sert la PURGE.** Sans elle la table croîtrait indéfiniment : une
+-- ligne par sujet ET par fenêtre. Aucun cron ne la déclenche — `prune()` est appelée
+-- opportunément, comme pour `conversation_turns` et `slack_event_dedup`. L'accès par clé, lui,
+-- passe déjà par l'index implicite de la PRIMARY KEY.
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS rate_limit_counters (
+    key          text    PRIMARY KEY NOT NULL,  -- `<règle>:<sujet>:<numéro de fenêtre>`
+    count        integer NOT NULL,
+    window_start integer NOT NULL,
+    expires_at   integer NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_limit_counters_expires_at
+    ON rate_limit_counters (expires_at);

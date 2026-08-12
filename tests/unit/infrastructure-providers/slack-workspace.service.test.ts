@@ -192,6 +192,10 @@ describe('Infrastructure: SlackWorkspaceService', () => {
       lastName: 'SOUMAILA',
       isBot: false,
       isAdmin: false,
+      displayName: 'Karyl SOUMAILA',
+      isRestricted: false,
+      isUltraRestricted: false,
+      isDeleted: false,
       teamId: 'TMLKC4EPP',
     });
   });

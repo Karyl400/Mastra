@@ -954,6 +954,10 @@ describe('SlackEventsHandler — contexte Slack transmis à l’agent', () => {
       channel: 'C0MOCKCHAN',
       threadTs: '1700000000.000100',
       slackUserId: HUMAN,
+      // `full` parce que le mode OBSERVATION est le défaut (`AUTHZ_ENFORCE` absent) : la
+      // politique calcule sa décision et la journalise, mais n'applique rien. C'est le seul
+      // réglage sous lequel brancher l'autorisation ne peut pas couper la production.
+      accessLevel: 'full',
     });
   });
 
@@ -986,6 +990,7 @@ describe('SlackEventsHandler — contexte Slack transmis à l’agent', () => {
     expect(readSlackContext(requestContext)).toEqual({
       channel: 'D0MOCKDM01',
       slackUserId: HUMAN,
+      accessLevel: 'full',
     });
   });
 

@@ -33,6 +33,7 @@ import { uuidSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { NotificationChannel, NotificationStatus, RecipientType } from '../../../../shared/types';
 import { NotFoundError } from '../../../../shared/errors';
+import { canPerformSideEffects } from '../../../../shared/slack-request-context';
 
 /**
  * Canaux RÉELLEMENT transportés par cet outil.
@@ -94,6 +95,33 @@ export function makeSendNotification(
       recipientType: z.enum(RECIPIENT_TYPES).default('employee'),
     }),
     execute: async (data, _ctx) => {
+      // ─────────────────────────────────────────────────────────────────────
+      // FRONTIÈRE D'AUTORISATION — avant toute résolution, avant toute E/S
+      // ─────────────────────────────────────────────────────────────────────
+      // C'est LE tool à protéger en premier. Il fait partir un email depuis le compte Gmail
+      // de l'entreprise, SPF/DKIM parfaitement alignés : entre les mains d'un invité externe
+      // c'est un relais de hameçonnage authentifié. Son invariant historique — n'accepter
+      // qu'un UUID, jamais une adresse — empêche de choisir la CIBLE, mais n'empêchait
+      // personne de déclencher l'envoi.
+      //
+      // Le niveau d'accès vient du `requestContext`, canal que le modèle ne peut pas écrire.
+      // ⚠️ L'ABSENCE de niveau vaut autorisation : hors Slack (workflow, playground, test,
+      // route `/api/*` déjà derrière un jeton) il n'y a pas de demandeur à évaluer, et
+      // refuser y casserait le parcours d'onboarding qui envoie l'email de bienvenue.
+      if (!canPerformSideEffects(_ctx?.requestContext)) {
+        logger.warn('sendNotification refusé : le demandeur n’a pas le niveau requis', {
+          recipientId: data.recipientId,
+        });
+        // On INSTRUIT plutôt que de lever. Une exception remonterait au modèle comme une
+        // panne, qu'il raconterait comme telle ou qu'il réessaierait — deux allers-retours
+        // gâchés sur un budget de ≈19 messages/jour. Ici il lit un refus et peut le dire.
+        return {
+          sent: false,
+          reason: 'not_authorized',
+          hint: "Cette action est réservée aux membres de l'organisation. Dis-le simplement, ne réessaie pas.",
+        };
+      }
+
       // Les défauts du schéma sont appliqués par la validation Mastra ; ces replis
       // couvrent l'appel direct (tests, workflows) qui court-circuite le parseur.
       const channel = data.channel ?? 'email';

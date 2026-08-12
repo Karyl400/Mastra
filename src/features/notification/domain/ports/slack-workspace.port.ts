@@ -16,8 +16,28 @@ export interface SlackMember {
   firstName: string;
   /** Nom du profil Slack ; à défaut, reste de `realName`. */
   lastName: string;
+  /**
+   * Cascade `profile.display_name` → `profile.real_name` → `real_name` → `name`, et elle
+   * descend jusqu'au bout : un refus d'autorisation doit TOUJOURS pouvoir nommer quelqu'un.
+   */
+  displayName: string;
   isBot: boolean;
   isAdmin: boolean;
+  /**
+   * Drapeaux de CONFIANCE, matière première de la politique d'autorisation.
+   *
+   * `isRestricted` = invité multi-canal, `isUltraRestricted` = invité mono-canal. Slack pose les
+   * DEUX sur un invité mono-canal, et on les lit tels quels : déduire l'un de l'autre
+   * interdirait à la politique de durcir le seul cas mono-canal — celui du scénario §4.1 de
+   * `PLAN-ARCHITECTURE.md`, où un invité demande en DM le résumé d'un canal privé.
+   */
+  isRestricted: boolean;
+  isUltraRestricted: boolean;
+  /**
+   * Compte désactivé. C'est ce qui permet de REFUSER un ancien salarié, là où un compte inconnu
+   * (`null` rendu par le port) est seulement rétrogradé.
+   */
+  isDeleted: boolean;
   teamId: string;
 }
 

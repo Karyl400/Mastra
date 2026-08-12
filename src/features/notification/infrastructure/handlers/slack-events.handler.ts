@@ -25,7 +25,18 @@ import {
   type SlackEventDedupRepository,
 } from '../../domain/ports/slack-event-dedup.repository';
 import { DrizzleSlackEventDedupRepository } from '../repositories/drizzle-slack-event-dedup.repository';
-import { buildSlackRequestContext } from '../../../../shared/slack-request-context';
+import {
+  buildSlackRequestContext,
+  type SlackAccessLevel,
+} from '../../../../shared/slack-request-context';
+import { securityRefusalMessage } from '../../../../shared/security/llm-guardrail';
+import { SlackAccessGuard } from '../../../directory/application/services/access-guard';
+import type { DirectoryRepository } from '../../../directory/domain/ports/directory.repository';
+import { DrizzleDirectoryRepository } from '../../../directory/infrastructure/repositories/drizzle-directory.repository';
+import { SlackMemberSource } from '../../../directory/infrastructure/providers/slack-member-source.adapter';
+import { SlackRateLimiter } from '../services/slack-rate-limiter';
+import { DrizzleRateLimitRepository } from '../repositories/drizzle-rate-limit.repository';
+import { writeAuditLog } from '../../../../infrastructure/audit/audit-log';
 
 /**
  * Handler des événements Slack (Events API).
@@ -138,7 +149,14 @@ export type SlackIgnoreReason =
   | 'bot_join'
   | 'deleted_user'
   | 'restricted_user'
-  | 'duplicate_mention';
+  | 'duplicate_mention'
+  /**
+   * Quota de messages dépassé pour cette personne. Motif DISTINCT de `duplicate` : les deux
+   * écartent un événement, mais l'un dit « on l'a déjà traité » et l'autre « on refuse de le
+   * traiter ». Les confondre rendrait le journal de production inexploitable au moment précis
+   * où l'on cherche pourquoi quelqu'un n'a pas eu de réponse.
+   */
+  | 'rate_limited';
 
 export interface SlackAcceptContext {
   /** En-tête `X-Slack-Retry-Num` (présent uniquement sur les renvois Slack). */
@@ -188,6 +206,22 @@ export interface SlackEventsHandlerOptions {
   conversationTokenBudget?: number;
   /** Durée d'inactivité au-delà de laquelle le fil est clos (mémoire ET collance). */
   conversationTtlMs?: number;
+  /**
+   * Annuaire du workspace — support de la frontière d'autorisation.
+   *
+   * `null` la DÉSACTIVE (aucun fait connu sur personne, donc aucune restriction) ; c'est
+   * l'ancien comportement, celui où tout invité mono-canal déclenchait `sendNotification`.
+   */
+  directoryRepository?: DirectoryRepository | null;
+  /** Politique d'accès. Injectée pour les tests ; en production construite paresseusement. */
+  accessGuard?: SlackAccessGuard | null;
+  /**
+   * Limitation de débit. `null` la DÉSACTIVE.
+   *
+   * ⚠️ Sans elle, une seule rafale consomme les ≈19 messages/jour du workspace entier : le
+   * budget Groq se mesure à la JOURNÉE (`TPD: Limit 100000`), pas à la minute.
+   */
+  rateLimiter?: SlackRateLimiter | null;
 }
 
 /**
@@ -280,6 +314,20 @@ const ESCAPE_INTENTS: ReadonlyArray<readonly [agentId: string, keywords: readonl
   ],
   ['questionnaireEngine', ['questionnaire', 'évaluation', 'quiz']],
   ['notificationAgent', ['notification', 'rappel']],
+  // Ajouté le 2026-08-12 avec `knowledgeAgent`. La bande 1 doit rester SYMÉTRIQUE : chaque
+  // agent y a ses termes, aucun n'est un puits. Un quatrième agent sans porte d'entrée serait
+  // inatteignable dès le deuxième message d'un fil, `stickyAgentId` étant renseigné dès le
+  // premier tour — c'est exactement ce qui rendait `notificationAgent` inaccessible en série A.
+  //
+  // Volontairement ABSENTS, au critère « ouvre une tâche nouvelle » :
+  //  - « résume », « dit », « parle » — trop courants, ils captureraient des réponses de suivi ;
+  //  - « message » — il appartient déjà à `NOTIFICATION_TOPICS` en bande 3, et le promouvoir
+  //    ici détournerait « envoie-lui un message » vers un agent qui ne sait rien envoyer ;
+  //  - « échange » — RETIRÉ après essai, le 2026-08-12. Le test de non-régression du bord
+  //    droit l'a attrapé sur « rappelle-toi de notre échange », qui est une réponse de SUIVI et
+  //    non l'ouverture d'une tâche. Même verdict que « ajoute » et « word » avant lui : un nom
+  //    français assez courant pour apparaître dans une phrase qui ne demande rien.
+  ['knowledgeAgent', ['conversation', 'conversations', 'historique']],
 ];
 
 /**
@@ -341,6 +389,7 @@ const KNOWN_AGENT_IDS: ReadonlySet<string> = new Set([
   'onboardingOrchestrator',
   'questionnaireEngine',
   'notificationAgent',
+  'knowledgeAgent',
 ]);
 
 /**
@@ -669,6 +718,14 @@ export const QUOTA_FAILURE =
  * suivie car `withChainFailureLogging` réemballe l'échec du dernier maillon.
  */
 export function userFacingFailure(error: unknown): string {
+  // Un message BLOQUÉ par le garde-fou n'est pas une panne, et le dire « Désolé, je n'ai pas
+  // réussi à traiter ton message » était doublement faux : rien n'a échoué, et réessayer à
+  // l'identique ne servira à rien. `NEUTRAL_REFUSAL` reste muet sur la règle touchée —
+  // renseigner l'auteur sur la sonde qui a porté est précisément le défaut corrigé sur
+  // `[SECURITY_BLOCK]`.
+  const refusal = securityRefusalMessage(error);
+  if (refusal) return refusal;
+
   for (let current: unknown = error, depth = 0; current && depth < 5; depth += 1) {
     const candidate = current as {
       name?: unknown;
@@ -726,6 +783,10 @@ export class SlackEventsHandler {
   private dedupRepo: SlackEventDedupRepository | null | undefined;
   private readonly conversationTokenBudget: number;
   private readonly conversationTtlMs: number;
+  /** `undefined` = pas encore construit, `null` = désactivé. Deux états distincts. */
+  private directoryRepo: DirectoryRepository | null | undefined;
+  private guard: SlackAccessGuard | null | undefined;
+  private limiter: SlackRateLimiter | null | undefined;
   /** Compteur de messages traités, pour déclencher la purge périodique. */
   private processedMessages = 0;
   /**
@@ -742,7 +803,11 @@ export class SlackEventsHandler {
     allowStale: false,
   });
 
+  /** Conservé pour construire paresseusement la source d'annuaire (apprentissage au fil de l'eau). */
+  private readonly botToken: string;
+
   constructor(botToken: string, mastra: Mastra, options: SlackEventsHandlerOptions = {}) {
+    this.botToken = botToken;
     this.slack = options.slackClient ?? new WebClient(botToken);
     this.mastra = mastra;
     this.chatProvider = options.chatProvider ?? new SlackAdapter(botToken);
@@ -752,6 +817,9 @@ export class SlackEventsHandler {
     this.dedupRepo = options.dedupRepository;
     this.conversationTokenBudget = options.conversationTokenBudget ?? CONVERSATION_TOKEN_BUDGET;
     this.conversationTtlMs = options.conversationTtlMs ?? CONVERSATION_TTL_MS;
+    this.directoryRepo = options.directoryRepository;
+    this.guard = options.accessGuard;
+    this.limiter = options.rateLimiter;
     this.seenEvents = new LRUCache<string, DedupEntry>({
       max: options.dedupMax ?? 1000,
       ttl: options.dedupTtlMs ?? 10 * 60 * 1000,
@@ -870,6 +938,73 @@ export class SlackEventsHandler {
    * Attendu sur le workspace Kisso Ind. (`TMLKC4EPP`) : `U0BMBEJTBMJ`.
    * Jamais codé en dur : le token peut changer de bot.
    */
+  /**
+   * Annuaire, politique d'accès et compteur de débit — tous construits PARESSEUSEMENT, pour la
+   * même raison que la mémoire et la déduplication : le handler est instancié au chargement du
+   * module, et y ouvrir une connexion Drizzle paierait la latence sur le démarrage à froid,
+   * c'est-à-dire précisément là où les 3 secondes d'ACK de Slack sont déjà les plus serrées.
+   */
+  private getDirectoryRepo(): DirectoryRepository | null {
+    if (this.directoryRepo === undefined) {
+      this.directoryRepo = new DrizzleDirectoryRepository();
+    }
+    return this.directoryRepo;
+  }
+
+  private getAccessGuard(): SlackAccessGuard | null {
+    if (this.guard === undefined) {
+      const repo = this.getDirectoryRepo();
+      const source = new SlackMemberSource(new SlackWorkspaceService(this.botToken));
+
+      this.guard = repo
+        ? new SlackAccessGuard({
+            /**
+             * APPRENTISSAGE AU FIL DE L'EAU — c'est ce qui rend la frontière opérante SANS
+             * aucune synchronisation préalable.
+             *
+             * Annuaire d'abord (une lecture sur la PRIMARY KEY, gratuite). Personne inconnue :
+             * UN `users.info`, une seule fois dans la vie de cette personne, puis la ligne est
+             * écrite. Sans ce repli, la politique dirait `unknown_actor` pour tout le monde
+             * jusqu'à ce qu'un humain pense à lancer la synchronisation — c'est-à-dire une
+             * frontière présente dans le code et inopérante en production, exactement ce
+             * qu'était le correctif de la double réponse tant que `slack_event_dedup` manquait.
+             *
+             * Le résolveur PROJETTE vers `AccessSubject` plutôt que de passer l'annuaire tel
+             * quel : ce type est volontairement réduit aux champs qui portent une conséquence
+             * d'autorisation (`isAdmin` en est absent). Un champ présent dans une signature de
+             * sécurité finit toujours par être lu comme s'il faisait quelque chose.
+             */
+            resolveSubject: async (slackUserId) => {
+              const known = await repo.findBySlackUserId(slackUserId);
+              if (known) return known;
+
+              const facts = await source.fetchById(slackUserId);
+              if (!facts) return null;
+
+              // Écriture opportuniste : l'échec ne doit pas coûter la décision, qui est déjà
+              // calculable à partir des faits qu'on vient de lire.
+              await repo.upsertFacts(facts, new Date()).catch((error) =>
+                logger.warn('Could not persist the directory entry learned on the fly', {
+                  slackUserId,
+                  error,
+                }),
+              );
+
+              return facts;
+            },
+          })
+        : null;
+    }
+    return this.guard;
+  }
+
+  private getRateLimiter(): SlackRateLimiter | null {
+    if (this.limiter === undefined) {
+      this.limiter = new SlackRateLimiter({ repository: new DrizzleRateLimitRepository() });
+    }
+    return this.limiter;
+  }
+
   async getBotUserId(): Promise<string | undefined> {
     if (!this.botUserIdPromise) {
       this.botUserIdPromise = this.slack.auth
@@ -952,7 +1087,86 @@ export class SlackEventsHandler {
       return { action: 'ignore', reason: 'duplicate' };
     }
 
+    // ⚠️ APRÈS la déduplication, jamais avant. Un rejeu Slack n'est pas un nouveau message :
+    // le compter consommerait le quota de quelqu'un pour un événement qu'il n'a envoyé qu'une
+    // fois — et c'est précisément sur les démarrages à froid, donc quand le bot va déjà mal,
+    // que Slack rejoue le plus.
+    const limited = await this.checkRateLimit(event);
+    if (limited) return limited;
+
     return { action: 'process', event };
+  }
+
+  /**
+   * Compte le message et dit s'il peut être traité.
+   *
+   * Placé dans `accept()` et non dans `handleMessage()` : c'est le seul endroit qui soit AVANT
+   * l'ACK, donc avant que le travail de fond ne soit programmé. Refuser plus tard laisserait
+   * déjà partir l'appel LLM — c'est-à-dire la dépense qu'on cherche à borner.
+   *
+   * NE LÈVE JAMAIS : `SlackRateLimiter` dégrade tout seul vers son compteur local quand le
+   * store partagé est indisponible, et une panne du compteur ne doit pas devenir une panne du
+   * bot. Ici on n'ajoute qu'une garde de plus, par principe de non-régression.
+   */
+  private async checkRateLimit(event: SlackEvent): Promise<SlackEventDecision | null> {
+    const limiter = this.getRateLimiter();
+    if (!limiter) return null;
+
+    // Le sujet est la PERSONNE, pas le canal : c'est un budget de messages par humain. Sans
+    // auteur identifiable il n'y a personne à débiter, et refuser par défaut couperait les
+    // événements systèmes.
+    const subject = isTeamJoinEvent(event) ? event.user?.id : event.user;
+    if (!subject) return null;
+
+    try {
+      const decision = await limiter.check(subject);
+      if (decision.allowed) return null;
+
+      logger.warn('Slack event dropped: rate limit exceeded', {
+        slackUserId: subject,
+        rule: decision.rule,
+        degraded: decision.degraded,
+      });
+
+      void writeAuditLog({
+        action: 'RATE_LIMITED',
+        actorId: subject,
+        status: 'denied',
+        details: { rule: decision.rule, degraded: decision.degraded },
+      });
+
+      // `shouldNotify` n'est vrai qu'au PREMIER refus de la fenêtre. Le dire à chaque message
+      // transformerait la protection en son propre spam — et chaque publication est elle-même
+      // un appel à l'API Slack.
+      if (decision.shouldNotify && !isTeamJoinEvent(event) && event.channel) {
+        await this.notifyRateLimited(event.channel, decision.rule);
+      }
+
+      return { action: 'ignore', reason: 'rate_limited' };
+    } catch (error) {
+      // Fail-open BRUYANT, doctrine constante du dépôt : un message de trop est visible et
+      // corrigeable, un bot muet ne l'est pas.
+      logger.error('Rate limit check failed — letting the event through', { error });
+      return null;
+    }
+  }
+
+  private async notifyRateLimited(channel: string, rule: string | null): Promise<void> {
+    try {
+      await this.slack.chat.postMessage({
+        channel,
+        // Tutoiement, comme les trois agents : le basculement de registre exact au moment où
+        // ça casse donne l'impression de deux interlocuteurs différents. Et on ne nomme pas la
+        // règle — l'utilisatrice n'a rien à faire de « BURST_RULE », elle a besoin de savoir
+        // quoi faire ensuite.
+        text:
+          rule === 'daily'
+            ? "J'ai atteint mon quota de messages pour aujourd'hui. Réessaie demain, ou demande à un administrateur de relever le plafond."
+            : 'Tu m’écris plus vite que je ne sais répondre. Laisse-moi une minute et reformule.',
+      });
+    } catch (error) {
+      logger.warn('Could not notify the user about the rate limit', { channel, error });
+    }
   }
 
   /**
@@ -1434,7 +1648,59 @@ export class SlackEventsHandler {
       return;
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // FRONTIÈRE D'AUTORISATION — l'identité franchit enfin la frontière
+    // ─────────────────────────────────────────────────────────────────────────
+    // Jusqu'ici `event.user` servait au journal et à l'anti-boucle, puis était jeté : une
+    // chaîne `U…` opaque dont le système ne pouvait pas dire si elle désignait la responsable
+    // RH ou un invité mono-canal. Tous les outils à effet de bord étaient donc atteignables
+    // par n'importe qui — y compris un invité externe, qui pouvait faire partir un email
+    // depuis le Gmail de l'entreprise, SPF/DKIM parfaitement alignés.
+    //
+    // ⚠️ Par défaut le mode est OBSERVATION (`AUTHZ_ENFORCE` absent) : la décision est
+    // calculée et journalisée, rien n'est refusé. C'est délibéré — une politique mal
+    // configurée bloquerait des gens légitimes, et le symptôme (« le bot ne sait plus rien
+    // faire ») ne désignerait pas sa cause. On lit les logs, PUIS on active.
+    const accessLevel = await this.evaluateAccess(user);
+
+    if (accessLevel === 'denied') {
+      logger.warn('Slack message refused by the authorization policy', { user, channel });
+      void writeAuditLog({
+        action: 'AUTHZ_DENIED',
+        actorId: user ?? 'unknown',
+        status: 'denied',
+        details: { channel, isDirectMessage },
+      });
+      // Muet sur la règle touchée, exactement comme `NEUTRAL_REFUSAL` : nommer ce qui a porté
+      // renseignerait un attaquant sur la sonde qui a fonctionné.
+      await this.slack.chat.postMessage({
+        channel,
+        text: "Je ne peux pas traiter cette demande. Rapproche-toi d'une personne de l'équipe.",
+      });
+      return;
+    }
+
+    // Le canal `D…` est appris ICI et NULLE PART AILLEURS : `conversations.list({types:'im'})`
+    // répond `missing_scope` faute du scope `im:read`. Slack nous le livre gratuitement dans
+    // `event.channel`, et une fois perdu il l'est définitivement — d'où l'écriture
+    // conditionnelle côté repository, qui n'écrase jamais une valeur déjà connue.
+    if (isDirectMessage && user) {
+      void this.getDirectoryRepo()
+        ?.rememberDmChannel(user, channel)
+        .catch((error) => logger.debug('Could not record the DM channel', { user, error }));
+    }
+
     logger.info('Processing Slack message', { user, channel, text });
+
+    void writeAuditLog({
+      action: 'SLACK_MESSAGE',
+      actorId: user ?? 'unknown',
+      resourceType: 'SlackChannel',
+      resourceId: channel,
+      // Le TEXTE n'est jamais enregistré : le DM au bot est le canal privilégié pour parler
+      // d'un salaire ou d'un litige, et une table consultable n'expire pas comme un log.
+      details: { accessLevel: accessLevel ?? 'not_evaluated', isDirectMessage },
+    });
 
     // Marqueur de progression posté IMMÉDIATEMENT, avant tout appel LLM. Un run prend 2 à
     // 17 s (jusqu'à ~21 s quand le back-off du dernier maillon se déclenche), pendant
@@ -1519,7 +1785,15 @@ export class SlackEventsHandler {
           displayName: await requesterName,
         }),
         {
-          requestContext: buildSlackRequestContext({ channel, threadTs, slackUserId: user }),
+          requestContext: buildSlackRequestContext({
+            channel,
+            threadTs,
+            slackUserId: user,
+            // Coût en tokens : ZÉRO. Le `RequestContext` ne traverse ni le prompt, ni les
+            // schémas de tools, ni le tool-result — c'est ce qui permet de faire descendre une
+            // décision d'autorisation jusqu'aux tools sans jamais la soumettre au modèle.
+            accessLevel,
+          }),
         },
       );
       const durationMs = Date.now() - startedAt;
@@ -1866,6 +2140,32 @@ export class SlackEventsHandler {
   private readInputTokens(response: unknown): number | null {
     const usage = (response as { usage?: { inputTokens?: unknown } }).usage;
     return typeof usage?.inputTokens === 'number' ? usage.inputTokens : null;
+  }
+
+  /**
+   * Décide ce que le demandeur a le droit de déclencher.
+   *
+   * Rend `undefined` quand la question ne se pose pas (pas d'auteur, annuaire désactivé) : ce
+   * n'est PAS une autorisation, c'est une non-évaluation — et `canPerformSideEffects` la traite
+   * comme le chemin historique. Confondre les deux ferait qu'une panne d'annuaire ouvrirait ou
+   * fermerait le produit selon l'humeur du code appelant.
+   *
+   * NE LÈVE JAMAIS : `SlackAccessGuard.evaluate` avale déjà ses propres échecs, et un annuaire
+   * indisponible rend `unknown_actor`, donc `readonly` — la réponse monotone restrictive.
+   */
+  private async evaluateAccess(user: string | undefined): Promise<SlackAccessLevel | undefined> {
+    if (!user) return undefined;
+
+    const guard = this.getAccessGuard();
+    if (!guard) return undefined;
+
+    try {
+      const evaluation = await guard.evaluate(user);
+      return evaluation.effective;
+    } catch (error) {
+      logger.error('Access evaluation failed — falling back to no evaluation', { user, error });
+      return undefined;
+    }
   }
 
   async handleUrlVerification(body: SlackEventEnvelope): Promise<{ challenge: string }> {

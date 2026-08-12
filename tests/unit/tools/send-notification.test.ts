@@ -39,6 +39,10 @@ function makeSlackMember(id: string, email: string): SlackMember {
     lastName: '',
     isBot: false,
     isAdmin: false,
+    displayName: '',
+    isRestricted: false,
+    isUltraRestricted: false,
+    isDeleted: false,
     teamId: 'TMLKC4EPP',
   };
 }

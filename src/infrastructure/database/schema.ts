@@ -666,7 +666,128 @@ export const slackEventDedup = sqliteTable(
 );
 
 // ============================================
-// 13. TYPES INFÉRÉS POUR LES REQUÊTES
+// 13. SLACK DIRECTORY (Annuaire du workspace — autorisation)
+// ============================================
+//
+// Ce qui manquait pour que « qui parle ? » ait une réponse. `slack-events.handler.ts` lisait
+// `event.user` pour le journal et l'anti-boucle, puis le jetait : une chaîne `U…` opaque, dont
+// le système ne pouvait pas dire si elle désignait la responsable RH ou un invité mono-canal.
+//
+// La table porte des FAITS que Slack maintient lui-même (`is_bot`, `is_restricted`,
+// `is_ultra_restricted`, `deleted`), et non une liste d'identifiants tenue à la main : ajouter
+// un invité au workspace le rétrograde automatiquement, sans qu'aucune variable d'environnement
+// ne bouge. Même exigence que `agentToolBoundary(tools)`, dérivée de `Object.keys(tools)` — ce
+// dépôt a déjà payé trois fois le prix d'une liste rédigée qui se désynchronise du réel.
+//
+// ⚠️ DDL : `scripts/ddl-slack-directory.sql`, à appliquer à la main (les migrations `drizzle/`
+// sont désynchronisées et `drizzle-kit push` se bloque contre une base `libsql://` distante).
+
+export const slackDirectory = sqliteTable(
+  'slack_directory',
+  {
+    // La PRIMARY KEY est `slack_user_id`, PAS l'email : un email se change dans le profil Slack,
+    // l'identifiant `U…` est immuable. Une clé portée par l'email ferait qu'un changement
+    // d'adresse crée un SECOND sujet avec ses propres droits — élévation de privilège par
+    // simple édition de profil.
+    slackUserId: text('slack_user_id').primaryKey(),
+    teamId: text('team_id').notNull(),
+
+    // NULLABLE, et ce n'est pas de la prudence de façade : `users.list` ne rend `profile.email`
+    // que si `users:read.email` est accordé ET que le compte en porte un ; les bots n'en ont
+    // pas. La politique traite « pas d'email » comme un cas NOMMÉ, jamais comme une chaîne vide
+    // comparée à un domaine — une chaîne vide finirait par matcher.
+    email: text('email'),
+
+    // NOT NULL avec DEFAULT '' : ces champs sont affichés et concaténés, un NULL y imprimerait
+    // « null » plutôt qu'un blanc. Arbitrage inverse de `email`, qui est une CLÉ de recherche.
+    realName: text('real_name').notNull().default(''),
+    displayName: text('display_name').notNull().default(''),
+
+    // Flags de CONFIANCE — matière première de la politique d'autorisation. Aucun n'est
+    // nullable : « on ne sait pas si c'est un invité » ne doit pas exister comme état, la
+    // politique devrait alors décider sur un troisième cas où le défaut sûr serait
+    // indiscernable de l'ignorance.
+    // is_restricted = invité multi-canal ; is_ultra_restricted = invité mono-canal.
+    isBot: integer('is_bot', { mode: 'boolean' }).notNull().default(false),
+    isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
+    isRestricted: integer('is_restricted', { mode: 'boolean' }).notNull().default(false),
+    isUltraRestricted: integer('is_ultra_restricted', { mode: 'boolean' }).notNull().default(false),
+    isDeleted: integer('is_deleted', { mode: 'boolean' }).notNull().default(false),
+
+    // ⚠️ INDÉCOUVRABLE par balayage : `conversations.list({types:'im'})` répond `missing_scope`
+    // (il faudrait `im:read`, non accordé — vérifié le 2026-08-12). La colonne se remplit
+    // OPPORTUNÉMENT, au premier DM reçu, où Slack livre le canal dans `event.channel`. Vide
+    // signifie « cette personne ne nous a jamais écrit en direct », pas « on ne sait pas le
+    // trouver ». Corollaire : une valeur perdue l'est DÉFINITIVEMENT — d'où le `set`
+    // champ-par-champ de l'upsert côté repository, qui ne la nomme jamais.
+    dmChannelId: text('dm_channel_id'),
+
+    // Pont vers le métier, NULLABLE dans les deux sens : tout membre du workspace n'est pas un
+    // employé enregistré, et tout employé n'a pas forcément de compte Slack.
+    employeeId: text('employee_id').references(() => employees.id),
+
+    // Même écart assumé que `conversation_turns` : entier en millisecondes plutôt que
+    // `datetime('now')` en text. `syncedAt` gouverne la fraîcheur, `firstSeenAt` n'est écrit
+    // qu'à l'INSERT — une seule fois dans la vie de la ligne.
+    firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull(),
+    syncedAt: integer('synced_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    // NON UNIQUE à dessein : deux comptes peuvent porter la même adresse le temps d'une
+    // migration, et une contrainte d'unicité ferait échouer la synchronisation ENTIÈRE plutôt
+    // que de rapporter deux lignes.
+    emailIdx: index('idx_slack_directory_email').on(table.email),
+    employeeIdIdx: index('idx_slack_directory_employee_id').on(table.employeeId),
+    syncedAtIdx: index('idx_slack_directory_synced_at').on(table.syncedAt),
+  }),
+);
+
+// ============================================
+// 14. RATE LIMIT COUNTERS (Limitation de débit partagée)
+// ============================================
+//
+// Un compteur en mémoire est PAR INSTANCE et disparaît au gel de la fonction serverless. Sur un
+// budget qui se mesure à la JOURNÉE (`TPD: Limit 100000` ≈ 19 messages/jour), il ne protège donc
+// RIEN : Vercel démarre une instance neuve sans que personne le demande, le compteur repart à
+// zéro pendant que le quota du fournisseur, lui, continue de courir.
+//
+// C'est la leçon exacte de la double réponse du 2026-08-11 : le cache LRU de déduplication était
+// lui aussi en mémoire. Un état par instance ne peut, par construction, rien dire de sa voisine.
+//
+// ⚠️ DDL : `scripts/ddl-rate-limit-counters.sql`.
+
+export const rateLimitCounters = sqliteTable(
+  'rate_limit_counters',
+  {
+    // `key` EST la clé primaire, et ce n'est pas un détail de modélisation : c'est elle qui rend
+    // l'incrément atomique via `INSERT … ON CONFLICT DO UPDATE`. Deux instances qui incrémentent
+    // au même instant sont départagées par la base, sans verrou applicatif — le seul mécanisme
+    // qui tienne quand les deux concurrents ne partagent aucune mémoire.
+    //
+    // La FENÊTRE est DANS la clé (`<règle>:<sujet>:<numéro de fenêtre>`), pas dans une colonne
+    // comparée : remettre un compteur à zéro exigerait de lire, décider, puis écrire — donc de
+    // rouvrir la course. Ici, changer de fenêtre change de ligne.
+    key: text('key').primaryKey(),
+
+    // Sans DEFAULT : une ligne n'existe que parce qu'un incrément l'a créée. Un DEFAULT 0
+    // laisserait croire qu'une ligne peut naître vide.
+    count: integer('count').notNull(),
+
+    // Redondant avec le numéro de fenêtre encodé dans la clé, et c'est voulu : la clé est une
+    // chaîne opaque. Cette colonne répond à « depuis quand ce compteur court-il ? » sans
+    // reparser un identifiant.
+    windowStart: integer('window_start', { mode: 'timestamp_ms' }).notNull(),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    // Sert la PURGE : sans elle la table croîtrait indéfiniment, une ligne par sujet ET par
+    // fenêtre. L'accès par clé passe déjà par l'index implicite de la PRIMARY KEY.
+    expiresAtIdx: index('idx_rate_limit_counters_expires_at').on(table.expiresAt),
+  }),
+);
+
+// ============================================
+// 15. TYPES INFÉRÉS POUR LES REQUÊTES
 // ============================================
 
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
@@ -684,6 +805,8 @@ export type EmployeeDocument = InferSelectModel<typeof employeeDocuments>;
 export type AuditLog = InferSelectModel<typeof auditLogs>;
 export type ConversationTurnRow = InferSelectModel<typeof conversationTurns>;
 export type SlackEventDedupRow = InferSelectModel<typeof slackEventDedup>;
+export type SlackDirectoryRow = InferSelectModel<typeof slackDirectory>;
+export type RateLimitCounterRow = InferSelectModel<typeof rateLimitCounters>;
 
 // Insert types (création)
 export type NewEmployee = InferInsertModel<typeof employees>;
@@ -698,3 +821,5 @@ export type NewEmployeeDocument = InferInsertModel<typeof employeeDocuments>;
 export type NewAuditLog = InferInsertModel<typeof auditLogs>;
 export type NewConversationTurnRow = InferInsertModel<typeof conversationTurns>;
 export type NewSlackEventDedupRow = InferInsertModel<typeof slackEventDedup>;
+export type NewSlackDirectoryRow = InferInsertModel<typeof slackDirectory>;
+export type NewRateLimitCounterRow = InferInsertModel<typeof rateLimitCounters>;
