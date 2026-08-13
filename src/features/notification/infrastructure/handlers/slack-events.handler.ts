@@ -32,6 +32,7 @@ import {
 import { securityRefusalMessage } from '../../../../shared/security/llm-guardrail';
 import { SlackAccessGuard } from '../../../directory/application/services/access-guard';
 import type { DirectoryRepository } from '../../../directory/domain/ports/directory.repository';
+import type { WelcomeChannelsService } from '../../../directory/application/services/welcome-channels.service';
 import { DrizzleDirectoryRepository } from '../../../directory/infrastructure/repositories/drizzle-directory.repository';
 import { SlackMemberSource } from '../../../directory/infrastructure/providers/slack-member-source.adapter';
 import { SlackRateLimiter } from '../services/slack-rate-limiter';
@@ -214,6 +215,15 @@ export interface SlackEventsHandlerOptions {
    * l'ancien comportement, celui où tout invité mono-canal déclenchait `sendNotification`.
    */
   directoryRepository?: DirectoryRepository | null;
+  /**
+   * Invitation de l'arrivant aux canaux publics d'accueil, au `team_join`.
+   *
+   * `null` ou absent la DÉSACTIVE — c'est le comportement d'avant le 2026-08-13, et celui de
+   * tout test qui ne s'intéresse pas aux canaux. Contrairement à l'annuaire et à la
+   * déduplication, il n'y a PAS de construction paresseuse par défaut : ce service a besoin de
+   * la configuration `ONBOARDING_WELCOME_CHANNELS`, qui vit dans le câblage.
+   */
+  welcomeChannels?: WelcomeChannelsService | null;
   /** Politique d'accès. Injectée pour les tests ; en production construite paresseusement. */
   accessGuard?: SlackAccessGuard | null;
   /**
@@ -844,7 +854,22 @@ function greet(firstName: string): string {
  * refaire un `users.info` au moment du clic dépenserait ce budget pour une
  * information déjà en main.
  */
-function buildWelcomeBlocks(prefill: ProfileModalPrefill): SlackBlock[] {
+/**
+ * Ligne citant les canaux où l'arrivant vient d'être ajouté.
+ *
+ * VIDE quand il n'y en a aucun : annoncer « je t'ai ajouté à » suivi de rien serait pire que
+ * le silence, et c'est le cas normal tant que `ONBOARDING_WELCOME_CHANNELS` n'est pas posée.
+ */
+function channelsLine(joinedNames: readonly string[]): string {
+  if (joinedNames.length === 0) return '';
+  const list = joinedNames.map((name) => `#${name}`).join(', ');
+  return `\n\nJe t'ai ajouté à ${list} — tu y trouveras l'équipe.`;
+}
+
+function buildWelcomeBlocks(
+  prefill: ProfileModalPrefill,
+  joinedNames: readonly string[] = [],
+): SlackBlock[] {
   return [
     {
       type: 'section',
@@ -852,8 +877,9 @@ function buildWelcomeBlocks(prefill: ProfileModalPrefill): SlackBlock[] {
         type: 'mrkdwn',
         text:
           `${greet(prefill.firstName ?? '')}\n\n` +
-          "Ravi de t'accueillir chez Kisso. Il me manque quelques informations " +
-          'pour préparer ton intégration — deux minutes suffisent.',
+          "Ravi de t'accueillir chez Kisso. Il me manque une information " +
+          'pour préparer ton intégration — une minute suffit.' +
+          channelsLine(joinedNames),
       },
     },
     {
@@ -966,6 +992,8 @@ export class SlackEventsHandler {
   private readonly conversationTtlMs: number;
   /** `undefined` = pas encore construit, `null` = désactivé. Deux états distincts. */
   private directoryRepo: DirectoryRepository | null | undefined;
+  /** `null` = désactivé. Aucune construction paresseuse : voir l'option du même nom. */
+  private readonly welcomeChannels: WelcomeChannelsService | null;
   private guard: SlackAccessGuard | null | undefined;
   private limiter: SlackRateLimiter | null | undefined;
   /** Compteur de messages traités, pour déclencher la purge périodique. */
@@ -999,6 +1027,7 @@ export class SlackEventsHandler {
     this.conversationTokenBudget = options.conversationTokenBudget ?? CONVERSATION_TOKEN_BUDGET;
     this.conversationTtlMs = options.conversationTtlMs ?? CONVERSATION_TTL_MS;
     this.directoryRepo = options.directoryRepository;
+    this.welcomeChannels = options.welcomeChannels ?? null;
     this.guard = options.accessGuard;
     this.limiter = options.rateLimiter;
     this.seenEvents = new LRUCache<string, DedupEntry>({
@@ -1809,6 +1838,11 @@ export class SlackEventsHandler {
       return;
     }
 
+    // L'instant de l'événement EST la date d'arrivée. Lu UNE SEULE FOIS, avant toute E/S :
+    // deux lectures d'horloge donneraient deux dates pour un seul et même fait, et celle qui
+    // finirait en base ne serait pas celle du journal.
+    const joinedAt = new Date().toISOString();
+
     try {
       const identity = await this.resolveNewcomer(user);
       logger.info('Welcoming a newcomer', {
@@ -1816,13 +1850,83 @@ export class SlackEventsHandler {
         hasEmail: Boolean(identity.email),
       });
 
+      // Les deux gestes qui précèdent le DM sont indépendants l'un de l'autre ET du DM. Chacun
+      // avale son échec : ni l'annuaire ni les canaux ne valent de priver quelqu'un de son
+      // message de bienvenue. Un arrivant sans canal mais avec son DM peut demander de l'aide ;
+      // l'inverse ne le peut pas.
+      await this.recordNewcomer(user.id, identity, joinedAt);
+      const joinedNames = await this.inviteToWelcomeChannels(user.id);
+
       await this.chatProvider.sendBlocks(
         user.id,
         greet(identity.firstName ?? ''),
-        buildWelcomeBlocks(identity),
+        buildWelcomeBlocks({ ...identity, joinedAt }, joinedNames),
       );
     } catch (error) {
       logger.error('Unable to send the welcome DM', { error, userId: user.id });
+    }
+  }
+
+  /**
+   * Rend l'arrivant résolvable dès la seconde zéro.
+   *
+   * Sans cela, l'annuaire n'apprend une personne qu'au PREMIER MESSAGE qu'elle envoie — et
+   * `findEmployeeByEmail`, qui s'y replie depuis le 2026-08-12, répondait « introuvable » pour
+   * quelqu'un que Slack venait pourtant d'annoncer. C'est exactement le symptôme signalé en
+   * production (« il ne retrouve que mon profil »), vu depuis son autre extrémité.
+   *
+   * ⚠️ `teamId` est laissé VIDE : le payload `team_join` ne le porte pas de façon fiable, et
+   * `upsertFacts` ne doit jamais écraser un fait connu par une supposition. Une synchronisation
+   * ultérieure le renseignera.
+   */
+  private async recordNewcomer(
+    slackUserId: string,
+    identity: ProfileModalPrefill,
+    joinedAt: string,
+  ): Promise<void> {
+    const repo = this.getDirectoryRepo();
+    if (!repo) return;
+
+    const realName = [identity.firstName, identity.lastName].filter(Boolean).join(' ');
+
+    try {
+      await repo.upsertFacts(
+        {
+          slackUserId,
+          teamId: '',
+          email: identity.email ?? null,
+          realName,
+          displayName: realName,
+          firstName: identity.firstName ?? null,
+          lastName: identity.lastName ?? null,
+          // Le poste DÉCLARÉ dans Slack n'est pas lu au `team_join` : il est vide à la seconde
+          // zéro, et c'est précisément ce qu'on va demander à la personne.
+          title: null,
+          isBot: false,
+          isAdmin: false,
+          isRestricted: false,
+          isUltraRestricted: false,
+          isDeleted: false,
+        },
+        new Date(joinedAt),
+      );
+    } catch (error) {
+      logger.error('Unable to record the newcomer in the directory', { error, slackUserId });
+    }
+  }
+
+  /** Rend les noms des canaux où l'arrivant se trouve. Ne lève JAMAIS. */
+  private async inviteToWelcomeChannels(slackUserId: string): Promise<readonly string[]> {
+    if (!this.welcomeChannels) return [];
+
+    try {
+      const report = await this.welcomeChannels.run(slackUserId);
+      return report.joinedNames;
+    } catch (error) {
+      // Le service déclare ne jamais lever ; on ne le suppose pas pour autant. Une exception
+      // qui traverserait ce point emporterait le DM de bienvenue avec elle.
+      logger.error('Welcome channel invitations threw', { error, slackUserId });
+      return [];
     }
   }
 

@@ -42,6 +42,18 @@ export interface ProfileModalPrefill {
   email?: string | null;
   firstName?: string | null;
   lastName?: string | null;
+  /**
+   * Instant du `team_join`, en ISO 8601 — la date d'arrivée RÉELLE.
+   *
+   * Ce n'est pas une valeur de remplissage : c'est le fait que Slack vient d'annoncer, et
+   * c'est précisément pour cela que le sélecteur de date a pu disparaître de la modale. Une
+   * question dont le serveur connaît déjà la réponse ne doit pas être posée — chaque champ
+   * demandé est un champ qu'on peut remplir de travers ou laisser en plan.
+   *
+   * Absent sur un bouton émis AVANT le 2026-08-13 : l'appelant retombe alors sur l'instant
+   * courant.
+   */
+  joinedAt?: string | null;
 }
 
 /** Ce que la route relit de `view.state.values`, avant validation. */
@@ -73,6 +85,7 @@ export function encodePrefill(prefill: ProfileModalPrefill): string {
     e: prefill.email ?? undefined,
     f: prefill.firstName ?? undefined,
     l: prefill.lastName ?? undefined,
+    j: prefill.joinedAt ?? undefined,
   });
 }
 
@@ -85,12 +98,19 @@ export function decodePrefill(value: string | undefined, fallbackUserId = ''): P
   if (!value) return { slackUserId: fallbackUserId };
 
   try {
-    const parsed = JSON.parse(value) as { u?: string; e?: string; f?: string; l?: string };
+    const parsed = JSON.parse(value) as {
+      u?: string;
+      e?: string;
+      f?: string;
+      l?: string;
+      j?: string;
+    };
     return {
       slackUserId: parsed.u || fallbackUserId,
       email: parsed.e ?? null,
       firstName: parsed.f ?? null,
       lastName: parsed.l ?? null,
+      joinedAt: parsed.j ?? null,
     };
   } catch {
     // Format historique : le `value` ne portait que l'identifiant Slack brut.
