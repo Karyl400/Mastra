@@ -1,5 +1,48 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-13 — un plafond de coût ne doit pas pouvoir faire taire une détresse
+
+### Fixed — le rationnement s'appliquait à des messages qui ne coûtent rien
+
+**Défaut trouvé EN PRODUCTION**, par la sonde des réponses déterministes : les cinq sondes ont
+reçu `HTTP 200` et **aucune** réponse n'a été postée. Cause lue dans le fil : la personne avait
+déjà atteint son plafond de 12 messages du jour, et la limite de débit — qui vit dans
+`accept()`, donc AVANT tout court-circuit — écartait tout, y compris ce qui n'appelle aucun
+modèle. Le dernier message réel du fil le montrait noir sur blanc : « bonjour » → « J'ai
+atteint mon quota de messages pour aujourd'hui. »
+
+Le même refus serait tombé sur **« je ne vais pas bien »**. C'est ce cas-là qui rend le
+correctif nécessaire, pas le confort d'une salutation : un plafond de COÛT ne doit pas pouvoir
+faire taire la seule réponse de ce produit dont l'absence peut nuire à quelqu'un.
+
+Le remède est dans l'intention déjà écrite des deux règles, pas dans une exception :
+
+- `DAILY_RULE` porte `rationsModelBudget: true`. Sa raison d'être est documentée depuis
+  l'origine — « 12 < 19 (le plafond réel du fournisseur) » : elle rationne un budget de
+  MODÈLE. Elle n'a donc rien à dire d'un message qui n'en consomme pas.
+- `BURST_RULE` ne le porte pas et **continue de s'appliquer** : elle contre l'abus, et un
+  script qui inonde le bot de « bonjour » reste un script — chaque réponse est un appel à
+  l'API Slack.
+
+`check()` reçoit `answeredWithoutModel` et, dans ce cas, les règles de budget ne sont ni
+consultées **ni incrémentées**. Ne pas incrémenter compte autant que ne pas refuser : sans
+cela, une salutation gratuite retirerait quand même une unité au budget d'une vraie question.
+
+⚠️ `isAnsweredWithoutModel` doit rester le miroir exact des court-circuits de `handleMessage` —
+c'est sa seule fragilité, et chaque cas y délègue au même prédicat plutôt que de réécrire la
+règle.
+
+### Added — `scripts/probe-deterministic-replies.mts`
+
+Sonde de production des cinq réponses déterministes. Elle ne consomme **aucun token** — ce sont
+précisément les chemins qui n'appellent pas de modèle — donc elle est répétable après chaque
+déploiement, sur un quota de ≈ 19 messages/jour qui rendait jusqu'ici toute vérification en
+production coûteuse. Les constantes attendues sont importées des modules source, jamais
+recopiées : une copie diverge, et la sonde passerait au vert en vérifiant un texte disparu.
+
+C'est elle qui a trouvé le défaut ci-dessus. Aucun test unitaire ne pouvait le voir : les deux
+bords étaient corrects, c'est leur ORDRE dans le produit déployé qui ne l'était pas.
+
 ## [Unreleased] - 2026-08-13 — trois lectures RH s'exécutaient sans regarder QUI demandait
 
 ### Security — la frontière d'autorisation manquait là où elle comptait le plus

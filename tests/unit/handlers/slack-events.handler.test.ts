@@ -44,7 +44,7 @@ import { InMemorySlackEventDedupRepository } from '../../../src/features/notific
 import type { SlackEventDedupRepository } from '../../../src/features/notification/domain/ports/slack-event-dedup.repository';
 import { InMemoryDirectoryRepository } from '../../../src/features/directory/infrastructure/repositories/in-memory-directory.repository';
 import type { DirectoryRepository } from '../../../src/features/directory/domain/ports/directory.repository';
-import type { SlackRateLimiter } from '../../../src/features/notification/infrastructure/services/slack-rate-limiter';
+import { SlackRateLimiter } from '../../../src/features/notification/infrastructure/services/slack-rate-limiter';
 
 const BOT_USER_ID = 'U0BMBEJTBMJ';
 const BOT_ID = 'B0BM9MK4G65';
@@ -2211,6 +2211,62 @@ describe('SlackEventsHandler — court-circuits sans appel LLM', () => {
     // SÉCURITÉ. Quelqu'un qui colle un compte rendu recevait « Je ne peux pas répondre à
     // cette demande », sans jamais apprendre que le problème était la taille.
     expect(posted.text).not.toBe(NEUTRAL_REFUSAL);
+  });
+
+  /**
+   * ⚠️ LE CAS QUI JUSTIFIE TOUT LE CORRECTIF, observé en production le 2026-08-13.
+   *
+   * Le plafond par personne est de 12 messages/jour. Il existe pour rationner le budget du
+   * FOURNISSEUR (« 12 < 19 »), et une sonde de production a montré ce qu'il produisait une
+   * fois atteint : « bonjour » recevait « J'ai atteint mon quota de messages pour
+   * aujourd'hui ». Pour un mot qui ne coûte pas un token.
+   *
+   * Le même refus serait tombé sur « je ne vais pas bien » — le message que `distress.ts`
+   * existe précisément pour ne jamais laisser sans réponse. Un plafond de coût ne doit pas
+   * pouvoir faire taire la seule réponse de ce produit dont l'absence peut nuire à quelqu'un.
+   */
+  /**
+   * ⚠️ La décision se prend dans `accept()`, AVANT l'ACK HTTP — pas dans `handleEvent()`.
+   * C'est le seul endroit où la limite de débit est consultée, et un test qui viserait
+   * `handleEvent` passerait au vert sans jamais l'interroger.
+   */
+  const exhaustedBudget = () =>
+    new SlackRateLimiter({
+      // Budget déjà à zéro : toute question ordinaire est refusée.
+      rules: [{ name: 'daily', limit: 0, windowMs: 86_400_000, rationsModelBudget: true }],
+      repository: null,
+    });
+
+  it('ACCEPTE une DÉTRESSE même quand le budget quotidien est ÉPUISÉ', async () => {
+    const { handler } = makeHandler({ rateLimiter: exhaustedBudget() });
+
+    const decision = await handler.accept(
+      envelope(dm({ text: 'je ne vais pas bien', ts: nextTs() }), 'EvDISTRESSLIMIT'),
+    );
+
+    expect(decision.action).toBe('process');
+  });
+
+  it('ACCEPTE une salutation quand le budget quotidien est ÉPUISÉ', async () => {
+    const { handler } = makeHandler({ rateLimiter: exhaustedBudget() });
+
+    const decision = await handler.accept(
+      envelope(dm({ text: 'bonjour', ts: nextTs() }), 'EvGREETLIMIT'),
+    );
+
+    expect(decision.action).toBe('process');
+  });
+
+  it('oppose bien le budget épuisé à une VRAIE question', async () => {
+    // Le pendant des deux tests précédents : sans lui, on aurait pu désactiver le plafond
+    // sans s'en apercevoir. C'est l'INÉGALITÉ qui porte le sens, pas l'exemption seule.
+    const { handler } = makeHandler({ rateLimiter: exhaustedBudget() });
+
+    const decision = await handler.accept(
+      envelope(dm({ text: 'où en est le dossier de Awa ?', ts: nextTs() }), 'EvQUESTIONLIMIT'),
+    );
+
+    expect(decision).toEqual({ action: 'ignore', reason: 'rate_limited' });
   });
 
   it('un message LONG mais sous la borne atteint bien le modèle', async () => {

@@ -42,6 +42,24 @@ export interface RateLimitRule {
   /** Nombre d'événements TOLÉRÉS dans la fenêtre. Le refus commence à `limit + 1`. */
   readonly limit: number;
   readonly windowMs: number;
+  /**
+   * Cette règle existe-t-elle pour RATIONNER LE BUDGET DU MODÈLE, ou pour contrer un abus ?
+   *
+   * La distinction n'est pas cosmétique : elle décide qui la règle doit épargner. Un message
+   * auquel le bot répond SANS appeler de modèle (salutation, emoji seul, message trop long,
+   * détresse, pièce jointe) ne consomme pas un token — le rationner ne protège donc rien, et
+   * coûte une réponse à quelqu'un.
+   *
+   * ⚠️ Le cas qui a rendu cette distinction nécessaire, observé en production le 2026-08-13 :
+   * une personne ayant déjà atteint ses 12 messages du jour écrit « bonjour » et reçoit
+   * « J'ai atteint mon quota de messages pour aujourd'hui ». Pour un mot qui ne coûte rien.
+   * Et la même chose serait arrivée à « je ne vais pas bien » — soit exactement le message
+   * que `distress.ts` existe pour ne jamais laisser sans réponse.
+   *
+   * Absent ⇒ `false` : une règle qui ne se déclare pas est une règle anti-abus, donc elle
+   * s'applique toujours. C'est le défaut sûr.
+   */
+  readonly rationsModelBudget?: boolean;
 }
 
 const MINUTE_MS = 60_000;
@@ -72,6 +90,9 @@ export const DAILY_RULE: RateLimitRule = {
   name: 'daily',
   limit: 12,
   windowMs: DAY_MS,
+  // Sa raison d'être est écrite juste au-dessus : elle borne une part du plafond du
+  // FOURNISSEUR. Elle n'a donc rien à dire d'un message auquel on répond sans modèle.
+  rationsModelBudget: true,
 };
 
 /**

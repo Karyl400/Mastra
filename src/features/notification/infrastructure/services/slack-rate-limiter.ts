@@ -133,11 +133,27 @@ export class SlackRateLimiter {
    * fois, et c'est précisément sur les démarrages à froid — donc quand le bot va déjà mal —
    * que Slack rejoue le plus.
    */
-  async check(subjectId: string, now: Date = new Date()): Promise<RateLimitDecision> {
+  /**
+   * @param options.answeredWithoutModel Le message sera-t-il traité SANS appel de modèle ?
+   *   Les règles qui rationnent le budget du modèle (`rationsModelBudget`) sont alors
+   *   ignorées — ni consultées, ni INCRÉMENTÉES. Ne pas incrémenter est aussi important que
+   *   ne pas refuser : sans cela, une salutation gratuite consommerait quand même une unité
+   *   du budget quotidien d'une vraie question. Les règles anti-abus, elles, s'appliquent
+   *   toujours : un script qui inonde le bot de « bonjour » reste un script.
+   */
+  async check(
+    subjectId: string,
+    now: Date = new Date(),
+    options: { answeredWithoutModel?: boolean } = {},
+  ): Promise<RateLimitDecision> {
+    const applicable = options.answeredWithoutModel
+      ? this.rules.filter((rule) => !rule.rationsModelBudget)
+      : this.rules;
+
     // Phase 1 — compteurs LOCAUX. Gratuits, donc évalués un par un et court-circuités.
     const pending: { rule: RateLimitRule; key: string }[] = [];
 
-    for (const rule of this.rules) {
+    for (const rule of applicable) {
       const key = buildCounterKey(rule, subjectId, now);
 
       const localCount = (this.local.get(key) ?? 0) + 1;

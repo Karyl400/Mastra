@@ -303,3 +303,85 @@ describe('SlackRateLimiter', () => {
     });
   });
 });
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * RATIONNER CE QUI NE COÛTE RIEN — défaut observé EN PRODUCTION le 2026-08-13
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Relevé par une sonde de production : une personne ayant atteint ses 12 messages du jour
+ * écrit « bonjour » et reçoit « J'ai atteint mon quota de messages pour aujourd'hui ». Pour
+ * un mot auquel le bot répond SANS appeler de modèle, donc pour zéro token.
+ *
+ * Et le même refus serait tombé sur « je ne vais pas bien » — soit très exactement le message
+ * que `distress.ts` existe pour ne jamais laisser sans réponse. C'est ce cas-là qui rend le
+ * correctif nécessaire, pas le confort d'une salutation.
+ *
+ * La règle JOURNALIÈRE dit d'elle-même sa raison d'être : « 12 < 19 (le plafond réel du
+ * fournisseur) ». Elle rationne un budget de MODÈLE. Elle n'a donc rien à dire d'un message
+ * qui n'en consomme pas. La règle de RAFALE, elle, contre l'abus — un script qui inonde le
+ * bot de « bonjour » reste un script — et continue donc de s'appliquer.
+ */
+describe('SlackRateLimiter — ce qui ne coûte pas de modèle n’est pas rationné', () => {
+  const BUDGET_RULE: RateLimitRule = {
+    name: 'daily',
+    limit: 2,
+    windowMs: 86_400_000,
+    rationsModelBudget: true,
+  };
+  const ABUSE_RULE: RateLimitRule = { name: 'burst', limit: 3, windowMs: 60_000 };
+
+  it('n’oppose PAS un budget épuisé à un message traité sans modèle', async () => {
+    const limiter = new SlackRateLimiter({
+      rules: [BUDGET_RULE],
+      repository: countingRepository(),
+    });
+    const now = new Date(0);
+
+    // Le budget est consommé jusqu'au refus par de vraies questions.
+    await limiter.check('U1', now);
+    await limiter.check('U1', now);
+    expect((await limiter.check('U1', now)).allowed).toBe(false);
+
+    // …et pourtant une salutation passe encore. C'est tout l'objet du correctif.
+    const greeting = await limiter.check('U1', now, { answeredWithoutModel: true });
+    expect(greeting.allowed).toBe(true);
+  });
+
+  it('ne CONSOMME pas le budget non plus', async () => {
+    // Aussi important que ne pas refuser : sans cela, une salutation gratuite retirerait
+    // quand même une unité au budget d'une vraie question posée plus tard.
+    const limiter = new SlackRateLimiter({
+      rules: [BUDGET_RULE],
+      repository: countingRepository(),
+    });
+    const now = new Date(0);
+
+    await limiter.check('U1', now, { answeredWithoutModel: true });
+    await limiter.check('U1', now, { answeredWithoutModel: true });
+    await limiter.check('U1', now, { answeredWithoutModel: true });
+
+    // Les deux unités du budget sont intactes.
+    expect((await limiter.check('U1', now)).allowed).toBe(true);
+    expect((await limiter.check('U1', now)).allowed).toBe(true);
+    expect((await limiter.check('U1', now)).allowed).toBe(false);
+  });
+
+  it('applique TOUJOURS la règle anti-abus, même sans modèle', async () => {
+    // L'exemption porte sur le budget, jamais sur l'abus : un script qui inonde le bot de
+    // salutations reste un script, et chaque réponse est un appel à l'API Slack.
+    const limiter = new SlackRateLimiter({
+      rules: [ABUSE_RULE, BUDGET_RULE],
+      repository: countingRepository(),
+    });
+    const now = new Date(0);
+
+    for (let i = 0; i < 3; i += 1) {
+      expect((await limiter.check('U1', now, { answeredWithoutModel: true })).allowed).toBe(true);
+    }
+
+    const flooded = await limiter.check('U1', now, { answeredWithoutModel: true });
+    expect(flooded.allowed).toBe(false);
+    expect(flooded.rule).toBe('burst');
+  });
+});

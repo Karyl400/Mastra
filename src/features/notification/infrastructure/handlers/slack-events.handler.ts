@@ -1370,6 +1370,36 @@ export class SlackEventsHandler {
    * store partagé est indisponible, et une panne du compteur ne doit pas devenir une panne du
    * bot. Ici on n'ajoute qu'une garde de plus, par principe de non-régression.
    */
+  /**
+   * Ce message sera-t-il traité SANS aucun appel de modèle ?
+   *
+   * ⚠️ Le prédicat doit rester le MIROIR EXACT des court-circuits de `handleMessage`, et
+   * c'est sa seule fragilité : ajouter un court-circuit là-bas sans l'ajouter ici ferait
+   * rationner un message gratuit. Les cinq cas sont donc énumérés dans le même ordre, et
+   * chacun délègue au même prédicat que le court-circuit correspondant — aucune règle n'est
+   * réécrite ici, sinon les deux divergeraient.
+   *
+   * Ce que ce prédicat NE dit PAS : que le message sera effectivement traité. Il peut encore
+   * être écarté plus loin (fil non engagé, doublon, auteur inconnu). Il dit seulement qu'il
+   * ne coûtera pas un token — ce qui est la seule question que se pose le rationnement.
+   */
+  private isAnsweredWithoutModel(event: SlackEvent): boolean {
+    if (isTeamJoinEvent(event)) return false;
+    if (event.subtype === FILE_SHARE_SUBTYPE) return true;
+
+    // Sans `botUserId` ici : le chemin d'ACK n'a pas les 3 secondes d'un `auth.test()`. La
+    // mention résiduelle du bot ne change aucun des trois verdicts ci-dessous — une
+    // salutation reste une salutation, et une longueur reste une longueur.
+    const text = this.cleanText(event.text);
+
+    return (
+      isBareGreeting(text) ||
+      hasNoTextualContent(text) ||
+      text.length > MAX_USER_INPUT_LENGTH ||
+      detectsDistress(text)
+    );
+  }
+
   private async checkRateLimit(event: SlackEvent): Promise<SlackEventDecision | null> {
     const limiter = this.getRateLimiter();
     if (!limiter) return null;
@@ -1381,7 +1411,9 @@ export class SlackEventsHandler {
     if (!subject) return null;
 
     try {
-      const decision = await limiter.check(subject);
+      const decision = await limiter.check(subject, new Date(), {
+        answeredWithoutModel: this.isAnsweredWithoutModel(event),
+      });
       if (decision.allowed) return null;
 
       logger.warn('Slack event dropped: rate limit exceeded', {
