@@ -1,5 +1,68 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-13 — ce que le bot fait quand la demande n'en est pas une
+
+Campagne de durcissement sur les **cas limites de conversation** : ce que reçoit quelqu'un qui
+écrit un emoji, colle un document entier, dépose un PDF, ou confie qu'il va mal. Le fil rouge
+est unique — **tout ce qui est décidable sans modèle doit être décidé sans modèle**. Ce n'est
+pas de l'élégance : le quota Groq se compte à la JOURNÉE (100 000 tokens ≈ 19 messages), donc
+un run inutile n'est pas un gaspillage marginal, c'est ≈ 5 % de la capacité du produit.
+
+### Added — `src/shared/message-shape.ts`, troisième court-circuit déterministe
+
+Rejoint `greeting.ts` et `distress.ts`, même forme : un prédicat pur, une réponse écrite en
+dur, zéro token.
+
+- **Message sans contenu textuel** (emoji seul, ponctuation seule, kaomoji de symboles) :
+  `hasNoTextualContent` teste la présence d'une lettre ou d'un chiffre **Unicode**
+  (`[\p{L}\p{N}]`), jamais `[a-z0-9]`. Le filtre latin aurait classé « مرحبا », « привет » et
+  « 你好 » comme vides — le bot serait resté MUET devant une phrase parfaitement sensée. Le
+  faux positif coûte ici bien plus cher que le faux négatif, et l'arbitrage est verrouillé par
+  test : `¯\_(ツ)_/¯` contient une lettre katakana, il atteint donc le modèle, et c'est voulu.
+- **Message trop long** : voir ci-dessous, c'est un correctif, pas un ajout.
+
+### Fixed — un copier-coller trop long ressortait en refus de SÉCURITÉ
+
+Défaut reproduit en test avant correction. La borne de 8 000 caractères existait déjà, mais
+elle vit dans `wrapUserInput` et y lève une `SecurityBlockError` — que `userFacingFailure`
+traduit en `NEUTRAL_REFUSAL` : **« Je ne peux pas répondre à cette demande. Reformule-la
+autrement. »**
+
+Ce texte est délibérément muet sur la règle touchée, ce qui est le bon contrat pour une
+injection (nommer la sonde qui a porté renseigne l'attaquant) et le mauvais pour quelqu'un qui
+colle un compte rendu de réunion : il reçoit un refus de POLITIQUE là où le problème est une
+TAILLE, et « reformule-la autrement » ne lui dit pas que reformuler **plus court** est
+exactement la solution. Vu de l'extérieur : « le bot refuse mes documents », sans recours.
+
+La longueur n'est pas une information adverse — la borne est publique et se mesure en trois
+essais. Le handler court-circuite donc en amont avec un message qui la NOMME. La borne de
+`wrapUserInput` n'est pas déplacée mais **doublée** : elle reste le dernier recours des
+appelants hors Slack (route HTTP, workflow, playground), et les deux lisent la même constante,
+donc elles ne peuvent pas diverger.
+
+### Fixed — le préambule d'identité avait perdu l'email et la fiche employé
+
+`buildMessages` ne passait plus `email` ni `employeeId` à `buildContextPreamble`, alors que le
+commentaire immédiatement au-dessus explique pourquoi ils doivent y être. Régression muette :
+elle rouvrait le défaut mesuré le 2026-08-12 — **38 `findEmployeeByEmail` en 1,5 seconde, tous
+en échec**, le modèle fabriquant des adresses plausibles faute d'avoir la vraie dans sa
+fenêtre. Deux tests la couvraient déjà et étaient rouges.
+
+### Added — tests de CÂBLAGE pour les court-circuits, et pas seulement de détecteur
+
+`distress.ts` et `message-shape.ts` ont leurs tests unitaires ; ils ne prouvent rien sur le
+produit. C'est la classe de défaut la plus fréquente de ce dépôt — deux bords corrects, aucun
+câblage entre les deux (cf. `findEmployeeByEmail` non exposé aux trois agents, cf.
+`documents.content` sans colonne). Quatre tests traversent désormais le handler et vérifient la
+seule chose qui compte : `generate` n'est **pas** appelé, et la personne reçoit la bonne
+réponse. La détresse et la pièce jointe n'avaient aucun test de ce genre.
+
+### Fixed — un commentaire qui déclarait « dette » un travail déjà fait
+
+`securityRefusalMessage` portait encore « ⚠️ Pas encore branché côté appelant », avec le patch
+d'une ligne à appliquer. Il **est** branché, en tête de `userFacingFailure`. Une note de dette
+périmée est pire qu'une absence de note : elle invite à refaire.
+
 ## [Unreleased] - 2026-08-13 — parcours d'arrivée d'un nouvel employé
 
 Ce que Slack sait d'un arrivant est désormais capté à la seconde zéro, et la seule question

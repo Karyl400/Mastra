@@ -758,11 +758,20 @@ function sanitizeInputAdvanced(input: string, delimiters: DelimiterSet): string 
  * est mémorisé dans le fil. Les index de la forme normalisée ne sont utilisés nulle part.
  */
 export function normalizeForDetection(text: string): string {
-  return text
-    .normalize('NFKC')
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .replace(/['’‘`´]/g, "'");
+  return (
+    text
+      .normalize('NFKC')
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '')
+      // ⚠️ CARACTÈRES DE LARGEUR NULLE — contournement mesuré le 2026-08-13.
+      // `scanUnicodeThreats` les REPÈRE mais l'appelant se contente d'un `warn` : ils
+      // atteignaient donc la comparaison intacts. Résultat vérifié à l'exécution : la charge
+      // nue « Ignore les instructions… » est détectée, la même avec un U+200B inséré dans le
+      // verbe ne l'est PAS. Le seul garde-fou qui refuse vraiment se contournait avec un
+      // caractère invisible, collable depuis n'importe quel éditeur.
+      .replace(/[\u200B-\u200F\u2060\uFEFF]/gu, '')
+      .replace(/['’‘`´]/g, "'")
+  );
 }
 
 const INJECTION_PATTERNS: ReadonlyArray<{ regex: RegExp; type: string }> = [
@@ -928,10 +937,18 @@ function defendAgainstSplitInjection(text: string): string {
 }
 
 function neutralizeEscapeSequences(text: string): string {
-  return text
-    .replace(/\0/g, '')
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
-    .replace(/[\u202A-\u202E\u2066-\u2069]/g, '');
+  return (
+    text
+      .replace(/\0/g, '')
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+      .replace(/[\u202A-\u202E\u2066-\u2069]/g, '')
+      // Largeur nulle — RETIRÉS, et pas seulement signalés. Deux effets distincts, tous deux
+      // nécessaires : ici on nettoie ce qui atteint le MODÈLE (un caractère invisible au
+      // milieu d'un mot ne sert qu'à tromper un lecteur automatique), et dans
+      // `normalizeForDetection` on ferme le contournement du DÉTECTEUR. Corriger un seul des
+      // deux laisserait soit une détection aveugle, soit un texte piégé dans la fenêtre.
+      .replace(/[\u200B-\u200F\u2060\uFEFF]/gu, '')
+  );
   // Note: normalize('NFKC') est déjà fait dans sanitizeInputAdvanced
 }
 
@@ -1006,13 +1023,19 @@ export const MAX_USER_INPUT_LENGTH = 8000;
  * (`[SECURITY_BLOCK]` renseignait l'attaquant sur la sonde qui avait porté). On ne rédige
  * pas un second texte de refus : deux formulations divergeraient au premier changement.
  *
- * ⚠️ **Pas encore branché côté appelant.** `userFacingFailure()`
- * (`slack-events.handler.ts`) rend `GENERIC_FAILURE` pour toute erreur non-429, donc un
- * message bloqué produit aujourd'hui « Désolé, une erreur s'est produite » — trompeur : ce
- * n'est pas une panne, et réessayer à l'identique ne servira à rien. Le branchement est
- * une ligne à ajouter en tête de `userFacingFailure` :
- * `const refusal = securityRefusalMessage(error); if (refusal) return refusal;`
- * Le handler appartient à un autre périmètre ; le point d'accroche est fourni ici.
+ * ✅ **Branché** en tête de `userFacingFailure()` (`slack-events.handler.ts`). L'ancienne
+ * note « pas encore branché côté appelant », restée ici après coup, était FAUSSE — et de la
+ * pire espèce : elle décrivait comme une dette un travail déjà fait, ce qui invite à le
+ * refaire.
+ *
+ * ⚠️ Corollaire à connaître avant d'élargir ce que couvre `SecurityBlockError` : tout ce qui
+ * lève cette erreur ressort en `NEUTRAL_REFUSAL`, muet par construction sur la règle touchée.
+ * C'est le bon contrat pour une injection (nommer la sonde qui a porté renseigne l'attaquant)
+ * et le MAUVAIS pour une faute involontaire. C'est exactement ce qui est arrivé à la borne de
+ * longueur : un copier-coller trop long ressortait en refus de politique. Le handler
+ * court-circuite désormais ce cas en amont avec un message qui NOMME la longueur
+ * (`src/shared/message-shape.ts`), et la borne ci-dessous reste le dernier recours pour les
+ * appelants hors Slack.
  */
 export function securityRefusalMessage(error: unknown): string | undefined {
   return error instanceof SecurityBlockError ? NEUTRAL_REFUSAL : undefined;

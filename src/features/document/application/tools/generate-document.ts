@@ -206,7 +206,13 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       employeeId: uuidSchema.describe('UUID annuaire'),
       type: z.nativeEnum(DocumentType),
       title: z.string().min(1).max(200),
-      content: z.string().min(1),
+      // ⚠️ Borne HAUTE ajoutée le 2026-08-13. `title`/`subject` étaient bornés à 200 sur la
+      // ligne voisine, ce champ ne l'était pas — asymétrie relevée par l'audit, et c'est le
+      // champ VOLUMINEUX. Rien en aval ne tronque : ni les assainisseurs de document ni les
+      // adaptateurs d'envoi. Un contenu non borné est persisté, relu, et repart dans la
+      // fenêtre du modèle, sur un système dont la contrainte dominante EST le budget de
+      // tokens.
+      content: z.string().min(1).max(20000),
       // `pdf` par défaut, et non plus `txt`. L'attente produit est un PDF ; un défaut
       // `txt` obligeait le modèle à deviner qu'il fallait demander autre chose, et
       // produisait donc des documents que personne n'avait demandés dans ce format.

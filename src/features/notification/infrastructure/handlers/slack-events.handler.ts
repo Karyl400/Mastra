@@ -29,7 +29,15 @@ import {
   buildSlackRequestContext,
   type SlackAccessLevel,
 } from '../../../../shared/slack-request-context';
-import { securityRefusalMessage } from '../../../../shared/security/llm-guardrail';
+import {
+  securityRefusalMessage,
+  MAX_USER_INPUT_LENGTH,
+} from '../../../../shared/security/llm-guardrail';
+import {
+  hasNoTextualContent,
+  CONTENT_FREE_REPLY,
+  TOO_LONG_REPLY,
+} from '../../../../shared/message-shape';
 import { SlackAccessGuard } from '../../../directory/application/services/access-guard';
 import type { DirectoryRepository } from '../../../directory/domain/ports/directory.repository';
 import type { WelcomeChannelsService } from '../../../directory/application/services/welcome-channels.service';
@@ -37,6 +45,7 @@ import { DrizzleDirectoryRepository } from '../../../directory/infrastructure/re
 import { SlackMemberSource } from '../../../directory/infrastructure/providers/slack-member-source.adapter';
 import { SlackRateLimiter } from '../services/slack-rate-limiter';
 import { GREETING_REPLY, isBareGreeting } from '../../../../shared/greeting';
+import { DISTRESS_REPLY, detectsDistress } from '../../../../shared/distress';
 import { DrizzleRateLimitRepository } from '../repositories/drizzle-rate-limit.repository';
 import { writeAuditLog } from '../../../../infrastructure/audit/audit-log';
 
@@ -274,6 +283,21 @@ const SLACKBOT_USER_ID = 'USLACKBOT';
 
 /** `action_id` du bouton du DM de bienvenue, lu par la route d'interactivité. */
 export const COMPLETE_PROFILE_ACTION_ID = 'complete_profile';
+
+/** Sous-type Slack d'un message portant une pièce jointe. */
+const FILE_SHARE_SUBTYPE = 'file_share';
+
+/**
+ * Réponse à une pièce jointe. Déterministe, zéro token.
+ *
+ * Elle dit ce qui EST, jamais ce qui pourrait être : pas de « pour l'instant », pas de
+ * « bientôt ». Le produit ne lit aucun fichier et rien n'indique qu'il le fera ; laisser
+ * croire l'inverse ferait attendre quelqu'un pour rien. Elle propose immédiatement le
+ * chemin qui, lui, fonctionne.
+ */
+export const FILE_ATTACHMENT_REPLY =
+  'Je ne sais pas lire les pièces jointes — ni les images, ni les PDF, ni les documents. ' +
+  "Dis-moi en quelques mots ce dont tu as besoin et je m'en occupe.";
 
 /**
  * Aiguillage mot-clé → agent, en TROIS BANDES. Ces listes sont CONTRACTUELLES : elles sont
@@ -1581,13 +1605,23 @@ export class SlackEventsHandler {
       return 'bot_message';
     }
 
-    // Les autres sous-types (`message_changed`, `channel_join`, `message_deleted`, …)
-    // ne sont pas des messages utilisateur adressés au bot.
-    if (event.type === 'message' && event.subtype) {
+    // ⚠️ `file_share` est LAISSÉ PASSER — correctif du 2026-08-13.
+    //
+    // Déposer un PDF au bot RH est le geste le plus naturel qui soit, et il arrive avec
+    // `subtype: 'file_share'` : il tombait donc dans le rejet générique ci-dessous, sans un
+    // mot. Pour la personne, le bot était simplement EN PANNE — le pire des symptômes,
+    // parce qu'il ne se distingue pas d'une vraie panne et n'invite à rien.
+    //
+    // On ne lit toujours AUCUN contenu de fichier (c'est un choix de sécurité, pas une
+    // limite technique) : `handleMessage` répond une phrase déterministe, sans appel LLM.
+    if (event.type === 'message' && event.subtype && event.subtype !== FILE_SHARE_SUBTYPE) {
       return 'unsupported_event_type';
     }
 
-    if (!this.cleanText(event.text)) {
+    // Un partage de fichier porte souvent un texte VIDE : la garde ci-dessous l'écarterait
+    // avant que `handleMessage` ait pu répondre. Elle ne s'applique donc qu'aux vrais
+    // messages.
+    if (event.subtype !== FILE_SHARE_SUBTYPE && !this.cleanText(event.text)) {
       return 'empty_text';
     }
 
@@ -2051,6 +2085,103 @@ export class SlackEventsHandler {
       return;
     }
 
+    // Pièce jointe : on répond, on n'ouvre rien. Placé après la garde d'abandon de fil,
+    // donc un fichier déposé dans un fil de canal où le bot n'a jamais parlé ne déclenche
+    // rien — même critère que pour du texte.
+    if (event.subtype === FILE_SHARE_SUBTYPE) {
+      logger.info('File attachment — answered without any LLM call', { channel });
+      await this.slack.chat.postMessage({
+        channel,
+        text: FILE_ATTACHMENT_REPLY,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+      });
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // FORME DU MESSAGE — deux cas décidables sans modèle
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // Placés APRÈS la pièce jointe (un fichier arrive souvent avec un texte vide, et c'est la
+    // pièce jointe qui fait sens, pas le vide) et AVANT la détresse : les deux formes ci-
+    // dessous sont exclusives d'une confidence — `detectsDistress` exige des mots, et une
+    // détresse de plus de 8 000 caractères n'existe pas dans un message Slack.
+    //
+    // ⚠️ Aucun des deux n'entre en mémoire conversationnelle, à la différence de la
+    // salutation. La salutation, elle, DOIT y entrer : sans cela un fil ouvert par « bonjour »
+    // ne serait jamais « engagé » et le message suivant serait abandonné par la garde de fil.
+    // Ici il n'y a rien à mémoriser — ni « 🎉 » ni un pavé tronqué n'aident le tour suivant —
+    // et en canal ces messages arrivent forcément dans un fil DÉJÀ engagé (la garde est en
+    // amont), donc rien ne se referme.
+
+    // Zéro lettre, zéro chiffre : le modèle n'a rien à traiter. Il coûtait pourtant un run
+    // complet, soit ≈ 5 % du budget Groq quotidien, pour répondre « que puis-je faire ? ».
+    if (hasNoTextualContent(text)) {
+      logger.info('Message without textual content — answered without any LLM call', { channel });
+      await this.slack.chat.postMessage({
+        channel,
+        text: CONTENT_FREE_REPLY,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+      });
+      return;
+    }
+
+    // Trop long. La borne EXISTAIT déjà dans `wrapUserInput`, mais elle y lève une
+    // `SecurityBlockError`, que `userFacingFailure` traduit en `NEUTRAL_REFUSAL` : quelqu'un
+    // qui colle un compte rendu de réunion recevait « Je ne peux pas répondre à cette
+    // demande. Reformule-la autrement. » — un refus de POLITIQUE là où le problème est une
+    // TAILLE, et sans le moindre indice que raccourcir suffirait.
+    //
+    // On ne DÉPLACE pas la borne, on la double en amont : celle de `wrapUserInput` reste la
+    // garantie de dernier recours pour les appelants qui ne passent pas par ici (route HTTP,
+    // workflow, playground). Les deux lisent la MÊME constante, donc elles ne peuvent pas
+    // diverger.
+    if (text.length > MAX_USER_INPUT_LENGTH) {
+      logger.info('Message over the input bound — answered without any LLM call', {
+        channel,
+        // La longueur, jamais le texte : c'est un DM, et ce chemin est justement celui des
+        // copier-coller de documents internes.
+        textLength: text.length,
+      });
+      await this.slack.chat.postMessage({
+        channel,
+        text: TOO_LONG_REPLY,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+      });
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // DÉTRESSE — avant TOUT le reste, et avant tout appel de modèle
+    // ─────────────────────────────────────────────────────────────────────────
+    // Placé APRÈS la salutation (une salutation n'est pas une détresse) mais AVANT la
+    // frontière d'autorisation : quelqu'un qui va mal ne doit pas se heurter à une politique
+    // d'accès. C'est le seul endroit de ce dépôt où un défaut peut nuire à une PERSONNE.
+    //
+    // Aucun appel LLM, donc aucun risque d'outil parasite : « Bonjour » avait déclenché une
+    // ÉCRITURE non demandée sur le dossier de la personne, et rien n'empêchait le même
+    // accident sur « je ne vais pas bien ».
+    //
+    // ⚠️ Le message N'ENTRE PAS en mémoire conversationnelle. Trois raisons : le rejouer
+    // ferait relire le fait à chaque tour suivant ; il n'apporte rien au modèle, qui ne sera
+    // pas appelé ; et une confidence de cette nature n'a pas à être conservée plus longtemps
+    // que nécessaire. Le TEXTE de la personne n'est évidemment pas journalisé non plus.
+    if (detectsDistress(text)) {
+      logger.warn('Distress phrasing detected — answered without any LLM call', {
+        channel,
+        // Ni le texte ni l'auteur : c'est la confidence la plus sensible que ce produit
+        // puisse recevoir. On journalise QUE le fait, pour savoir que le chemin a servi.
+        isDirectMessage,
+      });
+
+      await this.slack.chat.postMessage({
+        channel,
+        text: DISTRESS_REPLY,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+      });
+      return;
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // FRONTIÈRE D'AUTORISATION — l'identité franchit enfin la frontière
     // ─────────────────────────────────────────────────────────────────────────
@@ -2310,7 +2441,14 @@ export class SlackEventsHandler {
         agentId,
         conversationId,
         channel,
-        text,
+        // ⚠️ `textLength`, JAMAIS `text` — symétrique du chemin nominal 200 lignes plus haut,
+        // qui explique pourquoi : le DM au bot est le canal privilégié pour parler d'un
+        // salaire, d'un arrêt maladie ou d'un litige. Le texte figurait ici en clair, en
+        // niveau `error`, et `maskPii` ne le rattrapait pas (`text` n'est pas dans
+        // `PII_KEYS`). Le chemin d'erreur est FRÉQUENT — c'est celui qu'emprunte
+        // l'épuisement du quota Groq —, donc le message le plus sensible finissait dans les
+        // logs au moment précis où le bot allait mal.
+        textLength: text.length,
         user,
       });
 
@@ -2387,7 +2525,27 @@ export class SlackEventsHandler {
     // ou non.
     if (botUserId && (event.text ?? '').includes(`<@${botUserId}>`)) return false;
 
-    return !history.some((turn) => turn.role === 'assistant');
+    if (!history.some((turn) => turn.role === 'assistant')) return true;
+
+    // ⚠️ « Le bot a déjà parlé ici » ne suffit PAS — relevé par l'audit du 2026-08-13.
+    //
+    // La garde ci-dessus ouvre le fil, elle ne dit rien de QUI parle. Dans un fil où le bot
+    // a répondu une fois, il traitait donc les messages de TOUTES les autres personnes, sans
+    // mention, y compris ceux qui ne lui étaient pas adressés. Deux conséquences, la
+    // première grave :
+    //
+    //  1. **Un tiers héritait de la mémoire du fil.** C'est un bot RH : cet historique porte
+    //     le profil, les tâches et le parcours d'intégration de QUELQU'UN D'AUTRE. Deux
+    //     collègues qui commentent une réponse entre eux se voyaient répondre avec le
+    //     dossier de la personne qui avait ouvert le fil.
+    //  2. Chaque phrase échangée entre humains consommait un run, sur ≈ 19 messages/jour.
+    //
+    // On exige donc que l'auteur ait DÉJÀ parlé au bot dans ce fil. `slackUserId` est
+    // stocké sur chaque tour `user` par `rememberTurn` — la donnée était là, personne ne la
+    // lisait. Un tiers reste libre de s'adresser au bot : il lui suffit de le mentionner,
+    // ce que la garde précédente laisse passer. C'est le mandat explicite, et il est le bon
+    // critère pour quelqu'un dont on n'a jamais eu de message.
+    return !history.some((turn) => turn.role === 'user' && turn.slackUserId === event.user);
   }
 
   /**

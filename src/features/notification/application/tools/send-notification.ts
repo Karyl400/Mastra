@@ -86,7 +86,13 @@ export function makeSendNotification(
       // frontalement cette règle et reviendrait à tirer à pile ou face à chaque tour. Ici,
       // la dérogation ne porte que sur les deux champs qui sont effectivement de la prose.
       subject: z.string().min(1).max(200).describe('rédige-le, ne le demande pas'),
-      body: z.string().min(1).describe('rédige-le, ne le demande pas'),
+      // ⚠️ Borne HAUTE ajoutée le 2026-08-13. `title`/`subject` étaient bornés à 200 sur la
+      // ligne voisine, ce champ ne l'était pas — asymétrie relevée par l'audit, et c'est le
+      // champ VOLUMINEUX. Rien en aval ne tronque : ni les assainisseurs de document ni les
+      // adaptateurs d'envoi. Un contenu non borné est persisté, relu, et repart dans la
+      // fenêtre du modèle, sur un système dont la contrainte dominante EST le budget de
+      // tokens.
+      body: z.string().min(1).max(5000).describe('rédige-le, ne le demande pas'),
       // Défauts, comme `generateDocument` (`format` → pdf, `deliverTo` → slack), le seul
       // outil de la campagne qui ait abouti. Un champ obligatoire sans défaut est une
       // question posée à l'humain ; il n'en reste que trois, et les trois sont

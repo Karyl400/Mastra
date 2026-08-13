@@ -53,6 +53,28 @@ const BARE_GREETINGS = new Set([
   'salut a tous',
   'bonne journee',
   'bonne soiree',
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // SONDES DE VIE — ajoutées le 2026-08-13
+  // ══════════════════════════════════════════════════════════════════════════
+  // Ce ne sont pas des salutations, mais elles appellent exactement la même réponse : « le
+  // bot est vivant, voici ce qu'il sait faire ». Les laisser passer coûtait un run LLM
+  // complet — ≈ 5 % du budget quotidien — pour un mot sans contenu.
+  //
+  // ⚠️ « test » était PIRE qu'un simple gaspillage : c'est un mot-clé de routage
+  // (`QUESTIONNAIRE_TOPICS`), donc quelqu'un qui tapait « test » pour voir si le bot vivait
+  // atterrissait chez `questionnaireEngine`, qui lui demandait pour qui créer une
+  // évaluation. Le critère d'ÉGALITÉ STRICTE de ce module garantit que « ceci est un test »
+  // ou « envoie-lui le test » ne sont pas capturés, et que l'entrée thématique reste vivante
+  // pour les vraies phrases.
+  // ⚠️ « ok » et « d'accord » sont VOLONTAIREMENT absents : ce sont des CONFIRMATIONS, pas
+  // des sondes. Les intercepter casserait « tu veux que je l'envoie ? » → « ok », qui doit
+  // atteindre l'agent pour qu'il agisse. C'est la même distinction que celle qui a fait
+  // écarter « ajoute » du palier d'échappement : le critère n'est pas « le mot est court »
+  // mais « le message n'attend rien du système ».
+  'test',
+  'ping',
+  '123',
 ]);
 
 /**
@@ -81,7 +103,10 @@ function normalize(text: string): string {
       // par une espace, comme le fait le filtre suivant, couperait le mot en deux :
       // « journée » se décompose en « journe » + accent + « e », et donnait « journe e ».
       .replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-z ]/g, ' ')
+      // Les CHIFFRES sont conservés : « 123 » est une sonde de vie au même titre que
+      // « ping », et un filtre `[^a-z ]` l'aurait réduit à la chaîne vide, donc jamais
+      // reconnu. Ils ne créent aucun faux positif — l'égalité est stricte.
+      .replace(/[^a-z0-9 ]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
   );

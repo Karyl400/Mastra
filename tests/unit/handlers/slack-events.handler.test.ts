@@ -20,6 +20,7 @@ import {
   userFacingFailure,
   GENERIC_FAILURE,
   QUOTA_FAILURE,
+  FILE_ATTACHMENT_REPLY,
   type SlackEvent,
   type SlackEventEnvelope,
   type SlackMessageEvent,
@@ -27,7 +28,10 @@ import {
   type SlackEventsHandlerOptions,
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
 import { GREETING_REPLY } from '../../../src/shared/greeting';
-import { wrapAgentInput } from '../../../src/shared/security/llm-guardrail';
+import { DISTRESS_REPLY } from '../../../src/shared/distress';
+import { CONTENT_FREE_REPLY, TOO_LONG_REPLY } from '../../../src/shared/message-shape';
+import { wrapAgentInput, MAX_USER_INPUT_LENGTH } from '../../../src/shared/security/llm-guardrail';
+import { NEUTRAL_REFUSAL } from '../../../src/shared/security/agent-output';
 import {
   SLACK_CHANNEL_KEY,
   SLACK_THREAD_TS_KEY,
@@ -1936,8 +1940,16 @@ describe('SlackEventsHandler — réponse dans un fil déjà engagé', () => {
     expect(slack.chat.postMessage).not.toHaveBeenCalled();
   });
 
-  it('traite la réponse quand le bot a déjà répondu dans ce fil', async () => {
+  /** Fil réaliste : la personne a parlé, le bot a répondu. C'est ce que `rememberTurn` écrit. */
+  async function engagedThread(author: string = HUMAN) {
     const repo = new InMemoryConversationRepository();
+    await repo.append({
+      conversationId: ENGAGED_THREAD_ID,
+      role: 'user',
+      content: 'tu peux me préparer un guide ?',
+      agentId: 'onboardingOrchestrator',
+      slackUserId: author,
+    });
     await repo.append({
       conversationId: ENGAGED_THREAD_ID,
       role: 'assistant',
@@ -1945,9 +1957,43 @@ describe('SlackEventsHandler — réponse dans un fil déjà engagé', () => {
       agentId: 'onboardingOrchestrator',
       slackUserId: null,
     });
-    const { handler, generate } = makeHandler({ conversationRepository: repo });
+    return repo;
+  }
+
+  it('traite la réponse quand le bot a déjà répondu à CETTE personne dans ce fil', async () => {
+    const { handler, generate } = makeHandler({ conversationRepository: await engagedThread() });
 
     await handler.handleEvent(envelope(threadReply({ ts: nextTs() }), 'EvTH5'));
+
+    expect(generate).toHaveBeenCalledTimes(1);
+  });
+
+  it('IGNORE un TIERS qui parle dans un fil engagé par quelqu’un d’autre', async () => {
+    // ⚠️ C'est un bot RH : l'historique de ce fil porte le profil, les tâches et le parcours
+    // d'intégration de la personne qui l'a ouvert. Répondre à un collègue qui commente lui
+    // livrerait le dossier d'un autre — et chaque phrase échangée entre humains coûterait un
+    // run sur ≈ 19 messages/jour.
+    const { handler, generate, slack } = makeHandler({
+      conversationRepository: await engagedThread('U0AUTHOR'),
+    });
+
+    await handler.handleEvent(envelope(threadReply({ ts: nextTs(), user: 'U0TIERS' }), 'EvTH5b'));
+
+    expect(generate).not.toHaveBeenCalled();
+    expect(slack.chat.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('répond quand même à un TIERS qui MENTIONNE le bot — la mention est le mandat', async () => {
+    const { handler, generate } = makeHandler({
+      conversationRepository: await engagedThread('U0AUTHOR'),
+    });
+
+    await handler.handleEvent(
+      envelope(
+        threadReply({ ts: nextTs(), user: 'U0TIERS', text: `<@${BOT_USER_ID}> et pour moi ?` }),
+        'EvTH5c',
+      ),
+    );
 
     expect(generate).toHaveBeenCalledTimes(1);
   });
@@ -2060,5 +2106,85 @@ describe('SlackEventsHandler — salutation nue', () => {
     );
 
     expect(generate).toHaveBeenCalled();
+  });
+});
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * COURT-CIRCUITS DÉTERMINISTES — le CÂBLAGE, et pas seulement le détecteur
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Chaque détecteur (`distress.ts`, `message-shape.ts`) a ses propres tests unitaires. Ils ne
+ * prouvent RIEN sur le comportement du produit : c'est exactement la classe de défaut la plus
+ * fréquente de ce dépôt — deux bords corrects, aucun câblage entre les deux (cf.
+ * `findEmployeeByEmail` non exposé aux trois agents, cf. `documents.content` sans colonne).
+ * Les tests ci-dessous traversent le handler et vérifient la seule chose qui compte : le
+ * modèle n'est PAS appelé, et la personne reçoit bien la réponse prévue.
+ */
+describe('SlackEventsHandler — court-circuits sans appel LLM', () => {
+  it('répond à une DÉTRESSE sans appeler le modèle', async () => {
+    const { handler, slack, generate } = makeHandler();
+
+    await handler.handleEvent(
+      envelope(dm({ text: 'je t’écris parce que je ne vais pas bien du tout', ts: nextTs() })),
+    );
+
+    // La garantie qui compte : aucune étape LLM, donc aucun outil, donc aucune écriture sur
+    // le dossier de quelqu'un qui vient de confier qu'il va mal.
+    expect(generate).not.toHaveBeenCalled();
+    expect(slack.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: DISTRESS_REPLY }),
+    );
+  });
+
+  it('répond à une PIÈCE JOINTE sans appeler le modèle, même sans texte', async () => {
+    const { handler, slack, generate } = makeHandler();
+
+    await handler.handleEvent(
+      envelope(dm({ text: '', subtype: 'file_share', ts: nextTs() }), 'EvFILE1'),
+    );
+
+    expect(generate).not.toHaveBeenCalled();
+    expect(slack.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: FILE_ATTACHMENT_REPLY }),
+    );
+  });
+
+  it('répond à un message SANS CONTENU TEXTUEL sans appeler le modèle', async () => {
+    const { handler, slack, generate } = makeHandler();
+
+    await handler.handleEvent(envelope(dm({ text: '🎉🎉', ts: nextTs() }), 'EvEMOJI1'));
+
+    expect(generate).not.toHaveBeenCalled();
+    expect(slack.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: CONTENT_FREE_REPLY }),
+    );
+  });
+
+  it('répond à un message TROP LONG en nommant la longueur, pas en refusant', async () => {
+    const { handler, slack, generate } = makeHandler();
+
+    await handler.handleEvent(
+      envelope(dm({ text: 'a'.repeat(MAX_USER_INPUT_LENGTH + 1), ts: nextTs() }), 'EvLONG1'),
+    );
+
+    expect(generate).not.toHaveBeenCalled();
+    const posted = slack.chat.postMessage.mock.calls.at(-1)?.[0] as { text: string };
+    expect(posted.text).toBe(TOO_LONG_REPLY);
+    // ⚠️ Le cœur du correctif : ce n'était pas « rien à signaler », c'était un refus de
+    // SÉCURITÉ. Quelqu'un qui colle un compte rendu recevait « Je ne peux pas répondre à
+    // cette demande », sans jamais apprendre que le problème était la taille.
+    expect(posted.text).not.toBe(NEUTRAL_REFUSAL);
+  });
+
+  it('un message LONG mais sous la borne atteint bien le modèle', async () => {
+    // Le faux positif rendrait le bot muet sur une demande détaillée légitime.
+    const { handler, generate } = makeHandler();
+
+    await handler.handleEvent(
+      envelope(dm({ text: 'a'.repeat(MAX_USER_INPUT_LENGTH - 1), ts: nextTs() }), 'EvLONG2'),
+    );
+
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 });
