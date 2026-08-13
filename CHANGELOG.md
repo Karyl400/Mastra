@@ -1,5 +1,104 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-13 — parcours d'arrivée d'un nouvel employé
+
+Ce que Slack sait d'un arrivant est désormais capté à la seconde zéro, et la seule question
+qu'on lui pose est celle dont personne d'autre n'a la réponse : son poste.
+
+Spec : `docs/superpowers/specs/2026-08-13-arrivee-nouvel-employe-design.md`.
+Plan : `docs/superpowers/plans/2026-08-13-arrivee-nouvel-employe.md`.
+
+### Added — l'arrivant entre dans l'annuaire dès le `team_join`
+
+`handleTeamJoin` écrit la personne dans `slack_directory` (`upsertFacts`) avant tout autre
+geste. L'annuaire n'apprenait une personne qu'au **premier message qu'elle envoyait** — et
+`findEmployeeByEmail`, qui s'y replie depuis le 2026-08-12, répondait « introuvable » pour
+quelqu'un que Slack venait pourtant d'annoncer. C'est le symptôme « il ne retrouve que mon
+profil », vu depuis son autre extrémité.
+
+`teamId` est laissé VIDE : le payload `team_join` ne le porte pas de façon fiable, et
+`upsertFacts` ne doit jamais écraser un fait connu par une supposition.
+
+### Added — invitation aux canaux publics d'accueil
+
+Trois pièces neuves, dans leur ordre de dépendance :
+
+- `directory/domain/services/welcome-channel-names.ts` — lecture de
+  `ONBOARDING_WELCOME_CHANNELS`. Des **noms** et non des identifiants `C…` : c'est ce qu'un
+  humain sait écrire et relire six mois plus tard. Le `#` de tête est toléré, la casse
+  normalisée, les doublons écartés (deux invitations au même canal dépenseraient un appel
+  Slack et feraient apparaître le canal deux fois dans le message de bienvenue).
+- `directory/application/services/welcome-channels.service.ts` — le service, *best-effort* de
+  bout en bout, qui **ne lève jamais**.
+- `directory/infrastructure/providers/slack-welcome-channel.adapter.ts` — le pont, qui
+  réconcilie deux conventions d'échec OPPOSÉES : `joinChannel` ne lève jamais et rend un
+  statut nommé, `inviteToChannel` rend `void` et LÈVE, le code d'erreur enfoui dans
+  l'exception.
+
+Arbitrages, tous lisibles dans le rapport :
+
+- **`already_in_channel` est un SUCCÈS.** L'objectif est « l'arrivant est dans le canal », pas
+  « nous l'y avons mis ». Le compter comme une erreur rendrait dégradée toute réexécution —
+  même arbitrage que `alreadyMember` dans `ChannelCoverageService`.
+- **`not_in_channel` déclenche un `join` puis UN seul nouvel essai.** Jamais deux : un `join`
+  qui échoue est définitif pour ce passage, et boucler dépenserait du quota pour répéter le
+  même refus.
+- **`missing_scope` interrompt les appels.** C'est la seule issue qui appelle un geste humain,
+  et elle est journalisée séparément du message générique de dégradation.
+- **`not_configured` est distinct de `completed`** : « personne n'a demandé d'invitation » ne
+  se lit pas comme « toutes les invitations ont abouti ». Sans cette valeur, une variable
+  d'environnement oubliée produirait un rapport parfaitement vert.
+- **Séquentiel, jamais `Promise.all`** : `conversations.invite` est plafonné par Slack, et une
+  salve simultanée se ferait rate-limiter — le remède produirait le symptôme.
+
+Le DM de bienvenue part **indépendamment** : chacun des deux gestes qui le précèdent avale son
+échec. Un arrivant sans canal mais avec son message peut demander de l'aide ; l'inverse ne le
+peut pas. Le message cite les canaux rejoints, et **rien** quand il n'y en a aucun — annoncer
+« je t'ai ajouté à » suivi de rien serait pire que le silence.
+
+### Changed — la modale ne demande plus que le poste
+
+Le sélecteur **Département** et le sélecteur de **date de début** disparaissent. Restent le
+poste (seul champ réellement demandé) et email / prénom / nom, préremplis depuis Slack et
+laissés éditables — le profil Slack est parfois vide ou faux, et l'email conditionne toute la
+suite.
+
+La date de début est **dérivée de l'instant du `team_join`** (`startDateFromJoin`), transporté
+dans le `value` du bouton puis dans le `private_metadata` signé par Slack. Une question dont le
+serveur connaît déjà la réponse est une occasion de se tromper offerte à l'arrivant, pas une
+information gagnée.
+
+`private_metadata` partage désormais l'encodage du bouton (`encodePrefill` / `decodePrefill`) :
+deux formes proches mais distinctes auraient divergé au premier champ ajouté, et l'écart ne se
+serait vu qu'en production, sur la soumission.
+
+### Changed — `employees.department` est facultatif
+
+`NOT NULL` retiré. SQLite n'a pas d'`ALTER COLUMN` : la colonne est rendue nullable par
+**reconstruction de table** (`scripts/ddl-employees-department-nullable.sql`), retenue contre
+une valeur sentinelle — une sentinelle dans une colonne `NOT NULL` finit toujours par être
+relue comme une vraie valeur, mode d'échec récurrent de ce dépôt (`emailSent: false` sous
+`status: 'success'`, `documents.content` perdu en silence, `status = Sent` posé avant le
+`try`, `evaluateResponse` fabriquant des réponses).
+
+⚠️ **Ordre imposé, respecté** : DDL appliquée sur la Turso de production **avant** le
+déploiement — 2 lignes intactes, `notnull = 0` vérifié, 7 index recréés.
+`idx_employees_department` est délibérément **supprimé** : une colonne qu'on ne renseigne plus
+n'a aucune raison d'être indexée.
+
+Les gabarits de documents **omettent** la ligne quand la valeur manque, au lieu d'imprimer
+« Département : Général », « département N/A » ou une ligne vide. Une décision ne doit pas
+ressembler à un oubli dans un livrable signé de l'entreprise. Idem pour l'email de bienvenue
+du workflow. Le schéma de VALEUR est inchangé : quand une valeur est fournie, elle doit
+toujours appartenir à l'enum `Department` — on assouplit la présence, jamais la validité.
+
+### ⚠️ Prérequis hors code — BLOQUANT
+
+`team_join` doit être abonné dans *Event Subscriptions*, **puis l'app réinstallée**. L'ajout
+seul ne propage rien — piège déjà payé le 2026-08-08. Sans cela, `handleTeamJoin` est du code
+mort et rien de ce parcours ne se déclenche, quel que soit le code déployé.
+
+
 ## [Unreleased] - 2026-08-13 — les sept défauts du rejeu de production
 
 Rejeu intégral d'une conversation réelle (9 messages, 21:58–22:05 UTC le 2026-08-12) contre

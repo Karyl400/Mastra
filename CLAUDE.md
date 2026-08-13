@@ -489,6 +489,7 @@ réussi le 2026-08-11 ; l'ancienne mention « ABSENT » était fausse).
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | Envoi email **primaire**. Gmail : `SMTP_PASS` = mot de passe d'APPLICATION |
 | `BREVO_API_KEY`         | Envoi email — **repli** uniquement (compte non activé, voir Pièges) |
 | `NOTIFICATION_FROM`     | Expéditeur email                                 |
+| `ONBOARDING_WELCOME_CHANNELS` | Noms de canaux publics (séparés par des virgules) où tout nouvel arrivant est invité au `team_join`. Vide ou absente ⇒ aucune invitation, et une ligne en `warn` |
 | `LOG_LEVEL`, `NODE_ENV` | `debug\|info\|warn\|error`, `development\|staging\|production\|test` |
 
 Ne **jamais** logger la valeur d'une clé d'API — uniquement sa présence (`Boolean(...)`).

@@ -26,6 +26,10 @@ import {
 } from '../features/notification/infrastructure/handlers/slack-events.handler';
 import { verifySlackSignature } from '../shared/security/slack-signature';
 import { logger } from '../shared/logger';
+import { SlackWorkspaceService } from '../features/notification/infrastructure/providers/slack-workspace.service';
+import { makeWelcomeChannels } from '../features/directory/application/services/welcome-channels.service';
+import { SlackWelcomeChannelSource } from '../features/directory/infrastructure/providers/slack-welcome-channel.adapter';
+import { parseWelcomeChannelNames } from '../features/directory/domain/services/welcome-channel-names';
 
 /** Chemin public de l'endpoint Slack. À reporter tel quel dans l'app Slack. */
 export const SLACK_EVENTS_PATH = '/slack/events';
@@ -181,13 +185,37 @@ let cachedMastra: Mastra | undefined;
  */
 let handlerOptionsForTests: SlackEventsHandlerOptions | undefined;
 
+/**
+ * Invitation des arrivants aux canaux d'accueil, câblée ICI et non dans `src/mastra/index.ts`.
+ *
+ * ⚠️ Ce n'est pas une entorse à la règle « le câblage vit dans `index.ts` » mais sa
+ * conséquence : `index.ts` importe cette route (`apiRoutes: [slackEventsRoute]`), donc
+ * l'importer en retour créerait un cycle ESM — panne d'initialisation classique en bundle,
+ * et le motif exact pour lequel `chatProvider` est déjà injecté par options plutôt que repris
+ * d'`index.ts`.
+ *
+ * ZÉRO E/S à la construction : `parseWelcomeChannelNames` lit une variable d'environnement et
+ * l'adaptateur ne fait qu'envelopper un client. Ce fichier est évalué à chaque démarrage à
+ * froid, donc SUR le chemin des 3 secondes d'ACK — un ACK à 6,7 s a déjà provoqué un rejeu,
+ * donc la double réponse du 2026-08-11. Le premier appel réseau n'a lieu qu'au premier
+ * `team_join`.
+ */
+function buildWelcomeChannels(botToken: string) {
+  return makeWelcomeChannels({
+    source: new SlackWelcomeChannelSource(new SlackWorkspaceService(botToken)),
+    channelNames: parseWelcomeChannelNames(process.env.ONBOARDING_WELCOME_CHANNELS),
+  });
+}
+
 export function getSlackEventsHandler(mastra: Mastra): SlackEventsHandler {
   if (!cachedHandler || cachedMastra !== mastra) {
-    cachedHandler = new SlackEventsHandler(
-      process.env.SLACK_BOT_TOKEN ?? '',
-      mastra,
-      handlerOptionsForTests,
-    );
+    const botToken = process.env.SLACK_BOT_TOKEN ?? '';
+    cachedHandler = new SlackEventsHandler(botToken, mastra, {
+      welcomeChannels: buildWelcomeChannels(botToken),
+      // Les options de test l'emportent : un test qui neutralise les canaux doit pouvoir le
+      // faire, et l'ordre inverse rendrait l'injection silencieusement inopérante.
+      ...handlerOptionsForTests,
+    });
     cachedMastra = mastra;
   }
   return cachedHandler;
