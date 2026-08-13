@@ -1,5 +1,77 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-13 (4) — le plafond ne mesurait pas ce qu'il prétendait borner
+
+Soumis au Conseil : **« le plafond de 12 messages/jour/personne est-il une bonne décision ? »**
+Verdict unanime — l'architecture est bonne, **l'unité comptée et la portée sont fausses**.
+
+### Fixed — un compteur de MESSAGES posé sur un problème de TOKENS
+
+Le raisonnement qui justifiait `12` (« 12 < 19, donc une personne ne peut pas consommer la
+journée entière ») suppose un coût moyen de 5 168 tokens/message. **La production l'a démenti
+d'un facteur 2,6** : un « Bonjour » a coûté 13 376 tokens en 5 étapes — 13 % du budget
+quotidien pour UNE unité de compteur. À ce tarif, 8 messages épuisent la journée sans jamais
+approcher le plafond de 12.
+
+Et la portée était fausse aussi : **6 personnes × 12 = 72 messages/jour possibles pour un
+budget de ≈ 19**. Deux personnes en usage normal — sans script, sans malveillance — suffisent
+à dépasser. Or c'est exactement la panne du 2026-08-11 (`TPD: Limit 100000, Used 98207`), et
+**rien ne la mesurait** : il n'existait aucun compteur à l'échelle du workspace.
+
+`WORKSPACE_TOKEN_RULE` — 90 000 tokens/jour, portée équipe. `usage.inputTokens` était **déjà
+lu et journalisé à chaque réponse, et jeté** ; il alimente enfin un compteur.
+
+- ⚠️ **Comptage POST-HOC**, inhérent : le coût n'est connu qu'après l'appel. Le message qui
+  fait franchir le seuil passe toujours. On borne une dérive, on ne fait pas de comptabilité.
+  Toute estimation *avant* l'appel serait pire — le coût dominant vient de l'historique, des
+  schémas d'outils et du nombre d'étapes, pas de la taille du message entrant.
+- ⚠️ **Exempté pour les réponses sans modèle.** Sans cette ligne, une détresse se heurterait
+  au budget d'équipe épuisé : le défaut du 2026-08-13, transposé de l'individu au collectif.
+  Test dédié.
+- ⚠️ **Le refus aurait été MUET.** `evaluateCount` fonde `shouldNotify` sur `count === limit
+  + 1` — une égalité qu'un compteur avançant par milliers ne rencontre jamais. Repli sur
+  « une fois par fenêtre et par instance ». Prévenir deux fois est visible et corrigeable ;
+  ne pas prévenir du tout ne l'est pas.
+
+`increment(key, windowStart, expiresAt, by = 1)` : le pas devient un paramètre. **`by = 0`
+est une lecture atomique** — c'est ce qui permet de CONSULTER le budget avant l'appel et de
+l'INCRÉMENTER après, sans méthode supplémentaire ni second aller-retour. La lecture voyage
+dans le **même lot parallèle** que les incréments par personne : la première version était
+séquentielle et ajoutait un aller-retour au chemin de l'ACK Slack (3 s) — **les tests de coût
+pré-ACK l'ont vue immédiatement.**
+
+### Fixed — le refus promettait un levier qui n'existait pas
+
+« Réessaie demain, ou demande à un administrateur de relever le plafond. » `readRuleLimit`
+avait **zéro site d'appel** : la limite était un littéral figé à la compilation, et « relever
+le plafond » exigeait de modifier le code source. La personne à qui le bot disait ça est
+l'administratrice.
+
+`readRuleLimit` est enfin câblé — `SLACK_BURST_LIMIT`, `SLACK_DAILY_LIMIT`,
+`SLACK_WORKSPACE_TOKEN_BUDGET`. Il refuse déjà `0` et les négatifs : une faute de frappe dans
+une variable Vercel ne peut pas éteindre le bot en silence.
+
+Trois refus distincts, pour trois gestes distincts. Le texte « quota » personnalisait une
+contrainte **collective** : relever le plafond d'une personne ne crée aucun token, ça lui
+permet d'épuiser plus vite la part des autres. Il le dit maintenant.
+
+### Fixed — `SlackRateLimiter.prune()` n'avait aucun site d'appel
+
+`rate_limit_counters` croissait sans fin — seule des quatre tables à TTL du dépôt à n'être
+jamais purgée. Branchée sur le même tirage que les deux autres.
+
+### Conservé tel quel, sur avis du Conseil
+
+`BURST_RULE` (5/min/personne) est **le bon instrument pour le bon mal** : un script en boucle
+se mesure bien en messages/minute, indépendamment du coût de chacun. Le plafond par personne
+reste, comme garde-fou d'ÉQUITÉ — sa seule fonction légitime est d'empêcher qu'une personne
+rafle le budget partagé — et non plus comme instrument principal.
+
+### Added — `scripts/replay-transcript.mts`
+
+Rejeu d'un transcrit de production, 14 messages en 4 séries, rapport JSON. ⚠️ Seule sonde du
+répertoire qui **dépense de vrais appels de modèle** — les quatre autres sont gratuites.
+
 ## [Unreleased] - 2026-08-13 (3) — rejeu d'un transcrit de production complet
 
 Neuf défauts relevés dans un transcrit Slack réel. **Trois étaient déjà corrigés** et sont

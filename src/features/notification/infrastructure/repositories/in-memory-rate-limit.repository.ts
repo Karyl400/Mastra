@@ -26,18 +26,21 @@ interface CounterRow {
 export class InMemoryRateLimitRepository implements RateLimitRepository {
   private rows = new Map<string, CounterRow>();
 
-  async increment(key: string, _windowStart: Date, expiresAt: Date): Promise<number> {
+  async increment(key: string, _windowStart: Date, expiresAt: Date, by = 1): Promise<number> {
+    // Même normalisation que côté SQL — une doublure qui accepterait un pas que le vrai dépôt
+    // refuse ferait passer au vert un comportement qui n'existe pas en production.
+    const step = Number.isFinite(by) && by > 0 ? Math.round(by) : 0;
     const existing = this.rows.get(key);
 
     if (!existing) {
-      this.rows.set(key, { count: 1, expiresAt: expiresAt.getTime() });
-      return 1;
+      this.rows.set(key, { count: step, expiresAt: expiresAt.getTime() });
+      return step;
     }
 
     // On n'écrase PAS `expiresAt` : la clé porte le numéro de fenêtre, donc tous les incréments
     // qui atterrissent ici décrivent la même fenêtre. Le repousser à chaque incrément offrirait
     // à une clé très sollicitée une survie indéfinie. Même choix, et même raison, que côté SQL.
-    existing.count += 1;
+    existing.count += step;
     return existing.count;
   }
 

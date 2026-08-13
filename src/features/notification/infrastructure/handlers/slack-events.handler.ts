@@ -44,6 +44,12 @@ import type { WelcomeChannelsService } from '../../../directory/application/serv
 import { DrizzleDirectoryRepository } from '../../../directory/infrastructure/repositories/drizzle-directory.repository';
 import { SlackMemberSource } from '../../../directory/infrastructure/providers/slack-member-source.adapter';
 import { SlackRateLimiter } from '../services/slack-rate-limiter';
+import {
+  BURST_RULE,
+  DAILY_RULE,
+  WORKSPACE_TOKEN_RULE,
+  readRuleLimit,
+} from '../../domain/services/rate-limit-policy';
 import { GREETING_REPLY, isBareGreeting } from '../../../../shared/greeting';
 import { DISTRESS_REPLY, detectsDistress } from '../../../../shared/distress';
 import { ERASURE_FAILED_REPLY, erasureDoneReply, requestsErasure } from '../../../../shared/forget';
@@ -1336,7 +1342,27 @@ export class SlackEventsHandler {
 
   private getRateLimiter(): SlackRateLimiter | null {
     if (this.limiter === undefined) {
-      this.limiter = new SlackRateLimiter({ repository: new DrizzleRateLimitRepository() });
+      // ⚠️ Les limites se lisent depuis l'ENVIRONNEMENT, et c'est ce qui rend enfin vraie la
+      // phrase du refus (« c'est un réglage de déploiement »). `readRuleLimit` avait été écrit
+      // exactement pour ça et n'avait AUCUN site d'appel : le plafond était un littéral figé à
+      // la compilation, donc « relever le plafond » exigeait de modifier le code source.
+      //
+      // La fonction refuse déjà `0` et les négatifs et retombe sur le défaut — une faute de
+      // frappe dans une variable Vercel ne peut pas éteindre le bot en silence.
+      this.limiter = new SlackRateLimiter({
+        repository: new DrizzleRateLimitRepository(),
+        rules: [
+          { ...BURST_RULE, limit: readRuleLimit(process.env.SLACK_BURST_LIMIT, BURST_RULE.limit) },
+          { ...DAILY_RULE, limit: readRuleLimit(process.env.SLACK_DAILY_LIMIT, DAILY_RULE.limit) },
+        ],
+        workspaceRule: {
+          ...WORKSPACE_TOKEN_RULE,
+          limit: readRuleLimit(
+            process.env.SLACK_WORKSPACE_TOKEN_BUDGET,
+            WORKSPACE_TOKEN_RULE.limit,
+          ),
+        },
+      });
     }
     return this.limiter;
   }
@@ -1626,10 +1652,25 @@ export class SlackEventsHandler {
         // ça casse donne l'impression de deux interlocuteurs différents. Et on ne nomme pas la
         // règle — l'utilisatrice n'a rien à faire de « BURST_RULE », elle a besoin de savoir
         // quoi faire ensuite.
+        // Trois refus DISTINCTS, parce qu'ils appellent trois gestes différents. Il n'y en
+        // avait que deux, et le texte « quota » était doublement faux :
+        //
+        //  - « MON quota » personnalisait une contrainte COLLECTIVE. Le budget est celui du
+        //    fournisseur, partagé par toute l'équipe : relever le plafond d'une personne ne
+        //    crée aucun token, ça lui permet seulement d'épuiser plus vite la part des autres.
+        //  - « demande à un administrateur de relever le plafond » promettait un levier qui
+        //    N'EXISTAIT PAS — `readRuleLimit` n'avait aucun site d'appel, la limite était un
+        //    littéral figé à la compilation. Et la personne à qui le bot disait ça est
+        //    l'administratrice. La phrase n'est rétablie que maintenant que les limites se
+        //    lisent réellement depuis l'environnement.
         text:
-          rule === 'daily'
-            ? "J'ai atteint mon quota de messages pour aujourd'hui. Réessaie demain, ou demande à un administrateur de relever le plafond."
-            : 'Tu m’écris plus vite que je ne sais répondre. Laisse-moi une minute et reformule.',
+          rule === 'workspaceTokens'
+            ? "Le budget d'IA partagé de l'équipe est épuisé pour aujourd'hui. Il repart demain — " +
+              'ce n’est pas ton quota à toi, et personne ne peut le relever en attendant.'
+            : rule === 'daily'
+              ? "Tu as atteint ta part du budget partagé pour aujourd'hui. Elle repart demain, et " +
+                'elle est relevable — c’est un réglage de déploiement.'
+              : 'Tu m’écris plus vite que je ne sais répondre. Laisse-moi une minute et reformule.',
       });
     } catch (error) {
       logger.warn('Could not notify the user about the rate limit', { channel, error });
@@ -1904,6 +1945,20 @@ export class SlackEventsHandler {
    * raisonnement que `schedulePruneIfDue()` pour la mémoire : pas de cron dans ce projet, et
    * une purge un message sur cent suffit à borner la table.
    */
+  /**
+   * Purge des compteurs de débit, en tâche de fond.
+   *
+   * `SlackRateLimiter.prune()` était écrit, testé… et n'avait AUCUN site d'appel :
+   * `rate_limit_counters` croissait sans fin, seule des quatre tables à TTL du dépôt à ne
+   * jamais être purgée. Même cadence et même tirage que les deux autres.
+   */
+  private scheduleRateLimitPruneIfDue(): void {
+    if (!this.pruneIsDue()) return;
+
+    // `prune()` avale déjà ses propres erreurs et journalise : rien à rattraper ici.
+    void this.getRateLimiter()?.prune();
+  }
+
   private scheduleDedupPruneIfDue(): void {
     if (!this.pruneIsDue()) return;
 
@@ -2705,6 +2760,8 @@ export class SlackEventsHandler {
       // coûté, quels outils ont réellement tourné, et combien de tokens d'entrée ont été
       // brûlés. Sans `toolCalls`, « Le PDF a été généré » est indiscernable d'une pure
       // narration du modèle. Coût : zéro token.
+      const inputTokens = this.readInputTokens(response);
+
       logger.info('Slack response sent', {
         channel,
         agentId,
@@ -2712,13 +2769,31 @@ export class SlackEventsHandler {
         redacted: safeOutput.redacted.length,
         durationMs,
         steps: this.readSteps(response),
-        inputTokens: this.readInputTokens(response),
+        inputTokens,
         toolCalls,
         unsupportedClaim,
       });
 
+      // ────────────────────────────────────────────────────────────────────────
+      // LE COÛT RÉEL EST ENFIN COMPTÉ — il était lu, journalisé, et jeté
+      // ────────────────────────────────────────────────────────────────────────
+      // `inputTokens` existait déjà à cette ligne exacte et n'alimentait AUCUN compteur : il
+      // mourait dans les logs. C'est la grandeur qui a réellement cassé la production
+      // (`TPD: Limit 100000, Used 98207`), et rien ne la mesurait — les deux règles en place
+      // comptaient des MESSAGES, et par PERSONNE.
+      //
+      // ⚠️ Ici, et pas avant : le coût n'est connu qu'APRÈS l'appel. Le message qui fait
+      // franchir le seuil passe donc toujours, et le dépassement est constaté au suivant.
+      // C'est la contrepartie assumée du choix de compter la bonne grandeur plutôt qu'une
+      // grandeur commode.
+      //
+      // `void` : on est après la publication de la réponse. Une erreur de comptabilité ne
+      // doit rien changer pour la personne qui vient d'être servie.
+      void this.getRateLimiter()?.consumeTokens(inputTokens);
+
       this.schedulePruneIfDue();
       this.scheduleDedupPruneIfDue();
+      this.scheduleRateLimitPruneIfDue();
     } catch (error) {
       // `error.constructor.name` est conservé explicitement : `maskPii` remplace la pile
       // par la constante `[STACK_TRACE]` et ne garde que `name`/`message`/`cause`, ce qui

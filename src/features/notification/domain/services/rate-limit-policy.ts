@@ -96,6 +96,58 @@ export const DAILY_RULE: RateLimitRule = {
 };
 
 /**
+ * Sujet du compteur d'ÉQUIPE. Une seule clé pour tout le monde — c'est la portée qui manquait.
+ */
+export const WORKSPACE_SUBJECT = 'workspace';
+
+/**
+ * BUDGET DE TOKENS DE L'ÉQUIPE — la seule règle qui mesure ce qui casse réellement.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * Pourquoi les deux règles ci-dessus ne suffisaient pas
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Elles comptent des MESSAGES ; la ressource se consomme en TOKENS. Deux conséquences, et
+ * chacune suffirait :
+ *
+ *  1. **L'unité est fausse.** Le raisonnement qui justifie `DAILY_RULE.limit = 12`
+ *     (« 12 < 19, donc une personne ne peut pas consommer la journée entière ») suppose un
+ *     coût moyen de 5 168 tokens par message. La production l'a démenti d'un facteur 2,6 : un
+ *     « Bonjour » a coûté **13 376 tokens** en 5 étapes — 13 % du budget quotidien, pour UNE
+ *     unité de compteur. À ce tarif, 8 messages épuisent la journée sans jamais approcher le
+ *     plafond de 12.
+ *  2. **La portée est fausse.** 6 personnes × 12 = **72 messages/jour possibles pour un budget
+ *     de ≈ 19**. Il suffit de DEUX personnes en usage normal — sans script, sans malveillance —
+ *     pour dépasser le budget du fournisseur. Or c'est exactement la panne survenue le
+ *     2026-08-11 (`TPD: Limit 100000, Used 98207`), et rien ne la mesurait : le plafond par
+ *     personne ne protège que du cas dégénéré à un seul acteur.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⚠️ Le comptage est POST-HOC, et ça ne peut pas être autrement
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Le coût d'un appel n'est connu qu'APRÈS lui (`usage.inputTokens`). Le message qui fait
+ * franchir le seuil passe donc toujours, et le dépassement est constaté au message suivant.
+ * C'est assumé : on borne une DÉRIVE, on ne prétend pas à l'exactitude comptable. Toute
+ * estimation faite AVANT l'appel serait pire que ce décalage — le coût dominant vient de
+ * l'historique, des schémas d'outils et du nombre d'étapes, pas de la taille du message
+ * entrant.
+ *
+ * `rationsModelBudget: true` est **obligatoire ici**. Sans lui, une salutation ou une
+ * détresse se heurteraient au budget d'équipe épuisé : ce serait la reproduction exacte du
+ * défaut corrigé le 2026-08-13, transposée de l'individu au collectif.
+ */
+export const WORKSPACE_TOKEN_RULE: RateLimitRule = {
+  name: 'workspaceTokens',
+  // 90 % du TPD réel (100 000). La marge absorbe l'overshoot ×2 documenté sur les fenêtres
+  // fixes et laisse de quoi terminer un run engagé — un plafond calé au ras couperait le
+  // service à l'instant précis où quelqu'un attend encore sa réponse.
+  limit: 90_000,
+  windowMs: DAY_MS,
+  rationsModelBudget: true,
+};
+
+/**
  * Marge de purge : une ligne survit à sa fenêtre.
  *
  * Purger à l'instant exact de la fin ferait disparaître un compteur encore décisif pour une

@@ -49,15 +49,20 @@ export class DrizzleRateLimitRepository implements RateLimitRepository {
    * jour où une horloge décalée d'une milliseconde repousserait l'expiration à chaque
    * incrément, offrant à une clé très sollicitée une survie indéfinie.
    */
-  async increment(key: string, windowStart: Date, expiresAt: Date): Promise<number> {
+  async increment(key: string, windowStart: Date, expiresAt: Date, by = 1): Promise<number> {
     const db = this.resolveDb();
+
+    // Un pas négatif rendrait du budget, ce qu'aucun appelant ne doit pouvoir faire par
+    // accident : `usage.inputTokens` d'un fournisseur est une valeur externe, donc réputée
+    // non fiable. `0` reste licite — c'est la lecture atomique décrite dans le port.
+    const step = Number.isFinite(by) && by > 0 ? Math.round(by) : 0;
 
     const [row] = await db
       .insert(rateLimitCounters)
-      .values({ key, count: 1, windowStart, expiresAt })
+      .values({ key, count: step, windowStart, expiresAt })
       .onConflictDoUpdate({
         target: rateLimitCounters.key,
-        set: { count: sql`${rateLimitCounters.count} + 1` },
+        set: { count: sql`${rateLimitCounters.count} + ${step}` },
       })
       .returning({ count: rateLimitCounters.count });
 

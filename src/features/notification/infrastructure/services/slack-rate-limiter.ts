@@ -4,6 +4,8 @@ import type { RateLimitRepository } from '../../domain/ports/rate-limit.reposito
 import {
   BURST_RULE,
   DAILY_RULE,
+  WORKSPACE_SUBJECT,
+  WORKSPACE_TOKEN_RULE,
   buildCounterKey,
   evaluateCount,
   windowBounds,
@@ -71,11 +73,18 @@ export interface SlackRateLimiterOptions {
    */
   readonly repository?: RateLimitRepository | null;
   readonly localMax?: number;
+  /**
+   * Budget de tokens de l'ÉQUIPE. `null` le DÉSACTIVE — c'est le comportement d'avant le
+   * 2026-08-13, celui où rien ne mesurait la grandeur qui a réellement cassé la production.
+   */
+  readonly workspaceRule?: RateLimitRule | null;
 }
 
 export class SlackRateLimiter {
   private readonly rules: readonly RateLimitRule[];
   private readonly repository: RateLimitRepository | null;
+  /** Budget de tokens de l'équipe. `null` = désactivé. */
+  private readonly workspaceRule: RateLimitRule | null;
   /**
    * Compteurs locaux. La clé porte déjà le numéro de fenêtre, donc une entrée ne se remet
    * jamais à zéro : elle cesse simplement d'être consultée. Le TTL est posé par `set()`,
@@ -84,10 +93,16 @@ export class SlackRateLimiter {
   private readonly local: LRUCache<string, number>;
   /** N'inonde pas les logs quand la table manque : un avertissement, pas un par message. */
   private degradationLogged = false;
+  /** Fenêtres pour lesquelles cette instance a déjà prévenu. Voir `claimNotification`. */
+  private readonly notifiedWindows = new Set<string>();
 
   constructor(options: SlackRateLimiterOptions = {}) {
     this.rules = options.rules ?? [BURST_RULE, DAILY_RULE];
     this.repository = options.repository ?? null;
+    // `undefined` ⇒ le défaut ; `null` ⇒ désactivé. Deux états distincts, comme partout
+    // ailleurs dans ce dépôt.
+    this.workspaceRule =
+      options.workspaceRule === undefined ? WORKSPACE_TOKEN_RULE : options.workspaceRule;
     this.local = new LRUCache<string, number>({
       max: options.localMax ?? 5000,
       // TTL de repli ; chaque `set()` pose le sien, calé sur la fenêtre de sa règle.
@@ -146,12 +161,19 @@ export class SlackRateLimiter {
     now: Date = new Date(),
     options: { answeredWithoutModel?: boolean } = {},
   ): Promise<RateLimitDecision> {
+    // ────────────────────────────────────────────────────────────────────────
+    // BUDGET DE L'ÉQUIPE — évalué EN PREMIER, et sans rien incrémenter
+    // ────────────────────────────────────────────────────────────────────────
+    // Un budget d'équipe épuisé rend la suite sans objet : compter le message d'une personne
+    // contre son quota individuel alors qu'aucun token n'est disponible lui ferait payer deux
+    // fois un refus qu'elle ne peut pas éviter.
+    //
     const applicable = options.answeredWithoutModel
       ? this.rules.filter((rule) => !rule.rationsModelBudget)
       : this.rules;
 
     // Phase 1 — compteurs LOCAUX. Gratuits, donc évalués un par un et court-circuités.
-    const pending: { rule: RateLimitRule; key: string }[] = [];
+    const pending: { rule: RateLimitRule; key: string; by: number }[] = [];
 
     for (const rule of applicable) {
       const key = buildCounterKey(rule, subjectId, now);
@@ -173,7 +195,42 @@ export class SlackRateLimiter {
         };
       }
 
-      pending.push({ rule, key });
+      pending.push({ rule, key, by: 1 });
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // BUDGET DE L'ÉQUIPE — dans le MÊME lot parallèle, et lu EN PREMIER
+    // ────────────────────────────────────────────────────────────────────────
+    // Deux propriétés à préserver simultanément, et une seule forme les préserve toutes deux.
+    //
+    //  - **Une seule latence réseau**, pas deux. Ce contrôle vit sur le chemin de l'ACK Slack,
+    //    qui a 3 secondes ; y ajouter un aller-retour SÉQUENTIEL était une régression, et les
+    //    tests de coût du chemin pré-ACK l'ont vue immédiatement. `by: 0` fait de cet appel
+    //    une lecture atomique (voir le port), donc il peut voyager avec les incréments sans
+    //    rien perturber.
+    //  - **Le verdict de l'équipe PRIME.** Il est placé en tête de `pending`, et les verdicts
+    //    sont relus dans l'ordre de ce tableau : c'est donc lui qui remonte jusqu'au message
+    //    adressé à la personne, quel que soit l'ordre d'arrivée des réponses réseau.
+    //
+    // Aucun compteur LOCAL, à la différence des règles par personne : un cumul de tokens par
+    // instance ne veut rien dire, l'instance est remplacée en permanence, et c'est précisément
+    // le total à travers toutes les instances qu'on cherche à borner.
+    //
+    // ⚠️ Contrepartie assumée, la même que celle déjà documentée plus haut : quand le budget
+    // d'équipe refuse, les compteurs par personne ont déjà été incrémentés. Sans conséquence —
+    // la personne est refusée de toute façon, et les deux fenêtres sont la même journée.
+    const workspaceRule = this.workspaceRule;
+    const workspaceApplies =
+      workspaceRule !== null && !(options.answeredWithoutModel && workspaceRule.rationsModelBudget);
+
+    if (workspaceRule && workspaceApplies) {
+      pending.unshift({
+        rule: workspaceRule,
+        key: buildCounterKey(workspaceRule, WORKSPACE_SUBJECT, now),
+        // Lecture seule : la consommation réelle est enregistrée APRÈS le run, quand
+        // `usage.inputTokens` existe enfin. Voir `consumeTokens`.
+        by: 0,
+      });
     }
 
     if (pending.length === 0) return ALLOWED;
@@ -184,15 +241,15 @@ export class SlackRateLimiter {
     if (!repository) return { ...ALLOWED, degraded: true };
 
     const outcomes = await Promise.all(
-      pending.map(async ({ rule, key }) => {
+      pending.map(async ({ rule, key, by }) => {
         const { windowStart, expiresAt } = windowBounds(rule, now);
         try {
-          return { rule, count: await repository.increment(key, windowStart, expiresAt) };
+          return { rule, key, count: await repository.increment(key, windowStart, expiresAt, by) };
         } catch (error) {
           // Journalisé ICI, à l'endroit où l'échec est connu : une panne du store ne doit
           // jamais être muette, même quand une autre règle tranche avant qu'on la lise.
           this.logDegradation(rule, error);
-          return { rule, count: undefined };
+          return { rule, key, count: undefined };
         }
       }),
     );
@@ -203,7 +260,7 @@ export class SlackRateLimiter {
     // Sans ce tri, la règle citée dépendrait de l'aléa réseau.
     let degraded = false;
 
-    for (const { rule, count } of outcomes) {
+    for (const { rule, key, count } of outcomes) {
       if (count === undefined) {
         degraded = true;
         continue;
@@ -214,13 +271,65 @@ export class SlackRateLimiter {
         return {
           allowed: false,
           rule: rule.name,
-          shouldNotify: verdict.shouldNotify,
+          // ⚠️ `evaluateCount` fonde `shouldNotify` sur une ÉGALITÉ EXACTE (`count === limit
+          // + 1`). C'est juste pour un compteur qui avance de 1 en 1 ; c'est INAPPLICABLE à
+          // un compteur de tokens, qui saute par milliers et ne tombera jamais pile sur
+          // `limit + 1`. Le budget d'équipe aurait donc refusé EN SILENCE — soit le symptôme
+          // le plus coûteux de ce dépôt, le bot muet, produit par le garde-fou censé
+          // l'éviter. On retombe ici sur « une fois par fenêtre et par instance », qui ne
+          // peut pas se tromper dans ce sens-là.
+          shouldNotify: verdict.shouldNotify || this.claimNotification(key),
           degraded,
         };
       }
     }
 
     return degraded ? { ...ALLOWED, degraded: true } : ALLOWED;
+  }
+
+  /**
+   * Enregistre le coût RÉEL d'un appel de modèle sur le budget de l'équipe.
+   *
+   * ⚠️ Appelée APRÈS le run, parce que `usage.inputTokens` n'existe pas avant. C'est la
+   * contrepartie assumée du choix de compter des tokens : le message qui fait franchir le
+   * seuil passe toujours, et le dépassement est constaté au suivant.
+   *
+   * NE LÈVE JAMAIS. Elle vit sur le chemin de fond, après que la réponse a été postée : une
+   * erreur ici ne doit rien changer pour la personne qui vient d'être servie.
+   */
+  async consumeTokens(tokens: number | null | undefined, now: Date = new Date()): Promise<void> {
+    const rule = this.workspaceRule;
+    if (!rule || !this.repository) return;
+    if (!Number.isFinite(tokens ?? NaN) || (tokens ?? 0) <= 0) return;
+
+    const key = buildCounterKey(rule, WORKSPACE_SUBJECT, now);
+    const { windowStart, expiresAt } = windowBounds(rule, now);
+
+    try {
+      const consumed = await this.repository.increment(key, windowStart, expiresAt, tokens ?? 0);
+      // `info` et non `debug` : c'est la seule trace qui dise où en est le budget de la
+      // journée, et c'est elle qu'on lira avant de lancer une campagne de test.
+      logger.info('Workspace token budget', { consumed, limit: rule.limit });
+    } catch (error) {
+      logger.warn('Could not record token consumption', { error });
+    }
+  }
+
+  /**
+   * Première fois qu'on refuse sur cette fenêtre, pour cette instance ?
+   *
+   * Sert de repli à `shouldNotify` quand le compteur n'avance pas de 1 en 1 (voir le budget de
+   * tokens). La clé porte déjà le numéro de fenêtre, donc l'ensemble ne se vide jamais : il
+   * cesse simplement d'être consulté, et disparaît avec l'instance.
+   *
+   * Imperfection assumée : deux instances peuvent prévenir deux fois. Prévenir en double est
+   * visible et corrigeable ; ne pas prévenir du tout ne l'est pas — c'est l'arbitrage que ce
+   * fichier applique déjà partout ailleurs.
+   */
+  private claimNotification(key: string): boolean {
+    if (this.notifiedWindows.has(key)) return false;
+    this.notifiedWindows.add(key);
+    return true;
   }
 
   /** N'inonde pas les logs : un avertissement pour la vie de l'instance, pas un par message. */

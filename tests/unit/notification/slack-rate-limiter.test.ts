@@ -207,10 +207,15 @@ describe('SlackRateLimiter', () => {
 
       await limiter.check('U1', new Date(0));
 
-      // 2 clés distinctes (`buildCounterKey` encode la règle) et les deux requêtes en vol
-      // simultanément : le contrôle coûte UN aller-retour de latence, plus deux.
-      expect(state.keys).toHaveLength(2);
-      expect(state.peakInFlight).toBe(2);
+      // TROIS clés depuis le 2026-08-13 : `burst`, `daily`, et la lecture du budget de tokens
+      // de l'ÉQUIPE. Cette dernière voyage dans le MÊME lot — c'est ce test qui a rattrapé la
+      // première version, où elle était séquentielle et ajoutait donc un aller-retour au
+      // chemin de l'ACK Slack, qui n'a que 3 secondes.
+      //
+      // La propriété n'est pas le NOMBRE de clés (il suivra le câblage) mais le fait qu'elles
+      // soient TOUTES en vol simultanément : le contrôle coûte une latence, pas N.
+      expect(state.keys).toHaveLength(3);
+      expect(state.peakInFlight).toBe(state.keys.length);
     });
 
     it('coûte une seule latence réseau, pas la somme des deux', async () => {

@@ -211,7 +211,10 @@ describe('DrizzleRateLimitRepository — un SEUL énoncé, et il est le bon', ()
     expect(sql).toContain('insert into');
     expect(sql).toContain('on conflict');
     expect(sql).toContain('do update set');
-    expect(sql).toContain('+ 1');
+    // Le pas est PARAMÉTRÉ (`+ ?`) depuis que `increment` en accepte un — c'était `+ 1` en
+    // dur. Ce qui porte la propriété est que l'incrément se fasse DANS l'énoncé, pas sa
+    // valeur : un pas lié est strictement préférable à un littéral interpolé.
+    expect(sql).toMatch(/"count"\s*\+\s*\?/);
     expect(sql).toContain('returning');
     // Aucune lecture préalable : la valeur rendue vient de l'UPDATE lui-même.
     expect(sql).not.toContain('select');
