@@ -163,6 +163,13 @@ export type SlackIgnoreReason =
   | 'restricted_user'
   | 'duplicate_mention'
   /**
+   * Événement trop VIEUX pour qu'on y réponde encore — voir `isStale`. Motif DISTINCT de
+   * `duplicate` : un doublon a déjà reçu sa réponse, un événement périmé n'en a jamais eu.
+   * Les confondre dans les logs rendrait la panne du 22:34 (une réponse tombée 1 h 40 trop
+   * tard) indiscernable d'une déduplication qui fonctionne.
+   */
+  | 'stale_event'
+  /**
    * Quota de messages dépassé pour cette personne. Motif DISTINCT de `duplicate` : les deux
    * écartent un événement, mais l'un dit « on l'a déjà traité » et l'autre « on refuse de le
    * traiter ». Les confondre rendrait le journal de production inexploitable au moment précis
@@ -516,6 +523,16 @@ const CONVERSATION_QUERY_LIMIT = 40;
 const DEFAULT_PRUNE_PROBABILITY = 0.2;
 
 /**
+ * Âge au-delà duquel un message n'est plus traité. Voir `isStale` pour le relevé de
+ * production qui a motivé cette borne — une réponse arrivée 1 h 40 après la question.
+ *
+ * 10 minutes : deux ordres de grandeur au-dessus d'un run (2 à 21 s, `maxDuration` 60 s) et
+ * des rejeux Slack (la minute). Assez haut pour ne jamais écarter un traitement légitimement
+ * lent, assez bas pour qu'aucune réponse ne tombe dans une conversation qui a tourné.
+ */
+const MAX_EVENT_AGE_MS = 10 * 60 * 1000;
+
+/**
  * Extrait le contenu ASSAINI d'une entrée encadrée par `wrapAgentInput`.
  *
  * Format produit par le garde-fou :
@@ -750,6 +767,26 @@ const ACCOMPLISHMENT_CLAIMS: ReadonlyArray<{ label: string; pattern: RegExp }> =
     pattern: new RegExp(`\\b(?:a|ont|t'a|lui a|vous a) (?:bien |deja )?ete ${DONE_VERBS}e?s?\\b`),
   },
   { label: 'est prêt', pattern: /\best (?:pret|prete|prets|pretes)\b/ },
+  // ── Famille MISE À JOUR, ajoutée le 2026-08-13 sur relevé de production ──
+  //
+  //     Karyl  : « @Mastra ajoute en une quatrième »
+  //     Mastra : « Le quiz "Quiz sur nos valeurs" est maintenant à jour avec une
+  //               quatrième question. »
+  //
+  // **Aucun outil de modification de questionnaire n'existe dans ce dépôt.** La phrase est
+  // donc fausse par construction — le critère d'admission exact de cette liste — et elle
+  // passait entre les mailles : ni « c'est fait », ni voix passive avec un verbe de
+  // `DONE_VERBS`, ni « est prêt ». Le tour d'avant, le même agent avait déjà annoncé
+  // « Ok, je la remplace par : … » sur le même questionnaire inexistant.
+  //
+  // Le verbe `mis à jour` n'est PAS ajouté à `DONE_VERBS` : il y entrerait dans la voix
+  // passive (« a été mis à jour ») mais raterait « est maintenant à jour », qui est la
+  // forme réellement relevée — un ADJECTIF, pas un participe.
+  {
+    label: 'mise à jour',
+    pattern:
+      /\b(?:est|sont) (?:maintenant |desormais |bien )?(?:a jour|mis a jour|mise a jour|mises a jour)\b/,
+  },
 ];
 
 /**
@@ -1381,6 +1418,12 @@ export class SlackEventsHandler {
       : this.rejectMessage(event);
     if (rejected) return { action: 'ignore', reason: rejected };
 
+    // ⚠️ AVANT la prise de clé : un événement périmé ne doit ni être traité, ni consommer
+    // une clé de déduplication qu'il faudrait ensuite refermer.
+    if (this.isStale(envelope, event)) {
+      return { action: 'ignore', reason: 'stale_event' };
+    }
+
     const key = this.dedupKey(envelope);
     if (key && !(await this.claimEvent(key, context.retryNum))) {
       return { action: 'ignore', reason: 'duplicate' };
@@ -1394,6 +1437,93 @@ export class SlackEventsHandler {
     if (limited) return limited;
 
     return { action: 'process', event };
+  }
+
+  /**
+   * L'événement est-il trop VIEUX pour qu'on y réponde encore ?
+   *
+   * ════════════════════════════════════════════════════════════════════════════
+   * Le défaut mesuré en production — le bot a répondu à une question d'il y a 1 h 40
+   * ════════════════════════════════════════════════════════════════════════════
+   *
+   *     20:54  Karyl  : « tu peux me retrouver le profil de mistourath@kissohq.com ? »
+   *     20:54  Mastra : « Je n'ai pas trouvé d'employé avec cette adresse. »
+   *     22:31  Mastra : « J'ai atteint mon quota de messages pour aujourd'hui. »
+   *     22:33  Karyl  : « bonjour »
+   *     22:34  Mastra : « Je vois que Mistourath n'a pas de dossier d'onboarding… »   ← 20:54
+   *     22:35  Mastra : « Ton document a été créé et livré sur ce fil Slack. » + un PDF
+   *
+   * Deux réponses tardives se sont insérées dans une conversation qui avait avancé depuis,
+   * dont une qui a livré un DOCUMENT que plus personne n'attendait. Vu de l'utilisatrice,
+   * le bot répond à côté — et le « bonjour » qui précède rend la confusion totale.
+   *
+   * ── La cause : la reprise d'un événement abandonné n'avait qu'un PLANCHER d'âge ──
+   * `claimLocally` et `DrizzleSlackEventDedupRepository.claim` reprennent une clé
+   * `in-flight` dès que `ageMs >= inFlightGraceMs` (60 s). Aucune borne HAUTE : une entrée
+   * de 61 secondes et une de 100 minutes sont traitées à l'identique. Le traitement repart
+   * alors ENTIER — nouvel appel de modèle, nouvelle réponse postée — avec le texte de
+   * l'événement d'ORIGINE.
+   *
+   * S'y ajoute une fuite : `markDedupDone`/`releaseDedup` ne sont appelés que depuis
+   * `handleEvent()`, donc un événement refusé par la limite de débit reste `in-flight`
+   * **indéfiniment** — prêt à être « abandonné » puis repris à la première redélivrance.
+   *
+   * ── Pourquoi une borne d'ÂGE DE L'ÉVÉNEMENT, et non un plafond sur la reprise ──
+   * Parce qu'elle couvre TOUS les chemins d'un seul contrôle : reprise d'un abandon, rejeu
+   * Slack, redélivrance tardive, file d'attente. Un plafond sur la seule reprise laisserait
+   * les autres ouverts, et ce dépôt a déjà payé les correctifs posés sur un chemin quand le
+   * défaut vivait sur plusieurs.
+   *
+   * ── Pourquoi on ne LIBÈRE PAS la clé sur un refus de débit ──
+   * Ce serait le correctif intuitif de la fuite, et il serait faux : la clé libérée, un rejeu
+   * Slack arrivant 5 secondes plus tard repasserait pour un message NEUF et **consommerait
+   * une seconde unité du quota de la personne pour un message qu'elle n'a envoyé qu'une
+   * fois**. C'est précisément ce que `checkRateLimit` documente en exigeant d'être appelé
+   * APRÈS la déduplication. La clé bloquée est donc protectrice, et la borne d'âge suffit à
+   * la rendre inoffensive.
+   *
+   * ── Le chiffre ──
+   * 10 minutes, contre un run de 2 à 21 secondes (jusqu'à ~60 s de `maxDuration`) et des
+   * rejeux Slack qui vivent dans la minute. La marge est de deux ordres de grandeur : elle
+   * ne peut pas écarter un traitement légitimement lent, et elle écarte tout ce qui n'a
+   * plus de sens conversationnel.
+   *
+   * ⚠️ **Les messages seulement.** Un `team_join` tardif doit être traité : il déclenche le
+   * parcours d'arrivée d'une personne réelle, et le perdre coûte infiniment plus qu'une
+   * réponse hors sujet. La latence n'y est pas un problème de pertinence.
+   *
+   * ⚠️ Jamais silencieux — `warn`, pas `debug` : « le bot ne répond plus » est le symptôme
+   * le plus coûteux de ce dépôt, et une garde muette qui l'imiterait serait indiscernable
+   * d'une panne.
+   */
+  private isStale(envelope: SlackEventEnvelope, event: SlackEvent): boolean {
+    if (isTeamJoinEvent(event)) return false;
+
+    // `event_time` (secondes) UNIQUEMENT — jamais `event.ts`, et la distinction compte.
+    //
+    // `ts` est l'IDENTIFIANT d'un message dans son canal ; c'est la matière première de la
+    // clé de déduplication, pas une horloge. Rejeux, fixtures et outils de test le tiennent
+    // légitimement CONSTANT, et le lire comme une date ferait périmer des événements
+    // parfaitement frais. `event_time` est le seul champ dont le sens EST « quand cet
+    // événement a eu lieu », et Slack le pose sur tout `event_callback`.
+    //
+    // Absent ⇒ on laisse passer. Un âge inconnu n'est pas un âge excessif, et le dépôt
+    // penche déjà de ce côté partout où il décide sans preuve (`checkTeamId`, la
+    // déduplication partagée, le compteur de débit) : une garde qui coupe sur une donnée
+    // manquante reproduit le symptôme le plus coûteux de ce projet, le bot muet.
+    const emittedAtSeconds = envelope.event_time;
+    if (!Number.isFinite(emittedAtSeconds) || (emittedAtSeconds ?? 0) <= 0) return false;
+
+    const ageMs = Date.now() - (emittedAtSeconds as number) * 1000;
+    if (ageMs < MAX_EVENT_AGE_MS) return false;
+
+    logger.warn('Dropping a stale Slack event — answering it now would land out of context', {
+      ageMs,
+      channel: event.channel,
+      type: event.type,
+    });
+
+    return true;
   }
 
   /**

@@ -1,5 +1,102 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-13 (3) — rejeu d'un transcrit de production complet
+
+Neuf défauts relevés dans un transcrit Slack réel. **Trois étaient déjà corrigés** et sont
+consignés ici pour qu'aucun diagnostic futur ne les redécouvre ; **quatre sont corrigés par ce
+lot** ; deux restent ouverts, au `TODO.md`.
+
+### Fixed — le bot a répondu à une question vieille d'1 h 40
+
+    20:54  Karyl  : « tu peux me retrouver le profil de mistourath@kissohq.com ? »
+    22:31  Mastra : « J'ai atteint mon quota de messages pour aujourd'hui. »
+    22:33  Karyl  : « bonjour »
+    22:34  Mastra : « Je vois que Mistourath n'a pas de dossier d'onboarding… »   ← 20:54
+    22:35  Mastra : « Ton document a été créé et livré sur ce fil Slack. » + un PDF
+
+Deux réponses tardives se sont insérées dans une conversation qui avait avancé, dont une qui a
+livré un **document que plus personne n'attendait**.
+
+Cause, en deux défauts qui s'enchaînent :
+- la reprise d'un événement `in-flight` abandonné n'avait qu'un **plancher** d'âge (60 s) et
+  aucun plafond — une entrée de 61 secondes et une de 100 minutes étaient traitées à
+  l'identique, et le traitement repartait ENTIER avec le texte d'origine ;
+- `markDedupDone`/`releaseDedup` ne sont appelés que depuis `handleEvent()`, donc un événement
+  refusé par la limite de débit reste `in-flight` **indéfiniment**, prêt à être « abandonné »
+  puis repris à la première redélivrance.
+
+Correctif : une borne d'**âge de l'événement** (`MAX_EVENT_AGE_MS` = 10 min), et non un plafond
+sur la seule reprise — elle couvre d'un seul contrôle tous les chemins (reprise d'abandon,
+rejeu Slack, redélivrance tardive, file d'attente), là où ce dépôt a déjà payé les correctifs
+posés sur un chemin quand le défaut vivait sur plusieurs. Motif `stale_event`, distinct de
+`duplicate` : un doublon a déjà reçu sa réponse, un périmé n'en a jamais eu.
+
+⚠️ **On ne libère PAS la clé sur un refus de débit**, et c'était le correctif intuitif : la clé
+libérée, un rejeu Slack arrivant 5 s plus tard repasserait pour un message NEUF et
+consommerait une **seconde unité du quota** de la personne pour un message envoyé une fois.
+La clé bloquée est protectrice ; la borne d'âge suffit à la rendre inoffensive.
+
+⚠️ Lu sur `event_time` uniquement, jamais sur `event.ts` : `ts` est l'IDENTIFIANT d'un message
+et la matière première de la clé de déduplication, pas une horloge. Absent ⇒ on laisse passer.
+
+### Fixed — « Où est le quiz ? Je ne le vois pas »
+
+Un questionnaire enregistré n'est envoyé à personne, affiché nulle part et remplissable par
+personne : ni formulaire Block Kit, ni modale, ni route de soumission — c'est d'ailleurs pour
+cela qu'`evaluateResponse` a été décâblé. Le modèle ne pouvait pas le deviner, et son ignorance
+a pris trois formes : « prêt à être utilisé », « ou je te le partage en **lien direct** ? »,
+« je peux te partager un **lien** pour qu'il y accède » — des liens qui n'existent nulle part,
+exactement comme le faux `kisso.internal` du 2026-08-11.
+
+`delivered: false` + un `hint` dans le RÉSULTAT (payé par les seuls runs qui enregistrent
+vraiment un questionnaire, jamais par le prompt), et la description passe de « Crée un
+questionnaire » à « **Enregistre** un questionnaire. Ne l'envoie à personne, ne l'affiche nulle
+part. » — le mot que lit le modèle est celui qu'il répétera, leçon déjà tirée sur
+`scheduleReminder`.
+
+### Fixed — la réconciliation laissait passer la famille « mise à jour »
+
+    Karyl  : « @Mastra ajoute en une quatrième »
+    Mastra : « Le quiz "Quiz sur nos valeurs" est maintenant à jour avec une quatrième
+              question. »
+
+Aucun outil de modification de questionnaire n'existe : la phrase est fausse **par
+construction**, le critère d'admission exact d'`ACCOMPLISHMENT_CLAIMS`. Elle passait entre les
+mailles — ni « c'est fait », ni voix passive, ni « est prêt ». Le verbe n'est pas ajouté à
+`DONE_VERBS` : il y couvrirait « a été mis à jour » mais raterait « est maintenant à jour »,
+qui est la forme réellement relevée — un adjectif, pas un participe.
+
+### Fixed — le modèle fabriquait une adresse email, puis réclamait ce que le système savait
+
+    Karyl  : « Bonjour, que peux-tu faire pour moi ? »
+    Mastra : « Je n'ai pas trouvé d'employé avec l'adresse karyl.soumaila@kisso.com.
+              Pour retrouver ton identifiant, il me faudrait ton email professionnel. »
+
+Deux défauts en une réponse, observés deux jours de suite. Le modèle a **fabriqué** une adresse
+plausible à partir du nom de la personne — `isPlaceholderEmail` ne peut rien contre elle, elle
+est bien formée et son domaine est réel. Puis il a réclamé à l'humain une information que le
+système **détenait déjà** : l'identité du demandeur descend par le `requestContext`.
+
+Le `return { found: false }` final était NU. Il porte désormais, quand le demandeur est connu,
+son identifiant interne et l'interdiction de retenter en modifiant l'adresse. Un tour de
+dialogue épargné vaut plus que plusieurs centaines de tokens rabotés, sur ≈ 19 messages/JOUR.
+Aucune donnée nouvelle n'est exposée : c'est l'identifiant du demandeur lui-même, que
+`canReadPersonRecord` l'autorise déjà à lire, et il vient du contexte serveur.
+
+### Déjà corrigés — consignés pour ne pas être rediagnostiqués
+
+- **Demande légitime refusée comme une attaque** (« Il me faudrait le guide d'accueil de Karyl
+  en PDF » → refus neutre). La cause n'était pas l'entrée mais la SORTIE : le motif
+  `kisso_[0-9a-f]{4,}` mordait sur un nom de fichier NARRÉ (`guide_kisso_2026.pdf` — `2026`
+  est de l'hexadécimal valide) et remplaçait TOUTE la réponse. Corrigé en `{16,}` (le
+  délimiteur réel fait 32 hex depuis le 2026-08-10). Le même message a réussi 2 h 38 plus tard.
+- **Double livraison d'un PDF** : `generateDocument` appelé deux fois dans un même run.
+  `buildRunKey`/`makeRunGuard` (`src/shared/tool-idempotency.ts`) sont câblés depuis. L'incident
+  s'est produit 34 minutes après un déploiement et ~4 h 30 avant le commit du correctif.
+- **« tu préfères quel canal (email, Slack, in-app) ? »** : l'énumération de `sendNotification`
+  remontée à l'humain. L'enum est passé de 7 valeurs à 2, et 3 champs obligatoires ont reçu un
+  défaut.
+
 ## [Unreleased] - 2026-08-13 (2) — « oublie ce que je t'ai dit » ne pouvait être qu'un mensonge
 
 Tranches « Contexte et mémoire » et « Flux de conversation » de l'audit conversationnel.

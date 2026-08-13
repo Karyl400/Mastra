@@ -1812,6 +1812,33 @@ describe('detectUnsupportedCompletionClaim()', () => {
   ])('laisse passer « %s », qui n’affirme aucun accompli', (text) => {
     expect(detectUnsupportedCompletionClaim(text)).toBeNull();
   });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Famille MISE À JOUR — relevée telle quelle en production le 2026-08-13
+  // ══════════════════════════════════════════════════════════════════════════
+  //     Karyl  : « @Mastra ajoute en une quatrième »
+  //     Mastra : « Le quiz "Quiz sur nos valeurs" est maintenant à jour avec une
+  //               quatrième question. »
+  // AUCUN outil de modification de questionnaire n'existe dans ce dépôt : la phrase est
+  // fausse par construction. Elle passait entre les mailles — ni « c'est fait », ni voix
+  // passive, ni « est prêt ».
+  it.each([
+    'Le quiz est maintenant à jour avec une quatrième question.',
+    'Le questionnaire est mis à jour.',
+    'Les tâches sont désormais à jour.',
+  ])('reconnaît « %s » comme une annonce de mise à jour', (text) => {
+    expect(detectUnsupportedCompletionClaim(text)).not.toBeNull();
+  });
+
+  it.each([
+    'Veux-tu que je le mette à jour ?',
+    'Je peux mettre ton profil à jour si tu me donnes ton identifiant.',
+  ])('laisse passer « %s », qui PROPOSE une mise à jour', (text) => {
+    // Le critère de la liste reste « faux par construction si aucun outil n'a tourné » :
+    // une proposition n'affirme rien, et l'inclure transformerait chaque tour ordinaire
+    // en accusation.
+    expect(detectUnsupportedCompletionClaim(text)).toBeNull();
+  });
 });
 
 describe('SlackEventsHandler — réconciliation fait / narration', () => {
@@ -2366,6 +2393,62 @@ describe('SlackEventsHandler — court-circuits sans appel LLM', () => {
     const decision = await handler.accept(
       envelope(dm({ text: 'supprime tout ce que tu sais de moi', ts: nextTs() }), 'EvFORGETLIM'),
     );
+
+    expect(decision.action).toBe('process');
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ÉVÉNEMENT PÉRIMÉ — relevé de production : une réponse tombée 1 h 40 trop tard
+  // ══════════════════════════════════════════════════════════════════════════
+  // 20:54 la question, 22:34 la réponse — dans une conversation qui avait avancé, juste
+  // après un « bonjour » et un refus de quota. Une des deux réponses tardives a même livré
+  // un DOCUMENT que plus personne n'attendait.
+  //
+  // Cause : la reprise d'un événement `in-flight` abandonné n'avait qu'un PLANCHER d'âge
+  // (60 s), aucun plafond — une entrée de 61 s et une de 100 min étaient traitées à
+  // l'identique. S'y ajoutait une fuite : un événement refusé par la limite de débit reste
+  // `in-flight` pour toujours, `markDedupDone`/`releaseDedup` n'étant appelés que depuis
+  // `handleEvent()`.
+  const secondsAgo = (minutes: number) => Math.floor(Date.now() / 1000) - minutes * 60;
+
+  it("ÉCARTE un message trop vieux pour qu'une réponse ait encore du sens", async () => {
+    const { handler } = makeHandler();
+
+    const envelopeVieux = {
+      ...envelope(dm({ text: 'où en est mon dossier ?', ts: nextTs() }), 'EvSTALE1'),
+      event_time: secondsAgo(100),
+    };
+
+    const decision = await handler.accept(envelopeVieux);
+
+    // Motif DISTINCT de `duplicate` : un doublon a déjà reçu sa réponse, un périmé n'en a
+    // jamais eu. Les confondre rendrait cette panne invisible dans les logs.
+    expect(decision).toEqual({ action: 'ignore', reason: 'stale_event' });
+  });
+
+  it('laisse passer un message récent, et un run lent reste très loin de la borne', async () => {
+    const { handler } = makeHandler();
+
+    // Un run prend 2 à 21 s (60 s de `maxDuration` au pire). La borne est à 10 minutes :
+    // deux ordres de grandeur de marge, pour qu'aucun traitement légitimement lent ne soit
+    // pris pour un événement périmé.
+    const decision = await handler.accept({
+      ...envelope(dm({ text: 'où en est mon dossier ?', ts: nextTs() }), 'EvFRESH1'),
+      event_time: secondsAgo(1),
+    });
+
+    expect(decision.action).toBe('process');
+  });
+
+  it('ne périme JAMAIS un team_join', async () => {
+    // Il déclenche le parcours d'arrivée d'une personne réelle : le perdre coûte infiniment
+    // plus qu'une réponse hors sujet, et la latence n'y est pas un problème de pertinence.
+    const { handler } = makeHandler();
+
+    const decision = await handler.accept({
+      ...envelope(teamJoin(), 'EvJOINOLD'),
+      event_time: secondsAgo(100),
+    });
 
     expect(decision.action).toBe('process');
   });

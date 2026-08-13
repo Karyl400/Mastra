@@ -4,6 +4,7 @@ import type { EmployeeRepository } from '../../domain/ports/employee.repository'
 import type { DirectoryRepository } from '../../../directory/domain/ports/directory.repository';
 import { emailSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
+import { readSlackContext } from '../../../../shared/slack-request-context';
 
 /**
  * Résout un employé à partir de son email.
@@ -122,7 +123,7 @@ export function makeFindEmployeeByEmail(repo: EmployeeRepository, directory?: Di
     inputSchema: z.object({
       email: emailSchema.describe("Email professionnel de l'employé à rechercher"),
     }),
-    execute: async (data) => {
+    execute: async (data, ctx) => {
       const normalizedEmail = String(data.email).trim().toLowerCase();
 
       // Avant toute E/S : une adresse d'exemple ne peut rien trouver en base, et
@@ -218,7 +219,43 @@ export function makeFindEmployeeByEmail(repo: EmployeeRepository, directory?: Di
       }
 
       logger.info('Aucun employé trouvé pour cet email', { email: normalizedEmail });
-      return { found: false as const };
+
+      // ────────────────────────────────────────────────────────────────────────
+      // ÉCHEC QUI INSTRUIT — un aller-retour épargné vaut plus que tout dégraissage
+      // ────────────────────────────────────────────────────────────────────────
+      // `return { found: false }` était NU, et le relevé de production montre exactement ce
+      // que ça coûte. Deux fois, sur deux jours :
+      //
+      //     Karyl  : « Bonjour, que peux-tu faire pour moi ? »
+      //     Mastra : « Je n'ai pas trouvé d'employé avec l'adresse
+      //               karyl.soumaila@kisso.com. […] Tu peux me les donner ? »
+      //
+      // Deux défauts en une réponse. Le modèle a FABRIQUÉ une adresse plausible à partir du
+      // nom de la personne — `isPlaceholderEmail` ne peut rien contre elle, elle est bien
+      // formée et son domaine est réel. Puis il a réclamé à l'humain une information que le
+      // système DÉTENAIT DÉJÀ : l'identité du demandeur descend par le `requestContext`.
+      //
+      // Le tour de dialogue ainsi provoqué est le poste de coût le plus cher du produit —
+      // la doctrine du dépôt le dit : « un tour de dialogue épargné vaut plus que plusieurs
+      // centaines de tokens rabotés », sur un budget de ≈ 19 messages/JOUR.
+      //
+      // ⚠️ Aucune donnée nouvelle n'est exposée : c'est l'identifiant du DEMANDEUR lui-même,
+      // que `canReadPersonRecord` l'autorise déjà à lire (« son propre dossier toujours »),
+      // et il vient du contexte serveur — jamais d'une valeur écrite par un attaquant.
+      // Payé uniquement dans cette branche, comme les autres `hint` du dépôt.
+      const requesterEmployeeId = readSlackContext(ctx?.requestContext)?.employeeId;
+
+      return {
+        found: false as const,
+        ...(requesterEmployeeId
+          ? {
+              hint:
+                'Aucun dossier à cette adresse — et ne la réessaie pas en la modifiant. Si la ' +
+                `demande concerne la personne qui te parle, son identifiant interne est ` +
+                `${requesterEmployeeId} : utilise-le directement, ne lui redemande pas son email.`,
+            }
+          : {}),
+      };
     },
   });
 }

@@ -64,7 +64,19 @@ const generateQuestionnaireInputSchema = z.object({
 export function makeGenerateQuestionnaire(repo: QuestionnaireRepository) {
   return createTool({
     id: 'generateQuestionnaire',
-    description: 'Crée un questionnaire et ses questions',
+    // ⚠️ « Enregistre », jamais « crée » ni « publie » — **le mot que lit le modèle est celui
+    // qu'il répétera**. C'est la leçon déjà tirée sur `scheduleReminder`, dont la description
+    // disait « planifie » alors qu'aucun automate ne reprend jamais le statut `Scheduled`.
+    // Ici « crée un questionnaire » laissait entendre un artefact atteignable ; le relevé de
+    // production montre où ça mène :
+    //
+    //     Mastra : « Voilà le quiz "Quiz sur nos valeurs" prêt à être utilisé. »
+    //     Karyl  : « Où est le quiz ? Je ne le vois pas »
+    //
+    // Et, deux tours plus tôt : « Ou je te le partage en lien direct ? » — un lien qui
+    // n'existe nulle part dans ce système, exactement comme le faux
+    // `https://kisso.internal/docs/<uuid>/download` du 2026-08-11.
+    description: "Enregistre un questionnaire. Ne l'envoie à personne, ne l'affiche nulle part.",
     inputSchema: generateQuestionnaireInputSchema,
     execute: async (data, _ctx) => {
       logger.info('Création questionnaire', { title: data.title });
@@ -103,6 +115,29 @@ export function makeGenerateQuestionnaire(repo: QuestionnaireRepository) {
         title: published.title,
         questionCount: questionnaire.questions.length,
         status: published.status,
+        // ────────────────────────────────────────────────────────────────────
+        // CE QUI N'ARRIVE PAS — et pourquoi c'est dans le RÉSULTAT, pas dans le prompt
+        // ────────────────────────────────────────────────────────────────────
+        // Un questionnaire enregistré n'est envoyé à personne, affiché nulle part, et
+        // remplissable par personne : il n'existe ni formulaire Block Kit, ni modale, ni
+        // route de soumission (c'est d'ailleurs pour cela qu'`evaluateResponse` a été
+        // décâblé — son seul appelant possible était un modèle qui fabrique les réponses).
+        //
+        // Le modèle ne pouvait pas le deviner, et le relevé de production montre les trois
+        // formes que prend cette ignorance : « prêt à être utilisé », « je te le partage en
+        // lien direct ? », et « je peux te partager un lien pour qu'il y accède ».
+        //
+        // ⚠️ Dans le RÉSULTAT et non dans les instructions de l'agent : une consigne de
+        // prompt est payée à CHAQUE aller-retour de CHAQUE message, celle-ci n'est payée que
+        // par les runs qui enregistrent réellement un questionnaire. Même arbitrage que le
+        // `hint` de `generateDocument`, et que `willBeSentAutomatically: false` sur
+        // `scheduleReminder` — le dépôt corrige le MENSONGE, il ne construit pas le chemin
+        // manquant.
+        delivered: false,
+        hint:
+          "Enregistré en base, et rien d'autre : ni envoyé, ni affiché, ni remplissable. " +
+          "Aucun lien n'existe — n'en propose pas. Pour que la personne voie le " +
+          'questionnaire, récite les questions dans ta réponse.',
       };
     },
   });

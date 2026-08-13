@@ -302,6 +302,55 @@ describe('Tool: findEmployeeByEmail — repli sur l’annuaire Slack', () => {
     }
   });
 
+  // ════════════════════════════════════════════════════════════════════════
+  // ÉCHEC QUI INSTRUIT — relevé de production, deux jours de suite
+  // ════════════════════════════════════════════════════════════════════════
+  //     Karyl  : « Bonjour, que peux-tu faire pour moi ? »
+  //     Mastra : « Je n'ai pas trouvé d'employé avec l'adresse
+  //               karyl.soumaila@kisso.com. […] Tu peux me les donner ? »
+  //
+  // Le modèle a FABRIQUÉ une adresse plausible à partir du nom de la personne —
+  // `isPlaceholderEmail` ne peut rien contre elle — puis a réclamé à l'humain une
+  // information que le système DÉTENAIT DÉJÀ. Un tour de dialogue perdu est le poste de
+  // coût le plus cher du produit, sur un budget de ≈ 19 messages/JOUR.
+  describe('quand la recherche échoue', () => {
+    const contextDe = (employeeId: string) => ({
+      requestContext: new Map<string, unknown>([
+        ['slackChannel', 'D0MOCKDM01'],
+        ['slackUserId', 'U000HUMAN01'],
+        ['slackEmployeeId', employeeId],
+      ]),
+    });
+
+    it("rappelle l'identifiant du DEMANDEUR plutôt que de lui redemander son email", async () => {
+      const tool = makeFindEmployeeByEmail(new InMemoryEmployeeRepository());
+
+      const result = (await tool.execute!(
+        { email: 'karyl.soumaila@kisso.com' } as never,
+        contextDe('emp-karyl-uuid') as never,
+      )) as Record<string, unknown>;
+
+      expect(result.found).toBe(false);
+      expect(result.hint).toContain('emp-karyl-uuid');
+      // Il doit AUSSI couper la boucle du modèle qui retente en modifiant l'adresse.
+      expect(String(result.hint)).toMatch(/ne la reessaie pas|ne la réessaie pas/i);
+    });
+
+    it("ne dit rien de plus hors Slack, où aucun demandeur n'est connu", async () => {
+      // Playground, route HTTP, workflow, test : `readSlackContext` rend `undefined`, et
+      // c'est le cas NORMAL de ces chemins. On ne fabrique pas un indice sans demandeur.
+      const tool = makeFindEmployeeByEmail(new InMemoryEmployeeRepository());
+
+      const result = (await tool.execute!(
+        { email: 'inconnu@kissohq.com' } as never,
+        {} as never,
+      )) as Record<string, unknown>;
+
+      expect(result.found).toBe(false);
+      expect(result.hint).toBeUndefined();
+    });
+  });
+
   it("sans annuaire injecté, le comportement d'origine est inchangé", async () => {
     const tool = makeFindEmployeeByEmail(new InMemoryEmployeeRepository());
 

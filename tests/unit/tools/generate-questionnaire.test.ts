@@ -79,4 +79,50 @@ describe('GenerateQuestionnaire Tool', () => {
     // Seuls `id` (un UUID de longueur fixe) et `questionCount` varient — jamais le contenu.
     expect(JSON.stringify(result).length - JSON.stringify(court).length).toBeLessThan(5);
   });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // « Où est le quiz ? Je ne le vois pas » — relevé de production
+  // ══════════════════════════════════════════════════════════════════════════
+  // Un questionnaire enregistré n'est envoyé à personne, affiché nulle part, et remplissable
+  // par personne : ni formulaire Block Kit, ni modale, ni route de soumission. Le modèle ne
+  // pouvait pas le deviner, et son ignorance a pris trois formes en production :
+  // « prêt à être utilisé », « je te le partage en lien direct ? », et « je peux te
+  // partager un lien pour qu'il y accède ».
+  it("dit que le questionnaire n'est ni envoyé, ni affiché, ni remplissable", async () => {
+    const mockRepo: QuestionnaireRepository = {
+      findById: vi.fn(),
+      findAll: vi.fn(),
+      update: vi.fn(),
+      save: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const tool = makeGenerateQuestionnaire(mockRepo);
+    const result = (await tool.execute!(
+      {
+        title: 'Quiz',
+        questions: [{ id: 'q1', type: 'text', label: 'A', required: true }],
+      } as never,
+      {} as never,
+    )) as Record<string, unknown>;
+
+    // Même patron que `willBeSentAutomatically: false` sur `scheduleReminder` : le dépôt
+    // corrige le MENSONGE, il ne construit pas le chemin manquant.
+    expect(result.delivered).toBe(false);
+    expect(String(result.hint)).toMatch(/lien/i);
+  });
+
+  it('emploie « enregistre » et jamais « crée » dans sa description', () => {
+    // Le mot que lit le modèle est celui qu'il répétera — la leçon de `scheduleReminder`,
+    // dont la description disait « planifie » alors qu'aucun automate ne reprend jamais le
+    // statut `Scheduled`.
+    const tool = makeGenerateQuestionnaire({
+      findById: vi.fn(),
+      findAll: vi.fn(),
+      update: vi.fn(),
+      save: vi.fn(),
+    } as QuestionnaireRepository);
+
+    expect(tool.description).toMatch(/enregistre/i);
+    expect(tool.description).not.toMatch(/\bcrée\b|\bpublie\b/i);
+  });
 });
