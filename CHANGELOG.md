@@ -101,9 +101,12 @@ morte avec lui sans que personne ne relise la ligne. Ce qui reste, `generateQues
 pour schéma `{title, description, questions[]}` : **aucun champ ne désigne une personne.**
 Résoudre quelqu'un ne pouvait donc influencer aucun résultat.
 
-Deux gains, et le second compte davantage : ≈ 250 tokens de schéma en moins par aller-retour
-(FLOOR −20 %), et surtout **une surface d'accès aux données RH en moins** — `getEmployeeProfile`
-est précisément le tool que `canReadPersonRecord` a dû garder le 2026-08-13.
+Deux gains, et le second compte davantage. **Mesuré** (ratio 3,5 car./token, `zodToJsonSchema`
++ `getInstructions()`) : FLOOR de `questionnaireEngine` **1 102 → 875 tokens, soit −227
+(−20,6 %) par aller-retour** — 127 pour `findEmployeeByEmail`, 88 pour `getEmployeeProfile`, et
+12 rendus par la frontière négative, qui rétrécit d'elle-même puisqu'elle est dérivée du
+câblage. Et surtout **une surface d'accès aux données RH en moins** : `getEmployeeProfile` est
+précisément le tool que `canReadPersonRecord` a dû garder le 2026-08-13.
 
 ### Changed — `generateQuestionnaire` renvoie une projection, plus l'entité
 

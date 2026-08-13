@@ -280,11 +280,39 @@ verrouillent cette règle : `tests/unit/quality/architecture.test.ts` et `code-a
   `test`) gardent le seul pluriel `s?`. Ouvrir la tolérance à tous ferait revenir les faux
   positifs d'origine.
 
-**CINQ court-circuits déterministes répondent SANS aucun appel de modèle** (2026-08-13). Ils
+**SIX court-circuits déterministes répondent SANS aucun appel de modèle** (2026-08-13). Ils
 vivent dans `handleMessage`, dans cet ordre : salutation nue (`shared/greeting.ts`), pièce
 jointe (`subtype: file_share`), message sans contenu textuel et message trop long
-(`shared/message-shape.ts`), détresse (`shared/distress.ts`). Chacun est un prédicat pur + une
-réponse écrite en dur, et coûte **zéro token** sur un quota qui se compte à la journée.
+(`shared/message-shape.ts`), détresse (`shared/distress.ts`), **demande d'effacement**
+(`shared/forget.ts`). Chacun est un prédicat pur + une réponse écrite en dur, et coûte **zéro
+token** sur un quota qui se compte à la journée.
+
+**Le sixième est le seul qui AGISSE, et le seul dont un faux positif soit irréversible.**
+`ConversationRepository` n'exposait que `append`/`recentTurns`/`prune` : « oublie ce que je
+t'ai dit » ne pouvait donc être qu'une narration. ⚠️ La réconciliation FAIT/NARRATION
+n'aurait rien rattrapé — elle guette une formule d'accompli sans `toolCall`, or il n'existait
+aucun tool à appeler, donc aucune contradiction à constater.
+- `forget(scope)` : en **DM** tout part (la conversation est l'espace privé d'une personne) ;
+  en **fil de canal**, seuls les tours du demandeur. Hors DM sans auteur identifié, on échoue
+  bruyamment — une portée indéterminée sur une suppression, c'est le fil entier.
+- La réponse nomme ce que l'effacement **ne couvre pas** (documents, notifications, annuaire),
+  et sur échec ne prétend **jamais** avoir effacé.
+- Placé **avant** la frontière d'autorisation, comme la détresse : c'est un droit, pas un
+  privilège de niveau `full`. Exempté du plafond quotidien.
+- ⚠️ **Le critère porte sur un ACTE DE LANGAGE, pas sur la présence de mots.** Une revue
+  adversariale a REPRODUIT une perte de données sur la première version : « Je ne veux
+  surtout pas que tu oublies ce que je t'ai dit » — qui demande le CONTRAIRE — effaçait, la
+  négation étant séparée du verbe. Idem « vas-tu oublier… ? », « pourquoi as-tu oublié… ? ».
+  Le verbe doit désormais **ouvrir le message** (impératif) ou suivre une formule de demande,
+  et la négation est cherchée sur **4 mots des deux côtés**. Vérifié sur 36 phrases.
+- Sonde de production (⚠️ **elle supprime réellement**, sauvegarder d'abord) :
+  `npx tsx --env-file=.env scripts/probe-erasure.mts --yes`. Vérifié le 2026-08-13 : 38 → 0.
+
+⚠️ **Le TTL de 60 min n'était appliqué qu'EN LECTURE.** La purge dépendait d'un compteur en
+mémoire PAR INSTANCE, remis à zéro à chaque démarrage à froid, avec un seuil de 100 jamais
+atteint à ≈ 19 messages/jour : les lignes restaient sur la Turso **sans borne réelle**.
+Remplacé par un tirage sans état (`DEFAULT_PRUNE_PROBABILITY = 0.2`) — une borne, toujours pas
+une garantie : seul un cron en serait une, et ce projet n'en a aucun.
 
 - `hasNoTextualContent` teste `[\p{L}\p{N}]` — lettre ou chiffre **Unicode**, jamais `[a-z0-9]` :
   un filtre latin rendrait le bot muet devant « مرحبا », « привет » ou « 你好 ».
@@ -608,9 +636,16 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
     | Agent                    | instructions | tools | FLOOR |
     | ------------------------ | ------------ | ----- | ----- |
     | `onboardingOrchestrator` | 785          | 691   | **1 476** |
-    | `questionnaireEngine`    | 625          | 619   | **1 244** |
+    | `questionnaireEngine`    | 611          | 264   | **875** |
     | `notificationAgent`      | 624          | 728   | **1 352** |
-    | **Somme**                |              |       | **4 072** |
+    | **Somme**                |              |       | **3 703** |
+
+    ⚠️ `questionnaireEngine` a été **remesuré le 2026-08-13** après le décâblage de
+    `findEmployeeByEmail` (127 tokens) et `getEmployeeProfile` (88) : ils ne pouvaient
+    influencer AUCUN résultat, `generateQuestionnaire` n'ayant aucun champ de personne. Leur
+    justification de 2026-08-11 (« tous ses tools exigent un UUID ») est morte avec le
+    décâblage d'`evaluateResponse` le 2026-08-12, sans que personne ne relise la ligne. Les
+    12 tokens restants viennent de la frontière négative, qui rétrécit d'elle-même.
 
     Les lots sont **autofinancés** : la frontière négative et les consignes ajoutées sont payées
     par les suppressions (passation impossible, récitation de capacités). L'écart avec les
@@ -919,7 +954,9 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
     l'ordonnanceur ; on corrige le MENSONGE. La description dit « enregistre » (jamais
     « planifie » — le mot que lit le modèle est celui qu'il répétera) et le résultat porte
     `willBeSentAutomatically: false`.
-  - **`findEmployeeByEmail` est exposé aux TROIS agents** — correctif de CÂBLAGE, pas de
+  - **`findEmployeeByEmail` est exposé à `onboardingOrchestrator` et `notificationAgent`**
+    (il l'a été aux TROIS jusqu'au 2026-08-13 — voir le retrait sur `questionnaireEngine`
+    ci-dessus) — correctif de CÂBLAGE, pas de
     rédaction. Tous les tools de `questionnaireEngine` et de `notificationAgent` exigent un
     UUID, aucun ne fait email → UUID, le `.describe()` de `recipientId` renvoyait vers
     `getEmployeeProfile` **qui exige déjà un UUID** (consigne circulaire), et
@@ -948,8 +985,17 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
   (règle métier entièrement inventée — aucun tool de modification n'existe), un rappel
   « programmé pour lundi 9h » annoncé sans jamais appeler `scheduleReminder`.
   - Correctif : `agentToolBoundary(tools)` dans `src/shared/agent-style.ts` —
-    `TES SEULS OUTILS : … Rien d'autre n'existe`, **dérivé de `Object.keys(tools)`** et jamais
-    rédigé. Ce dépôt a déjà connu des instructions nommant `discoverSlackWorkspace` et
+    `TES SEULS OUTILS : … Rien d'autre n'existe ni n'a existé`, **dérivé de
+    `Object.keys(tools)`** et jamais rédigé.
+    ⚠️ **Deux clauses ajoutées le 2026-08-13.** « ni n'a existé » couvre la QUESTION À
+    PRÉMISSE FAUSSE (« pourquoi as-tu supprimé le compte de Awa ? ») : la frontière ne parlait
+    qu'au présent, donc le modèle pouvait s'excuser d'une action qu'aucun câblage ne lui a
+    jamais permise. « Pas de service générique (traduction, rédaction libre, code) » couvre le
+    HORS-MÉTIER, que la RÈGLE ANTI-INVENTION ne rattrape pas — elle interdit d'inventer une
+    DONNÉE absente, or il n'y en a aucune à inventer : le modèle obtempère et brûle un tour.
+    C'est une **énumération négative**, jamais un « reste dans ton domaine » : les quatre
+    agents ont quatre domaines, et une consigne d'appartenance ferait refuser à
+    `notificationAgent` un rappel légitime. Un test verrouille cette forme. Ce dépôt a déjà connu des instructions nommant `discoverSlackWorkspace` et
     `createEmployee` longtemps après leur retrait : une liste écrite à la main se désynchronise
     au premier changement de câblage, celle-ci ne le peut pas. 38 à 48 tokens.
   - **Supprimé en contrepartie** : « pour une notification ou un email, passe la main à l'agent
