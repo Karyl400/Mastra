@@ -1055,6 +1055,42 @@ describe('SlackEventsHandler — contexte Slack transmis à l’agent', () => {
     expect(readSlackContext(lastRequestContext(generate))?.threadTs).toBe('1700000000.000100');
   });
 
+  it('fait descendre la FICHE EMPLOYÉ du demandeur jusqu’aux tools', async () => {
+    // ⚠️ C'est la donnée qui permet à un tool de distinguer « je consulte MON dossier » de
+    // « je consulte celui d'un collègue ». Le handler la résolvait déjà — elle alimente le
+    // préambule d'identité — mais elle ne descendait pas jusqu'aux tools, qui n'avaient donc
+    // aucun contrôle possible : trois lectures RH s'exécutaient sans jamais regarder QUI
+    // demandait.
+    const directoryRepository = new InMemoryDirectoryRepository();
+    await directoryRepository.upsertFacts(
+      {
+        slackUserId: HUMAN,
+        teamId: 'TMLKC4EPP',
+        email: 'karylsoumaila1@gmail.com',
+        realName: 'Karyl SOUMAILA',
+        displayName: 'karyl',
+        firstName: 'Karyl',
+        lastName: 'SOUMAILA',
+        title: null,
+        isBot: false,
+        isAdmin: false,
+        isRestricted: false,
+        isUltraRestricted: false,
+        isDeleted: false,
+      },
+      new Date(),
+    );
+    await directoryRepository.linkEmployee(HUMAN, 'd20df236-5c24-42a5-b205-d0d738d34fb4');
+
+    const { handler, generate } = makeHandler({ directoryRepository });
+
+    await handler.handleEvent(envelope(dm({ ts: nextTs() }), 'EvEMPID'));
+
+    expect(readSlackContext(lastRequestContext(generate))?.employeeId).toBe(
+      'd20df236-5c24-42a5-b205-d0d738d34fb4',
+    );
+  });
+
   it('utilise les clés contractuelles du module partagé', () => {
     // Le handler (producteur) et les tools (consommateurs) vivent dans des couches qui ne
     // peuvent pas s'importer l'une l'autre : ces trois clés sont leur seul contrat.

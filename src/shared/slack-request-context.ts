@@ -48,6 +48,20 @@ export const SLACK_USER_ID_KEY = 'slackUserId';
  */
 export const SLACK_EVENT_TS_KEY = 'slackEventTs';
 export const SLACK_ACCESS_LEVEL_KEY = 'slackAccessLevel';
+/**
+ * `employees.id` du DEMANDEUR — l'identifiant qui permet de répondre à « est-ce son propre
+ * dossier qu'il consulte ? ».
+ *
+ * Le handler le résout déjà (`resolveRequesterIdentity`) et l'injecte dans le préambule pour
+ * que le modèle sache s'identifier. Il ne descendait PAS jusqu'aux tools, qui n'avaient donc
+ * aucun moyen de distinguer une lecture de soi d'une lecture d'autrui. Encore la classe de
+ * défaut la plus fréquente de ce dépôt : deux bords corrects, aucun câblage entre les deux.
+ *
+ * ⚠️ Il voyage ici et NULLE PART AILLEURS pour ce qui est de l'AUTORISATION. La valeur est
+ * aussi dans le préambule, mais celle-là sert au modèle à s'exprimer ; on ne décide jamais
+ * d'un droit sur une valeur qui a traversé la fenêtre du modèle — un attaquant y écrit.
+ */
+export const SLACK_EMPLOYEE_ID_KEY = 'slackEmployeeId';
 
 /**
  * Ce que le demandeur a le droit de déclencher — décidé en CODE par
@@ -84,6 +98,13 @@ export interface SlackToolContext {
   eventTs?: string;
   /** Auteur du message. Sert à adresser une livraison de repli (DM, email), pas à router. */
   slackUserId?: string;
+  /**
+   * `employees.id` du demandeur. **`undefined` signifie « pas de fiche »**, ce qui est le cas
+   * COURANT et non le cas limite : cinq humains dans ce workspace, une seule fiche employé.
+   * Un tool ne doit donc jamais en déduire un refus par absence — seulement l'impossibilité
+   * de reconnaître une lecture de SOI.
+   */
+  employeeId?: string;
   /**
    * Niveau d'accès du demandeur. **`undefined` signifie « non évalué »**, pas « autorisé » :
    * c'est le cas des chemins hors Slack (playground, route HTTP, workflow, test), où il n'y a
@@ -122,6 +143,9 @@ export function buildSlackRequestContext(context: SlackToolContext): RequestCont
   const slackUserId = nonEmptyString(context.slackUserId);
   if (slackUserId) entries.push([SLACK_USER_ID_KEY, slackUserId]);
 
+  const employeeId = nonEmptyString(context.employeeId);
+  if (employeeId) entries.push([SLACK_EMPLOYEE_ID_KEY, employeeId]);
+
   if (context.accessLevel) entries.push([SLACK_ACCESS_LEVEL_KEY, context.accessLevel]);
 
   return new RequestContext(entries);
@@ -142,6 +166,68 @@ export function buildSlackRequestContext(context: SlackToolContext): RequestCont
 export function canPerformSideEffects(requestContext: unknown): boolean {
   const level = readSlackContext(requestContext)?.accessLevel;
   return level === undefined || level === 'full';
+}
+
+/**
+ * Le demandeur peut-il lire le dossier RH de la personne `targetEmployeeId` ?
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * Le défaut : trois lectures RH SANS AUCUN contrôle du demandeur
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Audit du 2026-08-13. `getEmployeeProfile`, `getTaskList` et `getNotificationHistory` ne
+ * contenaient pas une seule référence au demandeur — ni `readSlackContext`, ni rien
+ * d'équivalent. N'importe quel membre du workspace obtenait donc le dossier complet d'un
+ * collègue : département, poste, date d'entrée, manager, avancement d'intégration, tâches,
+ * historique des notifications reçues.
+ *
+ * Et l'UUID nécessaire n'était pas un secret : `findEmployeeByEmail` le rend depuis une simple
+ * adresse email. La chaîne complète « email d'un collègue → UUID → dossier » était ouverte, en
+ * deux messages, à quiconque sait écrire dans Slack. C'est un bot RH.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * La règle, et pourquoi elle n'est pas inventée ici
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ *  1. **Son propre dossier : toujours.** Comparaison sur `employees.id`, jamais sur un nom.
+ *  2. **Le dossier d'autrui : niveau `full` exigé.** C'est EXACTEMENT la règle déjà appliquée
+ *     par `getUserConversations` pour la mémoire d'autrui (`authorizeOtherMemoryRead`) et par
+ *     `canPerformSideEffects` pour les effets de bord. On ne crée pas une troisième
+ *     politique : deux copies d'une décision d'autorisation divergent, c'est une question de
+ *     temps et non de discipline.
+ *
+ * ⚠️ **Le mode observation est HÉRITÉ, il n'est pas rejoué ici.** Le niveau porté par le
+ * contexte est déjà l'`effective` calculé par `SlackAccessGuard`, qui rend `full` à tout le
+ * monde tant que `AUTHZ_ENFORCE` n'est pas posé. Conséquence à connaître avant de conclure
+ * quoi que ce soit de cette fonction : **tant que l'application n'est pas activée, elle ne
+ * refuse rien.** C'est délibéré — ces flux existaient avant elle, et les rétrograder d'un coup
+ * casserait des usages légitimes (c'est le raisonnement déjà tranché dans `access-guard.ts`,
+ * et l'inverse de celui de `disclosure-policy.ts`, dont la capacité était NEUVE).
+ *
+ * ⚠️ Corollaire de configuration : `resolveAccess` n'accorde `full` qu'à une adresse dont le
+ * domaine figure dans `SLACK_ORG_EMAIL_DOMAINS`. Activer l'application sans y faire figurer le
+ * domaine réel des personnes qui administrent l'onboarding les ferait basculer en `readonly`
+ * — elles ne pourraient plus consulter le dossier de personne. À vérifier AVANT de poser
+ * `AUTHZ_ENFORCE=true`, pas après.
+ *
+ * Rendre `true` sur un contexte absent est délibéré, même argument que `canPerformSideEffects`
+ * mot pour mot : playground, workflows et tests n'ont pas de demandeur Slack, et l'absence de
+ * contexte n'est pas un refus — c'est un chemin où la question ne se pose pas.
+ */
+export function canReadPersonRecord(
+  requestContext: unknown,
+  targetEmployeeId: string | undefined | null,
+): boolean {
+  const context = readSlackContext(requestContext);
+  if (!context) return true;
+
+  const target = nonEmptyString(targetEmployeeId);
+  // Son propre dossier, toujours. La comparaison est faite AVANT le niveau : quelqu'un qui a
+  // été rétrogradé en `readonly` garde le droit de consulter ses propres tâches, sans quoi
+  // activer l'application couperait chacun de son propre parcours d'intégration.
+  if (target && context.employeeId && context.employeeId === target) return true;
+
+  return context.accessLevel === undefined || context.accessLevel === 'full';
 }
 
 /**
@@ -187,6 +273,9 @@ export function readSlackContext(requestContext: unknown): SlackToolContext | un
 
     const slackUserId = nonEmptyString(read(SLACK_USER_ID_KEY));
     if (slackUserId) context.slackUserId = slackUserId;
+
+    const employeeId = nonEmptyString(read(SLACK_EMPLOYEE_ID_KEY));
+    if (employeeId) context.employeeId = employeeId;
 
     // Une valeur inconnue est IGNORÉE, jamais interprétée : une faute de frappe côté
     // producteur ne doit pas se traduire par un refus silencieux, ni par une autorisation

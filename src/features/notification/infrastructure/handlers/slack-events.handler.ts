@@ -2320,11 +2320,17 @@ export class SlackEventsHandler {
       // `ts` du payload : en DM elle vaut `undefined` par conception, et un fichier uploadé
       // avec un `thread_ts` en DM serait enfoui hors de la conversation principale —
       // exactement le défaut qui a fait paraître le bot muet pendant des heures.
+      // Résolue UNE fois : elle alimente désormais deux consommateurs — le préambule (ce que
+      // le modèle sait dire) et le `requestContext` (ce sur quoi un tool a le droit de
+      // décider). Deux `await` sur la même promesse rendraient la même valeur, mais nommer la
+      // valeur dit qu'il s'agit bien de la même identité des deux côtés.
+      const identity = await requesterIdentity;
+
       const response = await agent.generate(
         this.buildMessages(history, safeInput, {
           agentId,
           slackUserId: user,
-          identity: await requesterIdentity,
+          identity,
         }),
         {
           requestContext: buildSlackRequestContext({
@@ -2336,6 +2342,11 @@ export class SlackEventsHandler {
             // légitimement demandé.
             eventTs: event.ts,
             slackUserId: user,
+            // Fiche employé du DEMANDEUR — la seule donnée qui permette à un tool de
+            // distinguer « je consulte mon dossier » de « je consulte celui d'un collègue ».
+            // Elle était déjà résolue ici et injectée dans le préambule ; elle ne descendait
+            // pas jusqu'aux tools, qui n'avaient donc aucun contrôle possible.
+            employeeId: identity.employeeId ?? undefined,
             // Coût en tokens : ZÉRO. Le `RequestContext` ne traverse ni le prompt, ni les
             // schémas de tools, ni le tool-result — c'est ce qui permet de faire descendre une
             // décision d'autorisation jusqu'aux tools sans jamais la soumettre au modèle.

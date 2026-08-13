@@ -1,5 +1,59 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-13 — trois lectures RH s'exécutaient sans regarder QUI demandait
+
+### Security — la frontière d'autorisation manquait là où elle comptait le plus
+
+Relevé par l'audit du 2026-08-13, vérifié ligne à ligne : `getEmployeeProfile`, `getTaskList`
+et `getNotificationHistory` ne contenaient **aucune** référence au demandeur — ni
+`readSlackContext`, ni rien d'équivalent. N'importe quel membre du workspace obtenait donc le
+dossier RH complet d'un collègue : département, poste, date d'entrée, manager, avancement
+d'intégration, tâches, et l'historique des messages qu'il a reçus.
+
+L'UUID nécessaire n'était pas un secret : `findEmployeeByEmail` le rend depuis une simple
+adresse. **La chaîne « email d'un collègue → UUID → dossier » était ouverte en deux messages.**
+
+Ce n'est pas une machinerie qui manquait — elle existait déjà et était bien conçue
+(`SlackAccessGuard`, `disclosure-policy.ts`, `canPerformSideEffects`). Ces trois outils-là ne
+l'appelaient simplement pas. Encore la classe de défaut la plus fréquente de ce dépôt : deux
+bords corrects, aucun câblage entre les deux.
+
+**Câblage manquant.** Le handler résolvait déjà `employees.id` du demandeur — il alimente le
+préambule d'identité depuis le 2026-08-12 — mais la valeur ne descendait pas jusqu'aux tools,
+qui n'avaient donc aucun moyen de distinguer « mon dossier » de « celui d'un collègue ». Elle
+voyage désormais par le `requestContext` (clé `slackEmployeeId`), le seul canal qui n'entre pas
+dans la fenêtre du modèle — on ne décide jamais d'un droit sur une valeur qu'un attaquant peut
+écrire.
+
+**La règle n'est pas inventée ici** : son propre dossier toujours, celui d'autrui au niveau
+`full`. C'est exactement celle qu'appliquent déjà `getUserConversations` à la mémoire d'autrui
+et `canPerformSideEffects` aux effets de bord. Trois copies d'une décision d'autorisation
+divergent — c'est une question de temps, pas de discipline.
+
+Deux arbitrages, tous deux verrouillés par test :
+
+- **La comparaison « est-ce mon dossier ? » passe AVANT le niveau.** Sans cela, activer
+  l'application couperait chacun de son propre parcours d'intégration — la fonction même du
+  produit.
+- **Le refus arrive AVANT toute lecture en base.** Un refus qui interroge d'abord et filtre
+  ensuite fuite par la latence et journalise une consultation qui n'aurait pas dû avoir lieu.
+  Les tests vérifient que le repository n'est **jamais appelé**, pas seulement que le résultat
+  est vide.
+
+### ⚠️ Ce que ce correctif ne fait PAS — à lire avant d'en conclure quoi que ce soit
+
+Le niveau porté par le contexte est l'`effective` calculé par `SlackAccessGuard`, qui rend
+`full` à tout le monde tant que **`AUTHZ_ENFORCE`** n'est pas posé. **Tant que l'application
+n'est pas activée, cette frontière ne refuse rien.** C'est délibéré et conforme au
+raisonnement déjà tranché dans `access-guard.ts` : ces flux existaient avant elle, les
+rétrograder d'un coup casserait des usages légitimes.
+
+⚠️ **Piège de configuration à vérifier AVANT de poser `AUTHZ_ENFORCE=true`, pas après** :
+`resolveAccess` n'accorde `full` qu'à une adresse dont le domaine figure dans
+`SLACK_ORG_EMAIL_DOMAINS` (`kissohq.com,design.kisso.xyz`). Or l'adresse d'annuaire de la
+personne qui administre l'onboarding est `karylsoumaila1@gmail.com` — domaine étranger, donc
+`readonly`. Activer l'application en l'état la couperait du dossier de tout le monde.
+
 ## [Unreleased] - 2026-08-13 — ce que le bot fait quand la demande n'en est pas une
 
 Campagne de durcissement sur les **cas limites de conversation** : ce que reçoit quelqu'un qui

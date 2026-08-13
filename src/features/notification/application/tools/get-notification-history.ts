@@ -36,7 +36,18 @@ import type { NotificationRepository } from '../../domain/ports/notification.rep
 import type { Notification } from '../../domain/entities/notification';
 import { uuidSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
+import { canReadPersonRecord } from '../../../../shared/slack-request-context';
 import type { NotificationChannel, NotificationStatus } from '../../../../shared/types';
+
+/**
+ * Consigne rendue quand le demandeur n'a pas le droit de lire l'historique de cette personne.
+ * Même rédaction que dans `get-employee-profile.ts` — une seule formulation, pour qu'elles ne
+ * divergent pas.
+ */
+const NOT_AUTHORIZED_HINT =
+  "Tu n'as pas accès aux messages reçus par cette personne. Dis-le simplement, sans détour " +
+  'et sans inventer de motif. Ne réessaie pas avec un autre outil et ne reformule pas la ' +
+  'demande.';
 
 /**
  * Nombre maximal de notifications rendues.
@@ -96,6 +107,22 @@ export function makeGetNotificationHistory(repo: NotificationRepository) {
       recipientId: uuidSchema,
     }),
     execute: async (data, _ctx) => {
+      // AVANT toute lecture en base — voir `canReadPersonRecord`. L'historique des messages
+      // reçus par quelqu'un dit ce qu'on lui a écrit et quand : c'est une donnée personnelle
+      // au même titre que son dossier.
+      if (!canReadPersonRecord(_ctx?.requestContext, data.recipientId)) {
+        logger.warn('Lecture d’historique refusée — demandeur non autorisé', {
+          recipientId: data.recipientId,
+        });
+        return {
+          notifications: [],
+          total: 0,
+          shown: 0,
+          reason: 'not_authorized' as const,
+          hint: NOT_AUTHORIZED_HINT,
+        };
+      }
+
       logger.info('Récupération historique notifications', { recipientId: data.recipientId });
       const all = await repo.findByRecipient(data.recipientId);
 
