@@ -29,6 +29,7 @@ import {
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
 import { GREETING_REPLY } from '../../../src/shared/greeting';
 import { DISTRESS_REPLY } from '../../../src/shared/distress';
+import { ERASURE_FAILED_REPLY } from '../../../src/shared/forget';
 import { CONTENT_FREE_REPLY, TOO_LONG_REPLY } from '../../../src/shared/message-shape';
 import { wrapAgentInput, MAX_USER_INPUT_LENGTH } from '../../../src/shared/security/llm-guardrail';
 import { NEUTRAL_REFUSAL } from '../../../src/shared/security/agent-output';
@@ -128,6 +129,11 @@ function makeHandler(
     directoryRepository?: DirectoryRepository | null;
     /** Limitation de débit. `null` par défaut : ces tests restent hermétiques. */
     rateLimiter?: SlackRateLimiter | null;
+    /**
+     * Purge de rétention. `0` par défaut — la production tire à 0,2, ce qui rendrait un
+     * test sur cinq porteur d'un appel de fond non demandé.
+     */
+    pruneProbability?: number;
   } = {},
 ) {
   const slack = options.slack ?? makeSlackMock();
@@ -142,6 +148,9 @@ function makeHandler(
     // `DrizzleConversationRepository`, donc ouvrirait une connexion base dans un test unitaire.
     conversationRepository: options.conversationRepository ?? null,
     conversationTokenBudget: options.conversationTokenBudget,
+    // Tirage neutralisé par défaut : la purge est une tâche de fond, et la laisser à sa
+    // probabilité de production ferait échouer un test sur cinq de façon irreproductible.
+    pruneProbability: options.pruneProbability ?? 0,
     // Doublure par défaut : sans elle le handler construirait un dépôt Drizzle et ouvrirait
     // une connexion base dans un test unitaire.
     dedupRepository: options.dedupRepository ?? new InMemorySlackEventDedupRepository(),
@@ -1205,6 +1214,7 @@ describe('SlackEventsHandler — mémoire conversationnelle', () => {
       append: vi.fn().mockRejectedValue(new Error('no such table: conversation_turns')),
       recentTurns: vi.fn().mockRejectedValue(new Error('no such table: conversation_turns')),
       prune: vi.fn().mockResolvedValue(0),
+      forget: vi.fn().mockRejectedValue(new Error('no such table: conversation_turns')),
     };
     const { handler, slack } = makeHandler({ conversationRepository: broken });
 
@@ -2242,6 +2252,119 @@ describe('SlackEventsHandler — court-circuits sans appel LLM', () => {
 
     const decision = await handler.accept(
       envelope(dm({ text: 'je ne vais pas bien', ts: nextTs() }), 'EvDISTRESSLIMIT'),
+    );
+
+    expect(decision.action).toBe('process');
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // EFFACEMENT — le sixième court-circuit, et le seul qui AGISSE
+  // ══════════════════════════════════════════════════════════════════════════
+  // Les cinq autres se contentent de répondre. Celui-ci supprime des données, donc il est
+  // le seul dont un faux positif soit irréversible — d'où le critère à deux termes de
+  // `src/shared/forget.ts`, et d'où ces tests.
+  it("efface RÉELLEMENT la mémoire d'un DM, sans appeler le modèle", async () => {
+    const memory = new InMemoryConversationRepository();
+    await memory.append({
+      conversationId: 'D0MOCKDM01',
+      role: 'user',
+      content: 'mon salaire est un sujet',
+      agentId: 'onboardingOrchestrator',
+      slackUserId: HUMAN,
+    });
+    await memory.append({
+      conversationId: 'D0MOCKDM01',
+      role: 'assistant',
+      content: 'bien noté',
+      agentId: 'onboardingOrchestrator',
+      slackUserId: null,
+    });
+
+    const { handler, slack, generate } = makeHandler({ conversationRepository: memory });
+
+    await handler.handleEvent(
+      envelope(dm({ text: "oublie ce que je t'ai dit", ts: nextTs() }), 'EvFORGET1'),
+    );
+
+    // Le geste est RÉEL. C'est tout l'objet du correctif : sans lui, le modèle ne pouvait
+    // que raconter un effacement, faute du moindre outil pour le faire.
+    expect(await memory.recentTurns('D0MOCKDM01', { ttlMs: 3_600_000, limit: 50 })).toHaveLength(0);
+    expect(generate).not.toHaveBeenCalled();
+
+    // En DM la conversation est l'espace privé d'une seule personne : les tours `assistant`
+    // partent aussi.
+    const posted = slack.chat.postMessage.mock.calls.at(-1)?.[0] as { text: string };
+    expect(posted.text).toContain('2 messages');
+  });
+
+  it("n'efface QUE ses propres tours dans un fil de canal", async () => {
+    const memory = new InMemoryConversationRepository();
+    const conversationId = 'C0MOCKCHAN:1700000000.000900';
+
+    await memory.append({
+      conversationId,
+      role: 'user',
+      content: 'à moi',
+      agentId: 'onboardingOrchestrator',
+      slackUserId: HUMAN,
+    });
+    await memory.append({
+      conversationId,
+      role: 'user',
+      content: "à quelqu'un d'autre",
+      agentId: 'onboardingOrchestrator',
+      slackUserId: 'U000AUTRE01',
+    });
+
+    const { handler } = makeHandler({ conversationRepository: memory });
+
+    await handler.handleEvent(
+      envelope(
+        mention({
+          text: `<@${BOT_USER_ID}> supprime tout ce que tu sais de moi`,
+          thread_ts: '1700000000.000900',
+          ts: nextTs(),
+        }),
+        'EvFORGET2',
+      ),
+    );
+
+    // Plusieurs humains parlent dans un fil : effacer le fil entier parce que l'un d'eux le
+    // demande supprimerait les messages des autres, ce que personne n'a demandé.
+    const restants = await memory.recentTurns(conversationId, { ttlMs: 3_600_000, limit: 50 });
+    expect(restants).toHaveLength(1);
+    expect(restants[0].slackUserId).toBe('U000AUTRE01');
+  });
+
+  it("n'annonce JAMAIS un effacement que la base a refusé", async () => {
+    const broken: ConversationRepository = {
+      append: vi.fn().mockResolvedValue(undefined),
+      recentTurns: vi.fn().mockResolvedValue([]),
+      prune: vi.fn().mockResolvedValue(0),
+      forget: vi.fn().mockRejectedValue(new Error('no such table: conversation_turns')),
+    };
+
+    const { handler, slack } = makeHandler({ conversationRepository: broken });
+
+    await handler.handleEvent(
+      envelope(dm({ text: 'supprime mes données', ts: nextTs() }), 'EvFORGET3'),
+    );
+
+    // Toute la valeur du correctif tient dans le fait que la réponse dit ce qui s'est
+    // réellement passé. Annoncer une suppression qui n'a pas eu lieu serait pire que
+    // l'absence de fonctionnalité : la personne cesserait de la demander.
+    const posted = slack.chat.postMessage.mock.calls.at(-1)?.[0] as { text: string };
+    expect(posted.text).toBe(ERASURE_FAILED_REPLY);
+    expect(posted.text).not.toContain("C'est effacé");
+  });
+
+  it("ACCEPTE une demande d'effacement quand le budget quotidien est ÉPUISÉ", async () => {
+    // Le cas le moins acceptable de tous : quelqu'un demande l'effacement de ses données et
+    // s'entend répondre « J'ai atteint mon quota ». C'est un droit, pas un service rendu.
+    const { handler } = makeHandler({ rateLimiter: exhaustedBudget() });
+
+    const decision = await handler.accept(
+      envelope(dm({ text: 'supprime tout ce que tu sais de moi', ts: nextTs() }), 'EvFORGETLIM'),
     );
 
     expect(decision.action).toBe('process');

@@ -295,10 +295,26 @@ const onboardingOrchestrator = makeOnboardingOrchestrator({
 // Le tool reste dans le dépôt, corrigé et testé : il redeviendra câblable le jour où un
 // vrai chemin de soumission existera. Le rebrancher avant cela, c'est fabriquer des
 // données RH. Effet de bord favorable : ≈ 120 tokens de schéma en moins par aller-retour.
+//
+// ⚠️ `findEmployeeByEmail` et `getEmployeeProfile` ont été RETIRÉS de cet agent le
+// 2026-08-13. Leur justification, écrite le 2026-08-11, était : « tous les tools de
+// `questionnaireEngine` exigent un UUID d'employé, et aucun ne sait faire email → UUID ».
+// Elle était vraie — tant qu'`evaluateResponse` était câblé. Il a été retiré le 2026-08-12,
+// et la justification est morte avec lui sans que personne ne relise la ligne.
+//
+// Ce qu'il reste : `generateQuestionnaire`, dont le schéma est `{title, description,
+// questions[]}`. **Aucun champ ne désigne une personne.** Résoudre quelqu'un ne pouvait donc
+// influencer AUCUN résultat de cet agent : les deux tools étaient du coût pur, réémis à
+// chaque aller-retour.
+//
+// Deux gains, et le second compte davantage :
+//  1. ≈ 250 tokens de schéma en moins par aller-retour (FLOOR 1244 → ~995, soit −20 %) ;
+//  2. `getEmployeeProfile` lit un DOSSIER RH COMPLET. C'est le tool que la frontière
+//     `canReadPersonRecord` a dû garder le 2026-08-13. L'exposer à un agent qui n'en a aucun
+//     usage, c'est offrir une surface d'accès aux données de plus sans contrepartie — et la
+//     surface la moins défendable est celle dont personne ne peut nommer l'utilité.
 const questionnaireEngine = makeQuestionnaireEngine({
-  findEmployeeByEmail,
   generateQuestionnaire,
-  getEmployeeProfile,
 });
 
 // discoverSlackWorkspace n'est PAS exposé ici : les instructions de l'agent ne le

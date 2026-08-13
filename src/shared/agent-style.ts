@@ -132,5 +132,44 @@ export function agentToolBoundary(tools: Readonly<Record<string, unknown>>): str
   const names = Object.keys(tools);
   const liste = names.length > 0 ? names.join(', ') : 'aucun';
 
-  return `TES SEULS OUTILS : ${liste}. Rien d'autre n'existe : dis-le, n'invente rien.`;
+  // ── Deux extensions du 2026-08-13, chacune fermant un trou d'audit distinct ──
+  //
+  // « ni n'a existé » — LE PASSÉ. La frontière ne parlait qu'au présent, donc elle ne
+  // couvrait pas la QUESTION À PRÉMISSE FAUSSE : « pourquoi as-tu supprimé le compte de
+  // Awa ? ». Aucun tool de suppression n'a jamais été câblé sur aucun agent, mais rien ne
+  // le disait au modèle — qui pouvait donc s'excuser d'une action qu'il n'a pas pu commettre,
+  // et le faire avec l'assurance dont ce dépôt sait déjà qu'elle ne distingue pas le fait de
+  // la narration. Deux mots suffisent parce que la LISTE, elle, est déjà dérivée du câblage :
+  // le modèle a de quoi conclure seul.
+  //
+  // « Pas de service générique » — LE HORS-MÉTIER. Second angle mort de la même nature :
+  // rien n'indiquait qu'écrire un poème, traduire un texte ou produire du code soit hors
+  // mandat. Et la RÈGLE ANTI-INVENTION ne rattrapait pas ces cas — elle interdit d'inventer
+  // une DONNÉE absente, or ici il n'y a aucune donnée à inventer : le modèle obtempère,
+  // correctement, et brûle un tour entier d'un budget de ≈ 19 par jour.
+  //
+  // ⚠️ La frontière est une ÉNUMÉRATION NÉGATIVE des familles hors-sujet, et surtout PAS un
+  // « reste dans ton domaine ». Les quatre agents ont quatre domaines distincts (onboarding,
+  // questionnaires, notifications, lecture de conversations) : une consigne d'appartenance
+  // ferait refuser à `notificationAgent` un rappel parfaitement légitime au motif que ce
+  // n'est pas de l'onboarding. Et une formulation vague — « ce qui sort de ton rôle » — est
+  // pire encore : ce dépôt sait ce qu'un modèle met dans un espace laissé vide, c'est la
+  // raison d'être de cette fonction. On nomme donc ce qu'on refuse, pas ce qu'on autorise.
+  //
+  // ⚠️ Volontairement dans le prompt et NON en court-circuit par mots-clés. Reconnaître une
+  // « intention hors-sujet » par une liste de mots répéterait l'erreur la mieux documentée du
+  // dépôt — celle où le mot « email » rendait la recherche par email structurellement
+  // inatteignable. Les court-circuits déterministes n'admettent que les messages SANS
+  // variabilité (salutation nue, message vide, pièce jointe) ; « traduis-moi ce texte » n'en
+  // est pas un.
+  //
+  // Coût : ≈ 15 tokens par aller-retour. Un seul run hors-sujet évité (≈ 2 000 tokens) le
+  // rembourse pour une semaine.
+  return (
+    `TES SEULS OUTILS : ${liste}. Rien d'autre n'existe ni n'a existé : dis-le, n'invente ` +
+    // « divertissement » a été RETIRÉ de l'énumération : une chanson ou un poème sont déjà
+    // de la rédaction libre, et le mot coûtait 5 tokens à chaque aller-retour pour ne
+    // couvrir aucun cas que les trois autres ne couvrent pas.
+    `rien. Pas de service générique (traduction, rédaction libre, code).`
+  );
 }

@@ -1,5 +1,133 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-13 (2) — « oublie ce que je t'ai dit » ne pouvait être qu'un mensonge
+
+Tranches « Contexte et mémoire » et « Flux de conversation » de l'audit conversationnel.
+Quatre correctifs, dont deux qui touchent des DONNÉES et non du confort.
+
+### Added — un effacement RÉEL, sixième court-circuit déterministe
+
+`ConversationRepository` exposait `append`, `recentTurns` et `prune` — et **rien** qui réponde
+à une personne. « oublie ce que je t'ai dit », « supprime tout ce que tu sais de moi »
+partaient donc au modèle, qui n'a aucun outil d'effacement et ne pouvait faire qu'une chose :
+**le raconter**. C'est le défaut central de ce dépôt — « il parle exactement de la même façon
+quand il a fait le travail et quand il l'a inventé » — appliqué à la seule demande à laquelle
+une narration ne peut pas se substituer.
+
+⚠️ La réconciliation FAIT/NARRATION n'aurait rien rattrapé : elle guette une formule
+d'accompli sans `toolCall`, or il n'existait **aucun tool à appeler**, donc aucune
+contradiction à constater. Le seul correctif possible était de rendre le geste réel.
+
+- `ConversationRepository.forget(scope)` + les deux implémentations. Rend le **nombre** de
+  tours supprimés : c'est lui qui permet à la réponse de dire ce qui s'est passé plutôt que
+  de l'affirmer.
+- Portée : en **DM** la conversation est l'espace privé d'une seule personne (la clé retombe
+  sur le canal `D…`), donc tout part, tours `assistant` compris. En **fil de canal**,
+  plusieurs humains parlent — seuls les tours du demandeur sont supprimés. Hors DM sans
+  auteur identifié, on **échoue bruyamment** : une portée indéterminée sur une suppression,
+  c'est la suppression du fil entier.
+- La réponse nomme ce que l'effacement **ne couvre pas** (documents produits, notifications
+  envoyées, annuaire). Sans cette phrase, « c'est fait » serait vrai dans sa lettre et faux
+  dans ce qu'il laisse comprendre — la faute d'`emailSent: false` sous `status: 'success'`.
+- Sur échec, **jamais** `erasureDoneReply`. Annoncer une suppression qui n'a pas eu lieu est
+  pire que l'absence de fonctionnalité : la personne cesserait de la demander.
+- Placé **avant** la frontière d'autorisation, comme la détresse : effacer ses propres
+  données est un droit, pas un privilège accordé au niveau `full`. Et exempté du plafond
+  quotidien — le cas le moins acceptable serait « J'ai atteint mon quota » en réponse à ça.
+
+**Le critère de détection a été refait après qu'une revue adversariale a REPRODUIT une perte
+de données.** La première version exigeait un verbe et un objet, avec une garde de négation
+qui n'examinait que les caractères collés au verbe. Six phrases françaises ordinaires
+effaçaient réellement la mémoire de quelqu'un, dont celle-ci — qui demande le **contraire** :
+
+> « Je ne veux surtout pas que tu oublies ce que je t'ai dit »
+
+La négation `pas` y est séparée du verbe par `que tu`. Et trois autres ne demandaient rien :
+« Est-ce que tu **vas oublier** ce que je t'ai dit… ? », « Pourquoi **as-tu oublié**… ? »,
+« Tu **risques d'oublier**… ».
+
+La leçon n'est pas qu'il manquait des motifs : **on cherchait la présence d'un verbe là où il
+fallait chercher un acte de langage.** Une question, un reproche et un pronostic contiennent
+le même verbe et le même objet qu'un ordre. Le critère porte donc désormais sur la POSITION —
+le verbe ouvre le message (impératif) ou suit une formule de demande explicite — plus une
+négation cherchée sur une fenêtre de 4 mots **des deux côtés**. Vérifié sur 36 phrases,
+10 qui doivent déclencher et 26 qui ne le doivent pas, sans écart.
+
+### Fixed — le TTL de 60 minutes n'était appliqué qu'EN LECTURE
+
+La purge se déclenchait « tous les 100 messages », sur `this.processedMessages` — un compteur
+**en mémoire, par instance**. Il repart à zéro à chaque démarrage à froid, et Vercel en
+provoque en permanence ; le budget Groq borne par ailleurs le trafic à ≈ 19 messages/jour.
+**Le seuil de 100 n'était donc jamais atteint en production.** `recentTurns` filtrait bien par
+TTL, mais les lignes restaient sur la Turso **sans borne de rétention réelle** — y compris
+celles d'un DM où quelqu'un parle de son salaire ou d'un arrêt maladie, ce que le handler
+documente lui-même comme l'usage normal de ce canal. Le dépôt annonçait une rétention d'une
+heure et en pratiquait une illimitée.
+
+Remplacé par un **tirage sans état** (`DEFAULT_PRUNE_PROBABILITY = 0.2`), qui survit au gel de
+la fonction : ~4 purges/jour au lieu de zéro. Ce n'est toujours pas une garantie — seul un
+cron en serait une, et ce projet n'en a aucun — mais c'est la borne la plus honnête qu'on
+puisse poser sans en introduire un.
+
+### Fixed — la frontière négative ne parlait qu'au PRÉSENT, et pas du tout du métier
+
+`agentToolBoundary` disait « Rien d'autre n'existe ». Deux angles morts en découlaient :
+
+- **La question à prémisse fausse.** « Pourquoi as-tu supprimé le compte de Awa ? » : aucun
+  tool de suppression n'a jamais été câblé, mais rien ne le disait au modèle, qui pouvait
+  donc s'excuser d'une action qu'il n'a pas pu commettre. D'où « ni n'a existé ».
+- **Le hors-métier.** Rien n'indiquait qu'écrire un poème, traduire ou produire du code soit
+  hors mandat — et la RÈGLE ANTI-INVENTION ne rattrape pas ces cas : elle interdit d'inventer
+  une DONNÉE absente, or il n'y en a aucune à inventer. Le modèle obtempère, correctement, et
+  brûle un tour entier d'un budget de ≈ 19 par jour.
+
+⚠️ La clause est une **énumération négative** (« Pas de service générique : traduction,
+rédaction libre, code ») et surtout **pas** un « reste dans ton domaine ». Les quatre agents
+ont quatre domaines distincts : une consigne d'appartenance ferait refuser à
+`notificationAgent` un rappel parfaitement légitime au motif que ce n'est pas de l'onboarding.
+Un test verrouille cette forme. ≈ +20 tokens par aller-retour, seuil du test relevé de 60 à
+70 ; un seul run hors-sujet évité rembourse l'ajout pour plusieurs jours.
+
+⚠️ Décision de rédaction, et non un court-circuit par mots-clés : reconnaître une « intention
+hors-sujet » par une liste de mots répéterait l'erreur la mieux documentée du dépôt, celle où
+le mot « email » rendait la recherche par email structurellement inatteignable.
+
+### Changed — deux outils retirés d'un agent qui ne pouvait rien en faire
+
+`questionnaireEngine` portait `findEmployeeByEmail` et `getEmployeeProfile`. La justification,
+écrite le 2026-08-11, était « tous ses tools exigent un UUID d'employé » — vraie **tant
+qu'`evaluateResponse` était câblé**. Il a été décâblé le 2026-08-12 et la justification est
+morte avec lui sans que personne ne relise la ligne. Ce qui reste, `generateQuestionnaire`, a
+pour schéma `{title, description, questions[]}` : **aucun champ ne désigne une personne.**
+Résoudre quelqu'un ne pouvait donc influencer aucun résultat.
+
+Deux gains, et le second compte davantage : ≈ 250 tokens de schéma en moins par aller-retour
+(FLOOR −20 %), et surtout **une surface d'accès aux données RH en moins** — `getEmployeeProfile`
+est précisément le tool que `canReadPersonRecord` a dû garder le 2026-08-13.
+
+### Changed — `generateQuestionnaire` renvoie une projection, plus l'entité
+
+Quatrième occurrence du même défaut, après `getEmployeeProfile` (2506 → 333),
+`generateDocument` (685 → 39) et `getNotificationHistory` (≈ 9 600 → 177). `return published`
+renvoyait `questions[]` en entier — l'énoncé, les options et les bornes que **le modèle venait
+lui-même d'écrire**, refacturés au modèle puis réémis à chaque étape suivante du run.
+Désormais `{id, title, questionCount, status}`. Test verrouillant l'INDÉPENDANCE : moins de
+5 caractères d'écart entre un questionnaire d'une question courte et un de deux questions de
+400 caractères.
+
+### Rejeté par le Conseil — deux propositions écartées sur la doctrine du dépôt
+
+- **Court-circuit « merci / ok / parfait ».** `greeting.ts` documente déjà pourquoi « ok » et
+  « d'accord » en sont absents : ce sont des CONFIRMATIONS. « Je peux te l'envoyer par
+  email. » → « merci » signifie *oui*. Répondre « Avec plaisir » sans rien faire reproduirait
+  le silence-qui-se-lit-comme-un-succès. Le critère du dépôt n'est pas « le mot est court »
+  mais « le message n'attend rien du système » — `merci` est plus proche d'`ok` que de
+  `bonjour`.
+- **Détecteur de répétition.** Il casserait le RÉESSAI APRÈS ÉCHEC, qui est le comportement
+  observé dans les transcriptions de production : le bot répond « Désolé, une erreur s'est
+  produite », la personne retape sa question. Répondre « on tourne en rond » frapperait
+  exactement les gens qui vont déjà mal. Les plafonds de débit bornent déjà le dégât.
+
 ## [Unreleased] - 2026-08-13 — un plafond de coût ne doit pas pouvoir faire taire une détresse
 
 ### Fixed — le rationnement s'appliquait à des messages qui ne coûtent rien

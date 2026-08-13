@@ -58,8 +58,13 @@ const WIRING = {
     'getTaskList',
     'generateDocument',
   ],
-  questionnaireEngine: ['generateQuestionnaire', 'evaluateResponse', 'getEmployeeProfile'],
+  // ⚠️ Remis en phase avec `src/mastra/index.ts` le 2026-08-13. Cette constante avait dérivé
+  // deux fois : elle nommait encore `evaluateResponse` (décâblé le 2026-08-12) et ignorait
+  // `findEmployeeByEmail` sur deux agents. Sans conséquence pour les assertions de FORME
+  // ci-dessous, mais un jeu d'essai qui ment sur le câblage finit par servir de référence.
+  questionnaireEngine: ['generateQuestionnaire'],
   notificationAgent: [
+    'findEmployeeByEmail',
     'sendNotification',
     'scheduleReminder',
     'getNotificationHistory',
@@ -212,8 +217,35 @@ describe('Blocs partagés STYLE / ANTI-INVENTION', () => {
 describe('Frontière négative dérivée du câblage', () => {
   it('énumère exactement les clés de l objet tools, dans leur ordre de câblage', () => {
     expect(agentToolBoundary({ beta: {}, alpha: {} })).toBe(
-      "TES SEULS OUTILS : beta, alpha. Rien d'autre n'existe : dis-le, n'invente rien.",
+      "TES SEULS OUTILS : beta, alpha. Rien d'autre n'existe ni n'a existé : dis-le, n'invente " +
+        'rien. Pas de service générique (traduction, rédaction libre, code).',
     );
+  });
+
+  it('parle aussi du PASSÉ — la question à prémisse fausse', () => {
+    // « pourquoi as-tu supprimé le compte de Awa ? » : aucun tool de suppression n'a jamais
+    // été câblé, mais la frontière ne parlait qu'au présent. Le modèle pouvait s'excuser
+    // d'une action qu'il n'a pas pu commettre — avec l'assurance dont ce dépôt sait déjà
+    // qu'elle ne distingue pas le fait de la narration.
+    expect(agentToolBoundary({ getTaskList: {} })).toContain("n'a existé");
+  });
+
+  it("déclare la frontière MÉTIER, que l'énumération des tools ne couvre pas", () => {
+    // Poème, traduction, code : la RÈGLE ANTI-INVENTION ne les rattrape pas (elle interdit
+    // d'inventer une DONNÉE absente, or il n'y a ici aucune donnée à inventer). Sans cette
+    // clause, le modèle obtempère et brûle un tour entier.
+    expect(agentToolBoundary({ getTaskList: {} })).toContain('traduction');
+  });
+
+  it("ÉNUMÈRE ce qu'elle refuse, au lieu d'exiger une appartenance à un domaine", () => {
+    // ⚠️ Garde-fou de rédaction. Les quatre agents ont quatre domaines distincts : une
+    // consigne du type « refuse ce qui sort de l'onboarding » ferait refuser à
+    // `notificationAgent` un rappel parfaitement légitime. Et « ce qui sort de ton rôle »
+    // est pire — ce dépôt sait ce qu'un modèle met dans un espace laissé vide.
+    const frontiere = agentToolBoundary({ sendNotification: {} });
+
+    expect(frontiere).not.toMatch(/sort de (l'onboarding|ton rôle|ton domaine)/);
+    expect(frontiere).toContain('Pas de service générique');
   });
 
   it('suit un ajout de tool sans la moindre retouche de texte', () => {
@@ -238,8 +270,12 @@ describe('Frontière négative dérivée du câblage', () => {
     // Mesuré sur le câblage réel le plus lourd (5 tools). Le préfixe est repayé à
     // chaque aller-retour : une frontière à 100 tokens coûterait plus cher que le
     // défaut qu'elle corrige.
+    // Seuil relevé de 60 à 70 le 2026-08-13, avec les deux clauses ajoutées (passé +
+    // frontière métier) : ≈ +15 tokens. L'objet du test est « quelques dizaines, pas une
+    // centaine » — il n'est pas de figer un chiffre, mais d'empêcher que cette phrase
+    // devienne un paragraphe. Un seul run hors-sujet évité rembourse l'ajout pour une semaine.
     const tokens = tok(agentToolBoundary(toolsOf(WIRING.onboardingOrchestrator)));
-    expect(tokens, `frontière de ${tokens} tokens`).toBeLessThan(60);
+    expect(tokens, `frontière de ${tokens} tokens`).toBeLessThan(70);
   });
 });
 

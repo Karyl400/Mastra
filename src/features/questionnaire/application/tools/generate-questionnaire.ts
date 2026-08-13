@@ -80,8 +80,30 @@ export function makeGenerateQuestionnaire(repo: QuestionnaireRepository) {
         updatedAt: new Date().toISOString(),
       };
       await repo.save(published);
-      logger.info('Questionnaire créé', { id: published.id });
-      return published;
+      logger.info('Questionnaire créé', {
+        id: published.id,
+        questionCount: questionnaire.questions.length,
+      });
+
+      // ⚠️ PROJECTION, jamais l'entité. Quatrième occurrence du même défaut dans ce dépôt,
+      // après `getEmployeeProfile` (2506 → 333), `generateDocument` (685 → 39) et
+      // `getNotificationHistory` (≈ 9600 → 177).
+      //
+      // `return published` renvoyait `questions[]` en entier — c'est-à-dire l'énoncé, les
+      // options et les bornes que le MODÈLE VENAIT LUI-MÊME D'ÉCRIRE, refacturés au modèle,
+      // puis réémis à chaque étape suivante du run. Un questionnaire de 8 questions à choix
+      // multiple pèse ainsi plusieurs centaines de tokens qui n'apprennent rien à personne :
+      // l'auteur du texte est son destinataire.
+      //
+      // La propriété qui compte n'est pas le chiffre mais l'INDÉPENDANCE : la taille de ce
+      // retour ne dépend plus ni du nombre de questions ni de leur longueur. `questionCount`
+      // suffit à ce que l'agent puisse dire ce qu'il a produit, `id` à ce qu'on le retrouve.
+      return {
+        id: published.id,
+        title: published.title,
+        questionCount: questionnaire.questions.length,
+        status: published.status,
+      };
     },
   });
 }

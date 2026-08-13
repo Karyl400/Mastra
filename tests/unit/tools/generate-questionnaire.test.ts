@@ -17,15 +17,66 @@ describe('GenerateQuestionnaire Tool', () => {
       title: 'Rapport d étonnement',
       description: 'Vos premières impressions',
       questions: [
-        { id: 'q1', type: 'text', label: 'Comment trouvez-vous l intégration ?', required: true }
-      ]
+        { id: 'q1', type: 'text', label: 'Comment trouvez-vous l intégration ?', required: true },
+      ],
     };
-    const result = await tool.execute!(input as any, {} as any) as any;
-    
+    const result = (await tool.execute!(input as any, {} as any)) as any;
+
     expect(result).toBeDefined();
     expect(result.title).toBe(input.title);
     expect(result.status).toBe(QuestionnaireStatus.Published);
-    expect(result.questions).toHaveLength(1);
+    expect(result.questionCount).toBe(1);
     expect(mockRepo.save).toHaveBeenCalled();
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Le tool-result est une PROJECTION, jamais l'entité
+  // ══════════════════════════════════════════════════════════════════════════
+  // Quatrième occurrence du même défaut dans ce dépôt, après `getEmployeeProfile`
+  // (2506 → 333), `generateDocument` (685 → 39) et `getNotificationHistory` (≈ 9600 → 177).
+  it("ne renvoie jamais au modèle les questions qu'il vient d'écrire", async () => {
+    const mockRepo: QuestionnaireRepository = {
+      findById: vi.fn(),
+      findAll: vi.fn(),
+      update: vi.fn(),
+      save: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const tool = makeGenerateQuestionnaire(mockRepo);
+    const result = (await tool.execute!(
+      {
+        title: 'Rapport',
+        questions: [
+          { id: 'q1', type: 'text', label: 'A'.repeat(400), required: true },
+          {
+            id: 'q2',
+            type: 'choice',
+            label: 'B'.repeat(400),
+            required: false,
+            options: ['x'.repeat(180), 'y'.repeat(180)],
+          },
+        ],
+      } as never,
+      {} as never,
+    )) as Record<string, unknown>;
+
+    // L'auteur du texte est son destinataire : le lui refacturer n'apprend rien à personne,
+    // et il resterait dans l'historique de toutes les étapes suivantes du run.
+    expect(result.questions).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain('AAAA');
+    expect(JSON.stringify(result)).not.toContain('xxxx');
+
+    // La propriété qui compte n'est pas le chiffre mais l'INDÉPENDANCE : la taille du
+    // retour ne dépend ni du nombre de questions, ni de leur longueur.
+    const court = (await tool.execute!(
+      {
+        title: 'Rapport',
+        questions: [{ id: 'q1', type: 'text', label: 'A', required: true }],
+      } as never,
+      {} as never,
+    )) as Record<string, unknown>;
+
+    // Seuls `id` (un UUID de longueur fixe) et `questionCount` varient — jamais le contenu.
+    expect(JSON.stringify(result).length - JSON.stringify(court).length).toBeLessThan(5);
   });
 });

@@ -9,6 +9,7 @@ import type {
 } from '../../domain/entities/conversation-turn';
 import type {
   ConversationRepository,
+  ForgetScope,
   RecentTurnsOptions,
 } from '../../domain/ports/conversation.repository';
 
@@ -66,6 +67,28 @@ export class DrizzleConversationRepository implements ConversationRepository {
     const result = await db
       .delete(conversationTurns)
       .where(lt(conversationTurns.createdAt, olderThan));
+    return (result as { rowsAffected?: number }).rowsAffected ?? 0;
+  }
+
+  /**
+   * Effacement à la demande. Aucune borne de temps : on supprime ce qui appartient à la
+   * personne, y compris les tours plus récents que le TTL — c'est tout l'objet de la demande.
+   *
+   * ⚠️ Sans `slackUserId`, la clause ne porte QUE sur `conversationId`. C'est l'appelant qui
+   * garantit qu'on est en DM (donc dans un espace à une seule personne) ; le dépôt, lui, ne
+   * connaît pas la topologie Slack et n'a pas à la deviner.
+   */
+  async forget(scope: ForgetScope): Promise<number> {
+    const db = getDb();
+
+    const where = scope.slackUserId
+      ? and(
+          eq(conversationTurns.conversationId, scope.conversationId),
+          eq(conversationTurns.slackUserId, scope.slackUserId),
+        )
+      : eq(conversationTurns.conversationId, scope.conversationId);
+
+    const result = await db.delete(conversationTurns).where(where);
     return (result as { rowsAffected?: number }).rowsAffected ?? 0;
   }
 }

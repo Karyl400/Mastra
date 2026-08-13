@@ -4,6 +4,7 @@ import type {
 } from '../../domain/entities/conversation-turn';
 import type {
   ConversationRepository,
+  ForgetScope,
   RecentTurnsOptions,
 } from '../../domain/ports/conversation.repository';
 
@@ -44,6 +45,20 @@ export class InMemoryConversationRepository implements ConversationRepository {
   async prune(olderThan: Date): Promise<number> {
     const before = this.turns.length;
     this.turns = this.turns.filter((turn) => turn.createdAt.getTime() >= olderThan.getTime());
+    return before - this.turns.length;
+  }
+
+  /** Même sémantique que l'implémentation Drizzle : aucune borne de temps, un compte rendu. */
+  async forget(scope: ForgetScope): Promise<number> {
+    const before = this.turns.length;
+
+    this.turns = this.turns.filter((turn) => {
+      if (turn.conversationId !== scope.conversationId) return true;
+      // Filtrer par personne épargne les tours `assistant` (`slackUserId: null`) : voir le
+      // commentaire du port, c'est voulu.
+      return scope.slackUserId ? turn.slackUserId !== scope.slackUserId : false;
+    });
+
     return before - this.turns.length;
   }
 

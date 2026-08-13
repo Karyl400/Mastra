@@ -114,6 +114,49 @@ une régression.
       dans `data/kisso.db`. Même classe de fuite que celle corrigée pour les compteurs, autre
       table, sans effet sur le résultat des tests.
 
+## [0 ter] AUDIT CONVERSATIONNEL DU 2026-08-13 — ce qui reste en creux
+
+Tranches « Contexte et mémoire » et « Flux de conversation ». Les correctifs sont au
+CHANGELOG ; ce qui suit a été CONSTATÉ et NON corrigé, pour qu'aucun diagnostic futur ne le
+redécouvre comme une régression.
+
+**Rétention et RGPD — l'effacement ne couvre que la mémoire conversationnelle**
+- [ ] ⚠️ `forget()` ne touche QUE `conversation_turns`. `notifications` (dont `body`),
+      `documents` (dont `content`) et `audit_logs` n'ont **aucune rétention, ni purge, ni
+      chemin d'effacement**. La réponse rendue à la personne le dit explicitement et la
+      renvoie vers les RH — c'est honnête, ce n'est pas suffisant si le produit doit tenir
+      une demande RGPD complète.
+- [ ] `maskPii` ne couvre ni `text`, ni `content`, ni `body` : un champ de prose qui
+      traverserait un log passerait en clair. Aucun site d'appel connu ne le fait
+      aujourd'hui — c'est la garantie qui manque, pas un incident.
+- [ ] La purge par tirage (`DEFAULT_PRUNE_PROBABILITY = 0.2`) est une BORNE, pas une
+      garantie : sans trafic, aucune purge. Seul un cron en ferait une garantie.
+- [ ] Résidu ASSUMÉ de la détection d'effacement : « supprime l'historique de Awa » contient
+      un objet reconnu et effacerait la mémoire du DEMANDEUR. Le dégât est borné (ses propres
+      tours, TTL 60 min) et **visible** — la réponse annonce « N messages de nos échanges ».
+
+**Mémoire — quatre comportements sans mécanisme dédié**
+- [ ] « souviens-toi que… » n'ÉPINGLE rien : le tour est traité comme les autres et peut être
+      évincé par `selectWindow`. Le modèle promettra pourtant de s'en souvenir.
+- [ ] Une référence hors fenêtre ou hors TTL disparaît EN SILENCE : rien ne dit au modèle
+      « c'est hors de ma mémoire » plutôt que « ça n'a jamais été dit ».
+- [ ] Aucune détection de contradiction entre deux tours de la même personne.
+- [ ] Une demande de résumé de conversation ne porte que sur les ~1600 tokens de la fenêtre,
+      sans avertir que le reste est tronqué.
+
+**Flux — ce qui coûte un run LLM plein et pourrait ne pas en coûter**
+- [ ] Les demandes de FORMAT et de TON (« plus long », « sois formel », « en JSON ») se
+      heurtent au bloc STYLE, figé à la construction du process et donc insensible à la
+      requête. La personne relance, ce qui double le coût pour le même résultat.
+- [ ] Un tableau n'a pas d'équivalent mrkdwn Slack : la demande est structurellement
+      insatisfaisable et rien ne le dit.
+- [ ] Le jeu de rôle n'est couvert que par les motifs d'injection déjà listés
+      (`joue le role`, `fais semblant d'`…) ; « imagine que tu es… » passe.
+
+**Deux propositions REJETÉES — ne pas les réintroduire sans lire le CHANGELOG**
+- [ ] Court-circuit « merci / ok / parfait » : ce sont des CONFIRMATIONS, pas des clôtures.
+- [ ] Détecteur de répétition : casserait le réessai après échec.
+
 ## [1] Créer les fichiers de règles projet
 - [x] GEMINI.md
 - [x] AGENT.md

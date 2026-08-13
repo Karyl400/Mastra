@@ -46,6 +46,7 @@ import { SlackMemberSource } from '../../../directory/infrastructure/providers/s
 import { SlackRateLimiter } from '../services/slack-rate-limiter';
 import { GREETING_REPLY, isBareGreeting } from '../../../../shared/greeting';
 import { DISTRESS_REPLY, detectsDistress } from '../../../../shared/distress';
+import { ERASURE_FAILED_REPLY, erasureDoneReply, requestsErasure } from '../../../../shared/forget';
 import { DrizzleRateLimitRepository } from '../repositories/drizzle-rate-limit.repository';
 import { writeAuditLog } from '../../../../infrastructure/audit/audit-log';
 
@@ -242,6 +243,12 @@ export interface SlackEventsHandlerOptions {
    * budget Groq se mesure à la JOURNÉE (`TPD: Limit 100000`), pas à la minute.
    */
   rateLimiter?: SlackRateLimiter | null;
+  /**
+   * Probabilité qu'un message déclenche une purge de rétention. Voir
+   * `DEFAULT_PRUNE_PROBABILITY` : le tirage remplace un compteur d'instance, qui ne survivait
+   * pas au gel de la fonction serverless. Injectable pour rendre les tests déterministes.
+   */
+  pruneProbability?: number;
 }
 
 /**
@@ -477,10 +484,36 @@ const KNOWN_AGENT_IDS: ReadonlySet<string> = new Set([
 const CONVERSATION_QUERY_LIMIT = 40;
 
 /**
- * Une purge est lancée tous les N messages traités, en tâche de fond. Pas de cron : le
- * projet n'en a aucun, et la rétention n'a pas besoin d'être ponctuelle.
+ * Probabilité qu'un message déclenche une purge, en tâche de fond.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * Pourquoi une PROBABILITÉ et non plus un compteur — le TTL ne s'appliquait qu'en LECTURE
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * La forme précédente était « un message sur cent », sur un compteur d'instance
+ * (`this.processedMessages`, en mémoire). Ce compteur ne peut pas fonctionner ici, et c'est
+ * structurel :
+ *
+ *  - il **repart à zéro à chaque démarrage à froid**, or Vercel en provoque un en
+ *    permanence — une instance gelée est remplacée, pas reprise ;
+ *  - le budget Groq borne le trafic à **≈ 19 messages par jour, tous canaux confondus**.
+ *
+ * Le seuil de 100 n'était donc **jamais atteint en production**. Conséquence : `prune` ne
+ * tournait pour ainsi dire pas, et le TTL de 60 minutes n'était appliqué qu'EN LECTURE, par
+ * `recentTurns`. Les lignes, elles, restaient sur la Turso **sans borne de rétention réelle**
+ * — y compris celles d'un DM où quelqu'un parle de son salaire, d'un arrêt maladie ou d'un
+ * litige, ce que le handler documente lui-même comme l'usage normal de ce canal. Le dépôt
+ * annonçait une rétention d'une heure et en pratiquait une illimitée.
+ *
+ * Une probabilité n'a pas d'état, donc elle survit au gel de la fonction. À 0,2 et
+ * ≈ 19 messages/jour, la purge tourne ~4 fois par jour : les tours expirés vivent quelques
+ * heures de plus que le TTL au lieu de vivre indéfiniment. C'est un DELETE indexé, hors du
+ * chemin de réponse (`void`), et le plus souvent sans effet.
+ *
+ * ⚠️ Ce n'est toujours pas une garantie de rétention — seul un cron en serait une, et ce
+ * projet n'en a aucun. C'est la borne la plus honnête qu'on puisse poser sans en introduire.
  */
-const PRUNE_EVERY_N_MESSAGES = 100;
+const DEFAULT_PRUNE_PROBABILITY = 0.2;
 
 /**
  * Extrait le contenu ASSAINI d'une entrée encadrée par `wrapAgentInput`.
@@ -1020,8 +1053,11 @@ export class SlackEventsHandler {
   private readonly welcomeChannels: WelcomeChannelsService | null;
   private guard: SlackAccessGuard | null | undefined;
   private limiter: SlackRateLimiter | null | undefined;
-  /** Compteur de messages traités, pour déclencher la purge périodique. */
-  private processedMessages = 0;
+  /**
+   * Probabilité de purge par message. Injectable UNIQUEMENT pour rendre les tests
+   * déterministes (0 = jamais, 1 = toujours) — en production c'est le défaut qui vaut.
+   */
+  private readonly pruneProbability: number;
   /**
    * Cache des noms d'affichage Slack, par instance.
    *
@@ -1054,6 +1090,7 @@ export class SlackEventsHandler {
     this.welcomeChannels = options.welcomeChannels ?? null;
     this.guard = options.accessGuard;
     this.limiter = options.rateLimiter;
+    this.pruneProbability = options.pruneProbability ?? DEFAULT_PRUNE_PROBABILITY;
     this.seenEvents = new LRUCache<string, DedupEntry>({
       max: options.dedupMax ?? 1000,
       ttl: options.dedupTtlMs ?? 10 * 60 * 1000,
@@ -1375,7 +1412,7 @@ export class SlackEventsHandler {
    *
    * ⚠️ Le prédicat doit rester le MIROIR EXACT des court-circuits de `handleMessage`, et
    * c'est sa seule fragilité : ajouter un court-circuit là-bas sans l'ajouter ici ferait
-   * rationner un message gratuit. Les cinq cas sont donc énumérés dans le même ordre, et
+   * rationner un message gratuit. Les six cas sont donc énumérés dans le même ordre, et
    * chacun délègue au même prédicat que le court-circuit correspondant — aucune règle n'est
    * réécrite ici, sinon les deux divergeraient.
    *
@@ -1396,7 +1433,13 @@ export class SlackEventsHandler {
       isBareGreeting(text) ||
       hasNoTextualContent(text) ||
       text.length > MAX_USER_INPUT_LENGTH ||
-      detectsDistress(text)
+      detectsDistress(text) ||
+      // Sixième court-circuit (2026-08-13). Il DOIT figurer ici : quelqu'un qui a atteint son
+      // quota du jour et demande l'effacement de ses données recevrait sinon « J'ai atteint
+      // mon quota » — soit un refus de traiter une demande qui ne coûte rien et à laquelle il
+      // a droit. C'est exactement le défaut trouvé en production sur « bonjour », transposé au
+      // cas où il est le moins acceptable.
+      requestsErasure(text)
     );
   }
 
@@ -1732,7 +1775,7 @@ export class SlackEventsHandler {
    * une purge un message sur cent suffit à borner la table.
    */
   private scheduleDedupPruneIfDue(): void {
-    if (this.processedMessages % PRUNE_EVERY_N_MESSAGES !== 0) return;
+    if (!this.pruneIsDue()) return;
 
     const repo = this.getDedupRepo();
     if (!repo) return;
@@ -2211,6 +2254,79 @@ export class SlackEventsHandler {
         text: DISTRESS_REPLY,
         ...(threadTs ? { thread_ts: threadTs } : {}),
       });
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // EFFACEMENT DEMANDÉ — un geste RÉEL, jamais une narration
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // « oublie ce que je t'ai dit », « supprime tout ce que tu sais de moi » : jusqu'ici ces
+    // messages partaient au modèle, qui n'a AUCUN outil d'effacement et ne pouvait donc que
+    // le raconter. C'est le défaut central de ce dépôt — « il parle exactement de la même
+    // façon quand il a fait le travail et quand il l'a inventé » — appliqué à la seule
+    // demande à laquelle une narration ne peut PAS se substituer.
+    //
+    // ⚠️ La réconciliation FAIT/NARRATION n'aurait rien rattrapé : elle guette une formule
+    // d'accompli sans `toolCall`, or il n'existait aucun tool à appeler, donc aucune
+    // contradiction à constater. Le seul correctif possible était de rendre le geste réel.
+    //
+    // Placé APRÈS la détresse et AVANT la frontière d'autorisation, délibérément : effacer
+    // ses propres données n'est pas un privilège qu'on accorde au niveau `full`, c'est un
+    // droit. Le même raisonnement que pour la détresse — on ne fait pas passer une politique
+    // d'accès devant une demande qui ne porte que sur soi.
+    if (requestsErasure(text)) {
+      // En DM, `deriveConversationId` retombe sur le canal `D…` : la conversation EST
+      // l'espace privé d'une seule personne, donc tout y est à elle, tours `assistant`
+      // compris. Dans un fil de canal, plusieurs humains parlent — effacer le fil entier
+      // parce que l'un d'eux le demande supprimerait les messages des autres.
+      const scope = isDirectMessage ? { conversationId } : { conversationId, slackUserId: user };
+
+      const repo = this.getConversationRepo();
+
+      // Hors DM sans auteur identifié, la portée serait INDÉTERMINÉE — et une portée
+      // indéterminée sur une suppression, c'est la suppression du fil entier. On préfère
+      // échouer bruyamment : c'est irréversible, et personne ne l'a demandé.
+      if (!repo || (!isDirectMessage && !user)) {
+        logger.warn('Erasure requested but the scope could not be established', {
+          channel,
+          hasRepo: Boolean(repo),
+          isDirectMessage,
+        });
+        await this.slack.chat.postMessage({
+          channel,
+          text: ERASURE_FAILED_REPLY,
+          ...(threadTs ? { thread_ts: threadTs } : {}),
+        });
+        return;
+      }
+
+      try {
+        const removed = await repo.forget(scope);
+        // Le COMPTE, jamais le contenu : c'est une trace d'exécution, pas une copie de ce
+        // qu'on vient précisément de supprimer.
+        logger.info('Erasure request honoured — answered without any LLM call', {
+          channel,
+          isDirectMessage,
+          removed,
+        });
+        await this.slack.chat.postMessage({
+          channel,
+          text: erasureDoneReply(removed),
+          ...(threadTs ? { thread_ts: threadTs } : {}),
+        });
+      } catch (error) {
+        // ⚠️ Ne JAMAIS retomber sur `erasureDoneReply` ici. Toute la valeur du correctif
+        // tient dans le fait que la réponse dit ce qui s'est réellement passé ; annoncer un
+        // effacement qui n'a pas eu lieu serait pire que l'absence de fonctionnalité, parce
+        // que la personne cesserait de le demander.
+        logger.error('Erasure request failed', { error, channel });
+        await this.slack.chat.postMessage({
+          channel,
+          text: ERASURE_FAILED_REPLY,
+          ...(threadTs ? { thread_ts: threadTs } : {}),
+        });
+      }
       return;
     }
 
@@ -2739,12 +2855,22 @@ export class SlackEventsHandler {
   }
 
   /**
-   * Purge périodique, en tâche de fond. Le projet n'a aucun cron, et la rétention n'a pas
-   * besoin d'être ponctuelle : la déclencher un message sur cent suffit à borner la table.
+   * Purge de rétention, en tâche de fond. Déclenchée par tirage — voir
+   * `DEFAULT_PRUNE_PROBABILITY` : un compteur d'instance ne survit pas au gel de la fonction
+   * serverless, et ne se déclenchait donc jamais.
    */
+  /**
+   * Tirage sans état — c'est la propriété qui compte. Un compteur d'instance repart à zéro
+   * à chaque démarrage à froid ; une probabilité, non.
+   */
+  private pruneIsDue(): boolean {
+    if (this.pruneProbability <= 0) return false;
+    if (this.pruneProbability >= 1) return true;
+    return Math.random() < this.pruneProbability;
+  }
+
   private schedulePruneIfDue(): void {
-    this.processedMessages += 1;
-    if (this.processedMessages % PRUNE_EVERY_N_MESSAGES !== 0) return;
+    if (!this.pruneIsDue()) return;
 
     const repo = this.getConversationRepo();
     if (!repo) return;
