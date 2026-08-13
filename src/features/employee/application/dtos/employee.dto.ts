@@ -149,7 +149,10 @@ const baseEmployeeSchema = z.object({
     },
     { message: 'Email already exists in the system' },
   ),
-  department: departmentSchema,
+  // NULLABLE depuis le 2026-08-13 : le parcours d'arrivée ne collecte plus le département.
+  // Le schéma de VALEUR reste inchangé — quand une valeur est présente, elle doit toujours
+  // appartenir à l'enum. On assouplit la présence, jamais la validité.
+  department: departmentSchema.nullable(),
   // Champ libre : voir `positionSchema` dans shared/validation.ts. Le `.pipe()`
   // qui figurait ici sérialisait en `allOf` — exactement la construction que
   // `tool-schema-flatness.test.ts` interdit, et qui a déjà cassé `createEmployee`.

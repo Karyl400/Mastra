@@ -424,7 +424,9 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
               firstName: employee.firstName,
               lastName: employee.lastName,
               email: employee.email,
-              department: employee.department,
+              // `?? undefined` : le gabarit distingue « absent » de « vide ». Un `null` qui
+              // traverserait finirait imprimé tel quel dans un PDF signé de l'entreprise.
+              department: employee.department ?? undefined,
               position: employee.position,
               startDate: employee.startDate,
             },

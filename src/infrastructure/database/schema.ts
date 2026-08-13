@@ -28,7 +28,19 @@ export const employees = sqliteTable(
     lastName: text('last_name').notNull(),
     email: text('email').notNull().unique(),
     phone: text('phone'),
-    department: text('department').notNull(),
+    /**
+     * NULLABLE depuis le 2026-08-13 : le parcours d'arrivée ne demande plus le département —
+     * la modale « Compléter mon profil » ne pose qu'une question, le poste.
+     *
+     * `NULL` est le seul encodage honnête de « on a délibérément cessé de collecter ça ». Une
+     * sentinelle dans une colonne NOT NULL finit toujours par être relue comme une vraie
+     * valeur, mode d'échec récurrent de ce dépôt.
+     *
+     * ⚠️ DDL : `scripts/ddl-employees-department-nullable.sql`, à appliquer AVANT le
+     * déploiement. `idx_employees_department` y est supprimé et non recréé — une colonne
+     * qu'on ne renseigne plus n'a aucune raison d'être indexée.
+     */
+    department: text('department'),
     position: text('position').notNull(),
     startDate: text('start_date').notNull(),
     status: text('status').notNull().default('pending'), // EmployeeStatus
@@ -54,7 +66,6 @@ export const employees = sqliteTable(
     // Indexes
     emailIdx: uniqueIndex('idx_employees_email').on(table.email),
     statusIdx: index('idx_employees_status').on(table.status),
-    departmentIdx: index('idx_employees_department').on(table.department),
     managerIdx: index('idx_employees_manager').on(table.managerId),
     onboardingStatusIdx: index('idx_employees_onboarding_status').on(table.onboardingStatus),
     startDateIdx: index('idx_employees_start_date').on(table.startDate),

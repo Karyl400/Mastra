@@ -63,7 +63,14 @@ const onboardingInputSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   email: z.string().email(),
-  department: z.nativeEnum(Department),
+  /**
+   * FACULTATIF depuis le 2026-08-13 : le parcours d'arrivée ne le collecte plus, et la modale
+   * Slack passe désormais `null`. Le schéma de VALEUR est inchangé — quand une valeur est
+   * fournie (appel direct de l'API des workflows), elle doit toujours appartenir à l'enum.
+   * On assouplit la présence, jamais la validité : c'est la présence qui a cessé d'être
+   * exigible, pas « Wakanda » qui est devenu acceptable.
+   */
+  department: z.nativeEnum(Department).nullable().optional(),
   position: z
     .string()
     .min(VALIDATION_CONSTRAINTS.POSITION.MIN_LENGTH, 'position is too short')
@@ -83,7 +90,7 @@ const employeeCreatedSchema = z.object({
   email: z.string().email(),
   firstName: z.string(),
   lastName: z.string(),
-  department: z.string(),
+  department: z.string().nullable(),
   position: z.string(),
   startDate: z.string(),
   slackChannelId: z.string().nullable().optional(),
@@ -106,7 +113,7 @@ const onboardingInitializedSchema = z.object({
   email: z.string().email(),
   firstName: z.string(),
   lastName: z.string(),
-  department: z.string(),
+  department: z.string().nullable(),
   slackChannelId: z.string().nullable().optional(),
   degraded: z.array(stepFailureSchema),
 });
@@ -116,7 +123,7 @@ const welcomeSentSchema = z.object({
   email: z.string().email(),
   firstName: z.string(),
   lastName: z.string(),
-  department: z.string(),
+  department: z.string().nullable(),
   emailSent: z.boolean(),
   slackChannelId: z.string().nullable().optional(),
   degraded: z.array(stepFailureSchema),
@@ -181,6 +188,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
         ...inputData,
         managerId: inputData.managerId ?? null,
         slackChannelId: inputData.slackChannelId ?? null,
+        department: inputData.department ?? null,
       };
 
       const employee = createEmployee({
@@ -188,7 +196,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
         firstName: normalizedInput.firstName,
         lastName: normalizedInput.lastName,
         email: normalizedInput.email,
-        department: normalizedInput.department,
+        department: normalizedInput.department ?? null,
         position: normalizedInput.position,
         startDate: normalizedInput.startDate,
         managerId: normalizedInput.managerId,
@@ -291,8 +299,14 @@ export function createEmployeeOnboardingWorkflow(deps: {
       const subject = `Bienvenue chez Kisso Industries, ${inputData.firstName} !`;
       const body = [
         `<h1>Bonjour ${inputData.firstName} ${inputData.lastName},</h1>`,
-        `<p>Nous sommes ravis de vous accueillir au sein de Kisso Industries, `,
-        `dans le département <strong>${inputData.department}</strong>.</p>`,
+        // Le département n'est cité que s'il est connu. Il ne l'est plus par défaut depuis
+        // le 2026-08-13, et « dans le département null » adressé à un arrivant serait la
+        // première chose qu'il lirait de nous.
+        `<p>Nous sommes ravis de vous accueillir au sein de Kisso Industries`,
+        inputData.department
+          ? `, dans le département <strong>${inputData.department}</strong>`
+          : '',
+        `.</p>`,
         `<p>Votre processus d'onboarding vient d'être lancé. Vous recevrez prochainement `,
         `les accès à nos outils ainsi que votre planning de première semaine.</p>`,
         `<p>À très bientôt,</p>`,

@@ -50,7 +50,7 @@ type EmployeeRow = {
   firstName: string;
   lastName: string;
   email: string;
-  department: string;
+  department: string | null;
   position: string;
   startDate: string;
   status: string;

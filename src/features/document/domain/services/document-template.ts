@@ -247,12 +247,16 @@ function buildContract(input: DocumentRenderInput): DocumentBlock[] {
     { kind: 'heading', text: titleOf(input), level: 2 },
     {
       kind: 'fields',
+      // La ligne « Département » n'apparaît QUE si la valeur existe. Depuis le 2026-08-13
+      // le département n'est plus collecté : une ligne vide dans un contrat signé de
+      // l'entreprise se lit comme un champ qu'on a oublié de remplir, pas comme un champ
+      // qu'on a cessé de demander.
       rows: [
         ['Employé', fullName(input)],
         ['Email', employee.email ?? ''],
-        ['Département', employee.department ?? ''],
+        ...(employee.department ? [['Département', employee.department] as const] : []),
         ['Poste', employee.position ?? ''],
-      ],
+      ].map((row) => [row[0], row[1]] as [string, string]),
     },
     ...bodyBlocks(input),
   ];
@@ -260,15 +264,20 @@ function buildContract(input: DocumentRenderInput): DocumentBlock[] {
 
 function buildWelcomeLetter(input: DocumentRenderInput): DocumentBlock[] {
   const employee = input.employee ?? {};
+  // Extrait de la phrase : un ternaire dans un littéral déjà interpolé se relit mal, et c'est
+  // exactement la ligne qu'il faut pouvoir vérifier d'un coup d'œil.
+  const departmentClause = employee.department ? `, département ${employee.department},` : '';
   return [
     { kind: 'heading', text: COMPANY, level: 1 },
     { kind: 'heading', text: titleOf(input), level: 2 },
     { kind: 'paragraph', text: `Cher(e) ${fullName(input)},` },
     {
       kind: 'paragraph',
+      // Le département n'est cité que s'il est connu. « département N/A » dans une lettre de
+      // bienvenue est pire qu'un silence : c'est un aveu de trou, adressé à l'arrivant.
       text:
-        `Nous avons le plaisir de vous accueillir au sein de Kisso Industries, ` +
-        `département ${employee.department ?? 'N/A'}, en tant que ${employee.position ?? 'N/A'}.`,
+        `Nous avons le plaisir de vous accueillir au sein de Kisso Industries` +
+        `${departmentClause} en tant que ${employee.position ?? 'N/A'}.`,
     },
     {
       kind: 'paragraph',
@@ -304,7 +313,10 @@ function buildGuide(input: DocumentRenderInput): DocumentBlock[] {
   const employee = input.employee ?? {};
   return [
     { kind: 'heading', text: titleOf(input), level: 1 },
-    { kind: 'paragraph', text: `Département : ${employee.department ?? 'Général'}` },
+    // Idem : pas de ligne « Département : Général », qui inventait une appartenance.
+    ...(employee.department
+      ? [{ kind: 'paragraph' as const, text: `Département : ${employee.department}` }]
+      : []),
     {
       kind: 'bullets',
       items: [
