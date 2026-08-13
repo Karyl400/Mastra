@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { Department } from '../../../../shared/types';
 import { VALIDATION_CONSTRAINTS } from '../../../../shared/validation';
 import type { SlackBlock, SlackModalView } from '../providers/slack.adapter';
 
@@ -26,9 +25,7 @@ export const PROFILE_FIELDS = {
   email: { blockId: 'profile_email', actionId: 'email' },
   firstName: { blockId: 'profile_first_name', actionId: 'first_name' },
   lastName: { blockId: 'profile_last_name', actionId: 'last_name' },
-  department: { blockId: 'profile_department', actionId: 'department' },
   position: { blockId: 'profile_position', actionId: 'position' },
-  startDate: { blockId: 'profile_start_date', actionId: 'start_date' },
 } as const;
 
 /** Un champ de la modale, désigné par son descripteur plutôt que par sa clé. */
@@ -61,9 +58,7 @@ export interface ProfileSubmission {
   email: string;
   firstName: string;
   lastName: string;
-  department: string;
   position: string;
-  startDate: string;
 }
 
 /* -------------------------------------------------------------------------- *
@@ -143,42 +138,6 @@ function textInput(
   } as SlackBlock;
 }
 
-function departmentSelect(): SlackBlock {
-  const { blockId, actionId } = PROFILE_FIELDS.department;
-
-  return {
-    type: 'input',
-    block_id: blockId,
-    label: { type: 'plain_text', text: 'Département' },
-    element: {
-      type: 'static_select',
-      action_id: actionId,
-      placeholder: { type: 'plain_text', text: 'Choisir un département' },
-      // Source unique de vérité : l'enum `Department`. Douze valeurs, très en
-      // dessous du plafond Slack de 100 options.
-      options: Object.values(Department).map((value) => ({
-        text: { type: 'plain_text', text: value },
-        value,
-      })),
-    },
-  } as SlackBlock;
-}
-
-function startDatePicker(): SlackBlock {
-  const { blockId, actionId } = PROFILE_FIELDS.startDate;
-
-  return {
-    type: 'input',
-    block_id: blockId,
-    label: { type: 'plain_text', text: 'Date de début' },
-    element: {
-      type: 'datepicker',
-      action_id: actionId,
-      placeholder: { type: 'plain_text', text: 'Sélectionner une date' },
-    },
-  } as SlackBlock;
-}
-
 /**
  * Vue de la modale, pré-remplie de ce que Slack sait déjà.
  *
@@ -195,7 +154,11 @@ export function buildProfileModal(prefill: ProfileModalPrefill): SlackModalView 
     close: { type: 'plain_text', text: 'Annuler' },
     // Revient dans un payload SIGNÉ : après vérification HMAC, on peut s'y fier
     // pour relier la soumission à l'accueil. Ne jamais y mettre de secret.
-    private_metadata: JSON.stringify({ slackUserId: prefill.slackUserId }),
+    //
+    // ⚠️ Même encodage que le `value` du bouton (`encodePrefill`) : c'est `decodePrefill`
+    // qui le relit des DEUX côtés. Deux formes proches mais distinctes auraient divergé au
+    // premier champ ajouté, et l'écart ne se serait vu qu'en production, sur la soumission.
+    private_metadata: encodePrefill(prefill),
     blocks: [
       textInput(PROFILE_FIELDS.email, 'Email professionnel', {
         initial: prefill.email,
@@ -203,9 +166,11 @@ export function buildProfileModal(prefill: ProfileModalPrefill): SlackModalView 
       }),
       textInput(PROFILE_FIELDS.firstName, 'Prénom', { initial: prefill.firstName }),
       textInput(PROFILE_FIELDS.lastName, 'Nom', { initial: prefill.lastName }),
-      departmentSelect(),
+      // SEUL champ réellement demandé. Le département n'est plus collecté, et la date de
+      // début est déjà connue — c'est l'instant du `team_join`, transporté par `joinedAt`.
+      // Une question dont le serveur a la réponse est une occasion de se tromper offerte
+      // à l'arrivant, pas une information gagnée.
       textInput(PROFILE_FIELDS.position, 'Poste', { placeholder: 'Software Engineer' }),
-      startDatePicker(),
     ],
   } as SlackModalView;
 }
@@ -248,9 +213,7 @@ export function readProfileSubmission(state: SlackViewState): ProfileSubmission 
     email: readField(state, PROFILE_FIELDS.email),
     firstName: readField(state, PROFILE_FIELDS.firstName),
     lastName: readField(state, PROFILE_FIELDS.lastName),
-    department: readField(state, PROFILE_FIELDS.department),
     position: readField(state, PROFILE_FIELDS.position),
-    startDate: readField(state, PROFILE_FIELDS.startDate),
   };
 }
 
@@ -281,16 +244,12 @@ export const profileSubmissionSchema = z.object({
     .min(VALIDATION_CONSTRAINTS.NAME.MIN_LENGTH, 'Nom trop court')
     .max(VALIDATION_CONSTRAINTS.NAME.MAX_LENGTH, 'Nom trop long')
     .regex(VALIDATION_CONSTRAINTS.NAME.PATTERN, 'Nom : lettres, espaces, tirets et apostrophes'),
-  department: z.nativeEnum(Department, {
-    errorMap: () => ({ message: 'Département inconnu' }),
-  }),
   position: z
     .string()
     .trim()
     .min(VALIDATION_CONSTRAINTS.POSITION.MIN_LENGTH, 'Intitulé de poste trop court')
     .max(VALIDATION_CONSTRAINTS.POSITION.MAX_LENGTH, 'Intitulé de poste trop long')
     .regex(VALIDATION_CONSTRAINTS.POSITION.PATTERN, 'Caractères non autorisés dans le poste'),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Sélectionner une date de début'),
 });
 
 export type ValidatedProfile = z.infer<typeof profileSubmissionSchema>;
@@ -333,4 +292,23 @@ export function errorsByBlockId(error: z.ZodError): Record<string, string> {
  */
 export function normalizeStartDate(date: string): string {
   return `${date}T00:00:00.000Z`;
+}
+
+/**
+ * Date de début, DÉRIVÉE de l'arrivée Slack.
+ *
+ * Le sélecteur de date a disparu de la modale parce que la réponse est déjà connue : la
+ * personne commence le jour où le workspace l'annonce. Le repli sur `now` ne concerne que les
+ * boutons émis AVANT le 2026-08-13, dont le `value` ne porte pas `joinedAt` — et un repli sur
+ * l'instant courant est exact pour eux aussi, à ceci près qu'il date la SOUMISSION plutôt que
+ * l'arrivée.
+ *
+ * ⚠️ Le passage par `slice(0, 10)` puis `normalizeStartDate` est délibéré : il borne au JOUR,
+ * en UTC, sans jamais reconstruire une `Date` à partir d'une chaîne locale — le « correctif »
+ * naturel `new Date(d + 'T00:00:00')` décale d'un jour dès que le runtime n'est pas en UTC.
+ */
+export function startDateFromJoin(joinedAt: string | null | undefined, now: Date): string {
+  const parsed = joinedAt ? new Date(joinedAt) : null;
+  const valid = parsed && !Number.isNaN(parsed.getTime()) ? parsed : now;
+  return normalizeStartDate(valid.toISOString().slice(0, 10));
 }

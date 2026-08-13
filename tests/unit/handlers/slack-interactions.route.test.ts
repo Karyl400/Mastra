@@ -78,9 +78,7 @@ const viewSubmissionPayload = (overrides: Record<string, string> = {}) => {
     email: 'alice@kisso.com',
     firstName: 'Alice',
     lastName: 'Martin',
-    department: 'Engineering',
     position: 'Software Engineer',
-    startDate: '2026-09-01',
     ...overrides,
   };
 
@@ -101,16 +99,8 @@ const viewSubmissionPayload = (overrides: Record<string, string> = {}) => {
           [PROFILE_FIELDS.lastName.blockId]: {
             [PROFILE_FIELDS.lastName.actionId]: { value: fields.lastName },
           },
-          [PROFILE_FIELDS.department.blockId]: {
-            [PROFILE_FIELDS.department.actionId]: {
-              selected_option: { value: fields.department },
-            },
-          },
           [PROFILE_FIELDS.position.blockId]: {
             [PROFILE_FIELDS.position.actionId]: { value: fields.position },
-          },
-          [PROFILE_FIELDS.startDate.blockId]: {
-            [PROFILE_FIELDS.startDate.actionId]: { selected_date: fields.startDate },
           },
         },
       },
@@ -291,9 +281,7 @@ describe('Route /slack/interactions', () => {
           viewSubmissionPayload({
             email: 'x',
             firstName: '',
-            department: 'Wakanda',
             position: '',
-            startDate: 'hier',
           }),
         ),
       );

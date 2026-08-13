@@ -6,10 +6,11 @@ import {
   readProfileSubmission,
   profileSubmissionSchema,
   errorsByBlockId,
+  decodePrefill,
   normalizeStartDate,
+  startDateFromJoin,
   type ProfileModalPrefill,
 } from '../../../src/features/notification/infrastructure/handlers/profile-modal';
-import { Department } from '../../../src/shared/types';
 
 const prefill: ProfileModalPrefill = {
   slackUserId: 'U0NEWCOMER1',
@@ -37,7 +38,7 @@ describe('buildProfileModal', () => {
     expect(view.submit).toBeDefined();
   });
 
-  it('pose un block_id explicite sur chacun des six champs', () => {
+  it('pose un block_id explicite sur chacun des quatre champs', () => {
     // Sans block_id explicite, Slack en génère un aléatoire à l'ouverture et il
     // devient impossible de rattacher une erreur de validation au bon champ.
     const ids = blockIdsOf(buildProfileModal(prefill));
@@ -63,15 +64,17 @@ describe('buildProfileModal', () => {
     expect(blockIdsOf(view)).toHaveLength(Object.keys(PROFILE_FIELDS).length);
   });
 
-  it('propose les douze départements, très en dessous du plafond de 100 options', () => {
-    const view = buildProfileModal(prefill);
-    const departmentBlock = (view.blocks as Array<{ block_id?: string; element?: unknown }>).find(
-      (block) => block.block_id === PROFILE_FIELDS.department.blockId,
-    );
-    const options = (departmentBlock?.element as { options?: unknown[] })?.options ?? [];
+  it('ne demande QUE le poste — ni département, ni date de début', () => {
+    // Le département n'est plus collecté (2026-08-13) et la date de début est déjà connue :
+    // c'est l'instant du `team_join`. Une question dont le serveur a la réponse est une
+    // occasion de se tromper offerte à l'arrivant, pas une information gagnée.
+    const view = JSON.stringify(buildProfileModal(prefill));
 
-    expect(options).toHaveLength(Object.values(Department).length);
-    expect(options.length).toBeLessThanOrEqual(100);
+    expect(view).toContain('profile_position');
+    expect(view).not.toContain('profile_department');
+    expect(view).not.toContain('profile_start_date');
+    expect(view).not.toContain('datepicker');
+    expect(view).not.toContain('static_select');
   });
 
   it('transporte l’identifiant Slack dans private_metadata, sous les 3000 caractères', () => {
@@ -81,7 +84,8 @@ describe('buildProfileModal', () => {
 
     expect(view.private_metadata).toBeDefined();
     expect(view.private_metadata!.length).toBeLessThanOrEqual(3000);
-    expect(JSON.parse(view.private_metadata!)).toMatchObject({ slackUserId: 'U0NEWCOMER1' });
+    // Même encodage que le `value` du bouton : c'est `decodePrefill` qui relit les deux.
+    expect(decodePrefill(view.private_metadata!).slackUserId).toBe('U0NEWCOMER1');
   });
 });
 
@@ -98,35 +102,21 @@ describe('readProfileSubmission', () => {
       [PROFILE_FIELDS.lastName.blockId]: {
         [PROFILE_FIELDS.lastName.actionId]: { type: 'plain_text_input', value: 'Martin' },
       },
-      [PROFILE_FIELDS.department.blockId]: {
-        [PROFILE_FIELDS.department.actionId]: {
-          type: 'static_select',
-          selected_option: {
-            value: 'Engineering',
-            text: { type: 'plain_text', text: 'Ingénierie' },
-          },
-        },
-      },
       [PROFILE_FIELDS.position.blockId]: {
         [PROFILE_FIELDS.position.actionId]: {
           type: 'plain_text_input',
           value: 'Software Engineer',
         },
       },
-      [PROFILE_FIELDS.startDate.blockId]: {
-        [PROFILE_FIELDS.startDate.actionId]: { type: 'datepicker', selected_date: '2026-09-01' },
-      },
     },
   };
 
-  it('extrait les six champs, chacun selon son type de saisie', () => {
+  it('extrait les quatre champs restants', () => {
     expect(readProfileSubmission(state)).toEqual({
       email: 'alice@kisso.com',
       firstName: 'Alice',
       lastName: 'Martin',
-      department: 'Engineering',
       position: 'Software Engineer',
-      startDate: '2026-09-01',
     });
   });
 
@@ -137,9 +127,7 @@ describe('readProfileSubmission', () => {
       email: '',
       firstName: '',
       lastName: '',
-      department: '',
       position: '',
-      startDate: '',
     });
   });
 });
@@ -149,9 +137,7 @@ describe('profileSubmissionSchema', () => {
     email: 'alice@kisso.com',
     firstName: 'Alice',
     lastName: 'Martin',
-    department: 'Engineering',
     position: 'Software Engineer',
-    startDate: '2026-09-01',
   };
 
   it('accepte une soumission complète, poste libre inclus', () => {
@@ -160,12 +146,6 @@ describe('profileSubmissionSchema', () => {
 
   it('rejette un email invalide, un département inconnu et une date mal formée', () => {
     expect(profileSubmissionSchema.safeParse({ ...valid, email: 'pas-un-email' }).success).toBe(
-      false,
-    );
-    expect(profileSubmissionSchema.safeParse({ ...valid, department: 'Wakanda' }).success).toBe(
-      false,
-    );
-    expect(profileSubmissionSchema.safeParse({ ...valid, startDate: '01/09/2026' }).success).toBe(
       false,
     );
   });
@@ -177,9 +157,7 @@ describe('errorsByBlockId', () => {
       email: 'pas-un-email',
       firstName: 'Alice',
       lastName: 'Martin',
-      department: 'Engineering',
       position: 'Software Engineer',
-      startDate: '2026-09-01',
     });
 
     expect(parsed.success).toBe(false);
@@ -196,9 +174,7 @@ describe('errorsByBlockId', () => {
       email: 'x',
       firstName: '',
       lastName: '',
-      department: 'Wakanda',
       position: '',
-      startDate: 'hier',
     });
 
     expect(parsed.success).toBe(false);
@@ -227,6 +203,44 @@ describe('normalizeStartDate', () => {
       for (const tz of ['UTC', 'Africa/Porto-Novo', 'Pacific/Kiritimati', 'America/Los_Angeles']) {
         process.env.TZ = tz;
         expect(normalizeStartDate('2026-09-01'), tz).toBe('2026-09-01T00:00:00.000Z');
+      }
+    } finally {
+      if (previousTz === undefined) delete process.env.TZ;
+      else process.env.TZ = previousTz;
+    }
+  });
+});
+
+describe('startDateFromJoin', () => {
+  const NOW = new Date('2026-08-13T14:32:07.123Z');
+
+  it("borne l'instant du team_join au JOUR, en UTC", () => {
+    expect(startDateFromJoin('2026-08-13T14:32:07.123Z', NOW)).toBe('2026-08-13T00:00:00.000Z');
+  });
+
+  it("retombe sur l'instant courant quand le bouton ne porte pas de date", () => {
+    // Cas des boutons émis AVANT le 2026-08-13 : leur `value` ne porte pas `joinedAt`. Le
+    // repli date la SOUMISSION plutôt que l'arrivée — approximation assumée et bornée.
+    expect(startDateFromJoin(undefined, NOW)).toBe('2026-08-13T00:00:00.000Z');
+    expect(startDateFromJoin(null, NOW)).toBe('2026-08-13T00:00:00.000Z');
+    expect(startDateFromJoin('', NOW)).toBe('2026-08-13T00:00:00.000Z');
+  });
+
+  it('retombe sur maintenant plutôt que de produire une date invalide', () => {
+    // `new Date('n''importe quoi')` rend un Invalid Date, dont `toISOString()` LÈVE. Sans
+    // cette garde, un `value` corrompu ferait échouer toute la soumission au lieu de
+    // dégrader d'une journée.
+    expect(startDateFromJoin('pas une date', NOW)).toBe('2026-08-13T00:00:00.000Z');
+  });
+
+  it('ne décale jamais la date, quel que soit le fuseau du runtime', () => {
+    const previousTz = process.env.TZ;
+    try {
+      for (const tz of ['UTC', 'Africa/Porto-Novo', 'Pacific/Kiritimati', 'America/Los_Angeles']) {
+        process.env.TZ = tz;
+        expect(startDateFromJoin('2026-08-13T23:50:00.000Z', NOW), tz).toBe(
+          '2026-08-13T00:00:00.000Z',
+        );
       }
     } finally {
       if (previousTz === undefined) delete process.env.TZ;

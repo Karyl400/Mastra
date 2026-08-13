@@ -30,9 +30,9 @@ import {
   buildProfileModal,
   decodePrefill,
   errorsByBlockId,
-  normalizeStartDate,
   profileSubmissionSchema,
   readProfileSubmission,
+  startDateFromJoin,
   type SlackViewState,
   type ValidatedProfile,
 } from '../features/notification/infrastructure/handlers/profile-modal';
@@ -184,7 +184,11 @@ export function onboardingRunId(email: string): string {
  * clé erronée rend `undefined` et lève un `TypeError` **dans la tâche de fond**,
  * donc invisible.
  */
-async function runOnboarding(mastra: Mastra, profile: ValidatedProfile): Promise<void> {
+async function runOnboarding(
+  mastra: Mastra,
+  profile: ValidatedProfile,
+  startDate: string,
+): Promise<void> {
   const workflow = mastra.getWorkflow('employeeOnboardingWorkflow' as never) as unknown as {
     createRun(options?: { runId?: string }): Promise<{
       start(args: { inputData: unknown }): Promise<{
@@ -212,11 +216,15 @@ async function runOnboarding(mastra: Mastra, profile: ValidatedProfile): Promise
       firstName: profile.firstName,
       lastName: profile.lastName,
       email: profile.email,
-      department: profile.department,
+      // Plus JAMAIS renseigné : le parcours d'arrivée a cessé de collecter le département
+      // le 2026-08-13, et `employees.department` est nullable depuis la même date.
+      department: null,
       position: profile.position,
-      startDate: normalizeStartDate(profile.startDate),
-      // Aucune correspondance département → canal n'existe aujourd'hui :
-      // le workflow saute alors l'invitation Slack, sans échouer.
+      // Dérivée de l'instant du `team_join`, jamais saisie : voir `startDateFromJoin`.
+      startDate,
+      // Aucune correspondance département → canal n'existe aujourd'hui : le workflow saute
+      // alors l'invitation Slack, sans échouer. L'arrivant est de toute façon déjà entré
+      // dans les canaux d'accueil, au `team_join`, par un chemin qui ne passe pas ici.
       slackChannelId: null,
     },
   });
@@ -275,21 +283,22 @@ function handleViewSubmission(payload: SlackInteractionPayload, mastra: Mastra):
     return jsonResponse({ response_action: 'errors', errors });
   }
 
-  const slackUserId = decodePrefill(
-    payload.view.private_metadata,
-    payload.user?.id ?? '',
-  ).slackUserId;
+  const prefill = decodePrefill(payload.view.private_metadata, payload.user?.id ?? '');
+
+  // La date d'arrivée voyage dans le `private_metadata`, signé par Slack. On ne la redemande
+  // ni à l'humain ni à l'API : elle est connue depuis le `team_join`.
+  const startDate = startDateFromJoin(prefill.joinedAt, new Date());
 
   logger.info('Profile submission accepted', {
-    slackUserId,
-    department: parsed.data.department,
+    slackUserId: prefill.slackUserId,
+    startDate,
   });
 
   // TÂCHE DE FOND — régime OPPOSÉ à celui de `block_actions` ci-dessus : le
   // workflow écrit en base, envoie un email SMTP et appelle Slack, largement
   // au-delà des 3 secondes accordées à cette réponse. Sur Vercel, `waitUntil`
   // empêche le gel de la fonction avant la fin.
-  const work = runOnboarding(mastra, parsed.data).catch((error: unknown) => {
+  const work = runOnboarding(mastra, parsed.data, startDate).catch((error: unknown) => {
     logger.error('Background onboarding failed', { error, email: parsed.data.email });
   });
   scheduleBackgroundWork(work);
