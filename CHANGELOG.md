@@ -40,6 +40,26 @@ Deux arbitrages, tous deux verrouillés par test :
   Les tests vérifient que le repository n'est **jamais appelé**, pas seulement que le résultat
   est vide.
 
+### Security — `generateDocument` restituait le même dossier, en pire
+
+Relevé par une revue **adversariale** conduite après coup, et c'est la trouvaille la plus
+importante du lot : fermer les trois lectures ne fermait qu'une porte sur deux, et pas la plus
+large. `generateDocument` accepte un `employeeId` arbitraire, imprime `firstName`, `lastName`,
+`email`, `department`, `position` et `startDate` de cette personne dans le document rendu, puis
+livre le fichier **dans le canal du DEMANDEUR** — pas dans celui de la personne concernée.
+
+En deux messages : « retrouve le profil de collegue@… », puis « génère-lui une lettre de
+bienvenue ». L'attaquant reçoit en DM un PDF **téléchargeable et repartageable** portant le
+dossier d'un collègue. Un fichier est un contournement pire qu'une lecture : il quitte le
+système.
+
+Même règle que les quatre autres — produire un document pour quelqu'un d'autre reste
+parfaitement légitime (une lettre de bienvenue est écrite par les RH), d'où `full` et non un
+refus sec. Test : la fiche employé n'est **jamais lue** quand le demandeur n'a pas le droit.
+
+La leçon de méthode vaut d'être notée : la revue adversariale a trouvé ce que l'audit initial
+avait manqué, parce qu'elle cherchait un CONTOURNEMENT plutôt qu'un défaut.
+
 ### ⚠️ Ce que ce correctif ne fait PAS — à lire avant d'en conclure quoi que ce soit
 
 Le niveau porté par le contexte est l'`effective` calculé par `SlackAccessGuard`, qui rend

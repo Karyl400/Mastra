@@ -25,7 +25,7 @@ import {
   sanitizeDocumentText,
 } from '../../../../shared/security/agent-output';
 import { logger } from '../../../../shared/logger';
-import { readSlackContext } from '../../../../shared/slack-request-context';
+import { readSlackContext, canReadPersonRecord } from '../../../../shared/slack-request-context';
 import { buildRunKey, makeRunGuard } from '../../../../shared/tool-idempotency';
 import { DocumentFormat, DocumentStatus, DocumentType } from '../../../../shared/types';
 
@@ -117,6 +117,9 @@ const HINTS = {
   not_rendered:
     "Aucun fichier n'a pu être produit : seul le texte est enregistré. Dis que le document " +
     "existe mais qu'aucun fichier n'a été envoyé.",
+  not_authorized:
+    "Tu n'as pas le droit de produire un document au nom de cette personne. Dis-le simplement, " +
+    'sans inventer de motif. Ne réessaie pas avec un autre outil et ne reformule pas la demande.',
 } as const;
 
 type HintKey = keyof typeof HINTS;
@@ -385,6 +388,45 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       //
       // Rien n'est enregistré dans ce cas : `documents.employee_id` porte une clé
       // étrangère vers `employees`, une ligne orpheline serait refusée par la base.
+      // ══════════════════════════════════════════════════════════════════════
+      // FRONTIÈRE D'AUTORISATION — le contournement le plus large des quatre
+      // ══════════════════════════════════════════════════════════════════════
+      //
+      // Relevé par la revue adversariale du 2026-08-13, APRÈS que les trois lectures RH
+      // (`getEmployeeProfile`, `getTaskList`, `getNotificationHistory`) eurent été fermées.
+      // Ce tool restituait exactement le même dossier par un chemin voisin, et en pire :
+      //
+      //  1. il accepte un `employeeId` ARBITRAIRE, produit par le modèle donc par le texte ;
+      //  2. il imprime `firstName`, `lastName`, `email`, `department`, `position` et
+      //     `startDate` de cette personne dans le document rendu (voir `renderer.render`) ;
+      //  3. il livre le fichier dans le canal du DEMANDEUR (`slackCtx.channel`), pas dans
+      //     celui de la personne concernée.
+      //
+      // Soit, en deux messages : « retrouve le profil de collegue@… » puis « génère-lui une
+      // lettre de bienvenue » — et l'attaquant reçoit en DM un PDF TÉLÉCHARGEABLE ET
+      // REPARTAGEABLE portant le dossier d'un collègue. Fermer les trois lectures en laissant
+      // celle-ci ouverte n'aurait fermé qu'une porte sur deux, et pas la plus large.
+      //
+      // ⚠️ AVANT la résolution de l'employé, comme dans les trois autres : un refus qui lit
+      // d'abord et filtre ensuite fuite par sa latence et journalise une consultation qui
+      // n'aurait pas dû avoir lieu.
+      //
+      // Générer un document POUR QUELQU'UN D'AUTRE reste légitime — c'est le cas d'usage
+      // central du produit, une lettre de bienvenue est écrite par les RH. C'est exactement
+      // pourquoi la règle est celle des trois autres et non un refus sec : soi-même toujours,
+      // autrui au niveau `full`.
+      if (!canReadPersonRecord(ctx?.requestContext, data.employeeId)) {
+        logger.warn('Document refusé — demandeur non autorisé pour cette personne', {
+          employeeId: data.employeeId,
+        });
+        return {
+          saved: false as const,
+          delivery: 'none' as DeliveryVerdict,
+          reason: 'not_authorized',
+          hint: HINTS.not_authorized,
+        };
+      }
+
       const employee = await employeeRepo.findById(data.employeeId);
       if (!employee) {
         logger.warn('Document refusé — aucun employé pour cet identifiant', {

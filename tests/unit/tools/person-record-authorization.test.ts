@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { makeGetEmployeeProfile } from '../../../src/features/employee/application/tools/get-employee-profile';
 import { makeGetTaskList } from '../../../src/features/employee/application/tools/get-task-list';
 import { makeGetNotificationHistory } from '../../../src/features/notification/application/tools/get-notification-history';
+import { makeGenerateDocument } from '../../../src/features/document/application/tools/generate-document';
 import { buildSlackRequestContext } from '../../../src/shared/slack-request-context';
 
 /**
@@ -128,6 +129,60 @@ describe('getTaskList — frontière d’autorisation', () => {
     await tool.execute!({ employeeId: ME } as never, restrictedRequester as never);
 
     expect(findByEmployee).toHaveBeenCalledWith(ME);
+  });
+});
+
+/**
+ * ⚠️ LE CONTOURNEMENT LE PLUS LARGE, relevé par la revue adversariale APRÈS que les trois
+ * lectures RH eurent été fermées.
+ *
+ * `generateDocument` restituait le même dossier par un chemin voisin, et en pire : il imprime
+ * `firstName`, `lastName`, `email`, `department`, `position` et `startDate` de la personne
+ * dans le document, puis livre le fichier dans le canal du DEMANDEUR. Soit, en deux messages,
+ * un PDF téléchargeable et repartageable portant le dossier d'un collègue.
+ */
+describe('generateDocument — frontière d’autorisation', () => {
+  const documentTool = (findById: ReturnType<typeof vi.fn>) =>
+    makeGenerateDocument({
+      documentRepo: { save: vi.fn(), findById: vi.fn() },
+      employeeRepo: { findById },
+      renderers: [{ format: 'pdf', render: vi.fn() }],
+    } as never);
+
+  it('REFUSE de produire un document au nom d’un tiers, sans lire la fiche', async () => {
+    const findById = vi.fn().mockResolvedValue(employeeRow);
+
+    const result = (await documentTool(findById).execute!(
+      {
+        employeeId: SOMEONE_ELSE,
+        type: 'welcome_letter',
+        title: 'Bienvenue',
+        content: 'Bonjour et bienvenue.',
+      } as never,
+      restrictedRequester as never,
+    )) as { saved: boolean; reason: string; delivery: string };
+
+    expect(result.saved).toBe(false);
+    expect(result.reason).toBe('not_authorized');
+    expect(result.delivery).toBe('none');
+    // La garantie qui compte : la fiche n'a pas été lue, donc rien n'a pu être imprimé.
+    expect(findById).not.toHaveBeenCalled();
+  });
+
+  it('laisse passer un document produit pour SOI-MÊME', async () => {
+    const findById = vi.fn().mockResolvedValue({ ...employeeRow, id: ME });
+
+    await documentTool(findById).execute!(
+      {
+        employeeId: ME,
+        type: 'welcome_letter',
+        title: 'Bienvenue',
+        content: 'Bonjour et bienvenue.',
+      } as never,
+      restrictedRequester as never,
+    );
+
+    expect(findById).toHaveBeenCalledWith(ME);
   });
 });
 
