@@ -280,6 +280,44 @@ verrouillent cette règle : `tests/unit/quality/architecture.test.ts` et `code-a
   `test`) gardent le seul pluriel `s?`. Ouvrir la tolérance à tous ferait revenir les faux
   positifs d'origine.
 
+**CINQ court-circuits déterministes répondent SANS aucun appel de modèle** (2026-08-13). Ils
+vivent dans `handleMessage`, dans cet ordre : salutation nue (`shared/greeting.ts`), pièce
+jointe (`subtype: file_share`), message sans contenu textuel et message trop long
+(`shared/message-shape.ts`), détresse (`shared/distress.ts`). Chacun est un prédicat pur + une
+réponse écrite en dur, et coûte **zéro token** sur un quota qui se compte à la journée.
+
+- `hasNoTextualContent` teste `[\p{L}\p{N}]` — lettre ou chiffre **Unicode**, jamais `[a-z0-9]` :
+  un filtre latin rendrait le bot muet devant « مرحبا », « привет » ou « 你好 ».
+- La borne de longueur double celle de `wrapUserInput` **sans la déplacer**, et sur la même
+  constante. Elle existe parce qu'une `SecurityBlockError` ressort en `NEUTRAL_REFUSAL` : un
+  copier-coller trop long recevait un refus de POLITIQUE là où le problème est une TAILLE.
+- ⚠️ **La limite de débit les ÉPARGNE, et c'est un correctif trouvé en production.** Elle vit
+  dans `accept()`, donc AVANT eux : une personne ayant atteint ses 12 messages du jour recevait
+  « J'ai atteint mon quota » pour un simple « bonjour » — et l'aurait reçu pour « je ne vais pas
+  bien ». `DAILY_RULE` porte donc `rationsModelBudget: true` et est ni consultée ni incrémentée
+  quand `isAnsweredWithoutModel(event)` est vrai ; `BURST_RULE`, elle, s'applique toujours.
+  ⚠️ `isAnsweredWithoutModel` doit rester le MIROIR EXACT des court-circuits de `handleMessage`.
+- Vérifiable en production sans rien dépenser :
+  `npx tsx --env-file=.env scripts/probe-deterministic-replies.mts`.
+
+**Une lecture de données RH exige désormais de savoir QUI demande** (2026-08-13).
+`canReadPersonRecord` (`src/shared/slack-request-context.ts`) garde **quatre** outils :
+`getEmployeeProfile`, `getTaskList`, `getNotificationHistory` et `generateDocument`. Aucun
+d'eux ne regardait le demandeur : la chaîne « email d'un collègue → UUID via
+`findEmployeeByEmail` → dossier complet » était ouverte en deux messages, et `generateDocument`
+livrait même ce dossier en PDF **dans le canal du demandeur**.
+- Règle : son propre dossier toujours (comparaison sur `employees.id`, AVANT le niveau), celui
+  d'autrui au niveau `full` — la même que `getUserConversations` et `canPerformSideEffects`.
+- L'`employeeId` du demandeur descend par le `requestContext` (clé `slackEmployeeId`), jamais
+  par la fenêtre du modèle : on ne décide pas d'un droit sur une valeur qu'un attaquant écrit.
+- Le refus est rendu **avant toute lecture en base**, et les tests le vérifient en assertant
+  que le repository n'est jamais appelé.
+- ⚠️ **Cette frontière hérite du mode observation** : tant que `AUTHZ_ENFORCE` n'est pas posé,
+  `SlackAccessGuard` rend `full` à tout le monde et elle **ne refuse rien**. Et avant de
+  l'activer, vérifier `SLACK_ORG_EMAIL_DOMAINS` : l'adresse d'annuaire de l'administratrice de
+  l'onboarding est `karylsoumaila1@gmail.com`, domaine étranger, donc `readonly` — l'activer en
+  l'état la couperait du dossier de tout le monde.
+
 **Le modèle sait désormais QUI lui parle** (`buildContextPreamble`, 2026-08-11). L'identité du
 demandeur est injectée dans un message **`system`** : nom d'affichage résolu via `users.info`,
 **assaini** (`sanitizeDisplayName` — un nom d'affichage est contrôlé par son porteur, donc un
