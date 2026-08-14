@@ -143,6 +143,32 @@ pas son pipeline d'agents, écarté au chiffrage qu'il fournit lui-même (374 > 
 `TODO.md` : les sections [5] et [6] cochaient encore `getTaskList`, `generateQuestionnaire`,
 `evaluateResponse` et `QuestionnaireEngine` comme livrés.
 
+### Verified — campagne de tests en production (2026-08-14)
+
+Déploiement `n845ltyoe`. Ordre imposé par `TODO.md` [0] : relever le quota AVANT tout test
+conversationnel — 997/1000 requêtes restantes, budget de la journée intact.
+
+- **Signature Slack** : non signé → `401 missing_signature_headers` ; `/api/*` sans jeton → `401`.
+- **Usurpation `requestContext`** : avec un jeton valide, contexte forgé
+  (`slackAccessLevel` + `slackEmployeeId`) → **`400`, les deux clés NOMMÉES** ; contexte
+  légitime (`locale`) → `200`. Le garde discrimine, il ne bloque pas tout.
+- **Cinq réponses déterministes** conformes en production, **zéro token**.
+- **Matrice de routage** : 19/19 puis 10/10, y compris les faux positifs historiques
+  (« je conteste cette décision », « in other words ») et un collant hors registre.
+- **Le défaut de `TODO.md` [0 bis], rejoué en production et FERMÉ** : « quel est l'historique
+  des notifications ? » → `notificationAgent` (« Il n'y a pas d'historique… »), puis
+  « Génère-moi le guide en PDF » dans le MÊME fil → le fil a bien cédé à l'orchestrateur, qui a
+  rendu **et livré** `guide-d-integration.pdf` dans le DM. 19ᵉ ligne de `documents`,
+  `status: sent`, contenu persisté, rattaché au bon demandeur.
+- **`findExpertise` de bout en bout** : « qui s'occupe du backend ? » → `knowledgeAgent` → tool
+  appelé → aucune correspondance → **le modèle l'a DIT au lieu d'inventer un nom**.
+
+⚠️ Ce dernier résultat a fait vérifier la donnée plutôt que le code, et c'est ce qui a révélé
+qu'**Awa TRAORE est soft-deleted depuis le 2026-08-12** : il n'existe qu'**un seul dossier
+employé actif**. La formule « `employees` = 2 lignes (Karyl, Awa) », répétée dans `CLAUDE.md` et
+`TODO.md`, est vraie en nombre de lignes et trompeuse en ce qui est résolvable. Voir
+`TODO.md` [0 quater].
+
 ### Budget
 
 FLOOR remesuré sur le câblage réel : orchestrateur **1 528**, notification **1 517**,

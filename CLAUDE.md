@@ -625,6 +625,15 @@ rencontrés et corrigés) :
 
 Abonnements actuels : `app_mention`, `message.im`, `message.channels`, `message.groups`.
 
+⚠️ **UN SEUL dossier employé est ACTIF (relevé du 2026-08-14, après déploiement).** La formule
+« `employees` = 2 lignes (Karyl, Awa) », répétée ici et dans `TODO.md`, est vraie au sens du
+compte de lignes et **trompeuse au sens de ce qui est résolvable** : Awa TRAORE est
+**soft-deleted** depuis le 2026-08-12 (`deleted_at`). Les trois résolveurs (`findByName`,
+`findByEmail`, `findAll`) filtrent `deleted_at` — de façon cohérente, c'est vérifié — donc elle
+est introuvable partout. `findExpertise('backend')` ne rend personne alors qu'elle porte
+« Backend Developer » : le résultat est CORRECT, et c'est la donnée qu'il faut regarder avant le
+code. Voir `TODO.md` [0 quater].
+
 ⚠️ **`team_join` N'EST PAS abonné, et c'est le trou le plus coûteux du produit.** `handleTeamJoin`
 est écrit, testé et déclaré dans `SUPPORTED_EVENT_TYPES` — il n'est simplement jamais appelé. Or
 c'est le seul émetteur historique du DM portant le bouton « Compléter mon profil », donc le seul

@@ -44,6 +44,27 @@ bug, ce qui a coûté des heures.
       travail, **pas même committés** : tant que ce n'est pas fait, l'avertissement en tête de
       `CLAUDE.md` s'applique intégralement à eux.
 
+## [0 quater] RELEVÉ DU 2026-08-14, APRÈS DÉPLOIEMENT — deux constats de données
+
+- [ ] ⚠️ **Awa TRAORE est SOFT-DELETED en production** (`deleted_at = 2026-08-12T14:45:05Z`).
+      Partout dans ce fichier et dans `CLAUDE.md` on lit « `employees` = 2 lignes (Karyl,
+      Awa) » : c'est vrai au sens du COMPTE de lignes, et **trompeur au sens de ce qui est
+      résolvable**. Les trois résolveurs (`findByName`, `findByEmail`, `findAll`) filtrent
+      `deleted_at` — de manière cohérente, c'est vérifié — donc :
+      **il n'existe qu'UN SEUL dossier employé actif dans tout le workspace.**
+      Conséquences directes, à ne pas rediagnostiquer :
+      - `findPersonByName('Awa')` ne rend rien, et c'est CORRECT ;
+      - `findExpertise('backend')` ne rend personne alors qu'Awa porte « Backend Developer » —
+        également correct, et c'est ce qui a fait vérifier la donnée plutôt que le code ;
+      - le guide reste « générique » pour tout le monde sauf Karyl, faute de dossier à lire.
+      Décider : réactiver Awa (`deleted_at = NULL`) ou acter qu'elle est partie. **Ne rien
+      décider laisse le workspace avec un seul dossier**, ce qui fera relire toute la chaîne
+      comme cassée alors qu'elle fonctionne.
+- [ ] `slack_directory` ne porte un `title` que pour **4 personnes sur 40**. C'est la seule
+      matière de `findExpertise` aujourd'hui — sa recall est donc bornée par le remplissage des
+      profils Slack, pas par le code. Un profil Slack sans intitulé de poste est invisible pour
+      la question « qui s'occupe de… ».
+
 ## [0 bis] REVUE CROISÉE DU 2026-08-12 — ce qui reste en creux
 
 Six revues indépendantes sur l'arbre de travail. Les correctifs sont au CHANGELOG ; ce qui suit
