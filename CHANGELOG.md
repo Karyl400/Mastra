@@ -89,7 +89,6 @@ et la couverture, elles, sont à coût nul — elles vivent dans le code.
 Le lot 3 avait laissé cette demande de côté sur un blocage réel — **aucun chemin d'email
 entrant** — qui rendait impossible un test de personnalité par email. La vision retenue est
 STRICTEMENT SORTANTE, et ce blocage ne s'y applique pas.
-
 **Le tool PRÉPARE, il n'envoie jamais.** Il rend `status: 'awaiting_confirmation'` et poste une
 carte Block Kit ; l'envoi vit dans `slack-interactions.route.ts`, hors de portée du modèle.
 ⚠️ La réconciliation FAIT/NARRATION ne rattraperait PAS un « c'est envoyé » ici — un outil a

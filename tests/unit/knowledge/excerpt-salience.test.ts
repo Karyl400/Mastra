@@ -160,3 +160,31 @@ describe('describeCoverage — dire ce qu’on ne montre PAS', () => {
     expect(describeCoverage(all, 6)).toContain('le 2026-08-11');
   });
 });
+
+describe('wrapRetrievedContent — la couverture est COLLÉE au contenu', () => {
+  it('place la phrase HORS de la bannière de données non fiables', async () => {
+    // ⚠️ Deux mesures en production ont conduit ici. Un champ `coverage` séparé a été ignoré ;
+    // le même texte renommé `hint` l'a été aussi — le modèle a répondu « voici ce qui s'est
+    // dit » sur 6 messages montrés parmi 23. Collée au contenu, la phrase est la première
+    // chose lue avant les extraits, et non une métadonnée qu'on peut sauter.
+    //
+    // Elle reste DEHORS de la bannière : à l'intérieur, la DIRECTIVE 5.1 la déclarerait non
+    // fiable, donc la dévaluerait. C'est la raison exacte pour laquelle le préambule
+    // d'identité n'entre jamais dans le bloc `<kisso_XXXX_user_input>`.
+    const { wrapRetrievedContent } =
+      await import('../../../src/features/knowledge/application/services/untrusted-excerpt.service');
+
+    const rendu = wrapRetrievedContent('[2026-08-11 09:00] Karyl: bonjour', '6 sur 23 messages');
+    const banniere = rendu.indexOf('UNTRUSTED');
+
+    expect(banniere).toBeGreaterThan(0);
+    expect(rendu.indexOf('6 sur 23 messages')).toBeLessThan(banniere);
+  });
+
+  it('n’ajoute RIEN quand il n’y a pas de couverture à signaler', async () => {
+    const { wrapRetrievedContent } =
+      await import('../../../src/features/knowledge/application/services/untrusted-excerpt.service');
+    const sans = wrapRetrievedContent('[2026-08-11 09:00] Karyl: bonjour');
+    expect(sans).not.toContain('extraits retenus');
+  });
+});

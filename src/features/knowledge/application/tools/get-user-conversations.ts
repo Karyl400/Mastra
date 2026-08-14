@@ -339,7 +339,7 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
         // Le contenu ne sort JAMAIS de ce bloc : c'est la seule chose qui
         // distingue « une donnée qu'on te montre » de « une instruction qu'on te
         // donne ». Voir `services/untrusted-excerpt.service.ts`.
-        conversation: wrapRetrievedContent(lines),
+        conversation: wrapRetrievedContent(lines, coverage),
         shown,
         // Ce qui a été RETENU ne compte pas comme parcouru : le nombre de tours
         // écartés dirait à un tiers combien de fois le bot a répondu.

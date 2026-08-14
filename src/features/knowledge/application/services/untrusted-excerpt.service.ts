@@ -79,7 +79,21 @@ const EXCERPT_SESSION_ID = 'knowledge-retrieved-content';
  * Ne lève pas sur une chaîne vide : `wrapExternalData` n'a pas de longueur
  * minimale (contrairement à `wrapUserInput`), et un canal sans message
  * exploitable est un cas normal.
+ *
+ * ⚠️ `preface` est une phrase écrite par le SERVEUR, placée **hors** de la
+ * bannière — délibérément. La mettre à l'intérieur la ferait déclarer non
+ * fiable par la DIRECTIVE 5.1, donc dévaluer : c'est la raison exacte pour
+ * laquelle le préambule d'identité n'entre jamais dans le bloc
+ * `<kisso_XXXX_user_input>`.
+ *
+ * Elle existe parce qu'un champ de tool-result SÉPARÉ ne suffisait pas. Mesuré
+ * en production le 2026-08-14 : un champ `coverage` a été purement ignoré, puis
+ * le même texte sous le nom `hint` l'a été aussi — le modèle a répondu « voici
+ * ce qui s'est dit » sur 6 messages montrés parmi 23. Collée au contenu, la
+ * phrase n'est plus une métadonnée qu'on peut sauter : elle est la première
+ * chose lue avant les extraits.
  */
-export function wrapRetrievedContent(text: string): string {
-  return wrapExternalData(text, EXCERPT_SESSION_ID, excerptSessionManager);
+export function wrapRetrievedContent(text: string, preface?: string): string {
+  const wrapped = wrapExternalData(text, EXCERPT_SESSION_ID, excerptSessionManager);
+  return preface ? `${preface}\n${wrapped}` : wrapped;
 }

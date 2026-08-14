@@ -206,7 +206,7 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
 
       return {
         found: true,
-        conversation: wrapRetrievedContent(lines),
+        conversation: wrapRetrievedContent(lines, coverage),
         shown,
         scanned: messages.length,
         // ⚠️ Émise sous le nom `hint`, et ce nom est le fruit d'une MESURE en production.
