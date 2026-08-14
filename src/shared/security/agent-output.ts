@@ -148,7 +148,42 @@ const INTERNAL_MARKERS: ReadonlyArray<{ label: string; pattern: RegExp }> = [
   { label: 'security_marker', pattern: /\[SECURITY_BLOCK\]/i },
   { label: 'agent_identity', pattern: /KISSO-AGENT-v\d+/i },
   { label: 'directive', pattern: /\bDIRECTIVE\s+\d+\.\d+/i },
+
+  // ── ÉLARGI le 2026-08-14, sur relevé de la fuite RÉELLE ────────────────────
+  // La réponse exfiltrée par `/api/agents/*/generate` portait ces quatre marqueurs EN PLUS
+  // des deux couverts ci-dessus. Un modèle qui ne réciterait que la structure — sans jamais
+  // écrire « DIRECTIVE 1.1 » ni « KISSO-AGENT-v3 » — passait donc entièrement au travers.
+  //
+  // ⚠️ `SECURITY_ID` est le plus grave des quatre : c'est le condensat de session, et il
+  // était rendu en clair. Il n'a aucune raison d'apparaître dans une sortie de modèle.
+  //
+  // Ces quatre chaînes sont assez distinctives (majuscules, tournures propres au prompt) pour
+  // qu'un faux positif sur du trafic RH français soit invraisemblable — c'est le critère qui
+  // avait fait resserrer `kisso_[0-9a-f]{4,}` en `{16,}` après de vrais faux refus.
+  { label: 'directives_block', pattern: /IMMUTABLE DIRECTIVES/i },
+  { label: 'session_id', pattern: /\[SECURITY_ID:/i },
+  { label: 'enterprise_mode', pattern: /STRICT-ENTERPRISE-MODE/i },
+  { label: 'tool_firewall', pattern: /TOOL EXECUTION FIREWALL/i },
 ];
+
+/**
+ * Ce texte porte-t-il un marqueur interne, et lesquels ?
+ *
+ * Exporté pour que `agent-api-guard.ts` partage EXACTEMENT la même liste. Deux listes de
+ * marqueurs divergeraient au premier ajout — et le chemin qui ne serait pas mis à jour
+ * laisserait passer la fuite en silence, sans qu'aucun type ne bouge. Ce dépôt a déjà payé
+ * trois fois ce défaut (`WIRING` recopié, `_measure.mts`, instructions nommant des tools
+ * retirés).
+ *
+ * ⚠️ Le garde d'API ne réutilise QUE cette détection, pas `sanitizeAgentOutput` entier : ce
+ * dernier retire aussi les URL hors liste blanche et convertit en mrkdwn Slack, deux
+ * comportements justes sur Slack et faux sur une API.
+ */
+export function containsInternalMarkers(text: string): string[] {
+  return INTERNAL_MARKERS.filter((marker) => marker.pattern.test(text)).map(
+    (marker) => marker.label,
+  );
+}
 
 /**
  * `**gras**` → `*gras*` : Slack n'interprète pas le double astérisque.
@@ -395,9 +430,7 @@ export function sanitizeAgentOutput(raw: string | undefined | null): SanitizedAg
 
   if (!text) return { text: NEUTRAL_REFUSAL, redacted: [], strippedUrls: [] };
 
-  const redacted = INTERNAL_MARKERS.filter((marker) => marker.pattern.test(text)).map(
-    (marker) => marker.label,
-  );
+  const redacted = containsInternalMarkers(text);
 
   if (redacted.length > 0) return { text: NEUTRAL_REFUSAL, redacted, strippedUrls: [] };
 

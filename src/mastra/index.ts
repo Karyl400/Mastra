@@ -58,6 +58,7 @@ import { slackInteractionsRoute } from '../api/slack-interactions.route';
 import { createApiAuthConfig } from '../shared/security/api-auth';
 import { createCallerErrorMiddleware } from '../shared/security/caller-error-mapping';
 import { createRequestContextGuard } from '../shared/security/request-context-guard';
+import { createAgentApiGuard } from '../shared/security/agent-api-guard';
 import { logger } from '../shared/logger';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -505,6 +506,26 @@ export const mastra = new Mastra({
         handler: createRequestContextGuard({
           onReject: (keys) =>
             logger.error('requestContext forgé refusé sur /api/*', { keys: keys.join(',') }),
+        }),
+      },
+      // ⚠️ EN SECOND, avant la requalification d'erreur : le prompt système FUYAIT par
+      // `/api/agents/*` — quatre surfaces, dont DEUX sans la moindre ruse. `GET /api/agents`
+      // rendait les instructions des quatre agents en clair, `GET /api/agents/:id` 2 624
+      // caractères dont le `[SECURITY_ID:…]` de session. Aucune injection, aucun modèle,
+      // aucun coût. Mesuré et fermé le 2026-08-14.
+      //
+      // Monté sur `/api/*` et non `/api/agents/*` : un joker Hono ne couvre pas
+      // `/api/agents` SANS segment suivant — or c'est précisément la pire des quatre. Le
+      // garde teste le chemin lui-même.
+      {
+        path: '/api/*',
+        handler: createAgentApiGuard({
+          onRefused: (types) =>
+            logger.error("Tentative d'extraction du prompt refusée sur /api/agents", {
+              types: types.join(','),
+            }),
+          onRedacted: (what) =>
+            logger.warn('Fuite de configuration rédigée sur /api/agents', { what }),
         }),
       },
       {
