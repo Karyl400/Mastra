@@ -70,7 +70,14 @@ export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewD
       "Prépare l'email d'invitation à un entretien pour un candidat externe, et l'affiche pour confirmation. N'envoie rien lui-même.",
     inputSchema: z.object({
       candidateEmail: z.string().email().describe('Adresse du candidat.'),
-      candidateName: z.string().min(1).max(80).describe('Nom du candidat, tel qu’il a été donné.'),
+      candidateName: z
+        .string()
+        .min(1)
+        .max(80)
+        .optional()
+        .describe(
+          'Nom du candidat, UNIQUEMENT s’il a été donné. Ne le déduis jamais de l’adresse email.',
+        ),
       startsAt: z
         .string()
         .describe(

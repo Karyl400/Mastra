@@ -36,7 +36,8 @@ export const CANCEL_INTERVIEW_ACTION_ID = 'cancel_interview_email';
  */
 export interface InterviewConfirmPayload {
   readonly to: string;
-  readonly candidateName: string;
+  /** Optionnel : absent quand la demande ne portait qu'une adresse. */
+  readonly candidateName?: string;
   /** ISO — revalidé à l'envoi, jamais rejoué sur confiance. */
   readonly startsAt: string;
   readonly position?: string;
@@ -70,7 +71,6 @@ export function decodeInterviewConfirm(raw: string | undefined): InterviewConfir
     const parsed = JSON.parse(raw) as Partial<InterviewConfirmPayload>;
     if (
       typeof parsed?.to !== 'string' ||
-      typeof parsed?.candidateName !== 'string' ||
       typeof parsed?.startsAt !== 'string' ||
       typeof parsed?.requesterUserId !== 'string'
     ) {
@@ -145,8 +145,8 @@ export function buildInterviewConfirmBlocks(input: {
 }
 
 /** Repli de notification : Slack l'utilise pour l'aperçu et les lecteurs d'écran. */
-export function interviewConfirmFallback(candidateName: string): string {
-  return `Entretien à confirmer pour ${candidateName}`;
+export function interviewConfirmFallback(candidateName?: string): string {
+  return candidateName ? `Entretien à confirmer pour ${candidateName}` : 'Entretien à confirmer';
 }
 
 export const INTERVIEW_SENT_REPLY = (to: string, whenLabel: string): string =>

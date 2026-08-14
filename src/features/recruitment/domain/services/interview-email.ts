@@ -52,7 +52,23 @@ export const INTERVIEW_LINK_DOMAINS: readonly string[] = [
 export const COMPANY_NAME = 'Kisso Industries';
 
 export interface InterviewEmailInput {
-  readonly candidateName: string;
+  /**
+   * Nom du candidat — **OPTIONNEL depuis le 2026-08-14**, et ce changement vient d'un défaut
+   * OBSERVÉ en production.
+   *
+   * Il était obligatoire. Sur « Envoie un email d'entretien à ridwanenico77@gmail.com pour le
+   * 20 août », le modèle a rendu `candidateName: "Ridwane Nico"` — un nom **fabriqué à partir
+   * de l'adresse**, que personne n'avait donné. C'est exactement la mécanique documentée
+   * ailleurs dans ce dépôt : **un champ requis force l'invention**, et aucune validation Zod
+   * ne peut la voir puisque la valeur produite est parfaitement bien formée. Même famille que
+   * `createEmployee` substituant une valeur d'allowlist valide, et que le
+   * `votre_email@example.com` de `find-employee-by-email.ts`.
+   *
+   * Absent ⇒ « Bonjour, », qui est une ouverture correcte et courante en français. Une
+   * salutation sans nom vaut mieux qu'une salutation au mauvais nom — surtout dans le premier
+   * contact d'une entreprise avec un candidat.
+   */
+  readonly candidateName?: string;
   readonly schedule: InterviewSchedule;
   /** Poste concerné. Omis proprement s'il est absent — jamais inventé. */
   readonly position?: string;
@@ -79,7 +95,8 @@ export interface InterviewEmail {
 export function buildInterviewEmail(input: InterviewEmailInput): InterviewEmail {
   const subject = `Entretien ${COMPANY_NAME} — ${input.schedule.shortLabel}`;
 
-  const lines: string[] = [`Bonjour ${input.candidateName.trim()},`, ''];
+  const name = input.candidateName?.trim();
+  const lines: string[] = [name ? `Bonjour ${name},` : 'Bonjour,', ''];
 
   lines.push(
     input.position?.trim()

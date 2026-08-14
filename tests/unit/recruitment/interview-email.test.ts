@@ -80,6 +80,26 @@ describe('buildInterviewEmail — le gabarit, et ce qu’il OMET', () => {
     expect(mail.body).toContain('pour le poste de Développeur backend');
   });
 
+  it('salue SANS NOM quand aucun nom n’a été donné — défaut observé en production', () => {
+    // ⚠️ Régression réelle du 2026-08-14. `candidateName` était REQUIS ; sur « Envoie un email
+    // d'entretien à ridwanenico77@gmail.com pour le 20 août », le modèle a rendu
+    // `candidateName: "Ridwane Nico"` — un nom FABRIQUÉ à partir de l'adresse, que personne
+    // n'avait donné. Un champ requis force l'invention, et aucune validation Zod ne peut la
+    // voir : la valeur produite est parfaitement bien formée. Même mécanique que
+    // `createEmployee` substituant une valeur d'allowlist valide.
+    //
+    // Une salutation sans nom vaut mieux qu'une salutation au MAUVAIS nom — surtout dans le
+    // premier contact d'une entreprise avec un candidat.
+    const mail = buildInterviewEmail({ schedule: scheduleOf(OK.toISOString()) });
+    expect(mail.body.startsWith('Bonjour,')).toBe(true);
+    expect(mail.body).not.toContain('undefined');
+
+    // Une chaîne vide ou blanche vaut absence, pas « Bonjour   , ».
+    expect(
+      buildInterviewEmail({ schedule: scheduleOf(OK.toISOString()), candidateName: '  ' }).body,
+    ).toContain('Bonjour,');
+  });
+
   it('OMET la demande de confirmation quand aucune adresse ne peut la recevoir', () => {
     // ⚠️ C'est le cœur du choix : `NOTIFICATION_FROM` vaut `noreply@kisso.com` et personne ne
     // le lit. Promettre une réponse à un puits est la famille de mensonge que ce dépôt traque.
