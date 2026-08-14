@@ -466,10 +466,19 @@ et devait combler.
 - ⚠️ Le motif d'accusé de réception est ancré des DEUX bouts : « ok pour moi, mais on décale à
   jeudi » porte une décision et ne doit pas être pénalisé.
 
-**Un résultat porte désormais `coverage` quand il est TRONQUÉ** — ferme la dette `TODO.md`
-[0 ter]. Sans cette phrase, un modèle à qui l'on montre 6 messages sur 40 répond « voici ce qui
-s'est dit » au lieu de « voici les échanges les plus porteurs » : il affirme une EXHAUSTIVITÉ
-que rien ne garantit. Payée uniquement quand tout n'a pas été montré.
+**La COUVERTURE est collée au contenu quand le résultat est tronqué** — ferme la dette
+`TODO.md` [0 ter]. Sans elle, un modèle à qui l'on montre 6 messages sur 31 répond « voici ce
+qui s'est dit » : il affirme une EXHAUSTIVITÉ que rien ne garantit.
+⚠️ **Il a fallu TROIS formes, et les deux premières enseignent quelque chose.** Mesuré en
+production le 2026-08-14 sur le même canal : un champ de tool-result nommé `coverage` a été
+purement IGNORÉ ; le même texte renommé `hint` l'a été aussi. **Un champ séparé se lit comme
+une métadonnée, quel que soit son nom.** La phrase est donc placée juste AVANT les extraits,
+dans `conversation` — on ne peut plus la sauter. Résultat obtenu : « Ces points sont extraits
+de 6 messages sur 31, du 2026-07-20 au 2026-07-28. »
+⚠️ Elle reste **DEHORS** de la bannière `[UNTRUSTED EXTERNAL DATA]` : à l'intérieur, la
+DIRECTIVE 5.1 la déclarerait non fiable et la dévaluerait — exactement la raison pour laquelle
+le préambule d'identité n'entre jamais dans le bloc `<kisso_XXXX_user_input>`.
+Payée uniquement quand tout n'a pas été montré.
 
 ⚠️ **`\b` RAISONNE EN ASCII sans le drapeau `u` — troisième occurrence de ce piège.**
 `/\bbloqué\b/` ne matche JAMAIS : `é` n'y étant pas une lettre, la position entre `é` et `,`

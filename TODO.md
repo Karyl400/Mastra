@@ -256,8 +256,12 @@ redécouvre comme une régression.
 - [ ] Une référence hors fenêtre ou hors TTL disparaît EN SILENCE : rien ne dit au modèle
       « c'est hors de ma mémoire » plutôt que « ça n'a jamais été dit ».
 - [ ] Aucune détection de contradiction entre deux tours de la même personne.
-- [ ] Une demande de résumé de conversation ne porte que sur les ~1600 tokens de la fenêtre,
-      sans avertir que le reste est tronqué.
+- [x] ✅ **CORRIGÉ le 2026-08-14.** Un résultat tronqué porte désormais sa COUVERTURE, collée
+      au contenu : « extraits de 6 messages sur 31, du 2026-07-20 au 2026-07-28 ». Vérifié en
+      production. ⚠️ Il a fallu trois formes : un champ `coverage` puis un champ `hint` ont été
+      purement ignorés par le modèle — **un champ de tool-result séparé se lit comme une
+      métadonnée, quel que soit son nom**. La phrase est donc placée juste avant les extraits,
+      mais HORS de la bannière de données non fiables, qui la dévaluerait.
 
 **Flux — ce qui coûte un run LLM plein et pourrait ne pas en coûter**
 - [ ] Les demandes de FORMAT et de TON (« plus long », « sois formel », « en JSON ») se
