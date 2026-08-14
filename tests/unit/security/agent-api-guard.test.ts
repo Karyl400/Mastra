@@ -40,7 +40,15 @@ function jsonReq(body: unknown, url = 'https://k.test/api/agents/x/generate'): R
   });
 }
 
-function ctx(raw: Request, res?: Response) {
+/**
+ * ⚠️ `res` est MUTABLE, et les assertions portent dessus — pas sur la valeur de retour.
+ *
+ * C'est la leçon d'un défaut mesuré en production le 2026-08-14 : dans Hono, la valeur de
+ * retour d'un middleware n'est prise en compte que s'il N'A PAS appelé `next()`. Après
+ * `next()`, seule l'affectation de `c.res` remplace la réponse. Les premiers tests
+ * asseyaient le retour, passaient au vert… et le prompt continuait de fuir par un simple GET.
+ */
+function ctx(raw: Request, res?: Response): { req: { raw: Request }; res?: Response } {
   return { req: { raw }, res };
 }
 
@@ -62,8 +70,9 @@ describe('agent-api-guard — les GET de métadonnées', () => {
       tools: {},
     });
 
-    const out = (await guard(ctx(raw, upstream), vi.fn()))!;
-    const body = (await out.json()) as Record<string, unknown>;
+    const c = ctx(raw, upstream);
+    await guard(c, vi.fn());
+    const body = (await c.res!.json()) as Record<string, unknown>;
 
     expect(body.instructions).toBe(INSTRUCTIONS_REDACTED);
     // Le reste de la réponse est INTACT : on rédige une fuite, on ne casse pas l'API.
@@ -82,8 +91,9 @@ describe('agent-api-guard — les GET de métadonnées', () => {
       b: { id: 'b', instructions: 'IMMUTABLE DIRECTIVES …' },
     });
 
-    const out = (await guard(ctx(raw, upstream), vi.fn()))!;
-    const body = (await out.json()) as Record<string, { instructions: string }>;
+    const c = ctx(raw, upstream);
+    await guard(c, vi.fn());
+    const body = (await c.res!.json()) as Record<string, { instructions: string }>;
 
     expect(body.a.instructions).toBe(INSTRUCTIONS_REDACTED);
     expect(body.b.instructions).toBe(INSTRUCTIONS_REDACTED);
@@ -103,10 +113,12 @@ describe('agent-api-guard — les GET de métadonnées', () => {
     const guard = createAgentApiGuard({});
     const raw = new Request('https://k.test/api/agents', { method: 'GET' });
 
-    const out = await guard(ctx(raw, jsonRes({ a: { id: 'a' } })), vi.fn());
+    const original = jsonRes({ a: { id: 'a' } });
+    const c = ctx(raw, original);
+    await guard(c, vi.fn());
 
-    // `undefined` : la réponse d'origine est conservée telle quelle.
-    expect(out).toBeUndefined();
+    // La réponse d'origine est conservée TELLE QUELLE — pas reconstruite.
+    expect(c.res).toBe(original);
   });
 });
 
@@ -194,8 +206,9 @@ describe('agent-api-guard — la sortie des POST, en défense de profondeur', ()
     const raw = jsonReq({ messages: ['bonjour'] });
     const upstream = jsonRes({ text: 'Voici : DIRECTIVE 1.1: You are KISSO-AGENT-v3.' });
 
-    const out = (await guard(ctx(raw, upstream), vi.fn()))!;
-    const body = (await out.json()) as { text: string };
+    const c = ctx(raw, upstream);
+    await guard(c, vi.fn());
+    const body = (await c.res!.json()) as { text: string };
 
     expect(body.text).not.toContain('KISSO-AGENT-v3');
     expect(body.text).not.toContain('DIRECTIVE 1.1');
@@ -210,8 +223,10 @@ describe('agent-api-guard — la sortie des POST, en défense de profondeur', ()
     const raw = jsonReq({ messages: ['bonjour'] });
     const texte = 'Voici le lien **important** : https://exemple.com/doc';
 
-    const out = await guard(ctx(raw, jsonRes({ text: texte })), vi.fn());
+    const original = jsonRes({ text: texte });
+    const c = ctx(raw, original);
+    await guard(c, vi.fn());
 
-    expect(out).toBeUndefined();
+    expect(c.res).toBe(original);
   });
 });

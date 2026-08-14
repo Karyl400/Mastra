@@ -159,7 +159,19 @@ export function createCallerErrorMiddleware(options: { onRemap?: (message: strin
 
     options.onRemap?.(body);
 
-    return new Response(body, {
+    // ⚠️ ON ASSIGNE `ctx.res`, ON NE RETOURNE PAS — corrigé le 2026-08-14, et ce défaut a
+    // rendu ce middleware INOPÉRANT depuis son écriture. Dans Hono, la valeur de retour d'un
+    // middleware n'est prise en compte que s'il N'A PAS appelé `next()` ; après `next()`,
+    // seule l'affectation de `c.res` remplace la réponse.
+    //
+    // La preuve était sous les yeux depuis le 2026-08-14 sans être reliée : le scénario de
+    // production « employeeOnboardingWorkflow entrée invalide → HTTP 4xx » échouait en
+    // rendant 500, et la cause avait été notée comme indéterminée (« soit le motif ne
+    // reconnaît pas le message, soit le middleware ne voit pas cette réponse »). Il la
+    // voyait ; c'est sa réécriture qui partait à la poubelle.
+    //
+    // Le `throw` en amont, lui, fonctionnait : il retourne SANS avoir appelé `next()`.
+    ctx.res = new Response(body, {
       status: CALLER_ERROR_STATUS,
       headers: res.headers,
     });

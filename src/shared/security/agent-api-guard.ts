@@ -121,7 +121,15 @@ export function createAgentApiGuard(options: {
     await next();
 
     // ── 2. SORTIE — métadonnées et défense de profondeur ──────────────────────
-    return await redactResponse(ctx.res, options.onRedacted);
+    //
+    // ⚠️ ON ASSIGNE `ctx.res`, ON NE RETOURNE PAS. Dans Hono, la valeur de retour d'un
+    // middleware n'est prise en compte que s'il N'A PAS appelé `next()` : après `next()`,
+    // seule l'affectation de `c.res` remplace la réponse. Retourner y est silencieusement
+    // ignoré — vérifié en production le 2026-08-14, où le garde d'ENTRÉE (qui retourne sans
+    // appeler `next()`) rendait bien 400 tandis que la rédaction de sortie, elle, ne changeait
+    // rien du tout et le prompt continuait de fuir par un simple GET.
+    const redacted = await redactResponse(ctx.res, options.onRedacted);
+    if (redacted) ctx.res = redacted;
   };
 }
 

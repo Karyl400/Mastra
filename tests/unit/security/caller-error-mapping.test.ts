@@ -115,10 +115,17 @@ describe('inspection de la RÉPONSE (chemin réel en production)', () => {
 
     const onRemap = vi.fn();
     const mw = createCallerErrorMiddleware({ onRemap });
-    const out = (await mw(c, async () => undefined)) as Response;
+    await mw(c, async () => undefined);
 
-    expect(out.status).toBe(400);
-    await expect(out.text()).resolves.toBe(body);
+    // ⚠️ L'assertion porte sur `c.res`, PAS sur la valeur de retour — et ce test asseyait le
+    // retour jusqu'au 2026-08-14, ce qui l'a laissé au vert pendant que le middleware était
+    // INOPÉRANT en production. Dans Hono, le retour d'un middleware n'est pris en compte que
+    // s'il n'a pas appelé `next()` ; après `next()`, seule l'affectation de `c.res` compte.
+    //
+    // Symptôme resté inexpliqué jusque-là : le scénario « entrée invalide → HTTP 4xx »
+    // rendait 500 en production, et la cause avait été notée comme indéterminée.
+    expect(c.res.status).toBe(400);
+    await expect(c.res.text()).resolves.toBe(body);
     expect(onRemap).toHaveBeenCalledOnce();
   });
 
