@@ -256,7 +256,12 @@ verrouillent cette règle : `tests/unit/quality/architecture.test.ts` et `code-a
        exige `generateDocument`, **peut déloger un fil** ;
      - `email|message` → `notificationAgent`, exige `sendNotification`, **ne déloge JAMAIS** ;
      - `résume|résumé|resume|resumé` **ou un jeton de canal `<#C…>`** → `knowledgeAgent`,
-       exige `getChannelHistory`, **peut déloger un fil** (ajouté le 2026-08-14).
+       exige `getChannelHistory`, **peut déloger un fil** (ajouté le 2026-08-14) ;
+     - `expert|spécialiste|compétence` **ou la forme interrogative** « qui s'occupe / gère /
+       connaît / sait / maîtrise / travaille », « à qui je demande » → `knowledgeAgent`,
+       exige `findExpertise`, **peut déloger un fil** (2026-08-14).
+       ⚠️ « qui **peut** » nu en est volontairement ABSENT : « qui peut créer un employé ? »
+       interroge les capacités du BOT, pas l'annuaire — même critère que « ajoute » et « word ».
      ⚠️ `test → questionnaireEngine` a été RETIRÉ le 2026-08-14. Gain en soi : ce mot-clé
      désignait un agent de quiz alors que « test » parle presque toujours d'un test logiciel.
   4. défaut → `onboardingOrchestrator`

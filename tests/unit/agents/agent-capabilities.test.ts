@@ -18,6 +18,7 @@ import { AGENT_TOOLS, agentHasTool } from '../../../src/shared/agent-capabilitie
 const OVERRIDING_BANDS = [
   { agentId: 'onboardingOrchestrator', requiredTool: 'generateDocument' },
   { agentId: 'knowledgeAgent', requiredTool: 'getChannelHistory' },
+  { agentId: 'knowledgeAgent', requiredTool: 'findExpertise' },
 ] as const;
 
 describe('AGENT_TOOLS — cohérence avec le routage par capacité', () => {

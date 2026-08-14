@@ -1462,6 +1462,30 @@ describe('SlackEventsHandler — routage : échappement symétrique', () => {
     );
   });
 
+  it('rend `findExpertise` atteignable — « qui s’occupe de… » (2026-08-14)', () => {
+    // ⚠️ Ce test existe parce que la campagne de routage a rattrapé le défaut AVANT le
+    // déploiement : `findExpertise` venait d'être écrit et câblé sur `knowledgeAgent`, et
+    // aucune de ses phrases naturelles ne l'atteignait — « qui s'occupe du backend ? » ne
+    // porte aucun mot-clé et retombait au défaut, chez un agent qui ne le porte pas.
+    // Une capacité livrée sans sa route ne sert à rien : c'est le même défaut que celui qu'on
+    // venait de corriger pour `getChannelHistory`, commis dans le même lot.
+    expect(handler.routeToAgent('qui s’occupe du backend ?')).toBe('knowledgeAgent');
+    expect(handler.routeToAgent('qui connaît Postgres ?')).toBe('knowledgeAgent');
+    expect(handler.routeToAgent('qui gère le design ?')).toBe('knowledgeAgent');
+    expect(handler.routeToAgent('à qui je demande pour le paiement ?')).toBe('knowledgeAgent');
+    // Saisie mobile : les accents sautent, le verdict ne doit pas changer.
+    expect(handler.routeToAgent('qui gere le design ?')).toBe('knowledgeAgent');
+    expect(handler.routeToAgent('qui connait postgres ?')).toBe('knowledgeAgent');
+  });
+
+  it('n’attrape PAS « qui peut … », qui interroge le BOT et non l’annuaire', () => {
+    // Critère de discrimination identique à celui qui a fait écarter « ajoute » et « word » :
+    // « Qui peut créer un employé ? » est une question sur les capacités du produit. L'envoyer
+    // au `knowledgeAgent` — qui n'a aucun outil d'onboarding — produirait un refus là où
+    // l'orchestrateur, lui, sait répondre par sa frontière dérivée.
+    expect(handler.routeToAgent('qui peut créer un employé ?')).toBe('onboardingOrchestrator');
+  });
+
   it('sert toujours « pdf » / « document » à l’orchestrateur HORS d’un fil (acquis 2026-08-11)', () => {
     expect(handler.routeToAgent('Donne le PDF alors')).toBe('onboardingOrchestrator');
     expect(handler.routeToAgent('génère un guideline de bienvenue')).toBe('onboardingOrchestrator');

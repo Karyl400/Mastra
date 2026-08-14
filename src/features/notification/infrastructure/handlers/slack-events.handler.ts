@@ -508,7 +508,46 @@ const KNOWLEDGE_TOPICS = ['résume', 'résumé', 'resume', 'resumé'] as const;
  * pour désigner une question de canal : il est produit par le client Slack, jamais tapé, et il
  * survit à `cleanText` (qui ne retire que la mention du bot).
  */
-const CHANNEL_TOKEN_PATTERN = /<#[CG][A-Z0-9]{2,}(?:\|[^>]*)?>/;
+// ⚠️ `i` OBLIGATOIRE : le motif est évalué sur le texte MINUSCULÉ (`lowerText`), comme tous
+// les autres critères de bande. Sans ce drapeau, `[CG][A-Z0-9]` ne matcherait plus jamais et
+// le jeton de canal cesserait d'aiguiller — en silence, aucun type ne bougeant.
+const CHANNEL_TOKEN_PATTERN = /<#[CG][A-Z0-9]{2,}(?:\|[^>]*)?>/i;
+
+/**
+ * « QUI PEUT FAIRE QUOI » — la question d'expertise, reconnue par sa FORME INTERROGATIVE.
+ *
+ * ⚠️ Ajouté le 2026-08-14, **après avoir constaté que `findExpertise` était inatteignable sur
+ * ses propres phrases**. Le tool venait d'être écrit et câblé sur `knowledgeAgent` ; or « qui
+ * s'occupe du backend ? » ne contient aucun mot-clé de bande 1 ni de bande 3, et retombait
+ * donc au défaut, chez un agent qui ne le porte pas. C'est EXACTEMENT le défaut qu'on venait
+ * de corriger pour `getChannelHistory` — une capacité livrée sans sa route ne sert à rien, et
+ * la campagne de routage l'a rattrapé avant le déploiement.
+ *
+ * On reconnaît la FORME et non des mots-clés isolés : « qui » seul est bien trop courant, mais
+ * « qui » suivi d'un verbe de responsabilité ou de savoir ne désigne qu'une seule chose.
+ *
+ * Volontairement ABSENT : « qui peut » nu. « Qui peut créer un employé ? » interroge les
+ * capacités du BOT, pas l'annuaire des personnes — même critère de discrimination que celui
+ * qui a fait écarter « ajoute » et « word ».
+ * Les variantes non accentuées sont déclarées : `routeToAgent` minuscule le texte mais ne
+ * retire PAS les accents, et une saisie mobile dans Slack les perd.
+ */
+// ⚠️ L'apostrophe TYPOGRAPHIQUE (`’`, U+2019) est acceptée au même titre que l'ASCII : c'est
+// celle que produisent Slack et les claviers mobiles par correction automatique, donc le cas
+// FRÉQUENT et non le cas limite. Le premier jet ne connaissait que `'` et « qui s’occupe du
+// backend ? » — la phrase de référence — ne matchait pas.
+// ⚠️ Bords de mot en `\p{L}` et drapeau `u`, JAMAIS `\b` : sans le drapeau, `\b` raisonne en
+// ASCII, donc `à` n'y est pas une lettre et « **à** qui je demande… » ne matchait pas — le
+// motif partait silencieusement au défaut. C'est la même correction que celle déjà appliquée à
+// `matchesKeyword`, et le même piège, à deux jours d'intervalle.
+const APOS = "['’`´]";
+const LB = '(?<![\\p{L}])';
+const RB = '(?![\\p{L}])';
+const EXPERTISE_QUESTION_PATTERN = new RegExp(
+  `${LB}qui\\s+(?:s${APOS}?\\s?occupe|g[eè]re|conna[iî]t|sait|ma[iî]trise|travaille|s${APOS}?y\\s+conna[iî]t)${RB}` +
+    `|${LB}[aà]\\s+qui\\s+(?:je\\s+)?(?:m${APOS}?\\s?adresser|demandes?|demander|parler)${RB}`,
+  'u',
+);
 
 /**
  * BANDE 3, sous forme de CAPACITÉS et non plus de simples listes.
@@ -538,6 +577,12 @@ const CHANNEL_TOKEN_PATTERN = /<#[CG][A-Z0-9]{2,}(?:\|[^>]*)?>/;
 const TOPIC_BANDS: ReadonlyArray<{
   readonly agentId: string;
   readonly keywords: readonly string[];
+  /**
+   * Motif de FORME, évalué en plus des mots-clés. Il existe parce que deux des trois entrées
+   * de knowledge ne se reconnaissent pas à un mot : un jeton de canal `<#C…>` et une question
+   * d'expertise (« qui s'occupe de… ») sont des STRUCTURES, pas du vocabulaire.
+   */
+  readonly pattern?: RegExp;
   /** L'outil SANS LEQUEL la demande est insatisfaisable. C'est lui qui autorise l'écart. */
   readonly requiredTool: string;
   /**
@@ -576,6 +621,16 @@ const TOPIC_BANDS: ReadonlyArray<{
     agentId: 'knowledgeAgent',
     keywords: KNOWLEDGE_TOPICS,
     requiredTool: 'getChannelHistory',
+    pattern: CHANNEL_TOKEN_PATTERN,
+    overridesSticky: true,
+  },
+  // « Qui s'occupe du backend ? » — la seule porte d'entrée de `findExpertise`, et il n'en a
+  // AUCUNE avant le 2026-08-14 : le tool était câblé mais structurellement inatteignable.
+  {
+    agentId: 'knowledgeAgent',
+    keywords: ['expert', 'spécialiste', 'specialiste', 'compétence', 'competence'],
+    requiredTool: 'findExpertise',
+    pattern: EXPERTISE_QUESTION_PATTERN,
     overridesSticky: true,
   },
 ];
@@ -1458,9 +1513,7 @@ export class SlackEventsHandler {
     // l'agent du fil est structurellement incapable de servir la demande (voir `TOPIC_BANDS`).
     // L'ordre reproduit celui de la bande 1 : l'orchestrateur d'abord.
     const topic = TOPIC_BANDS.find(
-      (band) =>
-        matchesAny(band.keywords) ||
-        (band.agentId === 'knowledgeAgent' && CHANNEL_TOKEN_PATTERN.test(text ?? '')),
+      (band) => matchesAny(band.keywords) || (band.pattern?.test(lowerText) ?? false),
     );
 
     // 2. COLLANT — on reste sur l'agent qui mène le fil.
