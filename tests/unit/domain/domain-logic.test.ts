@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { createEmployee } from '../../../src/features/employee/domain/entities/employee';
-import { createProgress, createStep as createOnboardingStep } from '../../../src/features/onboarding/domain/entities/onboarding-progress';
-import { createQuestionnaire, createResponse } from '../../../src/features/questionnaire/domain/entities/questionnaire';
+import {
+  createProgress,
+  createStep as createOnboardingStep,
+} from '../../../src/features/onboarding/domain/entities/onboarding-progress';
 import { createNotification } from '../../../src/features/notification/domain/entities/notification';
 import {
   EmployeeStatus,
@@ -113,56 +115,6 @@ describe('Domain: OnboardingStep entity', () => {
 // ─────────────────────────────────────────────────────────────
 // Questionnaire entity
 // ─────────────────────────────────────────────────────────────
-
-describe('Domain: Questionnaire entity', () => {
-  const base = {
-    id: 'q-001',
-    title: 'Questionnaire d\'intégration',
-    description: 'Questions pour le nouvel arrivant',
-    questions: [
-      { id: 'q1', type: 'text', text: 'Comment vous appelez-vous ?', required: true },
-      { id: 'q2', type: 'choice', text: 'Quel département ?', required: false, options: ['IT', 'RH', 'Finance'] },
-    ],
-  };
-
-  it('defaults to Draft status', () => {
-    expect(createQuestionnaire(base).status).toBe(QuestionnaireStatus.Draft);
-  });
-
-  it('preserves questions array', () => {
-    const q = createQuestionnaire(base);
-    expect(q.questions).toHaveLength(2);
-    expect(q.questions[0].id).toBe('q1');
-  });
-
-  it('sets auto timestamps', () => {
-    const q = createQuestionnaire(base);
-    expect(new Date(q.createdAt).getTime()).toBeGreaterThan(0);
-  });
-});
-
-describe('Domain: QuestionnaireResponse entity', () => {
-  const base = {
-    id: 'resp-001',
-    questionnaireId: 'q-001',
-    employeeId: 'emp-001',
-    answers: { q1: 'Jean Dupont', q2: 'IT' },
-    score: 80,
-    submittedAt: new Date().toISOString(),
-  };
-
-  it('defaults to Pending status', () => {
-    expect(createResponse(base).status).toBe(ResponseStatus.Pending);
-  });
-
-  it('preserves score', () => {
-    expect(createResponse(base).score).toBe(80);
-  });
-
-  it('preserves answers map', () => {
-    expect(createResponse(base).answers).toEqual({ q1: 'Jean Dupont', q2: 'IT' });
-  });
-});
 
 // ─────────────────────────────────────────────────────────────
 // Notification entity

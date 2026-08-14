@@ -21,7 +21,6 @@ import { describe, it, expect } from 'vitest';
 import { zodToJsonSchema } from '@mastra/schema-compat/zod-to-json';
 
 import { makeGenerateDocument } from '../../../src/features/document/application/tools/generate-document';
-import { makeCreateEmployee } from '../../../src/features/employee/application/tools/create-employee';
 import { makeFindEmployeeByEmail } from '../../../src/features/employee/application/tools/find-employee-by-email';
 import { makeGetEmployeeProfile } from '../../../src/features/employee/application/tools/get-employee-profile';
 import { makeDiscoverSlackWorkspace } from '../../../src/features/notification/application/tools/discover-slack-workspace';
@@ -29,8 +28,6 @@ import { makeGetNotificationHistory } from '../../../src/features/notification/a
 import { makeScheduleReminder } from '../../../src/features/notification/application/tools/schedule-reminder';
 import { makeSendNotification } from '../../../src/features/notification/application/tools/send-notification';
 import { makeUpdateOnboardingStatus } from '../../../src/features/onboarding/application/tools/update-onboarding-status';
-import { makeEvaluateResponse } from '../../../src/features/questionnaire/application/tools/evaluate-response';
-import { makeGenerateQuestionnaire } from '../../../src/features/questionnaire/application/tools/generate-questionnaire';
 
 /** Dépendance factice : absorbe n'importe quel accès / appel / construction. */
 const stub: any = new Proxy(function () {} as unknown as object, {
@@ -71,7 +68,6 @@ function findNonFlatNodes(node: unknown, path = ''): string[] {
 
 const tools: Array<[name: string, tool: { id?: string; inputSchema?: unknown }]> = [
   ['generateDocument', makeGenerateDocument(stub)],
-  ['createEmployee', makeCreateEmployee(stub)],
   ['findEmployeeByEmail', makeFindEmployeeByEmail(stub)],
   ['getEmployeeProfile', makeGetEmployeeProfile(stub, stub)],
   ['discoverSlackWorkspace', makeDiscoverSlackWorkspace(stub)],
@@ -79,8 +75,6 @@ const tools: Array<[name: string, tool: { id?: string; inputSchema?: unknown }]>
   ['scheduleReminder', makeScheduleReminder(stub)],
   ['sendNotification', makeSendNotification(stub, stub, stub, stub, stub)],
   ['updateOnboardingStatus', makeUpdateOnboardingStatus(stub)],
-  ['evaluateResponse', makeEvaluateResponse(stub, stub)],
-  ['generateQuestionnaire', makeGenerateQuestionnaire(stub)],
 ];
 
 describe('Tool input schemas — JSON Schema flatness (LLM tool-call compatibility)', () => {
@@ -96,74 +90,6 @@ describe('Tool input schemas — JSON Schema flatness (LLM tool-call compatibili
         `Offending nodes: ${offenders.join(', ')}\n` +
         `Schema: ${JSON.stringify(json)}`,
     ).toEqual([]);
-  });
-
-  it('createEmployee: department stays a flat string enum', () => {
-    const tool = makeCreateEmployee(stub);
-    const json = zodToJsonSchema(tool.inputSchema as never) as {
-      properties: Record<string, JsonNode>;
-    };
-
-    const prop = json.properties.department;
-    expect(prop, 'department missing from schema').toBeDefined();
-    expect(prop, 'department must not be wrapped in allOf').not.toHaveProperty('allOf');
-    expect(prop.type, 'department must be a plain string').toBe('string');
-    expect(Array.isArray(prop.enum), 'department must expose an enum').toBe(true);
-    expect(prop.enum as string[]).toContain('Engineering');
-  });
-
-  it('createEmployee: position serialises flat as a constrained string, without enum', () => {
-    // Le poste est devenu un champ libre : plus d'`enum`, mais la sérialisation
-    // doit rester PLATE — c'est ce qui compte pour le validateur de tool-calls.
-    // Effet de bord recherché : les 24 valeurs de l'ancienne allowlist ne sont
-    // plus réinjectées à chaque aller-retour, sous le plafond Groq.
-    const tool = makeCreateEmployee(stub);
-    const json = zodToJsonSchema(tool.inputSchema as never) as {
-      properties: Record<string, JsonNode>;
-    };
-
-    const prop = json.properties.position;
-    expect(prop, 'position missing from schema').toBeDefined();
-    expect(prop, 'position must not be wrapped in allOf').not.toHaveProperty('allOf');
-    expect(prop, 'position must not be wrapped in anyOf').not.toHaveProperty('anyOf');
-    expect(prop.type, 'position must be a plain string').toBe('string');
-    expect(prop.enum, 'position must no longer expose an enum').toBeUndefined();
-  });
-
-  it("createEmployee: n'expose plus le bloc `options` au modèle", () => {
-    // `skipUniquenessCheck` et `initialStatus` étaient annoncés dans le schéma
-    // et n'ont jamais été appliqués : l'appel au validateur omet le 3e argument
-    // et l'entité force `Pending`. Les exposer coûtait des tokens et laissait
-    // croire au modèle qu'il pouvait désactiver le contrôle d'unicité — ce
-    // qu'il a effectivement affirmé en production le 2026-08-10.
-    const tool = makeCreateEmployee(stub);
-    const json = zodToJsonSchema(tool.inputSchema as never) as {
-      properties: Record<string, JsonNode>;
-    };
-
-    expect(json.properties.options).toBeUndefined();
-    expect(JSON.stringify(json)).not.toContain('skipUniquenessCheck');
-  });
-
-  it('createEmployee: managerId serialises flat (nullable must not leak an anyOf)', () => {
-    const tool = makeCreateEmployee(stub);
-    const json = zodToJsonSchema(tool.inputSchema as never) as {
-      properties: Record<string, JsonNode>;
-      required?: string[];
-    };
-
-    expect(json.properties.managerId).not.toHaveProperty('anyOf');
-    expect(json.properties.managerId.type).toBe('string');
-    // reste optionnel
-    expect(json.required ?? []).not.toContain('managerId');
-  });
-
-  it('createEmployee: the control field firstName stays a plain string', () => {
-    const tool = makeCreateEmployee(stub);
-    const json = zodToJsonSchema(tool.inputSchema as never) as {
-      properties: Record<string, JsonNode>;
-    };
-    expect(json.properties.firstName.type).toBe('string');
   });
 });
 

@@ -128,9 +128,15 @@ describe('Règle de dépendance — la couche domain ne dépend de rien', () => 
       'knowledge',
       'notification',
       'onboarding',
-      'questionnaire',
       'recruitment',
     ]);
+    // ⚠️ `questionnaire` a été SUPPRIMÉE du dépôt le 2026-08-14. Elle était retirée du
+    // registre Mastra depuis le matin, puis devenue ENTIÈREMENT orpheline quand le câblage
+    // mort d'`evaluateResponse` est parti : plus une seule référence dans `src/`, et cinq
+    // fichiers de test qui la maintenaient seule en vie. Un test qui fait vivre du code que
+    // le produit n'expose plus ne mesure rien — il donne l'illusion d'une capacité.
+    // Les TABLES `questionnaires` / `questionnaire_responses` restent en production, non
+    // supprimées à dessein : un `DROP` est irréversible.
 
     for (const feature of features) {
       expect(
