@@ -1478,6 +1478,42 @@ describe('SlackEventsHandler — routage : échappement symétrique', () => {
     expect(handler.routeToAgent('qui connait postgres ?')).toBe('knowledgeAgent');
   });
 
+  it('route le RECRUTEMENT, et le fait primer sur le transport (2026-08-14)', () => {
+    // ⚠️ C'est LA phrase de référence de la feature, et sans la bande `recruitmentAgent` elle
+    // partait chez `notificationAgent` : elle contient « email », qui vit dans
+    // `NOTIFICATION_TOPICS`. Or `sendNotification` EXIGE une ligne d'annuaire, et un candidat
+    // n'en a aucune par définition — la demande était structurellement insatisfaisable, comme
+    // l'était la recherche par email avant le 2026-08-10. Le terme qui désigne l'OBJET MÉTIER
+    // doit primer sur celui qui désigne le TRANSPORT.
+    expect(
+      handler.routeToAgent("Envoie un email d'entretien à jean.dupont@exemple.com pour le 20 août"),
+    ).toBe('recruitmentAgent');
+    expect(handler.routeToAgent('Planifie un entretien avec ce candidat')).toBe('recruitmentAgent');
+    expect(handler.routeToAgent('on recrute, envoie le mail de recrutement')).toBe(
+      'recruitmentAgent',
+    );
+    // Placé AVANT `notification` dans la bande : écrire à quelqu'un hors annuaire n'est
+    // possible que par ce chemin.
+    expect(handler.routeToAgent('envoie une notification à un candidat')).toBe('recruitmentAgent');
+  });
+
+  it('ne détourne PAS le trafic voisin vers le recrutement', () => {
+    expect(handler.routeToAgent('envoie un rappel à Pamela')).toBe('notificationAgent');
+    expect(handler.routeToAgent('envoie-lui un email')).toBe('notificationAgent');
+    expect(handler.routeToAgent('génère le guide en pdf')).toBe('onboardingOrchestrator');
+  });
+
+  it('n’enferme pas un fil chez `recruitmentAgent` — il n’a qu’un outil', () => {
+    // Le recrutement serait le pire état absorbant possible : un seul outil, aucune lecture.
+    // Le routage par capacité doit donc l'en sortir dès qu'autre chose est demandé.
+    expect(handler.routeToAgent('génère le guide en pdf', 'recruitmentAgent')).toBe(
+      'onboardingOrchestrator',
+    );
+    expect(handler.routeToAgent('résume <#C0ABC123|hq>', 'recruitmentAgent')).toBe(
+      'knowledgeAgent',
+    );
+  });
+
   it('n’attrape PAS « qui peut … », qui interroge le BOT et non l’annuaire', () => {
     // Critère de discrimination identique à celui qui a fait écarter « ajoute » et « word » :
     // « Qui peut créer un employé ? » est une question sur les capacités du produit. L'envoyer

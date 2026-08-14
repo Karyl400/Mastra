@@ -53,6 +53,12 @@ export const AGENT_TOOLS: Readonly<Record<string, readonly string[]>> = {
   // démarrage si on lui en câble un. Lecture agrégée + écriture externe dans la même chaîne
   // est un canal d'exfiltration complet, actionnable en une phrase par un invité.
   knowledgeAgent: ['getUserConversations', 'getChannelHistory', 'findExpertise'],
+  // ⚠️ UN SEUL outil, et AUCUN de lecture : `makeRecruitmentAgent` LÈVE au démarrage si on lui
+  // en câble un. C'est le seul agent qui écrive à une adresse hors de l'entreprise et non
+  // contrainte par l'annuaire — quarantaine INVERSE de celle de `knowledgeAgent`, et pour la
+  // même raison (PLAN-ARCHITECTURE.md §4.2 interdit la CONJONCTION, quel que soit le côté par
+  // lequel on y arrive).
+  recruitmentAgent: ['scheduleCandidateInterview'],
 };
 
 /** Cet agent porte-t-il cet outil ? Un agent inconnu ne porte rien — jamais d'exception. */

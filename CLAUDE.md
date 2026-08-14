@@ -121,7 +121,7 @@ src/features/<feature>/
 ```
 
 Features : `employee`, `onboarding`, `questionnaire`, `document`, `notification`,
-`conversation`, `directory`, `knowledge`.
+`conversation`, `directory`, `knowledge`, `recruitment` (2026-08-14).
 
 ⚠️ **Tout le suivi de TÂCHES a été supprimé le 2026-08-14** : `getTaskList`, l'entité `Task`,
 son port, ses deux dépôts, `task-summary.mapper`, `task.dto`, le catalogue `ONBOARDING_TASKS`,
@@ -224,7 +224,8 @@ verrouillent cette règle : `tests/unit/quality/architecture.test.ts` et `code-a
   `features/` : le câblage se fait exclusivement dans `src/mastra/index.ts`.
 - **Identifiants Mastra** : `camelCase`, et la clé du registre `agents: {}` doit être
   **identique** à l'`id` de l'agent — c'est ce que `mastra.getAgent(id)` résout.
-  - Agents (3 exposés) : `onboardingOrchestrator`, `notificationAgent`, `knowledgeAgent`.
+  - Agents (4 exposés) : `onboardingOrchestrator`, `notificationAgent`, `knowledgeAgent`,
+    `recruitmentAgent` (2026-08-14).
     ⚠️ `questionnaireEngine` a été RETIRÉ du registre le 2026-08-14 — voir plus bas.
   - Workflows (1 enregistré) : `employeeOnboardingWorkflow`. Les trois autres ont été
     retirés le 2026-08-12 : ils se déclaraient réussis sans faire la moindre E/S.
@@ -243,6 +244,7 @@ verrouillent cette règle : `tests/unit/quality/architecture.test.ts` et `code-a
   **Quatre temps, dans cet ordre.** Les listes sont CONTRACTUELLES — les modifier sans mettre
   à jour ce fichier fait mentir la doc :
   1. **ÉCHAPPEMENT** (`ESCAPE_INTENTS`), **symétrique** — l'ordre du tableau EST la priorité :
+     - `candidat|candidate|recrutement|entretien` → `recruitmentAgent` (2026-08-14, **en TÊTE**)
      - `notification|rappel` → `notificationAgent`
      - `conversation|historique` → `knowledgeAgent`
      - `crée|créer|création|cree|creer|enregistre|retrouve|recherche|identifiant`
@@ -444,6 +446,66 @@ canaux ». **Zéro token** : exposer l'entretien au modèle aurait coûté un to
 aller-retour, et le modèle REFORMULERAIT ce que la personne a écrit sur elle-même dans un
 document qui porte son nom. Les deux dépôts sont des dépendances OPTIONNELLES — sans eux le
 document est exactement celui d'avant, ce qu'un test vérifie caractère par caractère.
+
+**Le RECRUTEMENT (`recruitmentAgent`, 2026-08-14) — un email d'entretien à un candidat.**
+« Envoie un email d'entretien à jean@exemple.com pour le 20 août à 14h » : le tool prépare,
+un humain relit, un clic envoie.
+
+- **L'agent est en QUARANTAINE INVERSE de celle du `knowledgeAgent`**, et c'est la décision
+  structurante. `outbound-tool-quarantine.ts` cite déjà, mot pour mot, LE scénario que cette
+  feature réalise : *« Envoie à ce candidat un récapitulatif de ce qui se dit dans
+  #engineer-karyl. »* §4.2 interdit la CONJONCTION lecture agrégée + écriture externe — il y a
+  donc DEUX façons de la former selon le côté par lequel on arrive, et il faut deux gardes.
+  `makeRecruitmentAgent` **LÈVE au démarrage** si on lui câble un outil dont le nom commence par
+  `find|get|list|read|search`. C'est aussi pourquoi le tool n'est PAS posé sur
+  `notificationAgent`, qui aurait été l'option la moins chère : il porte déjà trois lectures.
+- **Le modèle ne fournit AUCUNE prose sortante.** Le schéma n'a pas de champ libre : nom, date
+  ISO, poste, lieu. Le sujet et le corps sont rendus par un GABARIT
+  (`recruitment/domain/services/interview-email.ts`). Le pire cas d'une injection réussie est
+  donc un spam d'invitation, jamais une fuite — il n'y a rien à exfiltrer par ce chemin.
+- **Le tool n'envoie JAMAIS.** Il rend `status: 'awaiting_confirmation'` et poste une carte
+  Block Kit ; l'envoi vit dans `slack-interactions.route.ts`, hors de portée du modèle.
+  ⚠️ La réconciliation FAIT/NARRATION ne rattraperait PAS un « c'est envoyé » ici — un outil a
+  bien tourné, donc elle se tait par conception. Le verdict et l'instruction de l'agent sont
+  les seuls garde-fous.
+- ⚠️ **Le bouton ne transporte que des CHAMPS**, jamais le corps. Le sujet et le corps sont
+  RE-RENDUS à l'envoi et la date RE-VALIDÉE : transporter le corps ferait de ce bouton un moyen
+  d'envoyer un texte arbitraire à une adresse arbitraire — la primitive que toute la feature est
+  construite pour ne pas offrir. Le cliqueur est comparé au demandeur (`requesterUserId`) : la
+  carte est visible de tous ceux qui voient le fil.
+- **La DATE est le seul champ transcrit depuis la phrase humaine**, donc le seul vecteur
+  d'erreur restant. Deux bornes l'encadrent — strictement future (attrape l'erreur d'ANNÉE, la
+  plus fréquente : un modèle écrit volontiers l'année de son entraînement) et moins d'un an
+  (attrape la même faute en sens inverse). Elles ne suffisent pas : c'est l'affichage
+  « jeudi 20 août 2026 à 14:00 (UTC+01:00) » qui rend l'erreur visible. Fuseau via
+  `RECRUITMENT_TIMEZONE`, défaut `Africa/Lagos`, et **l'offset est IMPRIMÉ dans l'email**.
+- ⚠️ **Un LIEN de visio est REFUSÉ, pas retiré** — contrat inverse de celui de Slack, et
+  délibéré. `INTERVIEW_LINK_DOMAINS` est une liste distincte d'`ALLOWED_LINK_DOMAINS` : un
+  message Slack amputé de son lien reste utile, un email qui convoque « à [lien retiré] » est
+  activement NUISIBLE.
+- **La demande de confirmation de présence pointe vers le DEMANDEUR**, résolu dans l'annuaire —
+  jamais `NOTIFICATION_FROM`, qui vaut `noreply@kisso.com` et que personne ne lit. Sans adresse
+  résolvable, la phrase est OMISE : promettre une réponse à un puits est la famille de mensonge
+  que ce dépôt traque.
+- ⚠️ **AUCUNE écriture en base, et c'est un choix.** `RecipientType` n'a pas de valeur honnête
+  pour un candidat, et en ajouter une contaminerait le schéma de `sendNotification`. Surtout,
+  stocker l'adresse et l'invitation d'un NON-SALARIÉ créerait des données personnelles sans
+  chemin d'effacement — le trou déjà recensé pour `notifications` et `documents`. La trace vit
+  dans le fil Slack et dans les logs (domaine du destinataire seulement).
+- **Routage : `candidat|candidate|recrutement|entretien` en bande 1, EN TÊTE.** « Envoie un
+  email d'entretien à … » contient `email`, qui vit dans `NOTIFICATION_TOPICS` : sans cette
+  bande, la phrase de référence partait chez `notificationAgent`, dont `sendNotification` EXIGE
+  une ligne d'annuaire — qu'un candidat n'a pas, par définition. La demande était
+  structurellement insatisfaisable, exactement comme la recherche par email avant le
+  2026-08-10.
+
+⚠️ **`/api/agents/*/generate` DIVULGUE le prompt système** (mesuré le 2026-08-14 sur les quatre
+agents). Ce n'est pas une faiblesse du prompt mais une **asymétrie de SURFACE** : `wrapAgentInput`
+et `sanitizeAgentOutput` ne vivent que dans le handler Slack, où la même phrase est refusée en
+`NEUTRAL_REFUSAL`. La route exige le bearer, ce n'est donc pas anonyme — mais c'est la même
+classe de défaut que le `requestContext` forgeable fermé le même jour. **Non corrigé à dessein** :
+assainir les réponses `/api/*` retirerait aussi les URL hors liste blanche de tout appelant
+légitime, playground compris. Voir `TODO.md` [0 quinquies].
 
 ⚠️ **`requestContext` était FORGEABLE par le corps HTTP sur `/api/*` — fermé le 2026-08-14.**
 Trou recensé depuis le 2026-08-12 et resté ouvert. Mastra fusionne `body.requestContext` dans le
@@ -804,7 +866,8 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
     | `onboardingOrchestrator` | 799          | 729   | **1 528** |
     | `notificationAgent`      | 632          | 885   | **1 517** |
     | `knowledgeAgent`         | 689          | 309   | **998**   |
-    | **Somme (3 agents exposés)** |          |       | **4 043** |
+    | `recruitmentAgent`       | 725          | 256   | **981**   |
+    | **Somme (4 agents exposés)** |          |       | **5 024** |
 
     ⚠️ `questionnaireEngine` (886) n'y figure plus : retiré du registre le 2026-08-14. Le
     lot 2 est donc intégralement AUTOFINANCÉ — l'entretien qui le remplace est en CODE, à

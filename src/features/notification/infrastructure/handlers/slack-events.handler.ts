@@ -419,6 +419,22 @@ const ESCAPE_INTENTS: ReadonlyArray<readonly [agentId: string, keywords: readonl
   // Les laisser ici aurait été bien pire qu'un mauvais aiguillage : `mastra.getAgent()` LÈVE
   // sur un identifiant absent du registre (`MASTRA_GET_AGENT_BY_NAME_NOT_FOUND`), donc chaque
   // message contenant « questionnaire » aurait échoué sur le message générique.
+  // ⚠️ EN TÊTE, et l'ordre porte un cas réel. « Envoie un email d'entretien à
+  // jean@exemple.com » contient `email`, qui appartient à `NOTIFICATION_TOPICS` : sans cette
+  // bande, la phrase de référence de toute la feature partait chez `notificationAgent`, dont
+  // `sendNotification` EXIGE une ligne d'annuaire — or un candidat n'en a aucune par
+  // définition. La demande était donc structurellement insatisfaisable, comme l'était la
+  // recherche par email avant le 2026-08-10. Même défaut, même correctif : le terme qui
+  // désigne l'OBJET MÉTIER doit primer sur celui qui désigne le transport.
+  //
+  // Placé avant `notification` pour la même raison : « envoie une notification à un
+  // candidat » doit aller au recrutement, seul chemin capable d'écrire à quelqu'un qui
+  // n'est pas dans l'annuaire.
+  //
+  // ⚠️ `entretien` est ambigu en français (« entretien du matériel ») et désigne aussi, dans
+  // ce dépôt, l'entretien POST-PROFIL. Il est retenu quand même : ce dernier est piloté par
+  // un bouton et une modale, jamais par un message, donc il ne passe pas par le routage.
+  ['recruitmentAgent', ['candidat', 'candidate', 'recrutement', 'entretien']],
   ['notificationAgent', ['notification', 'rappel']],
   // Ajouté le 2026-08-12 avec `knowledgeAgent`. La bande 1 doit rester SYMÉTRIQUE : chaque
   // agent y a ses termes, aucun n'est un puits. Un quatrième agent sans porte d'entrée serait
@@ -686,6 +702,7 @@ const KNOWN_AGENT_IDS: ReadonlySet<string> = new Set([
   'onboardingOrchestrator',
   'notificationAgent',
   'knowledgeAgent',
+  'recruitmentAgent',
 ]);
 
 /**

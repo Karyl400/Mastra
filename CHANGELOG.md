@@ -1,5 +1,92 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-14 (4) — l'agent de recrutement, et un audit qui a trouvé du rouge utile
+
+### Added — `recruitmentAgent` : « envoie un email d'entretien à … pour le … »
+
+Le lot 3 avait laissé cette demande de côté sur un blocage réel — **aucun chemin d'email
+entrant** — qui rendait impossible un test de personnalité par email. La vision retenue est
+STRICTEMENT SORTANTE, et ce blocage ne s'y applique pas.
+
+**Le tool PRÉPARE, il n'envoie jamais.** Il rend `status: 'awaiting_confirmation'` et poste une
+carte Block Kit ; l'envoi vit dans `slack-interactions.route.ts`, hors de portée du modèle.
+⚠️ La réconciliation FAIT/NARRATION ne rattraperait PAS un « c'est envoyé » ici — un outil a
+bien tourné, donc elle se tait par conception.
+
+**Quarantaine INVERSE.** `outbound-tool-quarantine.ts` cite déjà, mot pour mot, le scénario que
+cette feature réalise : *« Envoie à ce candidat un récapitulatif de ce qui se dit dans
+#engineer-karyl. »* §4.2 interdit la CONJONCTION, donc il y a deux façons de la former et il
+fallait un second garde : `makeRecruitmentAgent` LÈVE au démarrage sur tout outil dont le nom
+commence par `find|get|list|read|search`. C'est aussi pourquoi le tool n'est pas posé sur
+`notificationAgent` — l'option la moins chère, mais il porte déjà trois lectures.
+
+**Aucune prose du modèle ne sort.** Le schéma n'a aucun champ libre ; sujet et corps viennent
+d'un gabarit en code. Le pire cas d'une injection réussie est un spam d'invitation, pas une
+fuite. Le bouton ne transporte que des CHAMPS : sujet et corps sont RE-RENDUS à l'envoi, la
+date RE-VALIDÉE, et le cliqueur comparé au demandeur (la carte est visible de tout le fil).
+
+**La date est le seul champ transcrit**, donc le seul vecteur d'erreur restant : bornes futur
+et moins d'un an (elles attrapent l'erreur d'ANNÉE dans les deux sens), et surtout affichage
+« jeudi 20 août 2026 à 14:00 (UTC+01:00) » — c'est lui qui rend l'erreur visible.
+
+⚠️ **Un lien de visio est REFUSÉ, pas retiré** : contrat inverse de celui de Slack. Un message
+amputé de son lien reste utile ; un email qui convoque « à [lien retiré] » est NUISIBLE.
+
+⚠️ **Aucune écriture en base, et c'est un choix.** `RecipientType` n'a pas de valeur honnête
+pour un candidat, et stocker l'adresse d'un NON-SALARIÉ créerait des données personnelles sans
+chemin d'effacement. La trace vit dans le fil Slack et dans les logs (domaine seulement).
+
+**Routage : `candidat|candidate|recrutement|entretien` en bande 1, EN TÊTE.** Sans cette bande,
+la phrase de référence partait chez `notificationAgent` — elle contient `email` — dont
+`sendNotification` EXIGE une ligne d'annuaire, qu'un candidat n'a pas. La demande était
+structurellement insatisfaisable, exactement comme la recherche par email avant le 2026-08-10.
+
+### Changed — `createEmailProvider` extrait de `src/mastra/index.ts`
+
+La route en a besoin (l'email part au clic) et ne peut pas importer `index.ts`, qui importe la
+route. Recopier le choix SMTP/Brevo aurait fait partir les emails d'entretien par un
+fournisseur et ceux de notification par un autre, sans que rien ne le signale.
+
+### Fixed — audit : ce qui était cassé ailleurs
+
+- ⚠️ **`npm run test:scenarios` testait un agent et TROIS workflows retirés.** Il attendait
+  `questionnaireEngine`, `questionnaireCycleWorkflow`, `notificationCycleWorkflow` et
+  `documentGenerationWorkflow`, plus deux cas de routage passant par `generateQuestionnaire` et
+  `createEmployee`, tous décâblés. Le script produisait du ROUGE sur des suppressions
+  délibérées — un signal qu'un lecteur pressé prend pour une régression. Les scénarios morts
+  sont conservés en `skip` NOMMÉ plutôt qu'effacés.
+- ⚠️ **L'instantané initial plantait tout le run sur un hoquet réseau**, hors de tout `try` et
+  avant le moindre groupe, y compris en `--dry` — mode qui annonce « aucun effet de bord ».
+  Un `ConnectTimeoutError` rendait une trace de pile nue. On échoue toujours (sans instantané,
+  `cleanup()` n'a plus de borne) mais en NOMMANT la cause.
+- **Code mort retiré** : `evaluateResponse` était CONSTRUIT à chaque démarrage à froid alors
+  qu'il était décâblé depuis le 2026-08-12, maintenant en vie deux repositories ; `getDb` était
+  importé sans jamais être appelé.
+- **`channelCoverage` était construit SANS `inventory`** — défaut recensé en [0 bis] :
+  `recordInventory()` rendait `undefined` et n'écrivait rien. Câblé. ⚠️ Le service n'a toujours
+  aucun consommateur ; il est simplement correct au lieu d'être muet.
+
+### Security — trouvé, NON corrigé, et documenté
+
+⚠️ **`/api/agents/*/generate` divulgue le prompt système** — mesuré sur les quatre agents :
+`IMMUTABLE DIRECTIVES`, `KISSO-AGENT-v3`, `DIRECTIVE 1.1`… Ce n'est pas une faiblesse du prompt
+mais une **asymétrie de SURFACE** : `wrapAgentInput` et `sanitizeAgentOutput` ne vivent que dans
+le handler Slack, où la même phrase est refusée en `NEUTRAL_REFUSAL`. La route exige le bearer,
+ce n'est donc pas anonyme — mais c'est la même classe de défaut que le `requestContext`
+forgeable fermé le même jour.
+
+**Non corrigé à dessein** : assainir les réponses `/api/*` retirerait aussi les URL hors liste
+blanche de tout appelant légitime, playground compris. Cela change le contrat d'une API — c'est
+une décision de produit, pas un correctif de routine. Voir `TODO.md` [0 quinquies].
+
+### Budget
+
+FLOOR : orchestrateur **1 528**, notification **1 517**, knowledge **998**,
+**recruitment 981** — le plus bas après knowledge. Le coût d'un agent est ALTERNATIF, pas
+additif : un message va chez UN agent, donc le recrutement ne pèse que sur les messages de
+recrutement.
+
+
 ## [Unreleased] - 2026-08-14 (3) — lot 3, et les dettes que les `.md` portaient depuis deux jours
 
 Deux moitiés. La première ferme des dettes **recensées et laissées ouvertes** dans `TODO.md` —

@@ -13,12 +13,17 @@ Plateforme d'onboarding intelligent pour Kisso Industries, orchestrant l'intégr
 > Les sections ci-dessous ont été remises en phase avec le câblage le 2026-08-14 — elles
 > annonçaient 4 workflows quand un seul est enregistré, et deux tools décâblés depuis.
 
-## Agents IA (3)
+## Agents IA (4)
 1. **OnboardingOrchestrator** : orchestre le parcours d'intégration d'un employé.
 2. **NotificationAgent** : email et Slack. Les cinq autres canaux annoncés n'ont aucun transport.
 3. **KnowledgeAgent** : lecture À LA DEMANDE des conversations du bot et des canaux où il est
    invité, filtrée selon les droits du DEMANDEUR. Aucune ingestion persistante — ce serait une
-   surveillance systématique des communications des salariés.
+   surveillance systématique des communications des salariés. Depuis le 2026-08-14 il répond
+   aussi à « qui peut faire quoi » (`findExpertise`).
+4. **RecruitmentAgent** (2026-08-14) : prépare l'invitation d'un candidat externe à un
+   entretien. **Un seul outil, aucune lecture** — il est le seul à écrire vers une adresse hors
+   de l'entreprise, et lui adjoindre une lecture formerait un canal d'exfiltration complet. Il
+   n'envoie pas lui-même : un humain relit la carte et clique.
 
 ⚠️ **QuestionnaireEngine a été retiré le 2026-08-14.** Il enregistrait des quiz que personne ne
 pouvait remplir (5 en base, 0 réponse). Ce qu'il devait servir — cerner les centres d'intérêt
@@ -33,12 +38,14 @@ soumission invite réellement aux canaux choisis. Déterministe, zéro token, et
 registre le 2026-08-12** : ils se déclaraient réussis sans faire la moindre E/S, et leur
 présence à égalité avec le seul qui fonctionne le dévaluait.
 
-## Outils réellement câblés (11)
+## Outils réellement câblés (12)
 - Personnes : `findEmployeeByEmail`, `findPersonByName` (2026-08-14).
 - Dossier : `getEmployeeProfile`, `updateOnboardingStatus`.
 - Production : `generateDocument`.
 - Notification : `sendNotification`, `scheduleReminder`, `getNotificationHistory`.
 - Lecture de conversations : `getUserConversations`, `getChannelHistory`.
+- Recrutement : `scheduleCandidateInterview` (2026-08-14) — prépare l'email, ne l'envoie
+  jamais ; aucun champ de texte libre, le corps vient d'un gabarit en code.
 - Compétences : `findExpertise` (2026-08-14) — « qui peut faire quoi », d'après le poste
   déclaré dans Slack et dans le dossier. Rend des NOMS, jamais un identifiant ni une adresse :
   la question est posée au pluriel, donc rendre des UUID inviterait le modèle à en choisir un —

@@ -90,13 +90,19 @@ const BOT_ID = 'B0BM9MK4G65';
 const TEAM_ID = 'TMLKC4EPP';
 const HUMAN_USER_ID = 'U0BJBDGTJUD';
 
-const AGENT_IDS = ['onboardingOrchestrator', 'questionnaireEngine', 'notificationAgent'];
-const WORKFLOW_KEYS = [
-  'employeeOnboardingWorkflow',
-  'questionnaireCycleWorkflow',
-  'notificationCycleWorkflow',
-  'documentGenerationWorkflow',
+// ⚠️ Remis en phase avec le registre le 2026-08-14. Le script attendait encore
+// `questionnaireEngine`, retiré du registre Mastra le 2026-08-14 : il échouait donc sur un
+// agent volontairement supprimé, et ce rouge se lisait comme une régression.
+const AGENT_IDS = [
+  'onboardingOrchestrator',
+  'notificationAgent',
+  'knowledgeAgent',
+  'recruitmentAgent',
 ];
+// ⚠️ UN SEUL workflow est enregistré depuis le 2026-08-12. Les trois autres ont été retirés
+// parce qu'ils se déclaraient réussis sans faire la moindre E/S — et ce script les
+// enregistrait en PASS, ce qui est exactement le mensonge qu'ils produisaient.
+const WORKFLOW_KEYS = ['employeeOnboardingWorkflow'];
 
 /** Garde-fou : au-delà, le nettoyage s'abstient et signale plutôt que de supprimer. */
 const MAX_CLEANUP = 60;
@@ -637,51 +643,22 @@ async function groupWorkflows() {
       'une étape non applicable n’est pas une étape en échec.');
   }
 
-  // ── questionnaireCycleWorkflow ─────────────────────────────────────────────
-  {
-    const res = await startWorkflow('questionnaireCycleWorkflow', {
-      employeeId: state.fixtureEmployeeId ?? (DRY ? 'dry-run' : await ensureFixtureEmployee()),
-      questionnaireId: `qn-${RUN_ID}`,
-    });
-    const j = res.json ?? {};
-    record('questionnaireCycleWorkflow → status success', j.status === 'success',
-      "status === 'success'", `HTTP ${res.status}, status=${j.status ?? '(absent)'}, result=${trunc(j.result, 100)}`,
-      'Workflow STUB : ses deux étapes renvoient des valeurs codées en dur, aucune écriture en base — rien de plus n\'est vérifiable.');
-  }
-
-  // ── notificationCycleWorkflow ──────────────────────────────────────────────
-  {
-    const res = await startWorkflow('notificationCycleWorkflow', {
-      recipients: [MANAGER_EMAIL],
-      messageTemplate: `scénario ${RUN_ID}`,
-      context: { runId: RUN_ID },
-    });
-    const j = res.json ?? {};
-    const ok = j.status === 'success' && j.result?.successCount === 1;
-    record('notificationCycleWorkflow → status success + successCount=1', ok,
-      "status === 'success', successCount === 1",
-      `HTTP ${res.status}, status=${j.status ?? '(absent)'}, result=${trunc(j.result, 100)}`,
-      'Workflow STUB : `sendNotification` ne transporte rien et n\'écrit pas en base — aucun email réel n\'est parti.');
-  }
-
-  // ── documentGenerationWorkflow ─────────────────────────────────────────────
-  if (DRY) {
-    skip('documentGenerationWorkflow', '--dry (nécessite une fixture en base)');
-  } else {
-    const empId = await ensureFixtureEmployee();
-    const res = await startWorkflow('documentGenerationWorkflow', {
-      employeeId: empId,
-      documentType: 'welcome_letter',
-    });
-    const j = res.json ?? {};
-    record('documentGenerationWorkflow → status success', j.status === 'success',
-      "status === 'success'",
-      `HTTP ${res.status}, status=${j.status ?? '(absent)'}` +
-      (j.error ? ` — erreur: ${trunc(j.error?.message ?? j.error, 200)}` : ''));
-    record('documentGenerationWorkflow → chemin de document renvoyé',
-      typeof j.result?.documentPath === 'string' && j.result.documentPath.length > 0,
-      'result.documentPath non vide', `documentPath=${JSON.stringify(j.result?.documentPath)}`);
-  }
+  // ── Les trois workflows RETIRÉS du registre le 2026-08-12 ─────────────────
+  //
+  // ⚠️ Ces scénarios TESTAIENT ENCORE des workflows supprimés, jusqu'au 2026-08-14. Ils
+  // produisaient donc un échec sur une suppression délibérée — un rouge qui ne signale rien,
+  // et qu'un lecteur pressé prend pour une régression. Pire pour `notificationCycleWorkflow` :
+  // avant le retrait, ce script l'enregistrait en **PASS** alors que le workflow rendait
+  // `successCount: 1` sans le moindre appel réseau. Il ne mesurait pas, il fabriquait un feu vert.
+  //
+  // On les conserve en `skip` NOMMÉ plutôt que de les effacer : c'est ce qui apprend au lecteur
+  // qu'ils ont existé et pourquoi ils n'existent plus.
+  skip('questionnaireCycleWorkflow', 'retiré du registre le 2026-08-12 — stub sans E/S');
+  skip('notificationCycleWorkflow', 'retiré du registre le 2026-08-12 — stub sans E/S');
+  skip(
+    'documentGenerationWorkflow',
+    'retiré du registre le 2026-08-12 — écrivait sur le disque local, inutilisable sur Vercel',
+  );
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -703,28 +680,15 @@ async function groupWorkflowsNegative() {
       res.status >= 400 && res.status < 500, 'HTTP 4xx', `HTTP ${res.status}`,
       res.status >= 500 ? 'Mastra renvoie 500 sur un échec de validation Zod du inputSchema.' : undefined);
   }
-  {
-    const res = await startWorkflow('documentGenerationWorkflow', {
-      employeeId: '11111111-1111-4111-8111-111111111111', documentType: 'passeport',
-    });
-    const err = String(res.json?.error ?? res.text);
-    const ok = /Invalid input data/.test(err) && /documentType/.test(err);
-    record('documentGenerationWorkflow documentType hors énumération → rejeté', ok,
-      "erreur « Invalid input data » sur documentType", `HTTP ${res.status} ${trunc(err, 200)}`);
-    record('documentGenerationWorkflow énumération invalide → HTTP 4xx (pas 5xx)',
-      res.status >= 400 && res.status < 500, 'HTTP 4xx', `HTTP ${res.status}`,
-      res.status >= 500 ? 'Même défaut que ci-dessus : validation Zod remontée en 500.' : undefined);
-  }
-  {
-    const res = await startWorkflow('documentGenerationWorkflow', {
-      employeeId: '11111111-1111-4111-8111-111111111111', documentType: 'guide',
-    });
-    const j = res.json ?? {};
-    const ok = res.status === 200 && j.status === 'failed' && /not found/i.test(String(j.error?.message ?? ''));
-    record('documentGenerationWorkflow employeeId inconnu → échec propre (pas de 500)', ok,
-      "HTTP 200 + status='failed' + « Employee … not found »",
-      `HTTP ${res.status}, status=${j.status ?? '(absent)'}, erreur=${trunc(j.error?.message ?? j.error, 140)}`);
-  }
+  // ⚠️ Les deux scénarios négatifs de `documentGenerationWorkflow` ont été RETIRÉS le
+  // 2026-08-14 : le workflow n'est plus enregistré depuis le 2026-08-12, donc ils ne
+  // testaient plus la validation d'entrée mais rendaient `404 Workflow not found`. Un échec
+  // qui ne parle pas de ce qu'il prétend mesurer est pire qu'un test absent : il occupe la
+  // place et détourne l'attention du vrai signal.
+  skip(
+    'documentGenerationWorkflow (2 scénarios négatifs)',
+    'workflow retiré du registre le 2026-08-12 — les scénarios rendaient 404, pas une validation',
+  );
   {
     // Département hors référentiel : `Department` est un allowlist côté domaine,
     // mais le schéma d'entrée du workflow n'est qu'un `z.string().min(1)`.
@@ -778,9 +742,13 @@ async function groupWorkflowsNegative() {
 // Le contrat de routage ne s'observe pas dans la prose du bot. Il s'observe par
 // l'OUTIL appelé, donc par la TABLE écrite : chaque agent est le seul à pouvoir
 // écrire dans la sienne.
-//   questionnaireEngine      → questionnaires   (generateQuestionnaire)
 //   notificationAgent        → notifications    (sendNotification)
-//   onboardingOrchestrator   → employees        (createEmployee)
+//   onboardingOrchestrator   → documents        (generateDocument)
+//
+// ⚠️ Remis en phase le 2026-08-14. Les deux tables citées auparavant ne sont plus écrites par
+// aucun agent : `generateQuestionnaire` est parti du registre avec `questionnaireEngine`, et
+// `createEmployee` est DÉCÂBLÉ depuis que le modèle substituait une valeur d'allowlist valide
+// avant l'appel. Deux des trois cas de ce groupe échouaient donc sur des retraits délibérés.
 
 async function slackRoutingCase({ label, text, table, expectReply = true }) {
   const before = await idsOf(table);
@@ -825,14 +793,6 @@ async function groupSlackRouting() {
   await ensureFixtureEmployee();
 
   await slackRoutingCase({
-    label: "mot-clé « questionnaire » → questionnaireEngine",
-    text: `crée un questionnaire d'accueil intitulé "Accueil ${RUN_ID}" avec une seule question ` +
-      `de type text intitulée "Comment s'est passée ta première semaine ?" (obligatoire). ` +
-      `Appelle l'outil generateQuestionnaire maintenant.`,
-    table: 'questionnaires',
-  });
-
-  await slackRoutingCase({
     label: "mot-clé « notification » → notificationAgent",
     text: `envoie une notification sur le canal in_app au destinataire ` +
       `${state.fixtureEmployeeId} (recipientType employee) avec pour sujet "Bienvenue ${RUN_ID}" ` +
@@ -841,13 +801,13 @@ async function groupSlackRouting() {
   });
 
   await slackRoutingCase({
-    // Aucun mot-clé de routage ici : ni questionnaire/évaluation/quiz/test,
-    // ni notification/rappel/email/message → défaut = onboardingOrchestrator.
-    label: 'aucun mot-clé → onboardingOrchestrator (défaut)',
-    text: `enregistre le profil de Lina Duroc, adresse ${employeeEmail('-slack')}, ` +
-      `département Engineering, poste Backend Developer, début ${startDate()}. ` +
-      `Appelle l'outil createEmployee maintenant.`,
-    table: 'employees',
+    // `document` appartient à la bande 3 (thématique) → onboardingOrchestrator, seul porteur
+    // de `generateDocument`. C'est aussi le seul agent qui écrive encore une table par outil.
+    label: "mot-clé « document » → onboardingOrchestrator",
+    text: `génère un document de type guide intitulé "Guide ${RUN_ID}" pour l'employé ` +
+      `${state.fixtureEmployeeId}, contenu "Bienvenue chez Kisso", format pdf, deliverTo none. ` +
+      `Appelle l'outil generateDocument maintenant.`,
+    table: 'documents',
   });
 }
 
@@ -1092,7 +1052,25 @@ async function main() {
   console.log(`   groupes      : ${ONLY ? ONLY.join(', ') : 'tous'}`);
 
   // Instantané initial : borne absolue de ce que le nettoyage peut supprimer.
-  for (const t of TRACKED_TABLES) baseline[t] = await idsOf(t);
+  //
+  // ⚠️ ENCADRÉ depuis le 2026-08-14. Cette boucle tournait HORS de tout `try` et AVANT le
+  // moindre groupe : un hoquet réseau vers Turso — le `ConnectTimeoutError` de 10 s du client
+  // — faisait planter le run entier sur une trace de pile nue, sans un mot sur la cause. Et
+  // cela se produisait aussi en `--dry`, mode qui annonce pourtant « aucun effet de bord ».
+  //
+  // On échoue toujours, mais on NOMME la cause : sans cet instantané, `cleanup()` ne connaît
+  // pas la borne de ce qu'il a le droit de supprimer, et continuer serait bien pire qu'échouer.
+  try {
+    for (const t of TRACKED_TABLES) baseline[t] = await idsOf(t);
+  } catch (err) {
+    console.error(
+      `\n❌ Base injoignable — instantané initial impossible : ${err?.cause?.message ?? err?.message ?? err}` +
+      `\n   Le run s'arrête ici À DESSEIN : sans instantané, le nettoyage n'a plus de borne` +
+      `\n   et pourrait supprimer des lignes qu'il n'a pas créées.` +
+      `\n   Turso répond en WebSocket mais pas toujours en HTTP depuis un réseau filtré — réessaie.`,
+    );
+    process.exit(2);
+  }
   console.log(`   instantané   : ${TRACKED_TABLES.map((t) => `${t}=${baseline[t].size}`).join(', ')}`);
 
   const started = Date.now();

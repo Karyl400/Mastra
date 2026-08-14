@@ -37,6 +37,19 @@ import {
   type ValidatedProfile,
 } from '../features/notification/infrastructure/handlers/profile-modal';
 import {
+  SEND_INTERVIEW_ACTION_ID,
+  CANCEL_INTERVIEW_ACTION_ID,
+  INTERVIEW_SENT_REPLY,
+  INTERVIEW_CANCELLED_REPLY,
+  INTERVIEW_NOT_YOURS_REPLY,
+  INTERVIEW_SEND_FAILED_REPLY,
+  decodeInterviewConfirm,
+} from '../features/recruitment/infrastructure/handlers/interview-confirm';
+import { parseInterviewSchedule } from '../features/recruitment/domain/value-objects/interview-schedule';
+import { buildInterviewEmail } from '../features/recruitment/domain/services/interview-email';
+import { createEmailProvider } from '../features/notification/infrastructure/providers/email-provider.factory';
+import type { EmailProvider } from '../features/notification/domain/ports/providers';
+import {
   INTERVIEW_MODAL_CALLBACK_ID,
   START_INTERVIEW_ACTION_ID,
   buildInterviewModal,
@@ -97,6 +110,9 @@ interface SlackInteractionPayload {
     private_metadata?: string;
     state?: SlackViewState;
   };
+  /** Présents sur `block_actions` (pas sur `view_submission`) : où la carte a été cliquée. */
+  channel?: { id?: string };
+  message?: { ts?: string; thread_ts?: string };
 }
 
 /** Sous-ensemble du `Context` Hono réellement utilisé. */
@@ -165,6 +181,21 @@ async function handleBlockActions(payload: SlackInteractionPayload): Promise<Res
   const profileAction = actions.find((a) => a.action_id === COMPLETE_PROFILE_ACTION_ID);
   const interviewAction = actions.find((a) => a.action_id === START_INTERVIEW_ACTION_ID);
 
+  // ── Recrutement : les deux boutons de la carte de confirmation ─────────────
+  // Traités AVANT la garde `trigger_id` : ils n'ouvrent aucune modale, donc ils n'ont pas
+  // besoin d'un `trigger_id`. Les placer après ferait échouer l'envoi sur une garde qui ne
+  // les concerne pas.
+  if (actions.some((a) => a.action_id === CANCEL_INTERVIEW_ACTION_ID)) {
+    await replyInThread(payload, INTERVIEW_CANCELLED_REPLY);
+    return ack();
+  }
+
+  const sendAction = actions.find((a) => a.action_id === SEND_INTERVIEW_ACTION_ID);
+  if (sendAction) {
+    await handleInterviewSend(payload, sendAction.value);
+    return ack();
+  }
+
   if (!profileAction && !interviewAction) return ack();
 
   if (!triggerId) {
@@ -201,6 +232,115 @@ async function handleBlockActions(payload: SlackInteractionPayload): Promise<Res
   }
 
   return ack();
+}
+
+/* -------------------------------------------------------------------------- *
+ * Recrutement — l'envoi réel de l'invitation d'entretien
+ * -------------------------------------------------------------------------- */
+
+let cachedEmailProvider: EmailProvider | undefined;
+
+/**
+ * ⚠️ Construit PARESSEUSEMENT et partagé avec `src/mastra/index.ts` via la fabrique commune :
+ * une copie du choix SMTP/Brevo ferait partir les emails d'entretien par un fournisseur et
+ * ceux de notification par un autre, sans que rien ne le signale.
+ */
+function getEmailProvider(): EmailProvider {
+  cachedEmailProvider ??= createEmailProvider();
+  return cachedEmailProvider;
+}
+
+/** Réinitialise le singleton (tests). */
+export function resetRecruitmentDependencies(): void {
+  cachedEmailProvider = undefined;
+}
+
+/** Répond dans le fil de la carte — jamais à la racine, la carte y serait orpheline. */
+async function replyInThread(payload: SlackInteractionPayload, text: string): Promise<void> {
+  const channel = payload.channel?.id;
+  if (!channel) return;
+  try {
+    await getSlackInteractionsAdapter().sendMessage(channel, text);
+  } catch (error) {
+    // Ne jamais propager : Slack rejouerait l'interaction, donc l'email partirait DEUX FOIS.
+    // Un accusé perdu est bénin ; un second email à un candidat ne l'est pas.
+    logger.error('Réponse de confirmation non postée', { error: String(error) });
+  }
+}
+
+/**
+ * Clic sur « Envoyer » — le SEUL endroit du système où un email part vers une adresse
+ * extérieure non contrainte par l'annuaire.
+ *
+ * ⚠️ **Rien n'est rejoué sur confiance.** Le bouton ne transporte que des CHAMPS ; le sujet et
+ * le corps sont re-rendus ici par le même gabarit, et la date est re-validée. Transporter le
+ * corps dans le `value` aurait fait de ce bouton un moyen d'envoyer un texte arbitraire à une
+ * adresse arbitraire — c'est-à-dire exactement la primitive d'exfiltration que toute la
+ * feature est construite pour ne pas offrir.
+ */
+async function handleInterviewSend(
+  payload: SlackInteractionPayload,
+  rawValue: string | undefined,
+): Promise<void> {
+  const confirm = decodeInterviewConfirm(rawValue);
+  if (!confirm) {
+    logger.warn('Confirmation d’entretien illisible');
+    await replyInThread(payload, INTERVIEW_SEND_FAILED_REPLY);
+    return;
+  }
+
+  // ⚠️ Le cliqueur DOIT être celui qui a préparé l'invitation. La carte est visible de tous
+  // ceux qui voient le fil : sans ce contrôle, un témoin écrirait à l'extérieur au nom de
+  // l'entreprise. Même famille de défaut que la modale de profil en canal.
+  const clicker = payload.user?.id ?? '';
+  if (clicker !== confirm.requesterUserId) {
+    logger.warn('Envoi d’entretien refusé — cliqueur différent du demandeur');
+    await replyInThread(payload, INTERVIEW_NOT_YOURS_REPLY);
+    return;
+  }
+
+  // Re-validation : entre la préparation et le clic, la date a pu devenir passée.
+  const parsed = parseInterviewSchedule(confirm.startsAt, new Date());
+  if (!parsed.ok) {
+    logger.warn('Envoi d’entretien refusé — date invalide au clic', { reason: parsed.reason });
+    await replyInThread(
+      payload,
+      "Cette date n'est plus valide — rien n'est parti. Redemande-moi l'invitation.",
+    );
+    return;
+  }
+
+  const email = buildInterviewEmail({
+    candidateName: confirm.candidateName,
+    schedule: parsed.schedule,
+    position: confirm.position,
+    location: confirm.location,
+    replyTo: confirm.replyTo,
+  });
+
+  try {
+    await getEmailProvider().sendEmail(confirm.to, email.subject, email.body);
+  } catch (error) {
+    // ⚠️ On ne prétend JAMAIS avoir envoyé. Troisième occurrence de cette discipline dans ce
+    // dépôt, après `emailSent: false` sous `status: 'success'` et `status = Sent` avant le try.
+    logger.error('Email d’entretien NON envoyé', { error: String(error) });
+    await replyInThread(payload, INTERVIEW_SEND_FAILED_REPLY);
+    return;
+  }
+
+  // ⚠️ Aucune écriture en base, et c'est un choix : `RecipientType` n'a pas de valeur honnête
+  // pour un candidat, et en ajouter une contaminerait le schéma de `sendNotification`. Surtout,
+  // stocker l'adresse et l'invitation d'un NON-SALARIÉ créerait des données personnelles sans
+  // chemin d'effacement — le trou que `TODO.md` recense déjà pour `notifications` et
+  // `documents`. La trace vit dans le fil Slack, que les intéressés lisent, et ici en journal.
+  logger.info('Invitation d’entretien envoyée', {
+    recipientDomain: confirm.to.split('@')[1] ?? 'inconnu',
+    when: parsed.schedule.at.toISOString(),
+    hasPosition: Boolean(confirm.position),
+    hasLocation: Boolean(confirm.location),
+  });
+
+  await replyInThread(payload, INTERVIEW_SENT_REPLY(confirm.to, parsed.schedule.humanReadable));
 }
 
 /**

@@ -115,6 +115,10 @@ describe('Règle de dépendance — la couche domain ne dépend de rien', () => 
     // ajoutées le 2026-08-12 — la première porte la frontière d'autorisation, la seconde la
     // lecture agrégée des conversations. Deux features dont le domaine est précisément ce
     // qu'on ne veut pas voir dériver vers l'infrastructure sans que personne ne le remarque.
+    // `recruitment` ajoutée le 2026-08-14 : elle est LA feature dont le domaine ne doit pas
+    // dériver, puisqu'elle écrit vers des adresses extérieures à l'entreprise. Son `domain/`
+    // porte le gabarit d'email (aucune prose du modèle ne sort), la validation de date et la
+    // quarantaine inverse — les trois garanties de la feature, toutes en TypeScript pur.
     const features = listFeatures();
     expect(features).toEqual([
       'conversation',
@@ -125,6 +129,7 @@ describe('Règle de dépendance — la couche domain ne dépend de rien', () => 
       'notification',
       'onboarding',
       'questionnaire',
+      'recruitment',
     ]);
 
     for (const feature of features) {

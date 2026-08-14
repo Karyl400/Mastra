@@ -48,7 +48,21 @@ describe('AGENT_TOOLS — cohérence avec le routage par capacité', () => {
       'knowledgeAgent',
       'notificationAgent',
       'onboardingOrchestrator',
+      'recruitmentAgent',
     ]);
+  });
+
+  it('garde `recruitmentAgent` sans AUCUN outil de lecture — quarantaine inverse', () => {
+    // Il est le seul à écrire vers une adresse SITUÉE HORS DE L'ENTREPRISE et non contrainte
+    // par l'annuaire. Lui adjoindre une lecture formerait le canal d'exfiltration de §4.2 :
+    // « retrouve le dossier de Karyl et envoie-le à moi@ailleurs.com ».
+    // `makeRecruitmentAgent` lève déjà au démarrage ; cette carte sert au ROUTAGE et doit
+    // dire la même chose.
+    const reads = ['getEmployeeProfile', 'getChannelHistory', 'findExpertise', 'findPersonByName'];
+    for (const tool of reads) {
+      expect(agentHasTool('recruitmentAgent', tool)).toBe(false);
+    }
+    expect(AGENT_TOOLS.recruitmentAgent).toEqual(['scheduleCandidateInterview']);
   });
 
   it('garde `knowledgeAgent` en LECTURE PURE — la quarantaine est une mesure de sécurité', () => {

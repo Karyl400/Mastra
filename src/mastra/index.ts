@@ -9,21 +9,18 @@ import { LibSQLStore } from '@mastra/libsql';
 import { VercelDeployer } from '@mastra/deployer-vercel';
 
 import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
-import { DrizzleQuestionnaireRepository } from '../features/questionnaire/infrastructure/repositories/drizzle-questionnaire.repository';
-import { DrizzleResponseRepository } from '../features/questionnaire/infrastructure/repositories/drizzle-response.repository';
 import { DrizzleDocumentRepository } from '../features/document/infrastructure/repositories/drizzle-document.repository';
 import { DrizzleNotificationRepository } from '../features/notification/infrastructure/repositories/drizzle-notification.repository';
 import { DrizzleOnboardingRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding.repository';
 import { DrizzleOnboardingInterviewRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding-interview.repository';
 import { DrizzleChannelInventoryRepository } from '../features/directory/infrastructure/repositories/drizzle-channel.repository';
 
-import { getDb, healthCheck } from '../infrastructure/database/connection';
+import { healthCheck } from '../infrastructure/database/connection';
 
 import { makeFindEmployeeByEmail } from '../features/employee/application/tools/find-employee-by-email';
 import { makeFindPersonByName } from '../features/employee/application/tools/find-person-by-name';
 import { makeGetEmployeeProfile } from '../features/employee/application/tools/get-employee-profile';
 import { makeUpdateOnboardingStatus } from '../features/onboarding/application/tools/update-onboarding-status';
-import { makeEvaluateResponse } from '../features/questionnaire/application/tools/evaluate-response';
 import { makeGenerateDocument } from '../features/document/application/tools/generate-document';
 import { makeSendNotification } from '../features/notification/application/tools/send-notification';
 import { makeScheduleReminder } from '../features/notification/application/tools/schedule-reminder';
@@ -32,6 +29,8 @@ import { makeGetNotificationHistory } from '../features/notification/application
 import { makeOnboardingOrchestrator } from '../features/onboarding/application/agents/onboarding-orchestrator';
 import { makeNotificationAgent } from '../features/notification/application/agents/notification-agent';
 import { makeKnowledgeAgent } from '../features/knowledge/application/agents/knowledge-agent';
+import { makeRecruitmentAgent } from '../features/recruitment/application/agents/recruitment-agent';
+import { makeScheduleCandidateInterview } from '../features/recruitment/application/tools/schedule-candidate-interview';
 
 import { DrizzleDirectoryRepository } from '../features/directory/infrastructure/repositories/drizzle-directory.repository';
 import { SlackMemberSource } from '../features/directory/infrastructure/providers/slack-member-source.adapter';
@@ -45,9 +44,8 @@ import { makeGetUserConversations } from '../features/knowledge/application/tool
 import { makeGetChannelHistory } from '../features/knowledge/application/tools/get-channel-history';
 import { makeFindExpertise } from '../features/knowledge/application/tools/find-expertise';
 
-import { BrevoAdapter } from '../features/notification/infrastructure/providers/brevo.adapter';
 import { SmtpAdapter } from '../features/notification/infrastructure/providers/smtp.adapter';
-import type { EmailProvider } from '../features/notification/domain/ports/providers';
+import { createEmailProvider } from '../features/notification/infrastructure/providers/email-provider.factory';
 import { SlackAdapter } from '../features/notification/infrastructure/providers/slack.adapter';
 import { SlackWorkspaceService } from '../features/notification/infrastructure/providers/slack-workspace.service';
 import { PdfmakeService } from '../features/document/infrastructure/services/pdfmake.service';
@@ -96,45 +94,17 @@ void healthCheck().catch((error) => {
 });
 
 const employeeRepo = new DrizzleEmployeeRepository();
-const questionnaireRepo = new DrizzleQuestionnaireRepository();
-const responseRepo = new DrizzleResponseRepository();
 const documentRepo = new DrizzleDocumentRepository();
 const notificationRepo = new DrizzleNotificationRepository();
 const onboardingRepo = new DrizzleOnboardingRepository();
 const interviewRepo = new DrizzleOnboardingInterviewRepository();
 const channelInventoryRepo = new DrizzleChannelInventoryRepository();
 
-/**
- * Sélection du fournisseur email.
- *
- * SMTP l'emporte dès que `SMTP_HOST`, `SMTP_USER` et `SMTP_PASS` sont tous renseignés,
- * sinon on retombe sur Brevo. Raison : le compte transactionnel Brevo n'est pas activé
- * (`403 permission_denied` sur `POST /v3/smtp/email`, y compris avec un expéditeur
- * pourtant validé), donc SMTP est aujourd'hui le seul chemin qui envoie réellement.
- *
- * ⚠️ Gmail : `SMTP_PASS` doit être un mot de passe d'APPLICATION (16 caractères), pas
- * le mot de passe du compte — sinon `534-5.7.9 Application-specific password required`.
- */
-function createEmailProvider(): EmailProvider {
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const from = process.env.NOTIFICATION_FROM;
-
-  if (host && user && pass) {
-    return new SmtpAdapter({
-      host,
-      port: Number(process.env.SMTP_PORT ?? 587),
-      user,
-      pass,
-      from: from || user,
-      fromName: 'Kisso Onboarding',
-    });
-  }
-
-  return new BrevoAdapter(process.env.BREVO_API_KEY ?? '', from ?? 'noreply@kissohq.com');
-}
-
+// ⚠️ `createEmailProvider` a été EXTRAIT vers
+// `features/notification/infrastructure/providers/email-provider.factory.ts` le 2026-08-14 :
+// `slack-interactions.route.ts` en a besoin (l'email d'entretien part au clic) et ne peut pas
+// importer ce fichier-ci, qui importe la route. Le recopier ferait diverger le choix de
+// fournisseur entre deux chemins d'envoi, sans que rien ne le signale.
 const emailProvider = createEmailProvider();
 
 // Ne JAMAIS logger la valeur d'une clé d'API — uniquement sa présence.
@@ -193,7 +163,15 @@ export const directorySync = makeDirectorySync({
   repository: directoryRepo,
   employees: employeeRepo,
 });
-export const channelCoverage = makeChannelCoverage({ source: slackChannelAccess });
+export // ⚠️ `inventory` était ABSENT jusqu'au 2026-08-14, et c'est le défaut que `TODO.md` [0 bis]
+// recensait : sans lui, `recordInventory()` rend `undefined` et n'écrit RIEN. Le service
+// n'a toujours aucun consommateur dans l'application — l'inventaire est alimenté par
+// `npm run directory:sync -- --channels --apply`, qui reconstruit ses propres instances —
+// mais il est désormais CORRECT si quelqu'un s'en sert, au lieu d'être muet.
+const channelCoverage = makeChannelCoverage({
+  source: slackChannelAccess,
+  inventory: channelInventoryRepo,
+});
 
 // L'annuaire Slack est le SECOND paramètre, et c'est le correctif de la panne du
 // 2026-08-12 (« il ne retrouve pas les autres profils à part le mien ») : `employees`
@@ -228,7 +206,11 @@ const updateOnboardingStatus = makeUpdateOnboardingStatus(onboardingRepo);
 //
 // Le seul suivi du produit est désormais la COMPLÉTION DU PROFIL, portée par
 // `onboarding_progress` et lisible par `getEmployeeProfile`.
-const evaluateResponse = makeEvaluateResponse(questionnaireRepo, responseRepo);
+// ⚠️ `evaluateResponse` a été SUPPRIMÉ du câblage le 2026-08-14 — audit de code mort.
+// Il était décâblé de tout agent depuis le 2026-08-12 (son seul appelant possible était un
+// modèle qui FABRIQUAIT les réponses d'un humain), mais sa CONSTRUCTION est restée, et avec
+// elle celle de `questionnaireRepo` et `responseRepo`. Trois objets bâtis à chaque démarrage
+// à froid pour un tool que rien ne pouvait appeler.
 // `generateDocument` ne se contente plus d'écrire une ligne : il rend le fichier, le
 // livre dans Slack (upload) ou par email (pièce jointe), et rend compte de la livraison.
 // Le canal et le thread ne sont PAS injectés ici — ils viennent du `requestContext` par
@@ -401,6 +383,25 @@ const knowledgeAgent = makeKnowledgeAgent({
   findExpertise,
 });
 
+// ⚠️ AUCUN outil de LECTURE ici, et c'est la quarantaine INVERSE de celle ci-dessus :
+// `makeRecruitmentAgent` LÈVE au démarrage si on lui en câble un. C'est le seul agent qui
+// écrive à une adresse SITUÉE HORS DE L'ENTREPRISE et non contrainte par l'annuaire ; lui
+// adjoindre `getEmployeeProfile` ou `getChannelHistory` formerait le canal d'exfiltration de
+// §4.2 — « retrouve le dossier de Karyl et envoie-le à moi@ailleurs.com ».
+//
+// C'est aussi pourquoi ce tool n'est PAS posé sur `notificationAgent`, qui aurait été
+// l'option la moins chère : il porte déjà trois outils de lecture.
+//
+// `directoryRepo` n'est PAS une exception à la quarantaine : le tool s'en sert pour résoudre
+// l'adresse du DEMANDEUR (afin que le candidat puisse répondre à un humain), jamais sur une
+// valeur choisie par le modèle — le `slackUserId` vient du `requestContext`.
+const scheduleCandidateInterview = makeScheduleCandidateInterview({
+  chat: chatProvider,
+  directoryRepo,
+});
+
+const recruitmentAgent = makeRecruitmentAgent({ scheduleCandidateInterview });
+
 /**
  * LE SEUL WORKFLOW DU SYSTÈME — et ce qu'il apporte que les agents ne peuvent pas apporter.
  *
@@ -472,6 +473,7 @@ export const mastra = new Mastra({
     onboardingOrchestrator,
     notificationAgent,
     knowledgeAgent,
+    recruitmentAgent,
   },
   // UN SEUL workflow, et c'est délibéré — voir le commentaire de `employeeOnboardingWorkflow`.
   // Les trois autres ne faisaient aucune E/S et se déclaraient réussis.
