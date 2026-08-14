@@ -2,6 +2,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
 import { logger } from '../../../../shared/logger';
+import { buildRunKey, makeRunGuard } from '../../../../shared/tool-idempotency';
 import { canPerformSideEffects, readSlackContext } from '../../../../shared/slack-request-context';
 import type { DirectoryRepository } from '../../../directory/domain/ports/directory.repository';
 import { parseInterviewSchedule } from '../../domain/value-objects/interview-schedule';
@@ -61,8 +62,35 @@ const REFUSALS = {
   post_failed: "Je n'ai pas pu afficher la confirmation. Rien n'a été envoyé.",
 } as const;
 
+/**
+ * UNE carte par message de l'utilisateur.
+ *
+ * ⚠️ Défaut OBSERVÉ en production le 2026-08-14, au deuxième test réel : sur « Prépare un
+ * entretien pour contact.kisso.test@gmail.com le 25 août », **DEUX cartes** ont été postées à
+ * une seconde d'intervalle — celle demandée, et une seconde re-préparant l'invitation du
+ * message PRÉCÉDENT, ressortie de la mémoire conversationnelle.
+ *
+ * C'est le mode d'échec déjà documenté pour `generateDocument` (« 7 documents et 3 emails
+ * identiques en 8 minutes ») : sommé de faire, le modèle REFAIT plutôt que de constater. Le
+ * correctif est le même et réutilise le même module partagé.
+ *
+ * ⚠️ La clé ne porte NI l'adresse NI la date, contrairement à celle de `generateDocument`, et
+ * c'est délibéré : les deux cartes en double portaient des destinataires DIFFÉRENTS. Une clé
+ * qui les distingue ne les aurait pas dédupliquées. On borne donc à une invitation par
+ * message.
+ *
+ * Contrepartie assumée : « invite A et B pour lundi » ne prépare que la première, et le
+ * verdict le DIT (`already_prepared`) pour que le modèle puisse l'annoncer au lieu de le
+ * taire. C'est le bon compromis ici — rien ne part sans clic, donc le coût d'une carte
+ * manquante est un message de plus, là où le coût d'une carte fantôme est une convocation que
+ * personne n'a demandée sous les yeux d'un humain qui pourrait la valider par réflexe.
+ */
+const ALREADY_PREPARED_HINT =
+  'Une invitation a déjà été préparée pour ce message. Dis-le, et demande une nouvelle demande pour un second candidat.';
+
 export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewDeps) {
   const now = deps.now ?? (() => new Date());
+  const runGuard = makeRunGuard();
 
   return createTool({
     id: 'scheduleCandidateInterview',
@@ -103,6 +131,17 @@ export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewD
       const slack = readSlackContext(requestContext);
       if (!slack?.channel || !slack.slackUserId) {
         return { status: 'refused', reason: 'no_slack_context', hint: REFUSALS.no_slack_context };
+      }
+
+      // ── 1 bis. UNE carte par message ────────────────────────────────────────
+      // Hors Slack, `buildRunKey` rend `undefined` et la garde est INACTIVE : le playground
+      // et les tests ne sont bornés par aucune conversation.
+      const runKey = buildRunKey(slack.eventTs, 'scheduleCandidateInterview', []);
+      if (runKey && runGuard.get(runKey)) {
+        logger.warn('Invitation déjà préparée dans ce run — second appel ignoré', {
+          recipientDomain: data.candidateEmail.split('@')[1] ?? 'inconnu',
+        });
+        return { status: 'refused', reason: 'already_prepared', hint: ALREADY_PREPARED_HINT };
       }
 
       // ── 2. La DATE, seule donnée transcrite depuis la phrase humaine ────────
@@ -158,6 +197,11 @@ export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewD
         logger.error('Confirmation d’entretien non affichée', { error: String(error) });
         return { status: 'refused', reason: 'post_failed', hint: REFUSALS.post_failed };
       }
+
+      // ⚠️ Mémorisé APRÈS la publication réussie, jamais avant : un échec d'affichage ne doit
+      // pas condamner une seconde tentative légitime du modèle. Même ordre que
+      // `generateDocument`, et pour la même raison.
+      if (runKey) runGuard.remember(runKey, true);
 
       // ⚠️ `awaiting_confirmation`, et le mot compte : c'est ce que le modèle va reformuler.
       // Le champ `whenLabel` lui donne de quoi NOMMER la date sans la recalculer — recalculer

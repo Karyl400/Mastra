@@ -79,6 +79,36 @@ describe('scheduleCandidateInterview — il PRÉPARE, il n’envoie jamais', () 
     expect(Object.keys(payload)).not.toContain('subject');
   });
 
+  it('ne poste QU’UNE carte par message, même sur un second appel', async () => {
+    // ⚠️ Défaut OBSERVÉ en production le 2026-08-14 : DEUX cartes à une seconde d'intervalle,
+    // la seconde re-préparant l'invitation du message PRÉCÉDENT depuis la mémoire
+    // conversationnelle. Même mode d'échec que les « 7 documents en 8 minutes » de
+    // `generateDocument` : sommé de faire, le modèle REFAIT au lieu de constater.
+    const { tool, sendBlocks } = toolWith();
+    const ctx = slackCtx({ slackEventTs: '1755000000.000100' });
+
+    await tool.execute!(INPUT as never, ctx as never);
+    const second = (await tool.execute!(
+      { ...INPUT, candidateEmail: 'autre@exemple.com' } as never,
+      ctx as never,
+    )) as { status: string; reason: string };
+
+    expect(sendBlocks).toHaveBeenCalledOnce();
+    // ⚠️ Le second appel portait une adresse DIFFÉRENTE : une clé qui distingue le
+    // destinataire n'aurait rien dédupliqué. La borne est donc « une par message ».
+    expect(second).toMatchObject({ status: 'refused', reason: 'already_prepared' });
+  });
+
+  it('la garde est INACTIVE hors d’un run Slack identifié', async () => {
+    // `buildRunKey` rend `undefined` sans `eventTs` — playground et tests ne sont bornés par
+    // aucune conversation, et deux préparations légitimes doivent y passer.
+    const { tool, sendBlocks } = toolWith();
+    await tool.execute!(INPUT as never, slackCtx() as never);
+    await tool.execute!(INPUT as never, slackCtx() as never);
+
+    expect(sendBlocks).toHaveBeenCalledTimes(2);
+  });
+
   it('REFUSE une date passée sans rien poster', async () => {
     const { tool, sendBlocks } = toolWith();
     const out = (await tool.execute!(
