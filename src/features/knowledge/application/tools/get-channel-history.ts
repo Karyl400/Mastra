@@ -209,11 +209,14 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
         conversation: wrapRetrievedContent(lines),
         shown,
         scanned: messages.length,
-        // ⚠️ Payée UNIQUEMENT quand tout n'a pas été montré (`describeCoverage` rend alors
-        // `undefined`). Sans elle, le modèle répond « voici ce qui s'est dit » là où il
-        // devrait dire « voici les échanges les plus porteurs » — il affirme une
-        // EXHAUSTIVITÉ que rien ne garantit. Ferme la dette `TODO.md` [0 ter].
-        ...(coverage ? { coverage } : {}),
+        // ⚠️ Émise sous le nom `hint`, et ce nom est le fruit d'une MESURE en production.
+        // Le champ s'appelait `coverage` : le modèle l'a purement ignoré — 23 messages
+        // humains, 6 montrés, et une réponse qui affirmait résumer « ce qui s'est dit ».
+        // Un champ nommé comme une métadonnée se lit comme une métadonnée. `hint` est en
+        // revanche suivi à la lettre partout ailleurs dans ce dépôt (vérifié le même jour
+        // sur `scheduleCandidateInterview`, dont le « ne dis jamais qu'il est envoyé » a
+        // été respecté). Payée UNIQUEMENT quand tout n'a pas été montré.
+        ...(coverage ? { hint: coverage } : {}),
       };
     },
   });

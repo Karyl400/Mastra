@@ -310,6 +310,17 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
 
       const { lines, shown, coverage } = projectExcerpts(excerpts);
 
+      // Deux phrases, un seul champ. `withheld` explique pourquoi des tours MANQUENT (la
+      // politique de divulgation) ; `coverage` dit que ce qui reste est un ÉCHANTILLON.
+      const hint = [
+        withheld > 0
+          ? "Tu ne vois que SES messages, pas tes réponses : c'est la règle, pas un vide."
+          : undefined,
+        coverage,
+      ]
+        .filter(Boolean)
+        .join(' ');
+
       // JOURNALISATION RGPD : qui a lu quoi, quand, et sur quelle base. Jamais le
       // contenu — une trace d'accès qui recopie la donnée devient elle-même la
       // fuite qu'elle documente.
@@ -337,14 +348,13 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
         // `hint` de `generateDocument`). Sans lui, le modèle voit une suite de
         // questions sans réponse et conclut « tu ne lui as jamais répondu » —
         // l'affirmation fausse que produit tout « rien trouvé » ambigu.
-        ...(withheld > 0
-          ? { hint: "Tu ne vois que SES messages, pas tes réponses : c'est la règle, pas un vide." }
-          : {}),
-        // ⚠️ Champ DISTINCT du `hint` ci-dessus, et non fusionné : les deux répondent à des
-        // questions différentes — celui-là dit pourquoi des tours MANQUENT (la politique de
-        // divulgation), celle-ci dit que ce qui reste est un ÉCHANTILLON. Les concaténer
-        // ferait disparaître l'un des deux dès que l'autre s'applique.
-        ...(coverage ? { coverage } : {}),
+        // ⚠️ UN SEUL champ `hint`, et les deux phrases y sont CONCATÉNÉES — corrigé après
+        // mesure en production. Elles répondent bien à deux questions différentes (pourquoi
+        // des tours MANQUENT / ce qui reste est un ÉCHANTILLON), ce qui plaidait pour deux
+        // champs. Mais un second champ nommé `coverage` a été purement IGNORÉ par le modèle,
+        // là où `hint` est suivi partout ailleurs. Deux phrases dans le champ que le modèle
+        // lit valent mieux qu'une phrase juste dans un champ qu'il ne lit pas.
+        ...(hint ? { hint } : {}),
       };
     },
   });
