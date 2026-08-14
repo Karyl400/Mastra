@@ -1,4 +1,5 @@
 import type { ConversationExcerpt } from '../entities/conversation-excerpt';
+import { selectSalientExcerpts } from './excerpt-salience';
 
 /**
  * LA BORNE DE COÛT — le point unique par lequel passe tout ce que cette feature
@@ -89,28 +90,12 @@ function formatStamp(at: Date): string {
   return `${iso.slice(0, 10)} ${iso.slice(11, 16)}`;
 }
 
-/**
- * Sélectionne les extraits à montrer : les plus RÉCENTS, rendus dans l'ordre
- * chronologique.
- *
- * Les deux moitiés de cette phrase sont nécessaires. Prendre les premiers d'un
- * tri croissant ramènerait le début de l'historique, c'est-à-dire exactement ce
- * qu'on veut oublier (même défaut que celui corrigé sur `recentTurns`). Et les
- * rendre dans l'ordre décroissant donnerait au modèle une conversation à
- * l'envers, où chaque réponse précède sa question.
- *
- * Tri stable et TOTAL : à horodatage égal on départage sur le texte, sinon deux
- * appels identiques peuvent rendre deux ordres différents — le défaut relevé sur
- * `getNotificationHistory`, qui n'avait aucun `ORDER BY`.
- */
-export function selectExcerpts(all: readonly ConversationExcerpt[]): ConversationExcerpt[] {
-  const sorted = [...all].sort((a, b) => {
-    const byDate = b.at.getTime() - a.at.getTime();
-    return byDate !== 0 ? byDate : b.text.localeCompare(a.text);
-  });
-
-  return sorted.slice(0, MAX_EXCERPTS).reverse();
-}
+// ⚠️ `selectExcerpts` (tri par DATE seule) a été SUPPRIMÉ le 2026-08-14, remplacé par
+// `selectSalientExcerpts`. Le garder aurait laissé DEUX sélecteurs concurrents dans le même
+// module, dont un seul est appelé — la configuration qui finit par voir un nouvel appelant
+// choisir le mauvais. Ses deux acquis sont conservés dans le remplaçant : rendu en ordre
+// CHRONOLOGIQUE (une conversation à l'envers est illisible) et tri TOTAL (deux appels
+// identiques doivent rendre la même sélection).
 
 /**
  * Rend les extraits en lignes bornées, prêtes à être encadrées.
@@ -142,7 +127,45 @@ export function renderExcerptLines(excerpts: readonly ConversationExcerpt[]): st
 export function projectExcerpts(all: readonly ConversationExcerpt[]): {
   lines: string;
   shown: number;
+  coverage?: string;
 } {
-  const selected = selectExcerpts(all);
-  return { lines: renderExcerptLines(selected), shown: selected.length };
+  const selected = selectSalientExcerpts(all, MAX_EXCERPTS);
+  return {
+    lines: renderExcerptLines(selected),
+    shown: selected.length,
+    coverage: describeCoverage(all, selected.length),
+  };
+}
+
+/**
+ * LA COUVERTURE — ce que le modèle ne voit PAS, dit explicitement.
+ *
+ * ⚠️ Ferme une dette recensée dans `TODO.md` [0 ter] : *« une demande de résumé de conversation
+ * ne porte que sur les ~1600 tokens de la fenêtre, sans avertir que le reste est tronqué »*.
+ *
+ * Sans cette phrase, un modèle à qui l'on montre 6 messages sur 40 répond « voici ce qui s'est
+ * dit », pas « voici les 6 échanges les plus porteurs ». La différence n'est pas cosmétique :
+ * la première formulation affirme une EXHAUSTIVITÉ que rien ne garantit, et c'est la famille
+ * de mensonge que ce dépôt traque partout ailleurs.
+ *
+ * Elle nomme aussi le CRITÈRE de sélection. Depuis le 2026-08-14 les extraits ne sont plus les
+ * plus récents mais les plus significatifs : un modèle qui l'ignore conclurait à tort que
+ * l'échange s'arrête au dernier extrait montré.
+ *
+ * ⚠️ Rendue `undefined` quand tout a été montré — il n'y a alors rien à avertir, et un `hint`
+ * inutile se paie à chaque aller-retour suivant (même arbitrage que le `hint` de
+ * `generateDocument`, payé uniquement dans les cas dégradés).
+ */
+export function describeCoverage(
+  all: readonly ConversationExcerpt[],
+  shown: number,
+): string | undefined {
+  if (all.length === 0 || shown >= all.length) return undefined;
+
+  const stamps = all.map((excerpt) => excerpt.at.getTime()).sort((a, b) => a - b);
+  const from = new Date(stamps[0]!).toISOString().slice(0, 10);
+  const to = new Date(stamps[stamps.length - 1]!).toISOString().slice(0, 10);
+  const span = from === to ? `le ${from}` : `du ${from} au ${to}`;
+
+  return `${shown} extraits retenus sur ${all.length} messages, ${span} — les plus porteurs d'information, PAS les plus récents. Ne conclus pas que rien d'autre n'a été dit.`;
 }

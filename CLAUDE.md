@@ -120,8 +120,11 @@ src/features/<feature>/
     └── handlers/      # entrées événementielles (Slack Events)
 ```
 
-Features : `employee`, `onboarding`, `questionnaire`, `document`, `notification`,
-`conversation`, `directory`, `knowledge`, `recruitment` (2026-08-14).
+Features : `employee`, `onboarding`, `document`, `notification`, `conversation`, `directory`,
+`knowledge`, `recruitment`.
+⚠️ **`questionnaire` a été SUPPRIMÉE du dépôt le 2026-08-14** — pas seulement décâblée. Devenue
+entièrement orpheline après le retrait du câblage mort d'`evaluateResponse`, elle n'était plus
+maintenue en vie que par ses propres tests. Les tables restent en production.
 
 ⚠️ **Tout le suivi de TÂCHES a été supprimé le 2026-08-14** : `getTaskList`, l'entité `Task`,
 son port, ses deux dépôts, `task-summary.mapper`, `task.dto`, le catalogue `ONBOARDING_TASKS`,
@@ -446,6 +449,43 @@ canaux ». **Zéro token** : exposer l'entretien au modèle aurait coûté un to
 aller-retour, et le modèle REFORMULERAIT ce que la personne a écrit sur elle-même dans un
 document qui porte son nom. Les deux dépôts sont des dépendances OPTIONNELLES — sans eux le
 document est exactement celui d'avant, ce qu'un test vérifie caractère par caractère.
+
+**Le `knowledgeAgent` sélectionne par SAILLANCE, plus par récence** (2026-08-14).
+`selectExcerpts` ne triait que par DATE : on rendait les 6 derniers messages. Or les 6 derniers
+messages d'un canal ne sont presque jamais les 6 importants — ce sont « ok », « merci », « 👍 ».
+Le modèle recevait donc les accusés de réception d'une décision dont il ne voyait pas l'énoncé,
+et devait combler.
+- `domain/services/excerpt-salience.ts` note chaque extrait : décision (5), engagement (4),
+  blocage (4), échéance (3), question (2), mention (2), lien (1) ; pénalité sur les accusés de
+  réception purs et les messages très courts ; récence en RANG (et non en durée — un canal calme
+  sur trois semaines serait sinon entièrement plat).
+- **Zéro token** : c'est du code. Un LLM trierait mieux, mais coûterait un aller-retour de plus
+  par consultation, et le poste dominant de ce dépôt est le NOMBRE D'ÉTAPES.
+- ⚠️ **La propriété de budget est intacte** : la saillance change QUELS extraits passent, pas
+  COMBIEN. La sortie ne dépend toujours ni du nombre de messages ni de leur longueur.
+- ⚠️ Le motif d'accusé de réception est ancré des DEUX bouts : « ok pour moi, mais on décale à
+  jeudi » porte une décision et ne doit pas être pénalisé.
+
+**Un résultat porte désormais `coverage` quand il est TRONQUÉ** — ferme la dette `TODO.md`
+[0 ter]. Sans cette phrase, un modèle à qui l'on montre 6 messages sur 40 répond « voici ce qui
+s'est dit » au lieu de « voici les échanges les plus porteurs » : il affirme une EXHAUSTIVITÉ
+que rien ne garantit. Payée uniquement quand tout n'a pas été montré.
+
+⚠️ **`\b` RAISONNE EN ASCII sans le drapeau `u` — troisième occurrence de ce piège.**
+`/\bbloqué\b/` ne matche JAMAIS : `é` n'y étant pas une lettre, la position entre `é` et `,`
+n'est pas une frontière. Idem `cassé`, `décidé`, `validé`, `noté`, `échéance`. Un motif qui
+échoue en silence sur la moitié du vocabulaire français est pire qu'un motif absent — il donne
+l'illusion d'une couverture. **Toujours `(?<![\p{L}])…(?![\p{L}])` avec `u`.** Rencontré sur
+`matchesKeyword` (2026-08-11), sur « à qui » (2026-08-14), puis ici.
+
+**L'email de bienvenue ne promet plus ce qu'aucun mécanisme ne tient** (2026-08-14). Il disait
+« vous recevrez prochainement les accès à nos outils ainsi que votre planning de première
+semaine » — or il n'existe **ni provisioning ni planning** dans ce système. C'était le premier
+message de l'entreprise à un arrivant. Il était par ailleurs GÉNÉRIQUE alors que `position` et
+`startDate` étaient saisis dans la modale puis **jetés** au passage d'`onboardingInitializedSchema`,
+deux étapes avant l'email : la personnalisation n'était pas absente par choix, elle était perdue
+en route. Gabarit en domaine (`onboarding/domain/services/welcome-email.ts`), chaque phrase
+adossée à une donnée vérifiée, et un champ absent fait disparaître sa phrase — jamais de « N/A ».
 
 **Le RECRUTEMENT (`recruitmentAgent`, 2026-08-14) — un email d'entretien à un candidat.**
 « Envoie un email d'entretien à jean@exemple.com pour le 20 août à 14h » : le tool prépare,
@@ -865,9 +905,9 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
     | ------------------------ | ------------ | ----- | ----- |
     | `onboardingOrchestrator` | 799          | 729   | **1 528** |
     | `notificationAgent`      | 632          | 885   | **1 517** |
-    | `knowledgeAgent`         | 689          | 309   | **998**   |
-    | `recruitmentAgent`       | 725          | 256   | **981**   |
-    | **Somme (4 agents exposés)** |          |       | **5 024** |
+    | `knowledgeAgent`         | 750          | 309   | **1 059** |
+    | `recruitmentAgent`       | 725          | 265   | **990**   |
+    | **Somme (4 agents exposés)** |          |       | **5 094** |
 
     ⚠️ `questionnaireEngine` (886) n'y figure plus : retiré du registre le 2026-08-14. Le
     lot 2 est donc intégralement AUTOFINANCÉ — l'entretien qui le remplace est en CODE, à

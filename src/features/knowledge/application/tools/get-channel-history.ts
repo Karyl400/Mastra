@@ -190,7 +190,7 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
         at: message.at,
       }));
 
-      const { lines, shown } = projectExcerpts(excerpts);
+      const { lines, shown, coverage } = projectExcerpts(excerpts);
 
       // JOURNALISATION RGPD — qui a lu quel canal, quand, sur quelle base. Jamais
       // le contenu : une trace d'accès qui recopie la donnée devient la fuite
@@ -209,6 +209,11 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
         conversation: wrapRetrievedContent(lines),
         shown,
         scanned: messages.length,
+        // ⚠️ Payée UNIQUEMENT quand tout n'a pas été montré (`describeCoverage` rend alors
+        // `undefined`). Sans elle, le modèle répond « voici ce qui s'est dit » là où il
+        // devrait dire « voici les échanges les plus porteurs » — il affirme une
+        // EXHAUSTIVITÉ que rien ne garantit. Ferme la dette `TODO.md` [0 ter].
+        ...(coverage ? { coverage } : {}),
       };
     },
   });

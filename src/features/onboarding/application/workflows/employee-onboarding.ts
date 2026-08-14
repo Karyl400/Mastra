@@ -1,6 +1,7 @@
 import { Workflow, createStep } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { logger } from '../../../../shared/logger';
+import { buildWelcomeEmail } from '../../domain/services/welcome-email';
 import { createEmployee } from '../../../employee/domain/entities/employee';
 import { buildOnboardingPlan } from '../../domain/services/onboarding-plan';
 import {
@@ -113,6 +114,12 @@ const onboardingInitializedSchema = z.object({
   firstName: z.string(),
   lastName: z.string(),
   department: z.string().nullable(),
+  // ⚠️ AJOUTÉS le 2026-08-14. `employeeCreatedSchema` les portait déjà, mais ce schéma-ci les
+  // JETAIT — deux étapes avant l'email de bienvenue, qui était donc générique faute de
+  // matière, alors que la matière avait été saisie dans la modale. La personnalisation
+  // n'était pas absente par choix : elle était perdue en route.
+  position: z.string(),
+  startDate: z.string(),
   slackChannelId: z.string().nullable().optional(),
   degraded: z.array(stepFailureSchema),
 });
@@ -256,6 +263,8 @@ export function createEmployeeOnboardingWorkflow(deps: {
         firstName: inputData.firstName,
         lastName: inputData.lastName,
         department: inputData.department,
+        position: inputData.position,
+        startDate: inputData.startDate,
         slackChannelId: inputData.slackChannelId,
         degraded,
       };
@@ -273,22 +282,18 @@ export function createEmployeeOnboardingWorkflow(deps: {
     execute: async ({ inputData }) => {
       logger.info('Onboarding — envoi email de bienvenue', { email: inputData.email });
 
-      const subject = `Bienvenue chez Kisso Industries, ${inputData.firstName} !`;
-      const body = [
-        `<h1>Bonjour ${inputData.firstName} ${inputData.lastName},</h1>`,
-        // Le département n'est cité que s'il est connu. Il ne l'est plus par défaut depuis
-        // le 2026-08-13, et « dans le département null » adressé à un arrivant serait la
-        // première chose qu'il lirait de nous.
-        `<p>Nous sommes ravis de vous accueillir au sein de Kisso Industries`,
-        inputData.department
-          ? `, dans le département <strong>${inputData.department}</strong>`
-          : '',
-        `.</p>`,
-        `<p>Votre processus d'onboarding vient d'être lancé. Vous recevrez prochainement `,
-        `les accès à nos outils ainsi que votre planning de première semaine.</p>`,
-        `<p>À très bientôt,</p>`,
-        `<p><strong>L'équipe RH — Kisso Industries</strong></p>`,
-      ].join('');
+      // ⚠️ Le texte vit dans le DOMAINE depuis le 2026-08-14, et il a changé de fond.
+      // L'ancien promettait « les accès à nos outils ainsi que votre planning de première
+      // semaine » — or il n'existe NI provisioning NI planning dans ce système. C'était le
+      // tout premier message de l'entreprise à un arrivant, et il ouvrait sur une promesse
+      // que rien ne tient. Voir `domain/services/welcome-email.ts`.
+      const { subject, body } = buildWelcomeEmail({
+        firstName: inputData.firstName,
+        lastName: inputData.lastName,
+        department: inputData.department,
+        position: inputData.position,
+        startDate: inputData.startDate,
+      });
 
       let emailSent = false;
       const degraded: StepFailure[] = [...inputData.degraded];

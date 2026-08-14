@@ -308,7 +308,7 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
         at: turn.at,
       }));
 
-      const { lines, shown } = projectExcerpts(excerpts);
+      const { lines, shown, coverage } = projectExcerpts(excerpts);
 
       // JOURNALISATION RGPD : qui a lu quoi, quand, et sur quelle base. Jamais le
       // contenu — une trace d'accès qui recopie la donnée devient elle-même la
@@ -340,6 +340,11 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
         ...(withheld > 0
           ? { hint: "Tu ne vois que SES messages, pas tes réponses : c'est la règle, pas un vide." }
           : {}),
+        // ⚠️ Champ DISTINCT du `hint` ci-dessus, et non fusionné : les deux répondent à des
+        // questions différentes — celui-là dit pourquoi des tours MANQUENT (la politique de
+        // divulgation), celle-ci dit que ce qui reste est un ÉCHANTILLON. Les concaténer
+        // ferait disparaître l'un des deux dès que l'autre s'applique.
+        ...(coverage ? { coverage } : {}),
       };
     },
   });

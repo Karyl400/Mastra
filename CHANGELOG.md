@@ -1,5 +1,87 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-14 (5) — la réalité de la personne, la saillance, et le grand ménage
+
+### Fixed — l'email de bienvenue PROMETTAIT ce qu'aucun mécanisme ne tient
+
+Le tout premier message de l'entreprise à un arrivant disait, mot pour mot :
+
+> « Vous recevrez prochainement les accès à nos outils ainsi que votre planning de première
+> semaine. »
+
+Il n'existe **ni provisioning de comptes ni planning** dans ce système — ni cron, ni workflow,
+ni tool. Vérifié : les seules occurrences de ces mots dans `src/` étaient cette phrase.
+Même famille que `emailSent: false` sous `status: 'success'`, que les cinq tâches qu'aucun
+mécanisme ne faisait avancer, et que le `status: Scheduled` d'un rappel que rien ne reprend.
+
+### Fixed — il était générique alors que la donnée EXISTAIT
+
+`position` et `startDate` sont saisis dans la modale et portés par `employeeCreatedSchema`…
+puis **jetés** au passage d'`onboardingInitializedSchema`, deux étapes avant l'email. La
+personnalisation n'était pas absente par choix : elle était perdue en route.
+
+Le texte vit désormais dans le domaine (`onboarding/domain/services/welcome-email.ts`) :
+poste, équipe, premier jour EN TOUTES LETTRES (« mardi 1 septembre 2026 », pas
+`2026-09-01T00:00:00.000Z`), canaux Slack. ⚠️ Chaque phrase est adossée à une donnée vérifiée,
+et un champ absent fait disparaître SA PHRASE — jamais de « N/A », même discipline que
+`buildWelcomeLetter`. La seule projection dans le futur qui subsiste est vraie : le DM avec le
+bouton de profil part réellement.
+
+### Changed — le `knowledgeAgent` sélectionne par SAILLANCE, plus par récence
+
+`selectExcerpts` ne triait que par DATE : on rendait les 6 derniers messages. Or les 6 derniers
+messages d'un canal ne sont presque jamais les 6 importants — ce sont « ok », « merci », « 👍 ».
+Le modèle recevait les accusés de réception d'une décision dont il ne voyait pas l'énoncé, et
+devait combler. Ce dépôt sait ce qu'un modèle fait devant un vide.
+
+Vérifié sur un canal type de 14 messages — retenus : la décision, l'engagement, le blocage, la
+question ouverte, l'échéance. Écartés : les cinq « ok / merci / 👍 / noté / parfait ».
+
+- **Zéro token** : c'est du code. Un LLM trierait mieux mais coûterait un aller-retour de plus
+  par consultation, et le poste dominant ici est le NOMBRE D'ÉTAPES.
+- ⚠️ **La propriété de budget est intacte** : la saillance change QUELS extraits passent, pas
+  COMBIEN. La sortie ne dépend toujours ni du nombre de messages ni de leur longueur.
+- ⚠️ Le motif d'accusé de réception est ancré des DEUX bouts : « ok pour moi, mais on décale à
+  jeudi » porte une décision et ne doit pas être pénalisé.
+
+### Added — `coverage` : dire ce qu'on ne montre PAS
+
+Ferme une dette de `TODO.md` [0 ter]. Sans cette phrase, un modèle à qui l'on montre 6 messages
+sur 40 répond « voici ce qui s'est dit » au lieu de « voici les échanges les plus porteurs » :
+il affirme une EXHAUSTIVITÉ que rien ne garantit. Payée uniquement quand tout n'a pas été montré.
+
+### Fixed — ⚠️ `\b` raisonne en ASCII : TROISIÈME occurrence du même piège
+
+`/\bbloqué\b/` **ne matche JAMAIS** — `é` n'étant pas une lettre en mode ASCII, la position
+entre `é` et `,` n'est pas une frontière. Idem `cassé`, `décidé`, `validé`, `noté`, `échéance`.
+Un motif qui échoue en silence sur la moitié du vocabulaire français est pire qu'un motif
+absent : il donne l'illusion d'une couverture. Attrapé par un test au moment de l'écriture.
+Rencontré sur `matchesKeyword` (08-11), sur « à qui » (08-14), puis ici — corrigé cette fois par
+un helper `word()` plutôt qu'au cas par cas.
+
+### Removed — la feature `questionnaire`, et le code mort qu'elle portait
+
+Retirée du registre le matin même, devenue ENTIÈREMENT orpheline quand le câblage mort
+d'`evaluateResponse` est parti : plus une seule référence dans `src/`, et cinq fichiers de test
+qui la maintenaient seule en vie. Un test qui fait vivre du code que le produit n'expose plus ne
+mesure rien — il donne l'illusion d'une capacité. ⚠️ Les TABLES restent en production.
+
+`createEmployee` (le TOOL) n'avait **aucun appelant** : décâblé des agents, et le workflow
+utilise l'entité homonyme du domaine — ce qui masquait sa mort. Il emporte `shared/retry.ts`,
+dont il était le seul consommateur. Aussi : 3 DTO orphelins et le port `notification.channel.ts`.
+
+⚠️ `html-sanitizer.ts` a été supprimé puis RESTAURÉ : il est bien utilisé, en import `.js` que
+le balayage n'avait pas vu. Vérifier l'extension avant de conclure à l'orphelinat.
+
+**lint : 110 → 86 warnings.**
+
+### Budget
+
+FLOOR : orchestrateur 1 528, notification 1 517, knowledge **998 → 1 059**, recrutement 990.
+Le `knowledgeAgent` paie +61 tokens de consignes (lire `coverage`, aller au fait). La saillance
+et la couverture, elles, sont à coût nul — elles vivent dans le code.
+
+
 ## [Unreleased] - 2026-08-14 (4) — l'agent de recrutement, et un audit qui a trouvé du rouge utile
 
 ### Added — `recruitmentAgent` : « envoie un email d'entretien à … pour le … »
