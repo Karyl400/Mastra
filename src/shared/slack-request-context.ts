@@ -175,10 +175,11 @@ export function canPerformSideEffects(requestContext: unknown): boolean {
  * Le défaut : trois lectures RH SANS AUCUN contrôle du demandeur
  * ════════════════════════════════════════════════════════════════════════════
  *
- * Audit du 2026-08-13. `getEmployeeProfile`, `getTaskList` et `getNotificationHistory` ne
+ * Audit du 2026-08-13. `getEmployeeProfile`, `getTaskList` (retiré depuis) et
+ * `getNotificationHistory` ne
  * contenaient pas une seule référence au demandeur — ni `readSlackContext`, ni rien
  * d'équivalent. N'importe quel membre du workspace obtenait donc le dossier complet d'un
- * collègue : département, poste, date d'entrée, manager, avancement d'intégration, tâches,
+ * collègue : département, poste, date d'entrée, manager, avancement d'intégration,
  * historique des notifications reçues.
  *
  * Et l'UUID nécessaire n'était pas un secret : `findEmployeeByEmail` le rend depuis une simple
@@ -223,7 +224,7 @@ export function canReadPersonRecord(
 
   const target = nonEmptyString(targetEmployeeId);
   // Son propre dossier, toujours. La comparaison est faite AVANT le niveau : quelqu'un qui a
-  // été rétrogradé en `readonly` garde le droit de consulter ses propres tâches, sans quoi
+  // été rétrogradé en `readonly` garde le droit de consulter son propre dossier, sans quoi
   // activer l'application couperait chacun de son propre parcours d'intégration.
   if (target && context.employeeId && context.employeeId === target) return true;
 

@@ -66,46 +66,146 @@ interface ChildLogger {
  */
 const PII_KEYS = new Set([
   // Identifiants personnels
-  'email', 'mail', 'e-mail',
-  'firstname', 'lastname', 'fullname', 'name', 'surname',
-  'phone', 'telephone', 'mobile', 'cell', 'fax',
-  'ssn', 'socialsecurity', 'social_security', 'nin', 'nationalid',
-  'passport', 'driverlicense', 'driving_license',
-  'birthdate', 'dateofbirth', 'birth_date', 'dob',
-  'address', 'street', 'city', 'zipcode', 'postalcode', 'postal_code',
-  'country', 'state', 'region',
-  'ip', 'ipaddress', 'ip_address', 'mac', 'macaddress',
-  
+  'email',
+  'mail',
+  'e-mail',
+  'firstname',
+  'lastname',
+  'fullname',
+  'name',
+  'surname',
+  'phone',
+  'telephone',
+  'mobile',
+  'cell',
+  'fax',
+  'ssn',
+  'socialsecurity',
+  'social_security',
+  'nin',
+  'nationalid',
+  'passport',
+  'driverlicense',
+  'driving_license',
+  'birthdate',
+  'dateofbirth',
+  'birth_date',
+  'dob',
+  'address',
+  'street',
+  'city',
+  'zipcode',
+  'postalcode',
+  'postal_code',
+  'country',
+  'state',
+  'region',
+  'ip',
+  'ipaddress',
+  'ip_address',
+  'mac',
+  'macaddress',
+
   // Authentification & Sécurité
-  'password', 'passwd', 'pwd', 'secret', 'passcode', 'pin',
-  'token', 'accesstoken', 'access_token', 'refreshtoken', 'refresh_token',
-  'apikey', 'api_key', 'apisecret', 'api_secret',
-  'privatekey', 'private_key', 'publickey', 'public_key',
-  'certificate', 'cert',
-  'authorization', 'auth', 'bearer',
-  'cookie', 'session', 'sessionid', 'session_id',
-  'jwt', 'otp', 'mfa', 'tfa', 'twofactor',
-  
+  'password',
+  'passwd',
+  'pwd',
+  'secret',
+  'passcode',
+  'pin',
+  'token',
+  'accesstoken',
+  'access_token',
+  'refreshtoken',
+  'refresh_token',
+  'apikey',
+  'api_key',
+  'apisecret',
+  'api_secret',
+  'privatekey',
+  'private_key',
+  'publickey',
+  'public_key',
+  'certificate',
+  'cert',
+  'authorization',
+  'auth',
+  'bearer',
+  'cookie',
+  'session',
+  'sessionid',
+  'session_id',
+  'jwt',
+  'otp',
+  'mfa',
+  'tfa',
+  'twofactor',
+
   // Paiement (PCI-DSS)
-  'creditcard', 'credit_card', 'cardnumber', 'card_number',
-  'cvv', 'cvc', 'cvv2', 'cid',
-  'iban', 'bic', 'swift',
-  'accountnumber', 'account_number', 'bankaccount',
-  
+  'creditcard',
+  'credit_card',
+  'cardnumber',
+  'card_number',
+  'cvv',
+  'cvc',
+  'cvv2',
+  'cid',
+  'iban',
+  'bic',
+  'swift',
+  'accountnumber',
+  'account_number',
+  'bankaccount',
+
   // Santé (HIPAA)
-  'medicalrecord', 'medical_record', 'healthrecord',
-  'patientid', 'patient_id',
-  'diagnosis', 'prescription',
-  'insurance', 'insurancenumber',
-  
+  'medicalrecord',
+  'medical_record',
+  'healthrecord',
+  'patientid',
+  'patient_id',
+  'diagnosis',
+  'prescription',
+  'insurance',
+  'insurancenumber',
+
   // Biométrie
-  'fingerprint', 'retina', 'facial', 'biometric',
-  'dna', 'genetic',
-  
+  'fingerprint',
+  'retina',
+  'facial',
+  'biometric',
+  'dna',
+  'genetic',
+
   // Documents
-  'passportnumber', 'passport_number',
-  'documentid', 'document_id',
-  'taxid', 'tax_id', 'vat',
+  'passportnumber',
+  'passport_number',
+  'documentid',
+  'document_id',
+  'taxid',
+  'tax_id',
+  'vat',
+
+  // ── PROSE ÉCRITE PAR UN HUMAIN (ajouté le 2026-08-14) ──────────────────────
+  // Recensé dans `TODO.md` [0 ter] : `maskPii` ne couvrait ni `text`, ni `content`, ni
+  // `body`. Ce n'était pas un incident — aucun site d'appel ne les journalisait — c'était
+  // la GARANTIE qui manquait, et elle manquait précisément sur les champs les plus
+  // sensibles du produit :
+  //   `text`      le message Slack brut de la personne ;
+  //   `content`   le corps d'un document (`documents.content`) ;
+  //   `body`      le corps d'un email (`notifications.body`) ;
+  //   `fact`      un fait épinglé — « souviens-toi que… », donc écrit pour être gardé ;
+  //   `dailywork` / `workstyle`  ce que la personne a dit d'elle à l'entretien.
+  //
+  // ⚠️ `message` est délibérément ABSENT : c'est le champ des messages d'ERREUR dans tout le
+  // dépôt, et le masquer supprimerait le diagnostic au lieu de protéger quelqu'un.
+  'text',
+  'content',
+  'body',
+  'fact',
+  'dailywork',
+  'daily_work',
+  'workstyle',
+  'work_style',
 ]);
 
 /**
@@ -119,7 +219,11 @@ const PII_VALUE_PATTERNS = [
   // API Keys génériques (sk-, pk-, etc.)
   { pattern: /^(?:sk|pk|rk)-[a-zA-Z0-9]{20,}$/, mask: '***API_KEY***' },
   // Numéros de carte bancaire (Luhn-like)
-  { pattern: /^\d{13,19}$/, mask: '****-****-****-****', validator: (v: string) => v.replace(/\s/g, '').length >= 13 },
+  {
+    pattern: /^\d{13,19}$/,
+    mask: '****-****-****-****',
+    validator: (v: string) => v.replace(/\s/g, '').length >= 13,
+  },
 ];
 
 // ============================================
@@ -140,18 +244,18 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  */
 function hasCircularReference(obj: unknown, seen = new WeakSet<object>()): boolean {
   if (typeof obj !== 'object' || obj === null) return false;
-  
+
   if (seen.has(obj as object)) return true;
   seen.add(obj as object);
-  
+
   if (Array.isArray(obj)) {
-    return obj.some(item => hasCircularReference(item, seen));
+    return obj.some((item) => hasCircularReference(item, seen));
   }
-  
+
   if (isPlainObject(obj)) {
-    return Object.values(obj).some(val => hasCircularReference(val, seen));
+    return Object.values(obj).some((val) => hasCircularReference(val, seen));
   }
-  
+
   return false;
 }
 
@@ -166,30 +270,25 @@ function maskPii(
     maxDepth?: number;
     seen?: WeakSet<object>;
     keyPath?: string[];
-  } = {}
+  } = {},
 ): unknown {
-  const {
-    depth = 0,
-    maxDepth = 10,
-    seen = new WeakSet<object>(),
-    keyPath = [],
-  } = options;
-  
+  const { depth = 0, maxDepth = 10, seen = new WeakSet<object>(), keyPath = [] } = options;
+
   // Protection profondeur
   if (depth > maxDepth) {
     return '[MAX_DEPTH_EXCEEDED]';
   }
-  
+
   // Types primitifs
   if (typeof obj !== 'object' || obj === null) {
     return maskPrimitiveValue(obj, keyPath);
   }
-  
+
   // Protection anti-circulaire
   if (seen.has(obj as object)) {
     return '[CIRCULAR_REFERENCE]';
   }
-  
+
   // Types spéciaux non modifiables
   if (obj instanceof Date) {
     return obj.toISOString();
@@ -202,7 +301,9 @@ function maskPii(
       name: obj.name,
       message: maskPrimitiveValue(obj.message, [...keyPath, 'message']),
       stack: obj.stack ? '[STACK_TRACE]' : undefined,
-      cause: obj.cause ? maskPii(obj.cause, { depth: depth + 1, maxDepth, seen, keyPath: [...keyPath, 'cause'] }) : undefined,
+      cause: obj.cause
+        ? maskPii(obj.cause, { depth: depth + 1, maxDepth, seen, keyPath: [...keyPath, 'cause'] })
+        : undefined,
     };
   }
   if (Buffer.isBuffer(obj)) {
@@ -217,41 +318,46 @@ function maskPii(
   if (typeof obj === 'function') {
     return '[FUNCTION:' + (obj.name || 'anonymous') + ']';
   }
-  
+
   // Arrays
   if (Array.isArray(obj)) {
     seen.add(obj as object);
     return obj.map((item, index) =>
-      maskPii(item, { depth: depth + 1, maxDepth, seen: new WeakSet<object>(), keyPath: [...keyPath, String(index)] })
+      maskPii(item, {
+        depth: depth + 1,
+        maxDepth,
+        seen: new WeakSet<object>(),
+        keyPath: [...keyPath, String(index)],
+      }),
     );
   }
-  
+
   // Objets
   if (isPlainObject(obj)) {
     seen.add(obj as object);
     const masked: Record<string, unknown> = {};
-    
+
     const entries = Object.entries(obj);
     const isLargeObject = entries.length > 50;
     const sampledEntries = isLargeObject
       ? entries.filter(() => Math.random() < 0.5) // Échantillonnage 50% pour gros objets
       : entries;
-    
+
     for (const [key, value] of sampledEntries) {
       const newKeyPath = [...keyPath, key];
-      
+
       // Vérifier si la clé est une PII
       if (isPiiKey(key)) {
         masked[key] = '[REDACTED:' + getPiiCategory(key) + ']';
         continue;
       }
-      
+
       // Vérifier si la valeur correspond à un pattern PII
       if (typeof value === 'string' && isPiiValue(value)) {
         masked[key] = maskPiiValue(value);
         continue;
       }
-      
+
       // Récursion
       masked[key] = maskPii(value, {
         depth: depth + 1,
@@ -260,14 +366,15 @@ function maskPii(
         keyPath: newKeyPath,
       });
     }
-    
+
     if (isLargeObject && sampledEntries.length < entries.length) {
-      masked['_sampling_note'] = `Object had ${entries.length} keys, ${sampledEntries.length} sampled for logging`;
+      masked['_sampling_note'] =
+        `Object had ${entries.length} keys, ${sampledEntries.length} sampled for logging`;
     }
-    
+
     return masked;
   }
-  
+
   // Fallback pour types inconnus
   return '[UNKNOWN_TYPE:' + typeof obj + ']';
 }
@@ -372,7 +479,7 @@ class Logger implements ChildLogger {
   private maxObjectDepth: number;
   private maxObjectKeys: number;
   private requestId: string;
-  
+
   constructor(options: Partial<LoggerOptions> = {}) {
     this.level = (process.env.LOG_LEVEL as LogLevel) || options.level || 'info';
     this.baseContext = options.baseContext || {};
@@ -382,19 +489,19 @@ class Logger implements ChildLogger {
     this.maxObjectKeys = options.maxObjectKeys || 50;
     this.requestId = (this.baseContext.requestId as string) || randomUUID();
   }
-  
+
   // ============================================
   // MÉTHODES PUBLIQUES
   // ============================================
-  
+
   info(msg: string, ...args: unknown[]): void {
     this.log('info', msg, args);
   }
-  
+
   warn(msg: string, ...args: unknown[]): void {
     this.log('warn', msg, args);
   }
-  
+
   error(msg: string | Error, ...args: unknown[]): void {
     if (msg instanceof Error) {
       this.log('error', msg.message, [msg, ...args]);
@@ -402,11 +509,11 @@ class Logger implements ChildLogger {
       this.log('error', msg, args);
     }
   }
-  
+
   debug(msg: string, ...args: unknown[]): void {
     this.log('debug', msg, args);
   }
-  
+
   fatal(msg: string | Error, ...args: unknown[]): void {
     if (msg instanceof Error) {
       this.log('fatal', msg.message, [msg, ...args]);
@@ -414,7 +521,7 @@ class Logger implements ChildLogger {
       this.log('fatal', msg, args);
     }
   }
-  
+
   /**
    * Crée un logger enfant avec contexte additionnel
    */
@@ -427,37 +534,37 @@ class Logger implements ChildLogger {
       maxObjectDepth: this.maxObjectDepth,
       maxObjectKeys: this.maxObjectKeys,
     });
-    
+
     // Hériter du requestId si non fourni
     if (!context.requestId && this.requestId) {
       childLogger.requestId = this.requestId;
     }
-    
+
     return childLogger;
   }
-  
+
   getLevel(): LogLevel {
     return this.level;
   }
-  
+
   setLevel(level: LogLevel): void {
     this.level = level;
   }
-  
+
   // ============================================
   // MÉTHODES PRIVÉES
   // ============================================
-  
+
   private log(level: LogLevel, message: string, args: unknown[]): void {
     // Vérifier le niveau
     if (LOG_LEVELS[level] < LOG_LEVELS[this.level]) {
       return;
     }
-    
+
     if (!this.enabled) {
       return;
     }
-    
+
     try {
       const entry = this.buildLogEntry(level, message, args);
       this.writeLogEntry(level, entry);
@@ -466,13 +573,13 @@ class Logger implements ChildLogger {
       console.error(`[LOGGER_ERROR] Failed to log message: ${message}`, error);
     }
   }
-  
+
   /**
    * Construit l'entrée de log structurée
    */
   private buildLogEntry(level: LogLevel, message: string, args: unknown[]): LogEntry {
     const { traceId, spanId } = getOtelContext();
-    
+
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
       level,
@@ -482,43 +589,43 @@ class Logger implements ChildLogger {
       requestId: this.requestId,
       data: [],
     };
-    
+
     // Ajouter le contexte de base
     if (Object.keys(this.baseContext).length > 0) {
       Object.assign(entry, this.baseContext);
     }
-    
+
     // Traiter les arguments
     if (args.length === 1 && args[0] instanceof Error) {
       entry.error = {
         name: args[0].name,
         message: args[0].message,
         stack: args[0].stack,
-        cause: args[0].cause ? maskPii(args[0].cause, { maxDepth: this.maxObjectDepth }) : undefined,
+        cause: args[0].cause
+          ? maskPii(args[0].cause, { maxDepth: this.maxObjectDepth })
+          : undefined,
       };
     } else if (args.length > 0) {
       // Masquer les PII dans les données
-      const maskedArgs = args.map(arg =>
-        maskPii(arg, { maxDepth: this.maxObjectDepth })
-      );
-      
+      const maskedArgs = args.map((arg) => maskPii(arg, { maxDepth: this.maxObjectDepth }));
+
       if (maskedArgs.length === 1) {
         entry.data = maskedArgs[0];
       } else {
         entry.data = maskedArgs;
       }
     }
-    
+
     return entry;
   }
-  
+
   /**
    * Écrit l'entrée de log vers toutes les destinations
    */
   private writeLogEntry(level: LogLevel, entry: LogEntry): void {
     // 1. Sortie console (JSON structuré)
     const jsonString = this.safeStringify(entry);
-    
+
     switch (level) {
       case 'debug':
         console.debug(jsonString);
@@ -534,23 +641,23 @@ class Logger implements ChildLogger {
         console.error(jsonString);
         break;
     }
-    
+
     // 2. Transport personnalisé (Grafana Loki, Datadog, etc.)
     if (this.transport) {
       // Ne pas bloquer la boucle d'événements
       setImmediate(() => {
-        this.transport?.(entry)?.catch(err => {
+        this.transport?.(entry)?.catch((err) => {
           console.error('[LOGGER_TRANSPORT_ERROR]', err);
         });
       });
     }
-    
+
     // 3. En cas d'erreur fatale, forcer le flush
     if (level === 'fatal') {
       console.error('[FATAL] Application will terminate');
     }
   }
-  
+
   /**
    * JSON.stringify sécurisé (gère les objets problématiques)
    */
@@ -606,4 +713,3 @@ export {
   type LoggerOptions,
   type ChildLogger,
 };
-

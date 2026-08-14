@@ -1,5 +1,14 @@
 # Kisso Onboarding — Récapitulatif complet du projet
 
+> ⚠️ **INSTANTANÉ HISTORIQUE DU 2026-08-08 — NE PAS LIRE COMME L'ÉTAT COURANT.**
+> Antérieur à la mémoire conversationnelle, à la livraison réelle de documents, au `knowledgeAgent`, à l'entretien post-profil et aux huit court-circuits déterministes.
+> Ce document n'est **pas** mis à jour et n'a pas vocation à l'être : il vaut comme trace de ce
+> qui était vrai ce jour-là. Pour l'état réel, dans cet ordre : `npx vercel ls` (ce qui tourne),
+> `CLAUDE.md` (le dépôt), `CONTEXT.md` (l'intention), `TODO.md` (les dettes ouvertes).
+> Banderole posée le 2026-08-14, après qu'un inventaire a montré que plusieurs de ces fichiers
+> décrivaient des agents, des tools et des répertoires supprimés depuis — sans qu'aucun ne le dise.
+
+
 > Document de reprise. Objectif : permettre à quelqu'un qui n'a jamais vu ce dépôt de
 > comprendre **ce qui est construit, comment, pourquoi, ce qui a cassé, et ce qui reste à faire**.
 > Dernière mise à jour : 2026-08-08.

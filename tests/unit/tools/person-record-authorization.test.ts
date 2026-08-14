@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
 import { makeGetEmployeeProfile } from '../../../src/features/employee/application/tools/get-employee-profile';
-import { makeGetTaskList } from '../../../src/features/employee/application/tools/get-task-list';
 import { makeGetNotificationHistory } from '../../../src/features/notification/application/tools/get-notification-history';
 import { makeGenerateDocument } from '../../../src/features/document/application/tools/generate-document';
 import { buildSlackRequestContext } from '../../../src/shared/slack-request-context';
@@ -54,7 +53,6 @@ describe('getEmployeeProfile — frontière d’autorisation', () => {
     const tool = makeGetEmployeeProfile(
       { findById } as never,
       { findByEmployee: vi.fn().mockResolvedValue(null) } as never,
-      { findByEmployee: vi.fn().mockResolvedValue([]) } as never,
     );
 
     const result = (await tool.execute!(
@@ -76,7 +74,6 @@ describe('getEmployeeProfile — frontière d’autorisation', () => {
     const tool = makeGetEmployeeProfile(
       { findById } as never,
       { findByEmployee: vi.fn().mockResolvedValue(null) } as never,
-      { findByEmployee: vi.fn().mockResolvedValue([]) } as never,
     );
 
     const result = (await tool.execute!(
@@ -95,7 +92,6 @@ describe('getEmployeeProfile — frontière d’autorisation', () => {
     const tool = makeGetEmployeeProfile(
       { findById } as never,
       { findByEmployee: vi.fn().mockResolvedValue(null) } as never,
-      { findByEmployee: vi.fn().mockResolvedValue([]) } as never,
     );
 
     const result = (await tool.execute!({ employeeId: SOMEONE_ELSE } as never, {} as never)) as {
@@ -103,32 +99,6 @@ describe('getEmployeeProfile — frontière d’autorisation', () => {
     };
 
     expect(result.found).toBe(true);
-  });
-});
-
-describe('getTaskList — frontière d’autorisation', () => {
-  it('REFUSE les tâches d’un tiers sans jamais interroger la base', async () => {
-    const findByEmployee = vi.fn().mockResolvedValue([]);
-    const tool = makeGetTaskList({ findByEmployee } as never);
-
-    const result = (await tool.execute!(
-      { employeeId: SOMEONE_ELSE } as never,
-      restrictedRequester as never,
-    )) as { found: boolean; reason: string; totalTasks: number };
-
-    expect(result.found).toBe(false);
-    expect(result.reason).toBe('not_authorized');
-    expect(result.totalTasks).toBe(0);
-    expect(findByEmployee).not.toHaveBeenCalled();
-  });
-
-  it('laisse passer SES PROPRES tâches', async () => {
-    const findByEmployee = vi.fn().mockResolvedValue([]);
-    const tool = makeGetTaskList({ findByEmployee } as never);
-
-    await tool.execute!({ employeeId: ME } as never, restrictedRequester as never);
-
-    expect(findByEmployee).toHaveBeenCalledWith(ME);
   });
 });
 

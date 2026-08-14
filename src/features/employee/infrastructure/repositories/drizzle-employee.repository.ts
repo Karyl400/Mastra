@@ -5,6 +5,7 @@ import { Employee } from '../../domain/entities/employee';
 import { EmployeeRepository } from '../../domain/ports/employee.repository';
 import { EmployeeStatus } from '../../../../shared/types';
 import { ConflictError } from '../../../../shared/errors';
+import { matchesName } from '../../../../shared/name-matching';
 
 /**
  * PROJECTION EXPLICITE — le point le plus important de ce fichier.
@@ -150,6 +151,47 @@ export class DrizzleEmployeeRepository implements EmployeeRepository {
       .get();
 
     return row ? toDomain(row) : null;
+  }
+
+  /**
+   * Résolution par nom : UN aller-retour, puis le rapprochement en mémoire.
+   *
+   * ── Pourquoi pas en SQL ─────────────────────────────────────────────────────────────
+   * `lower()` de SQLite ne retire pas les accents (pas d'ICU dans le build LibSQL), et un
+   * `LIKE '%needle%'` correspondrait au MILIEU des mots : « rao » retrouverait « Traoré ».
+   * Sur une résolution qui finit par désigner le destinataire d'un email, une
+   * correspondance approximative est exactement le défaut qu'on corrige — il a déjà envoyé
+   * le document d'Awa à l'adresse de Karyl le 2026-08-13.
+   *
+   * ── Le coût, et sa borne ────────────────────────────────────────────────────────────
+   * On lit donc les fiches vivantes et on filtre en mémoire. La projection
+   * `EMPLOYEE_COLUMNS` s'applique (aucune colonne sensible ne quitte la base) et
+   * `employees` compte 2 lignes en production au 2026-08-14 — c'est la table des salariés
+   * ENREGISTRÉS, elle croît au rythme des arrivées, pas des messages.
+   *
+   * ⚠️ Le jour où elle passera quelques milliers de lignes, la réponse n'est pas un `LIKE`
+   * (il réintroduirait la correspondance en milieu de mot) mais une colonne normalisée
+   * persistée, indexée, écrite par le même `normalizeName`.
+   */
+  async findByName(query: string, limit: number): Promise<Employee[]> {
+    if (limit <= 0) return [];
+
+    const db = this.resolveDb();
+    const rows = await db
+      .select(EMPLOYEE_COLUMNS)
+      .from(employees)
+      .where(isNull(employees.deletedAt))
+      .orderBy(employees.lastName, employees.firstName);
+
+    const matches: Employee[] = [];
+    for (const row of rows) {
+      if (matches.length >= limit) break;
+      if (matchesName(query, [row.firstName, row.lastName, `${row.firstName} ${row.lastName}`])) {
+        matches.push(toDomain(row));
+      }
+    }
+
+    return matches;
   }
 
   async findAll(): Promise<Employee[]> {

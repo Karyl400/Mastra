@@ -43,7 +43,28 @@
  * Reste volontairement muet sur la règle touchée, ce qui était déjà l'intention d'origine :
  * `[SECURITY_BLOCK]` renseignait l'attaquant sur la sonde qui avait porté.
  */
-export const NEUTRAL_REFUSAL = 'Je ne peux pas répondre à cette demande. Reformule-la autrement.';
+/**
+ * ⚠️ RÉÉCRIT le 2026-08-14 — il expose désormais une SUITE, pas seulement un mur.
+ *
+ * L'ancienne rédaction (« Je ne peux pas répondre à cette demande. Reformule-la
+ * autrement. ») était correcte sur le fond et illisible sur la forme : elle ne disait pas
+ * SUR QUOI porte le refus, si bien qu'une personne de bonne foi ne pouvait pas deviner ce
+ * qu'elle devait changer — et « reformule-la autrement » sans indice se lit comme une porte
+ * fermée deux fois.
+ *
+ * Ce qui n'a PAS bougé, et qui est non négociable :
+ *  • aucune mention de la règle touchée (`[SECURITY_BLOCK]` renseignait l'attaquant sur la
+ *    sonde qui avait porté) ;
+ *  • aucun renvoi vers un humain — le bot ne connaît pas son interlocuteur au point de
+ *    savoir vers qui l'orienter, et l'ancienne version envoyait la responsable RH « vers
+ *    l'équipe RH » ;
+ *  • le tutoiement, puisque les quatre agents tutoient.
+ *
+ * Ce qui est ajouté : le refus porte sur le MESSAGE, et la suite est actionnable.
+ */
+export const NEUTRAL_REFUSAL =
+  'Je ne peux pas traiter ce message tel quel. Reformule-le en une ou deux phrases, ' +
+  'en disant ce que tu veux obtenir — je réessaie tout de suite.';
 
 /**
  * Domaines dont un lien peut franchir la frontière vers Slack.

@@ -101,6 +101,7 @@ describe('Directory: synchronisation', () => {
       }),
       findBySlackUserId: (id: string) => repo.findBySlackUserId(id),
       findByEmail: (e: string) => repo.findByEmail(e),
+      findByName: (q: string, n: number) => repo.findByName(q, n),
       rememberDmChannel: (id: string, dm: string) => repo.rememberDmChannel(id, dm),
       linkEmployee: (id: string, emp: string | null) => repo.linkEmployee(id, emp),
       listAll: () => repo.listAll(),
@@ -130,6 +131,7 @@ describe('Directory: synchronisation', () => {
       listAll: () => repo.listAll(),
       findBySlackUserId: (id: string) => repo.findBySlackUserId(id),
       findByEmail: (e: string) => repo.findByEmail(e),
+      findByName: (q: string, n: number) => repo.findByName(q, n),
       rememberDmChannel: (id: string, dm: string) => repo.rememberDmChannel(id, dm),
       linkEmployee: (id: string, emp: string | null) => repo.linkEmployee(id, emp),
     };
@@ -273,6 +275,7 @@ describe('Directory: synchronisation', () => {
       upsertFacts: (f: DirectoryMemberFacts, now: Date) => repo.upsertFacts(f, now),
       findBySlackUserId: (id: string) => repo.findBySlackUserId(id),
       findByEmail: (e: string) => repo.findByEmail(e),
+      findByName: (q: string, n: number) => repo.findByName(q, n),
       rememberDmChannel: (id: string, dm: string) => repo.rememberDmChannel(id, dm),
       linkEmployee: (id: string, emp: string | null) => repo.linkEmployee(id, emp),
       listAll: vi.fn(async () => {

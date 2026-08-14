@@ -3,6 +3,7 @@ import { getDb, type DatabaseInstance } from '../../../../infrastructure/databas
 import { slackDirectory, type SlackDirectoryRow } from '../../../../infrastructure/database/schema';
 import type { DirectoryMember, DirectoryMemberFacts } from '../../domain/entities/directory-member';
 import type { DirectoryRepository } from '../../domain/ports/directory.repository';
+import { matchesName } from '../../../../shared/name-matching';
 
 /**
  * Annuaire des personnes du workspace, sur LibSQL/Turso.
@@ -156,6 +157,34 @@ export class DrizzleDirectoryRepository implements DirectoryRepository {
       .update(slackDirectory)
       .set({ employeeId })
       .where(eq(slackDirectory.slackUserId, slackUserId));
+  }
+
+  /**
+   * Résolution par nom : UN aller-retour, puis le rapprochement en mémoire.
+   *
+   * Voir `DrizzleEmployeeRepository.findByName` pour l'argumentaire complet — il vaut mot
+   * pour mot ici : ni `lower()` ni `LIKE` ne savent faire ce rapprochement correctement,
+   * et une correspondance en milieu de mot sur une résolution de personne est le défaut
+   * qu'on corrige.
+   *
+   * La borne est ici l'effectif du WORKSPACE Slack (40 lignes en production au
+   * 2026-08-14, bots et comptes désactivés compris), pas un volume de trafic.
+   */
+  async findByName(query: string, limit: number): Promise<DirectoryMember[]> {
+    if (limit <= 0) return [];
+
+    const db = this.resolveDb();
+    const rows = await db.select().from(slackDirectory).orderBy(slackDirectory.slackUserId);
+
+    const matches: DirectoryMember[] = [];
+    for (const row of rows) {
+      if (matches.length >= limit) break;
+      if (matchesName(query, [row.firstName, row.lastName, row.displayName, row.realName])) {
+        matches.push(toDomain(row));
+      }
+    }
+
+    return matches;
   }
 
   /**

@@ -14,6 +14,19 @@ export interface DirectoryRepository {
   findByEmail(email: string): Promise<DirectoryMember | null>;
 
   /**
+   * Résout une personne par son NOM, accents et casse ignorés.
+   *
+   * Symétrique de `EmployeeRepository.findByName`, et volontairement identique dans son
+   * contrat : une LISTE bornée, jamais un choix arbitraire entre deux homonymes. Le
+   * rapprochement vit dans `src/shared/name-matching.ts`, partagé par les deux — deux
+   * implémentations divergeraient au premier accent.
+   *
+   * ⚠️ Les bots et les comptes désactivés ne sont PAS filtrés ici : c'est une décision
+   * d'appelant, et `findByEmail` ne les filtre pas davantage. Le tool les écarte.
+   */
+  findByName(query: string, limit: number): Promise<DirectoryMember[]>;
+
+  /**
    * Enregistre ce que Slack vient de dire, SANS écraser ce que nous avons appris par ailleurs.
    *
    * ⚠️ CONTRAT NON NÉGOCIABLE : `dm_channel_id`, `employee_id` et `first_seen_at` ne figurent

@@ -182,14 +182,21 @@ export function buildProfileModal(prefill: ProfileModalPrefill): SlackModalView 
 /**
  * Valeur brute d'un champ, selon son type de saisie.
  *
- * Trois formes coexistent dans `view.state.values` : `value` pour une saisie
- * texte, `selected_option.value` pour une liste, `selected_date` pour un
- * sélecteur de date.
+ * Quatre formes coexistent dans `view.state.values` : `value` pour une saisie
+ * texte, `selected_option.value` pour une liste simple, `selected_options` (au
+ * PLURIEL) pour un `multi_static_select`, `selected_date` pour un sélecteur de date.
+ *
+ * ⚠️ `selected_options` est déclaré ICI parce que c'est la forme réelle du payload Slack,
+ * commune à toutes les modales — mais `readProfileSubmission` ne le lit PAS : la modale de
+ * profil n'a que des champs texte. C'est `readInterviewSubmission` qui l'exploite. Deux
+ * types distincts pour un même payload auraient divergé, et l'écart ne se serait vu qu'en
+ * production, sur une soumission.
  */
 interface SlackStateValue {
   value?: string | null;
   selected_date?: string | null;
   selected_option?: { value?: string | null } | null;
+  selected_options?: ReadonlyArray<{ value?: string | null }> | null;
 }
 
 export interface SlackViewState {

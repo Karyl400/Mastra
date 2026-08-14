@@ -37,10 +37,29 @@ import {
   type ValidatedProfile,
 } from '../features/notification/infrastructure/handlers/profile-modal';
 import {
+  INTERVIEW_MODAL_CALLBACK_ID,
+  START_INTERVIEW_ACTION_ID,
+  buildInterviewModal,
+  decodeInterviewPrefill,
+  interviewSubmissionSchema,
+  readInterviewSubmission,
+  type InterviewChannelOption,
+  type ValidatedInterview,
+} from '../features/notification/infrastructure/handlers/interview-modal';
+import {
   OnboardingOutcome,
   describeDegradation,
   type StepFailure,
 } from '../features/onboarding/domain/value-objects/onboarding-outcome';
+import { DrizzleOnboardingInterviewRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding-interview.repository';
+import { DrizzleChannelInventoryRepository } from '../features/directory/infrastructure/repositories/drizzle-channel.repository';
+import { SlackWorkspaceService } from '../features/notification/infrastructure/providers/slack-workspace.service';
+import {
+  buildInterviewInviteBlocks,
+  interviewDoneReply,
+  INTERVIEW_FAILED_REPLY,
+  INTERVIEW_INVITE_TEXT,
+} from '../features/notification/infrastructure/handlers/interview-invite';
 import { scheduleBackgroundWork } from './slack-events.route';
 import { verifySlackSignature } from '../shared/security/slack-signature';
 import { logger } from '../shared/logger';
@@ -140,16 +159,37 @@ export function resetSlackInteractionsAdapter(): void {
  * `value` du bouton — donc zéro appel réseau supplémentaire.
  */
 async function handleBlockActions(payload: SlackInteractionPayload): Promise<Response> {
-  const action = payload.actions?.find((a) => a.action_id === COMPLETE_PROFILE_ACTION_ID);
-  if (!action) return ack();
-
   const triggerId = payload.trigger_id;
+  const actions = payload.actions ?? [];
+
+  const profileAction = actions.find((a) => a.action_id === COMPLETE_PROFILE_ACTION_ID);
+  const interviewAction = actions.find((a) => a.action_id === START_INTERVIEW_ACTION_ID);
+
+  if (!profileAction && !interviewAction) return ack();
+
   if (!triggerId) {
     logger.warn('block_actions without a trigger_id, cannot open the modal');
     return ack();
   }
 
-  const prefill = decodePrefill(action.value, payload.user?.id ?? '');
+  // ⚠️ AUCUNE E/S avant `views.open`, dans les DEUX branches : le `trigger_id` expire
+  // 3 secondes après l'interaction. Le pré-remplissage voyage déjà dans le `value` du bouton
+  // — c'est précisément pour cela qu'il y voyage.
+  if (interviewAction) {
+    const prefill = decodeInterviewPrefill(interviewAction.value, payload.user?.id ?? '');
+    try {
+      await getSlackInteractionsAdapter().openModal(triggerId, buildInterviewModal(prefill));
+      logger.info('Interview modal opened', {
+        userId: prefill.slackUserId,
+        channelsOffered: prefill.channels.length,
+      });
+    } catch (error) {
+      logger.error('Unable to open the interview modal', { error, userId: prefill.slackUserId });
+    }
+    return ack();
+  }
+
+  const prefill = decodePrefill(profileAction!.value, payload.user?.id ?? '');
 
   try {
     await getSlackInteractionsAdapter().openModal(triggerId, buildProfileModal(prefill));
@@ -188,12 +228,17 @@ async function runOnboarding(
   mastra: Mastra,
   profile: ValidatedProfile,
   startDate: string,
+  slackUserId: string | undefined,
 ): Promise<void> {
   const workflow = mastra.getWorkflow('employeeOnboardingWorkflow' as never) as unknown as {
     createRun(options?: { runId?: string }): Promise<{
       start(args: { inputData: unknown }): Promise<{
         status: string;
         result?: {
+          // ⚠️ `employeeId` est bien dans `onboardingOutputSchema` — il est déclaré ici parce
+          // que ce type est écrit à la main : `getWorkflow()` rend `unknown` et Mastra ne
+          // publie pas le type de sortie. C'est lui qui relie le dossier créé à l'entretien.
+          employeeId?: string;
           outcome?: OnboardingOutcome;
           emailSent?: boolean;
           slackInvited?: boolean;
@@ -253,15 +298,74 @@ async function runOnboarding(
       emailSent: result.result?.emailSent,
       slackInvited: result.result?.slackInvited,
     });
+  } else {
+    logger.info('Onboarding workflow completed', {
+      email: profile.email,
+      outcome: result.result?.outcome,
+      emailSent: result.result?.emailSent,
+      slackInvited: result.result?.slackInvited,
+    });
+  }
+
+  // ⚠️ Proposé sur `completed` ET sur `degraded`, et cette distinction compte.
+  //
+  // `degraded` signifie « l'employé EST créé, une étape best-effort a échoué » — un email de
+  // bienvenue non parti, une invitation Slack manquée. C'est un ABOUTISSEMENT, pas un échec :
+  // le workflow existe précisément pour ne pas perdre la création sur une indisponibilité SMTP
+  // de trente secondes. Refuser l'entretien dans ce cas priverait de ses canaux quelqu'un dont
+  // le dossier est parfaitement valide, et le priverait justement le jour où quelque chose a
+  // déjà mal tourné.
+  //
+  // Le cas `failed`, lui, sort plus haut par `return` : là, il n'y a pas de dossier.
+  await offerInterview(result.result?.employeeId, slackUserId);
+}
+
+/**
+ * Propose l'entretien, une fois le dossier RÉELLEMENT créé.
+ *
+ * ⚠️ Appelé uniquement après un `outcome` non dégradé, et jamais après un `failed` : proposer
+ * « parlons de toi » à quelqu'un dont la création vient d'échouer supposerait un succès que
+ * personne n'a vérifié — la faute exacte du `emailSent: false` sous `status: 'success'`.
+ *
+ * Ne LÈVE jamais. Un entretien manqué est une gêne ; une exception ici remonterait dans la
+ * tâche de fond du workflow d'onboarding et masquerait son propre verdict.
+ */
+async function offerInterview(
+  employeeId: string | undefined,
+  slackUserId: string | undefined,
+): Promise<void> {
+  if (!employeeId || !slackUserId) {
+    logger.warn('Interview not offered — missing employee or Slack user', {
+      hasEmployee: Boolean(employeeId),
+      hasUser: Boolean(slackUserId),
+    });
     return;
   }
 
-  logger.info('Onboarding workflow completed', {
-    email: profile.email,
-    outcome: result.result?.outcome,
-    emailSent: result.result?.emailSent,
-    slackInvited: result.result?.slackInvited,
-  });
+  try {
+    // Lu ICI et non au clic : ce chemin est en tâche de fond, sans contrainte de 3 secondes,
+    // alors que `views.open` en a une. C'est ce qui permet au bouton de transporter la liste
+    // et à la modale de s'ouvrir sans aucune E/S.
+    const channels = await offerableChannels();
+
+    if (channels.length === 0) {
+      // L'inventaire est alimenté à la main : une base neuve ou jamais synchronisée n'a
+      // aucun canal. On propose quand même l'entretien — les deux questions libres gardent
+      // tout leur sens — mais on le SIGNALE, parce que c'est le symptôme d'un
+      // `sync-slack-directory --channels --apply` jamais lancé.
+      logger.warn('No offerable channel in the inventory — interview will have no channel field');
+    }
+
+    await getSlackInteractionsAdapter().sendBlocks(
+      slackUserId,
+      INTERVIEW_INVITE_TEXT,
+      buildInterviewInviteBlocks({ employeeId, slackUserId, channels }),
+    );
+
+    logger.info('Interview offered', { employeeId, channelsOffered: channels.length });
+  } catch (error) {
+    logger.error('Unable to offer the interview', { error, employeeId });
+  }
 }
 
 /**
@@ -272,6 +376,10 @@ async function runOnboarding(
  * `block_id` — une clé inconnue est silencieusement ignorée par Slack.
  */
 function handleViewSubmission(payload: SlackInteractionPayload, mastra: Mastra): Response {
+  if (payload.view?.callback_id === INTERVIEW_MODAL_CALLBACK_ID) {
+    return handleInterviewSubmission(payload);
+  }
+
   if (payload.view?.callback_id !== PROFILE_MODAL_CALLBACK_ID) return ack();
 
   const raw = readProfileSubmission(payload.view.state ?? {});
@@ -298,9 +406,204 @@ function handleViewSubmission(payload: SlackInteractionPayload, mastra: Mastra):
   // workflow écrit en base, envoie un email SMTP et appelle Slack, largement
   // au-delà des 3 secondes accordées à cette réponse. Sur Vercel, `waitUntil`
   // empêche le gel de la fonction avant la fin.
-  const work = runOnboarding(mastra, parsed.data, startDate).catch((error: unknown) => {
-    logger.error('Background onboarding failed', { error, email: parsed.data.email });
+  const work = runOnboarding(mastra, parsed.data, startDate, prefill.slackUserId).catch(
+    (error: unknown) => {
+      logger.error('Background onboarding failed', { error, email: parsed.data.email });
+    },
+  );
+  scheduleBackgroundWork(work);
+
+  return ack();
+}
+
+/* -------------------------------------------------------------------------- *
+ * Entretien post-profil
+ * -------------------------------------------------------------------------- */
+
+let cachedInterviewRepo: DrizzleOnboardingInterviewRepository | undefined;
+let cachedChannelRepo: DrizzleChannelInventoryRepository | undefined;
+let cachedWorkspace: SlackWorkspaceService | undefined;
+
+/**
+ * Dépôts et client Slack, construits PARESSEUSEMENT.
+ *
+ * Ce module est évalué au chargement de `src/mastra/index.ts`, donc à chaque démarrage à
+ * froid — c'est-à-dire sur le chemin des 3 secondes d'ACK de Slack. Ouvrir une connexion
+ * Turso ici y ajouterait le handshake complet, et un ACK à 6,7 s a déjà provoqué un rejeu,
+ * donc une double réponse en production.
+ */
+function interviewRepo(): DrizzleOnboardingInterviewRepository {
+  cachedInterviewRepo ??= new DrizzleOnboardingInterviewRepository();
+  return cachedInterviewRepo;
+}
+
+function channelRepo(): DrizzleChannelInventoryRepository {
+  cachedChannelRepo ??= new DrizzleChannelInventoryRepository();
+  return cachedChannelRepo;
+}
+
+function workspace(): SlackWorkspaceService {
+  cachedWorkspace ??= new SlackWorkspaceService(process.env.SLACK_BOT_TOKEN ?? '');
+  return cachedWorkspace;
+}
+
+/** Réinitialise les singletons (tests). */
+export function resetInterviewDependencies(): void {
+  cachedInterviewRepo = undefined;
+  cachedChannelRepo = undefined;
+  cachedWorkspace = undefined;
+}
+
+/**
+ * Canaux proposables à l'entretien.
+ *
+ * ⚠️ DEUX filtres, et aucun n'est optionnel :
+ *  - `!isArchived` — l'inventaire de production compte 32 canaux dont **26 archivés**.
+ *    Proposer un canal archivé garantit un échec d'invitation, donc une promesse cassée
+ *    dans la réponse rendue à la personne.
+ *  - `isMember` — `conversations.invite` échoue si le bot n'est pas lui-même dans le canal.
+ *    C'est une condition de FAISABILITÉ, distincte du droit du demandeur.
+ *
+ * ⚠️ L'inventaire est alimenté À LA MAIN (`scripts/sync-slack-directory.mts --channels
+ * --apply`) : aucun événement ne le tient à jour, `member_joined_channel` n'étant pas abonné.
+ * Il est donc PÉRIMABLE, et c'est pour cela que l'invitation distingue l'échec du succès au
+ * lieu de supposer que la liste dit vrai.
+ */
+async function offerableChannels(): Promise<InterviewChannelOption[]> {
+  const channels = await channelRepo().listChannels();
+  return channels
+    .filter((channel) => !channel.isArchived && channel.isMember && channel.name.length > 0)
+    .map((channel) => ({ channelId: channel.channelId, name: channel.name }));
+}
+
+/**
+ * Invite la personne aux canaux qu'elle a cochés.
+ *
+ * DÉTERMINISTE de bout en bout : la liste vient de Slack, transite par le `value` signé du
+ * bouton, et est revalidée en forme des deux côtés. Aucun modèle sur ce chemin — c'est ce qui
+ * distingue cet entretien du questionnaire qu'il remplace, dont la seule sortie était un
+ * enregistrement que personne ne lisait.
+ *
+ * ⚠️ Chaque échec est ISOLÉ. Un canal archivé entre deux synchronisations ne doit pas priver
+ * la personne des quatre autres.
+ */
+async function inviteToChannels(
+  slackUserId: string,
+  selected: readonly string[],
+  nameOf: ReadonlyMap<string, string>,
+): Promise<{ joined: string[]; already: string[]; failed: string[] }> {
+  const joined: string[] = [];
+  const already: string[] = [];
+  const failed: string[] = [];
+
+  for (const channelId of selected) {
+    const name = nameOf.get(channelId) ?? channelId;
+    try {
+      await workspace().inviteToChannel(channelId, slackUserId);
+      joined.push(name);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // `already_in_channel` n'est PAS un échec : la personne y est, l'intention est
+      // satisfaite. Le compter comme raté ferait annoncer un problème inexistant.
+      if (message.includes('already_in_channel')) {
+        already.push(name);
+      } else {
+        logger.warn('Interview channel invite failed', { channelId, error: message });
+        failed.push(name);
+      }
+    }
+  }
+
+  return { joined, already, failed };
+}
+
+/**
+ * Enregistre l'entretien puis applique ses effets. Appelé en TÂCHE DE FOND uniquement.
+ *
+ * ⚠️ L'ordre est imposé : on ENREGISTRE d'abord, on invite ensuite. Si l'écriture échoue, la
+ * personne est prévenue et rien n'a bougé ; si l'invitation échoue, ses réponses sont sauves
+ * et la réponse le dit canal par canal. L'ordre inverse pourrait l'ajouter à cinq canaux tout
+ * en perdant ce qu'elle a écrit, sans qu'aucune des deux moitiés ne le signale.
+ */
+async function applyInterview(
+  slackUserId: string,
+  employeeId: string,
+  answers: ValidatedInterview,
+  nameOf: ReadonlyMap<string, string>,
+): Promise<void> {
+  const slack = getSlackInteractionsAdapter();
+  const now = new Date();
+
+  try {
+    await interviewRepo().save({
+      employeeId,
+      slackUserId,
+      channels: answers.channels,
+      dailyWork: answers.dailyWork,
+      workStyle: answers.workStyle,
+      createdAt: now,
+      updatedAt: now,
+    });
+  } catch (error) {
+    logger.error('Interview could not be saved', { error, employeeId });
+    await slack.sendMessage(slackUserId, INTERVIEW_FAILED_REPLY);
+    return;
+  }
+
+  const outcome = await inviteToChannels(slackUserId, answers.channels, nameOf);
+
+  logger.info('Interview recorded', {
+    employeeId,
+    channelsSelected: answers.channels.length,
+    joined: outcome.joined.length,
+    already: outcome.already.length,
+    failed: outcome.failed.length,
+    // Les LONGUEURS, jamais le contenu : ce sont des réponses personnelles.
+    dailyWorkLength: answers.dailyWork.length,
+    workStyleLength: answers.workStyle.length,
   });
+
+  await slack.sendMessage(slackUserId, interviewDoneReply(outcome));
+}
+
+/**
+ * Soumission de l'entretien.
+ *
+ * Régime identique à celui de la modale de profil : ACK immédiat, traitement lourd en tâche
+ * de fond. Une invitation par canal plus une écriture Turso dépassent largement les
+ * 3 secondes accordées à cette réponse.
+ */
+function handleInterviewSubmission(payload: SlackInteractionPayload): Response {
+  const prefill = decodeInterviewPrefill(payload.view?.private_metadata, payload.user?.id ?? '');
+  const raw = readInterviewSubmission(payload.view?.state ?? {});
+  const parsed = interviewSubmissionSchema.safeParse(raw);
+
+  if (!parsed.success) {
+    // Les trois champs sont optionnels et bornés côté vue : un échec ici signale un payload
+    // forgé, pas une erreur de saisie. On ferme sans rien réafficher — il n'y a pas de champ
+    // à corriger — mais on le journalise, parce que c'est la signature d'un appel hostile.
+    logger.warn('Interview submission rejected', {
+      fields: Object.keys(parsed.error.flatten().fieldErrors),
+    });
+    return ack();
+  }
+
+  if (!prefill.employeeId || !prefill.slackUserId) {
+    // Sans employé, l'entretien n'a pas de clé : `employee_id` est la PRIMARY KEY. On échoue
+    // bruyamment plutôt que d'écrire une ligne orpheline que personne ne relirait.
+    logger.error('Interview submission without an employee id', {
+      hasUser: Boolean(prefill.slackUserId),
+    });
+    return ack();
+  }
+
+  const nameOf = new Map(prefill.channels.map((channel) => [channel.channelId, channel.name]));
+
+  const work = applyInterview(prefill.slackUserId, prefill.employeeId, parsed.data, nameOf).catch(
+    (error: unknown) => {
+      logger.error('Background interview handling failed', { error });
+    },
+  );
   scheduleBackgroundWork(work);
 
   return ack();

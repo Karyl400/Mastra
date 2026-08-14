@@ -283,16 +283,19 @@ function buildWelcomeLetter(input: DocumentRenderInput): DocumentBlock[] {
       kind: 'paragraph',
       text: `Votre date de début est le ${employee.startDate ?? 'à confirmer'}.`,
     },
-    { kind: 'heading', text: 'Prochaines étapes', level: 2 },
-    {
-      kind: 'bullets',
-      items: [
-        'Compléter votre profil employé',
-        'Rejoindre les canaux Slack assignés',
-        'Remplir le questionnaire d’intégration',
-        'Consulter le guide onboarding',
-      ],
-    },
+    // ⚠️ Le bloc « Prochaines étapes » a été RETIRÉ le 2026-08-14, et ce n'est pas une
+    // simplification : il MENTAIT. Ses quatre puces étaient écrites en dur, donc
+    // identiques pour tout le monde, et deux d'entre elles renvoyaient à des choses qui
+    // n'existent pas — « Remplir le questionnaire d'intégration » (aucun questionnaire
+    // n'est envoyable ni remplissable, cf. `generate-questionnaire.ts`) et « Consulter le
+    // guide onboarding » (aucune URL de téléchargement n'existe dans ce système).
+    // « Rejoindre les canaux Slack assignés » est parti avec le suivi de tâches.
+    //
+    // Ce qui reste est ce que le dossier sait RÉELLEMENT — y compris, depuis le 2026-08-14,
+    // ce que la personne a dit d'elle à l'entretien — plus le corps rédigé par le modèle.
+    // Une lettre plus courte et vraie vaut mieux qu'une liste qui donne des instructions
+    // impossibles à un arrivant.
+    ...interviewBlocks(input),
     ...bodyBlocks(input),
     { kind: 'paragraph', text: 'Bienvenue dans l’équipe !', italic: true },
   ];
@@ -309,6 +312,66 @@ function buildCertificate(input: DocumentRenderInput): DocumentBlock[] {
   ];
 }
 
+/**
+ * Ce que la personne a dit d'elle à l'entretien post-profil, rendu en blocs.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * Pourquoi c'est le GABARIT qui l'imprime, et non le modèle
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * L'alternative était d'exposer l'entretien au modèle pour qu'il en tire une prose. Écartée
+ * pour trois raisons, dont la dernière suffirait :
+ *
+ *  1. **Coût.** Il faudrait soit un tool de plus (schéma repayé à CHAQUE aller-retour de
+ *     chaque message, sur un budget de ≈ 19 messages/jour), soit ces textes dans la fenêtre
+ *     du modèle. Ici : zéro token.
+ *  2. **Fidélité.** Le modèle reformulerait. Ce que la personne a écrit sur elle-même n'a pas
+ *     à être réécrit par une machine dans un document qui porte son nom.
+ *  3. **Vérité.** Un gabarit ne peut pas halluciner. C'est la même raison qui fait imprimer
+ *     `position` ici plutôt que d'espérer que le modèle le recopie.
+ *
+ * Le `content` rédigé par le modèle vient s'AJOUTER à ces blocs, il ne les remplace pas : la
+ * chaleur vient de la prose, la véracité du gabarit.
+ *
+ * ⚠️ Chaque section n'est émise que si son champ existe. Les trois champs de l'entretien sont
+ * facultatifs, et un intertitre suivi du vide se lit comme un oubli — le défaut exact qui a
+ * fait retirer « Département : N/A » de la lettre de bienvenue.
+ */
+function interviewBlocks(input: DocumentRenderInput): DocumentBlock[] {
+  const interview = input.interview;
+  if (!interview) return [];
+
+  const blocks: DocumentBlock[] = [];
+
+  const dailyWork = (interview.dailyWork ?? '').trim();
+  if (dailyWork.length > 0) {
+    blocks.push(
+      { kind: 'heading', text: 'Ton quotidien', level: 2 },
+      { kind: 'paragraph', text: dailyWork },
+    );
+  }
+
+  const workStyle = (interview.workStyle ?? '').trim();
+  if (workStyle.length > 0) {
+    blocks.push(
+      { kind: 'heading', text: 'Ta façon de travailler', level: 2 },
+      { kind: 'paragraph', text: workStyle },
+    );
+  }
+
+  const channels = (interview.channels ?? []).filter((name) => name.trim().length > 0);
+  if (channels.length > 0) {
+    blocks.push(
+      { kind: 'heading', text: 'Tes canaux', level: 2 },
+      // Le `#` est rendu ICI et non stocké : c'est une convention d'AFFICHAGE Slack, et la
+      // base garde les identifiants `C…`, qui ne se lisent pas.
+      { kind: 'bullets', items: channels.map((name) => `#${name}`) },
+    );
+  }
+
+  return blocks;
+}
+
 function buildGuide(input: DocumentRenderInput): DocumentBlock[] {
   const employee = input.employee ?? {};
   return [
@@ -317,15 +380,22 @@ function buildGuide(input: DocumentRenderInput): DocumentBlock[] {
     ...(employee.department
       ? [{ kind: 'paragraph' as const, text: `Département : ${employee.department}` }]
       : []),
-    {
-      kind: 'bullets',
-      items: [
-        'Configuration poste de travail',
-        'Accès Slack/GitHub',
-        'Présentation équipe',
-        'Culture entreprise',
-      ],
-    },
+    // Le poste, lui, est TOUJOURS connu (`employees.position` est `NOT NULL`) et il est la
+    // seule chose qui distingue le guide d'une personne de celui d'une autre. L'écrire ici
+    // évite que le modèle ait à le recopier dans `content` — et qu'il l'oublie.
+    ...(employee.position
+      ? [{ kind: 'paragraph' as const, text: `Poste : ${employee.position}` }]
+      : []),
+    // ⚠️ Les quatre puces « Configuration poste de travail / Accès Slack-GitHub /
+    // Présentation équipe / Culture entreprise » ont été RETIRÉES le 2026-08-14. Écrites en
+    // dur, elles sortaient à l'identique dans le guide de CHAQUE personne, quel que soit son
+    // poste, et ne renvoyaient à aucune procédure existante : c'est exactement le
+    // « document générique » signalé par le propriétaire.
+    //
+    // Le contenu utile vient de DEUX sources, dans cet ordre : ce que la personne a dit
+    // d'elle à l'entretien (matière réelle, imprimée telle quelle), puis la prose du modèle.
+    // Un gabarit ne doit porter que ce que le CODE sait — le reste, il l'invente.
+    ...interviewBlocks(input),
     ...bodyBlocks(input),
   ];
 }

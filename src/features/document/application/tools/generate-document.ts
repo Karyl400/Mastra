@@ -3,7 +3,11 @@ import { z } from 'zod';
 
 import type { DocumentRepository } from '../../domain/ports/document.repository';
 import type { EmployeeRepository } from '../../domain/ports/employee.repository';
-import type { DocumentRenderer, RenderedDocument } from '../../domain/ports/document-renderer';
+import type {
+  DocumentRenderInput,
+  DocumentRenderer,
+  RenderedDocument,
+} from '../../domain/ports/document-renderer';
 // Ports d'une AUTRE feature, importés depuis sa couche `domain`.
 //
 // C'est la règle de dépendance, pas une entorse : `application` peut dépendre d'un
@@ -26,6 +30,7 @@ import {
 } from '../../../../shared/security/agent-output';
 import { logger } from '../../../../shared/logger';
 import { readSlackContext, canReadPersonRecord } from '../../../../shared/slack-request-context';
+import type { OnboardingInterviewRepository } from '../../../onboarding/domain/ports/onboarding-interview.repository';
 import { buildRunKey, makeRunGuard } from '../../../../shared/tool-idempotency';
 import { DocumentFormat, DocumentStatus, DocumentType } from '../../../../shared/types';
 
@@ -166,6 +171,16 @@ export interface GenerateDocumentDeps {
   /** Absent en test ou hors Slack : la livraison dégrade au lieu d'échouer. */
   fileUpload?: FileUploadProvider;
   emailProvider?: EmailProvider;
+  /**
+   * Entretien post-profil, résolu CÔTÉ SERVEUR pour nourrir le gabarit.
+   *
+   * OPTIONNEL à dessein : sans lui, le document est exactement celui d'avant. C'est ce qui
+   * rend ce câblage sûr à ajouter — un guide reste produit même sur une base où la table
+   * `onboarding_interview` n'a pas encore été appliquée.
+   */
+  interviewRepo?: OnboardingInterviewRepository;
+  /** Résout un nom lisible depuis un identifiant `C…`. Sans lui, les canaux ne sont pas cités. */
+  channelRepo?: { listChannels(): Promise<ReadonlyArray<{ channelId: string; name: string }>> };
 }
 
 /**
@@ -185,8 +200,69 @@ export interface GenerateDocumentDeps {
  */
 const RENDERABLE_FORMATS = [DocumentFormat.Pdf, DocumentFormat.Docx] as const;
 
+/**
+ * Ce que la personne a dit d'elle à l'entretien, prêt pour le gabarit.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * Côté SERVEUR, jamais par le modèle — et ne LÈVE jamais
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Même chemin que la fiche employé : l'entretien est résolu à partir de l'`employeeId`, sans
+ * qu'aucune de ces valeurs ne traverse la fenêtre du modèle. C'est ce qui rend un guide
+ * personnel pour **zéro token**, là où le gabarit imprimait auparavant quatre puces écrites
+ * en dur, identiques pour tout le monde.
+ *
+ * ⚠️ Toute indisponibilité est AVALÉE et rend `undefined`. Un guide sans section « ton
+ * quotidien » reste un guide ; un guide qui n'existe pas parce que la table
+ * `onboarding_interview` n'a pas encore été appliquée serait une régression franche. Même
+ * contrat de dégradation que la mémoire conversationnelle.
+ *
+ * Les NOMS de canaux sont résolus ici parce que la base stocke des `C…` — qui ne se lisent
+ * pas — et qu'un canal se renomme sans que son identifiant bouge. Un identifiant non résolu
+ * est ÉCARTÉ plutôt qu'imprimé brut : « #C0BP3RCLLA1 » dans un document d'accueil est pire
+ * qu'une ligne en moins.
+ */
+async function readInterview(
+  interviewRepo: OnboardingInterviewRepository | undefined,
+  channelRepo:
+    { listChannels(): Promise<ReadonlyArray<{ channelId: string; name: string }>> } | undefined,
+  employeeId: string,
+): Promise<DocumentRenderInput['interview']> {
+  if (!interviewRepo) return undefined;
+
+  try {
+    const interview = await interviewRepo.findByEmployee(employeeId);
+    if (!interview) return undefined;
+
+    let channels: string[] = [];
+    if (channelRepo && interview.channels.length > 0) {
+      const nameOf = new Map(
+        (await channelRepo.listChannels()).map((channel) => [channel.channelId, channel.name]),
+      );
+      channels = interview.channels
+        .map((channelId) => nameOf.get(channelId))
+        .filter((name): name is string => Boolean(name && name.length > 0));
+    }
+
+    return { dailyWork: interview.dailyWork, workStyle: interview.workStyle, channels };
+  } catch (error) {
+    logger.warn('Entretien indisponible — document produit sans sa matière personnelle', {
+      error: errorMessage(error),
+    });
+    return undefined;
+  }
+}
+
 export function makeGenerateDocument(deps: GenerateDocumentDeps) {
-  const { documentRepo, employeeRepo, renderers, fileUpload, emailProvider } = deps;
+  const {
+    documentRepo,
+    employeeRepo,
+    renderers,
+    fileUpload,
+    emailProvider,
+    interviewRepo,
+    channelRepo,
+  } = deps;
 
   /**
    * Une garde par INSTANCE de tool, et non par module.
@@ -440,6 +516,29 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         };
       }
 
+      // ─────────────────────────────────────────────────────────────────────
+      // TRACE — un document produit POUR AUTRUI
+      // ─────────────────────────────────────────────────────────────────────
+      //
+      // Aucun refus : un manager ou une RH qui produit la lettre de bienvenue d'un
+      // arrivant est le cas d'usage NORMAL — c'est même l'objet du produit. Mais c'est
+      // aussi le seul cas où une erreur d'`employeeId` fait partir un fichier chez
+      // quelqu'un qui n'était pas concerné, et le relevé du 2026-08-13 montre que ça
+      // arrive : les DIX documents de la base portent l'UUID de Karyl, dont « Bienvenue
+      // Awa », livré à l'adresse de Karyl.
+      //
+      // ⚠️ `warn` et non `info` : c'est la ligne à chercher la prochaine fois qu'un
+      // document semble être parti au mauvais destinataire. On journalise le fait, jamais
+      // l'adresse — le logger masquerait de toute façon un email.
+      const requesterEmployeeId = readSlackContext(ctx?.requestContext)?.employeeId;
+      if (requesterEmployeeId && requesterEmployeeId !== data.employeeId) {
+        logger.warn('Document produit pour une AUTRE personne que le demandeur', {
+          subjectId: data.employeeId,
+          requesterId: requesterEmployeeId,
+          deliverTo: effectiveDeliverTo,
+        });
+      }
+
       // ---------------------------------------------------------------------
       // Rendu
       // ---------------------------------------------------------------------
@@ -468,6 +567,7 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
             type: data.type,
             title,
             content,
+            interview: await readInterview(interviewRepo, channelRepo, data.employeeId),
             employee: {
               firstName: employee.firstName,
               lastName: employee.lastName,
@@ -610,11 +710,28 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // désigner le document, le format réellement produit (il peut différer du demandé),
       // le nom du fichier livré — et surtout le VERDICT DE LIVRAISON, sans lequel il ne
       // peut pas dire la vérité. La taille ne dépend plus de la longueur du contenu.
+      // ⚠️ `recipient` — ajouté le 2026-08-14 après le relevé de production.
+      //
+      // Les DIX documents de la Turso portent l'UUID de Karyl, y compris celui intitulé
+      // « Bienvenue Awa » (`type=welcome_letter`, `status=sent`) : son email est donc parti
+      // à l'adresse de Karyl. Le tool a fait exactement ce qu'on lui demandait — c'est
+      // l'`employeeId` choisi par le modèle qui était faux, faute d'un résolveur par nom.
+      //
+      // Ce champ ne CORRIGE rien : il rend le fait VISIBLE. Le modèle voit désormais pour
+      // qui il vient de produire un document et le bloc DOCUMENTS lui impose de le nommer,
+      // si bien qu'une erreur de destinataire devient lisible par l'humain au tour même,
+      // au lieu de rester muette jusqu'à ce qu'on interroge la base un mois plus tard.
+      // La correction, elle, est en amont : `findPersonByName`.
+      //
+      // Le NOM, jamais l'email — pour la même raison que `findEmployeeByEmail` n'en rend
+      // pas : ce tool est atteignable par n'importe quel membre du workspace. Coût ≈ 12
+      // tokens, payés à chaque document produit.
       const result = {
         saved: true as const,
         documentId: generated.id,
         format: producedFormat,
         delivery,
+        recipient: `${employee.firstName} ${employee.lastName}`.trim(),
         ...(rendered ? { filename: rendered.filename } : {}),
         ...(reason ? { reason, hint: HINTS[reason] } : {}),
       };

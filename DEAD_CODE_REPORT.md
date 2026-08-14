@@ -1,5 +1,14 @@
 # DEAD_CODE_REPORT.md
 
+> ⚠️ **INSTANTANÉ HISTORIQUE DU 2026-08-10 — NE PAS LIRE COMME L'ÉTAT COURANT.**
+> Produit à l'étape 2 de `REFACTOR_LOOP.md`. Une large part de ce qu'il signalait a depuis été supprimée — et d'autres morceaux sont morts après lui, donc il est à la fois périmé et incomplet.
+> Ce document n'est **pas** mis à jour et n'a pas vocation à l'être : il vaut comme trace de ce
+> qui était vrai ce jour-là. Pour l'état réel, dans cet ordre : `npx vercel ls` (ce qui tourne),
+> `CLAUDE.md` (le dépôt), `CONTEXT.md` (l'intention), `TODO.md` (les dettes ouvertes).
+> Banderole posée le 2026-08-14, après qu'un inventaire a montré que plusieurs de ces fichiers
+> décrivaient des agents, des tools et des répertoires supprimés depuis — sans qu'aucun ne le dise.
+
+
 > Produit à l'**Étape 2** de `REFACTOR_LOOP.md`, le 2026-08-10.
 > Branche `refactor/cleanup-20260810`, commits `a707244`, `1fb8a58`, `ab56831`.
 

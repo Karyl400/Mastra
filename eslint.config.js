@@ -41,6 +41,17 @@ export default defineConfig([
       'sonarjs/no-unused-vars': 'warn',
       'sonarjs/no-dead-store': 'warn',
       'no-control-regex': 'warn',
+      // ⚠️ DÉSACTIVÉE le 2026-08-14, après mesure : 7 des 9 « erreurs » d'ESLint étaient des
+      // faux positifs de cette règle. Elle cherche des marqueurs `// TODO:` abandonnés dans le
+      // code — intention légitime — mais elle matche le mot n'importe où dans un commentaire,
+      // donc elle se déclenchait sur les RENVOIS à `TODO.md`, qui est le registre de dettes du
+      // projet et que la culture de commentaires de ce dépôt cite constamment.
+      //
+      // Le coût n'était pas cosmétique : `npm run lint` se termine par `|| true`, donc ces 9
+      // erreurs étaient MUETTES, et `TODO.md` affirmait encore « 0 erreur, 104 warnings ». Une
+      // règle qui ne produit que du bruit finit par masquer le signal qu'elle devait porter —
+      // c'est ce qui est arrivé ici.
+      'sonarjs/todo-tag': 'off',
     },
     settings: {
       ...sonarjs.configs.recommended.settings,

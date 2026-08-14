@@ -33,7 +33,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { makeOnboardingOrchestrator } from '../../../src/features/onboarding/application/agents/onboarding-orchestrator';
-import { makeQuestionnaireEngine } from '../../../src/features/questionnaire/application/agents/questionnaire-engine';
 import { makeNotificationAgent } from '../../../src/features/notification/application/agents/notification-agent';
 import {
   AGENT_STYLE_BLOCK,
@@ -41,43 +40,32 @@ import {
   agentToolBoundary,
 } from '../../../src/shared/agent-style';
 import { sanitizeAgentOutput } from '../../../src/shared/security/agent-output';
+import { AGENT_TOOLS } from '../../../src/shared/agent-capabilities';
 
 const CHARS_PER_TOKEN = 3.5;
 const tok = (s: string) => Math.round(s.length / CHARS_PER_TOKEN);
 
 /**
- * Câblage RÉEL de `src/mastra/index.ts`, reproduit ici comme jeu d'essai — c'est
- * ce que `_measure.mts` fait aussi. Les valeurs sont des doublures vides : seules
- * les CLÉS comptent, ce sont elles que la frontière négative énumère.
+ * Câblage RÉEL de `src/mastra/index.ts` — **importé**, plus recopié.
+ *
+ * ⚠️ Cette constante était rédigée à la main ici, et elle a dérivé DEUX FOIS : elle nommait
+ * encore `evaluateResponse` (décâblé le 2026-08-12) et ignorait `findEmployeeByEmail` sur deux
+ * agents sur trois, si bien que toute mesure de budget qui s'y fiait sous-estimait le total.
+ * `CLAUDE.md` le signalait, `_measure.mts` portait la même copie périmée, et personne ne
+ * pouvait le voir : un jeu d'essai qui ment sur le câblage finit par servir de référence.
+ *
+ * Depuis le 2026-08-14 la source est UNIQUE (`src/shared/agent-capabilities.ts`) et elle est
+ * partagée avec le ROUTAGE, qui s'en sert pour décider si l'agent d'un fil peut servir la
+ * demande. Une divergence casse donc un routage vérifié par test, au lieu de fausser un
+ * chiffre en silence.
  */
-const WIRING = {
-  onboardingOrchestrator: [
-    'findEmployeeByEmail',
-    'getEmployeeProfile',
-    'updateOnboardingStatus',
-    'getTaskList',
-    'generateDocument',
-  ],
-  // ⚠️ Remis en phase avec `src/mastra/index.ts` le 2026-08-13. Cette constante avait dérivé
-  // deux fois : elle nommait encore `evaluateResponse` (décâblé le 2026-08-12) et ignorait
-  // `findEmployeeByEmail` sur deux agents. Sans conséquence pour les assertions de FORME
-  // ci-dessous, mais un jeu d'essai qui ment sur le câblage finit par servir de référence.
-  questionnaireEngine: ['generateQuestionnaire'],
-  notificationAgent: [
-    'findEmployeeByEmail',
-    'sendNotification',
-    'scheduleReminder',
-    'getNotificationHistory',
-    'getEmployeeProfile',
-  ],
-} as const;
+const WIRING = AGENT_TOOLS;
 
 const toolsOf = (names: readonly string[]) =>
   Object.fromEntries(names.map((n) => [n, {}])) as Record<string, never>;
 
 const agents = [
   ['onboardingOrchestrator', makeOnboardingOrchestrator],
-  ['questionnaireEngine', makeQuestionnaireEngine],
   ['notificationAgent', makeNotificationAgent],
 ] as const;
 

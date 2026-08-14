@@ -16,6 +16,7 @@ function makeMockRepo(overrides: Partial<EmployeeRepository> = {}): EmployeeRepo
   return {
     findById: vi.fn().mockResolvedValue(null),
     findByEmail: vi.fn().mockResolvedValue(null),
+    findByName: vi.fn().mockResolvedValue([]),
     save: vi.fn().mockResolvedValue(undefined),
     update: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn().mockResolvedValue(undefined),

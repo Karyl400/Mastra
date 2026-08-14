@@ -28,6 +28,27 @@ export interface DocumentRenderInput {
     position?: string;
     startDate?: string;
   };
+  /**
+   * Ce que la personne a dit d'elle à l'entretien post-profil.
+   *
+   * ⚠️ Résolu CÔTÉ SERVEUR par `generateDocument`, exactement comme `employee` — jamais par
+   * le modèle. C'est ce qui rend un guide personnel SANS coûter un token : le gabarit imprime
+   * de la matière réelle, là où il imprimait auparavant quatre puces écrites en dur
+   * (« Configuration poste de travail », « Accès Slack/GitHub »…) identiques pour tout le
+   * monde. C'est le « document générique » signalé par le propriétaire.
+   *
+   * Chaque champ est OPTIONNEL et n'est rendu que s'il existe : un intertitre suivi du vide
+   * se lit comme un oubli, pas comme une absence de réponse. Les trois champs de l'entretien
+   * sont eux-mêmes facultatifs.
+   */
+  interview?: {
+    /** Ce que la personne fait au quotidien, texte assaini à la saisie. */
+    dailyWork?: string;
+    /** Comment elle préfère travailler, texte assaini à la saisie. */
+    workStyle?: string;
+    /** NOMS des canaux qu'elle a choisis — pas les `C…`, qui ne se lisent pas. */
+    channels?: readonly string[];
+  };
 }
 
 /**

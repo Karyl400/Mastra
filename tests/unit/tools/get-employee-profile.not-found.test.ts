@@ -34,7 +34,6 @@ function tool(employee: unknown, progress: unknown) {
   return makeGetEmployeeProfile(
     { findById: vi.fn().mockResolvedValue(employee) } as never,
     { findByEmployee: vi.fn().mockResolvedValue(progress) } as never,
-    { findByEmployee: vi.fn().mockResolvedValue([]) } as never,
   );
 }
 

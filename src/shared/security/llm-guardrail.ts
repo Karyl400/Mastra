@@ -856,6 +856,19 @@ const INJECTION_PATTERNS: ReadonlyArray<{ regex: RegExp; type: string }> = [
     type: 'Role redefinition (FR)',
   },
   { regex: /\bjoue\s+le\s+role\b|\bfais\s+semblant\s+d/i, type: 'Role redefinition (FR)' },
+  // ⚠️ Ajouté le 2026-08-14. `TODO.md` [0 ter] : « le jeu de rôle n'est couvert que par les
+  // motifs déjà listés ; "imagine que tu es…" passe. » C'est la formulation d'amorçage la plus
+  // banale, et elle traversait tout le filet français.
+  //
+  // L'exigence de `que tu es` / `que vous etes` est ce qui fait la différence entre une
+  // ATTRIBUTION D'IDENTITÉ et une simple hypothèse : « imagine qu'on ajoute un canal » ou
+  // « suppose que Awa arrive lundi » ne déclenchent pas. Même critère que celui qui a fait
+  // écarter « à partir de maintenant » seul — c'est l'identité qui est le signal.
+  {
+    regex:
+      /\b(?:imagine|imaginons|imaginez|suppose|supposons|supposez)\s+(?:que\s+)?(?:tu\s+es|t'es|vous\s+etes)\b/i,
+    type: 'Role redefinition (FR)',
+  },
 
   // Extraction du prompt système. Le mot « prompt » ou un qualificatif de système
   // (système / initiales / internes / secrètes) est EXIGÉ : sans lui, « montre-moi les

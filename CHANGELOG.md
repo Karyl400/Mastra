@@ -1,5 +1,443 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-14 (3) — lot 3, et les dettes que les `.md` portaient depuis deux jours
+
+Deux moitiés. La première ferme des dettes **recensées et laissées ouvertes** dans `TODO.md` —
+dont une faille d'usurpation. La seconde est le lot 3 : « qui peut faire quoi », et
+l'atteignabilité du `knowledgeAgent`.
+
+### Security — `requestContext` était forgeable par le corps HTTP sur `/api/*`
+
+Recensé le 2026-08-12, resté ouvert. Mastra fusionne `body.requestContext` dans le contexte
+serveur et n'écarte que `RESERVED_CONTEXT_KEYS` — vérifié dans le paquet installé
+(`@mastra/server/dist/constants-*.js`) : la liste tient `mastra__*` et `organizationId`, et
+**aucune clé `slack*`**.
+
+Or c'est sur ces clés que se décident les droits : `slackEmployeeId` gouverne
+`canReadPersonRecord` (dossier RH, historique de notifications, document au nom d'autrui) et
+`slackAccessLevel` gouverne `getUserConversations` et `canPerformSideEffects`. Un porteur de
+`MASTRA_API_TOKEN` se déclarait donc n'importe qui. La route n'est pas anonyme — mais **le jeton
+de service valait l'usurpation totale**, ce qui n'est pas ce qu'un jeton de service est censé
+valoir. L'invariant écrit en tête de `slack-request-context.ts` (« une valeur que le modèle ne
+peut pas écrire ») ne tenait en réalité que sur `/slack/events`.
+
+`createRequestContextGuard` (`src/shared/security/request-context-guard.ts`), monté **en
+premier** dans `server.middleware` :
+- il **REFUSE** en 400 au lieu d'assainir. Retirer les clés en silence laisserait l'appel
+  aboutir : les tools dégraderaient proprement (`readSlackContext` rend `undefined` hors Slack,
+  c'est leur cas nominal) et rendraient une réponse plausible — une tentative d'usurpation
+  ressemblerait à un succès partiel et ne laisserait aucune trace lisible ;
+- il surveille un **PRÉFIXE**, pas une liste recopiée. La liste réelle s'allonge
+  (`slackEmployeeId` y est arrivée le 2026-08-13) ; une copie couvrirait les clés d'aujourd'hui
+  et laisserait passer celles de demain, en silence. Un test vérifie que **toutes** les clés
+  déclarées portent ce préfixe ;
+- ⚠️ le corps est lu via `Request.clone()` — sans quoi le flux serait consommé et toute requête
+  `/api/*` légitime partirait ensuite sur un corps vide. Un test le verrouille.
+
+### Fixed — le palier collant a cessé d'être un piège (routage par CAPACITÉ)
+
+`TODO.md` [0 bis] le disait sans détour : *« le palier collant a DÉPLACÉ l'état absorbant, il ne
+l'a pas supprimé »*. Après « Envoie un rappel à Pamela » (échappement `rappel` →
+`notificationAgent`), « Génère-moi le guide en PDF » **restait chez `notificationAgent`, qui n'a
+pas `generateDocument`** — et en DM la clé de conversation est le canal, donc le verrou tenait
+une heure sur tous les sujets.
+
+La règle ne porte plus sur la PRIORITÉ des bandes mais sur le CÂBLAGE :
+
+    le fil est conservé, SAUF si l'agent qui le mène ne porte pas l'outil demandé.
+
+Sûre dans les deux sens : elle n'arrache jamais un fil à un agent qui sait répondre (donc ne
+rejoue pas le défaut du 2026-08-11), ni ne le laisse chez un agent qui ne sait pas (donc ferme
+celui du 2026-08-12). Et elle est **dérivée** de `AGENT_TOOLS`, pas rédigée.
+
+⚠️ **Un test verrouillait le défaut** et a dû être retourné : il asseyait « Donne le PDF alors »
+restant chez `notificationAgent`, justifié par « un agent qui promet une capacité qu'il n'a
+pas » — or c'est l'inverse, l'orchestrateur PORTE `generateDocument`.
+
+⚠️ **`email` / `message` ne délogent JAMAIS**, et c'est une correction, pas une prudence : un
+test de non-régression du 2026-08-11 l'a attrapé pendant l'implémentation. `generateDocument`
+porte `deliverTo: 'email'`, donc l'orchestrateur sert « Par email » sans `sendNotification` ;
+l'en déloger rejouait exactement l'alternance A → B → A. D'où la règle d'admission : le terme
+doit désigner une capacité servie par **exactement un** agent.
+
+### Added — `knowledgeAgent` est enfin atteignable
+
+Ses seules portes d'entrée étaient `conversation` et `historique`. « Résume ce qui s'est dit
+dans #kisso-hq » partait au défaut, donc chez un agent sans aucun outil de canal — et **toute la
+`disclosure-policy.ts` était du code mort sur la phrase que quelqu'un dirait vraiment**. Rien ne
+fuyait, mais ce n'était pas la politique qui l'empêchait, c'était l'inaccessibilité.
+
+Ajout en **bande 3** (l'endroit sûr — elle ne peut pas détourner une réponse de suivi) de
+`résume|résumé|resume|resumé`, et du **jeton de canal `<#C…>`** : meilleur signal que tout
+mot-clé, produit par le client Slack, jamais tapé, et il survit à `cleanText`.
+
+### Added — `findExpertise` : « qui peut faire quoi »
+
+Le workspace savait déjà qui fait quoi (`slack_directory.title`, 40 lignes ;
+`employees.position`, 2 lignes) ; **aucun tool ne savait l'interroger**. « Qui s'occupe du
+backend ? » n'avait donc qu'une réponse possible, celle que le modèle inventait.
+
+- **Deux sources**, comme `findPersonByName` : Awa n'a aucune ligne d'annuaire, les quatre
+  autres personnes vivantes n'ont pas de dossier. Une seule source laisse la moitié du workspace
+  introuvable — le relevé l'impose, ce n'est pas une précaution.
+- **Aucun identifiant, aucune adresse** dans le résultat. La question est posée au PLURIEL :
+  rendre des UUID inviterait le modèle à en choisir un, le geste exact qui a envoyé le document
+  d'Awa à l'adresse de Karyl. Sans identifiant, l'appel suivant est structurellement impossible.
+- **Le poste déclaré, et lui seul.** `onboarding_interview.dailyWork` serait plus riche, mais
+  la table comptait **0 ligne** — l'inclure n'ajouterait aucune recall — et une personne l'a
+  écrit dans un entretien dont l'objet annoncé est son guide et ses canaux : en faire un index
+  interrogeable par ses collègues est un changement d'usage, qui se demande avant de se coder.
+  Un poste Slack, lui, est déjà visible de tout le workspace.
+- Rapprochement par **préfixe de mot** (`matchesName`, partagé) : « postgres » retrouve
+  « PostgreSQL », « api » ne retrouve pas « rapide ». Résultat borné en NOMBRE **et en longueur
+  d'étiquette** — borner la liste seule laisse la taille dépendre des intitulés, défaut qui a
+  déjà coûté 9 600 tokens à `getNotificationHistory`.
+
+### Changed — le câblage agent → outils est déclaré UNE SEULE FOIS
+
+`src/shared/agent-capabilities.ts`. Il était recopié à la main dans la constante `WIRING` du
+test de budget et dans `_measure.mts`, et **les deux copies avaient dérivé** — elles ignoraient
+`findEmployeeByEmail` sur deux agents sur trois, donc toute mesure de FLOOR qui s'y fiait était
+fausse. `CLAUDE.md` le signalait sans que personne ne puisse le voir. Le routage s'en sert
+désormais : une divergence casse un test de routage au lieu de fausser un chiffre en silence.
+
+### Fixed — dettes `TODO.md` fermées, et trois entrées qui étaient FAUSSES
+
+- `maskPii` couvre désormais la prose écrite par un humain : `text`, `content`, `body`, `fact`,
+  `dailyWork`, `workStyle`. ⚠️ `message` reste exclu — c'est le champ des messages d'erreur, le
+  masquer supprimerait le diagnostic au lieu de protéger quelqu'un.
+- « imagine / suppose … **que tu es** » est détecté comme redéfinition de rôle. L'exigence de
+  « que tu es » sépare l'attribution d'identité de la simple hypothèse : « imagine qu'on ajoute
+  un canal » ne déclenche pas — trois phrases de trafic RH nominal le verrouillent.
+- Six scripts gagnent une entrée npm (`directory:sync`, `directory:show`, `directory:prune`,
+  `db:ddl`, `probe:replies`, `probe:erasure`).
+- ⚠️ **`npm run lint` mentait, et `|| true` le masquait.** `TODO.md` affirmait « 0 erreur, 104
+  warnings » : il y avait **9 erreurs**, muettes. Sept étaient des faux positifs de
+  `sonarjs/todo-tag` — la règle cherche des `// TODO:` abandonnés mais matche le mot n'importe
+  où dans un commentaire, donc elle se déclenchait sur les renvois à `TODO.md`, que la culture
+  de commentaires du dépôt cite constamment. Règle désactivée, la neuvième erreur corrigée,
+  `|| true` **retiré** : `lint` est redevenu un signal (0 erreur, 113 warnings).
+- ⚠️ **`src/config/index.ts` n'existe plus** — le répertoire entier est absent, `getConfig` a
+  zéro occurrence. La tâche « câbler ou supprimer » et les **trois** mentions de `CLAUDE.md`
+  invitaient à trancher sur un fichier supprimé. Conséquence à connaître : il n'existe aucune
+  validation centralisée de l'environnement.
+- ⚠️ **`SlackRateLimiter.prune()` A un site d'appel** — l'entrée décrivait un état antérieur au
+  correctif. Vérifié : 44 lignes en production, la table ne croît pas sans borne.
+
+### Docs — les `.md` de la racine disaient des choses fausses, sans le dire
+
+`AGENT.md` **réécrit** : il décrivait une structure `src/agents/` · `src/tools/` ·
+`src/workflows/` qui n'existe plus depuis la refonte Screaming Architecture, plus une stack
+fausse sur trois points (better-sqlite3, « OpenAI / Gemini », « 4 workflows »). Un agent qui
+l'aurait lu comme une carte aurait cherché des répertoires absents.
+
+Huit rapports historiques reçoivent une **banderole datée** plutôt qu'une réécriture : leur
+valeur est d'attester ce qui était vrai ce jour-là, et les réécrire la détruirait. Le pire était
+`conversation_summary.md` (2026-08-05), qui parle de Docker, de Railway/Render, d'`OPENAI_API_KEY`
+et de Mastra 1.53.
+
+⚠️ `PLAN-ARCHITECTURE.md` reçoit la banderole **inverse** : il est cité **20 fois par le code**
+(§3.1, §4.2) et fait autorité. Nuance ajoutée : ce sont ses PRINCIPES DE SÉCURITÉ qui vivent,
+pas son pipeline d'agents, écarté au chiffrage qu'il fournit lui-même (374 > 272).
+
+`TODO.md` : les sections [5] et [6] cochaient encore `getTaskList`, `generateQuestionnaire`,
+`evaluateResponse` et `QuestionnaireEngine` comme livrés.
+
+### Budget
+
+FLOOR remesuré sur le câblage réel : orchestrateur **1 528**, notification **1 517**,
+knowledge **881 → 998**. ⚠️ **Le lot 3 n'est PAS autofinancé** : `findExpertise` coûte
+**+117 tokens**, et il faut le dire. Il porte sur l'agent le moins cher, seulement sur les
+messages qui lui sont routés (le coût des agents est alternatif, pas additif), et il achète un
+aller-retour — mais c'est une dépense. Le reste du lot est à coût nul : routage et
+atteignabilité sont du CODE.
+
+## [Unreleased] - 2026-08-14 (2) — le questionnaire n'a jamais eu de destinataire
+
+Lot 2. Il répond à « sur quoi doit porter le questionnaire ? » et à « le guide de bienvenue
+doit être chaleureux, avec les infos connues, sans donnée générique ».
+
+### Le constat, en base
+
+    questionnaires           = 5 lignes  (« Quiz sur nos valeurs »…)
+    questionnaire_responses  = 0 ligne
+
+**Personne n'a jamais pu répondre à quoi que ce soit.** Il n'existait ni formulaire Block Kit,
+ni modale, ni route de soumission — le tool le disait lui-même dans son `hint`, ce qui prouve
+qu'on le savait sans le corriger. C'est pour cette raison qu'`evaluateResponse` avait dû être
+décâblé le 2026-08-12 : son seul appelant possible était un modèle qui FABRIQUAIT les réponses
+d'un humain et les enregistrait, horodatées, à son nom.
+
+### Removed — la feature `questionnaire` cesse d'être exposée
+
+`questionnaireEngine` et `generateQuestionnaire` sont retirés du registre Mastra. Les fichiers
+et les tables restent ; seule l'exposition disparaît.
+
+⚠️ **Le routage a été nettoyé en conséquence, et ce n'est pas cosmétique** :
+`mastra.getAgent()` LÈVE sur un identifiant absent du registre
+(`MASTRA_GET_AGENT_BY_NAME_NOT_FOUND`). Un mot-clé pointant encore cet agent n'aurait pas
+produit un mauvais aiguillage mais un échec sur le message générique, à chaque message
+contenant « questionnaire ».
+- `ESCAPE_INTENTS` perd sa bande `['questionnaire', 'évaluation', 'quiz']` ;
+- `QUESTIONNAIRE_TOPICS = ['test']` disparaît — gain en soi : ce mot-clé désignait un agent de
+  quiz alors que « test » parle presque toujours d'un test logiciel dans ce workspace ;
+- `KNOWN_AGENT_IDS` ne le contient plus, donc le palier COLLANT l'ignore. **Cas réel** : des
+  `conversation_turns` de production portent encore `agentId: 'questionnaireEngine'` ; les
+  suivre condamnerait le fil jusqu'au TTL de 60 min. Leurs tours sont désormais préfixés
+  « [autre agent] » — littéralement vrai, cet assistant n'existe plus.
+- Un test de non-régression asserte que `routeToAgent` ne rend JAMAIS un identifiant hors
+  registre, sur douze phrases.
+
+### Added — l'ENTRETIEN post-profil, qui aboutit là où le questionnaire échouait
+
+Il inverse la construction : **le formulaire existe d'abord**, écrit en code, et ce qui est
+stocké est ce qu'une personne a réellement répondu.
+
+- **Table `onboarding_interview`** — `employee_id` en PRIMARY KEY : un employé a un entretien,
+  pas une collection. L'unicité devient structurelle et l'upsert trivial. DDL rejouable,
+  **appliqué et vérifié en production le 2026-08-14**.
+  - ⚠️ Pas `questionnaire_responses` : cette table porte `score`, `max_score`, `percentage`,
+    `reviewed_by`, `review_notes` — elle est en forme de QUIZ CORRIGÉ. Sept colonnes seraient
+    NULL sur 100 % des lignes, et un schéma qui décrit autre chose que ce qu'il contient finit
+    toujours par être relu comme s'il disait vrai.
+  - ⚠️ `created_at` est ABSENT du `set` de l'upsert : une correction ne réécrit pas la date du
+    premier entretien. Même invariant que `first_seen_at` dans `slack_directory`.
+- **Modale à trois champs** (`interview-modal.ts`), tous OPTIONNELS — une modale validée à
+  vide est un « non merci » légitime, et rendre la prose obligatoire ferait abandonner qui n'a
+  pas envie d'écrire, en lui coûtant ses canaux.
+  - ⚠️ Un quatrième champ « rythme de notification » a été explicitement ÉCARTÉ : aucun
+    automate ne tourne dans ce dépôt (ni cron ni poller, `findPending()` n'a aucun site
+    d'appel). L'ajouter aurait remis une promesse non tenue dans un produit qui vient d'en
+    retirer trois.
+  - ⚠️ Le bloc canaux est OMIS quand la liste est vide : un `multi_static_select` avec
+    `options: []` fait REJETER la vue entière par Slack, donc la modale ne s'ouvrirait pas —
+    et le symptôme, un clic sans effet, ne désignerait pas sa cause.
+- **La soumission INVITE réellement**, et déterministiquement : la liste vient de Slack,
+  transite par le `value` signé du bouton, est revalidée en forme des deux côtés. **Aucun
+  modèle sur ce chemin** — c'est ce qui distingue cet entretien du questionnaire qu'il
+  remplace. Chaque échec est isolé : un canal archivé ne prive pas des quatre autres.
+  - La réponse NOMME ce qui a eu lieu, canal par canal : rejoint / déjà membre / échoué.
+    `already_in_channel` n'est pas compté comme un échec. Ce dépôt a payé trois fois la faute
+    d'annoncer une action qui n'avait pas eu lieu.
+  - Ordre imposé : on ENREGISTRE d'abord, on invite ensuite. L'inverse pourrait ajouter
+    quelqu'un à cinq canaux en perdant ce qu'il a écrit, sans qu'aucune moitié ne le signale.
+- **Deux filtres sur les canaux proposés**, aucun optionnel : `!isArchived` (l'inventaire de
+  production compte 32 canaux dont **26 archivés**) et `isMember` (`conversations.invite`
+  échoue si le bot n'y est pas). Proposer un canal archivé garantit une promesse cassée.
+- **Proposé sur `completed` ET sur `degraded`.** `degraded` veut dire « l'employé EST créé,
+  une étape best-effort a échoué » : refuser l'entretien priverait de ses canaux quelqu'un
+  dont le dossier est valide, et le priverait le jour où quelque chose a déjà mal tourné.
+  Sur `failed`, rien n'est proposé — il n'y a pas de dossier.
+
+### Changed — le guide cesse d'être générique
+
+`generateDocument` résout l'entretien **côté serveur**, comme il résout la fiche employé, et
+le passe au gabarit. `buildGuide` et `buildWelcomeLetter` impriment « Ton quotidien », « Ta
+façon de travailler » et « Tes canaux » à partir de ce que la personne a écrit.
+
+**Coût : zéro token.** L'alternative — exposer l'entretien au modèle — a été écartée pour
+trois raisons dont la dernière suffirait : un tool de plus serait repayé à chaque
+aller-retour ; le modèle REFORMULERAIT ce que la personne a écrit sur elle-même, dans un
+document qui porte son nom ; et un gabarit ne peut pas halluciner.
+
+- Chaque section n'est émise que si son champ existe — un intertitre suivi du vide se lit
+  comme un oubli, défaut qui avait déjà fait retirer « Département : N/A ».
+- Les canaux sont rendus en NOMS, résolus côté serveur ; un `C…` non résolu est ÉCARTÉ plutôt
+  qu'imprimé (« #C0BP3RCLLA1 » dans un document d'accueil est pire qu'une ligne en moins).
+- **Dépendances OPTIONNELLES** : sans elles, le document est exactement celui d'avant. Un test
+  de non-régression le vérifie caractère par caractère, et un autre vérifie qu'une table
+  absente ne fait pas échouer la génération.
+- Garde-fou de NON-RETOUR : un test asserte que les quatre puces génériques (« Configuration
+  poste de travail »…) ne reviennent pas. Elles reviendraient à la première relecture qui les
+  trouverait utiles — c'est ce qui les avait fait écrire.
+
+### Coût
+
+FLOOR après retrait de `questionnaireEngine` : **3 926 tokens** pour les trois agents exposés
+(`onboardingOrchestrator` 1 528, `notificationAgent` 1 517, `knowledgeAgent` 881). Le lot 2 est
+**intégralement autofinancé** : −886 tokens d'agent retiré, et tout ce qu'il ajoute — modale,
+invitation, gabarit nourri — est en CODE, donc à coût nul par aller-retour.
+
+### Vérification
+
+`npm run typecheck` vert ; `npm run test:unit` **1 498 tests / 93 fichiers**, tous verts ;
+`npm run build` + `verify:bundle` verts. DDL `onboarding_interview` appliqué et vérifié sur la
+Turso de production.
+
+**Reste humain :** la Request URL d'*Interactivity* conditionne les DEUX modales désormais
+(profil et entretien) — sans elle, aucun des deux boutons n'atteint quoi que ce soit. Et
+`scripts/sync-slack-directory.mts --channels --apply` doit tourner de temps en temps : sans
+inventaire à jour, l'entretien propose des canaux périmés ou aucun.
+
+## [Unreleased] - 2026-08-14 — le dossier employé n'existait pour presque personne
+
+Lot de FONDATIONS. Cinq demandes du propriétaire avaient **une seule cause racine**, établie
+par lecture du code puis **confirmée sur la Turso de production** avant d'écrire une ligne.
+
+### La cause racine
+
+`buildWelcomeBlocks` est le SEUL émetteur du bouton « Compléter mon profil », et son seul
+appelant est `handleTeamJoin`. Un salarié déjà présent n'avait donc **aucun chemin** vers le
+formulaire — et `team_join` ne figure même pas dans les abonnements de l'app Slack, si bien
+que les arrivants non plus. `employees` ne se remplissait pas.
+
+Relevé en lecture seule le 2026-08-14 :
+
+    employees        = 2 lignes (Karyl d20df236…, Awa d36b78dc…)
+    slack_directory  = 40 lignes, dont 4 personnes vivantes NON rattachées
+                       (Nazer, Pamela, Mistourath, ridwanenico77)
+
+### Fixed — le document d'Awa parti à l'adresse de Karyl
+
+**Diagnostic confirmé par les données**, et il n'était pas celui qu'on croyait :
+
+    employee_id=d20df236…(Karyl)  type=welcome_letter  title="Bienvenue Awa"  status=sent
+
+**Les DIX documents de la base portent l'UUID de Karyl.** `generate-document.ts` résout
+pourtant correctement le sujet (`findById` puis `deliverByEmail(…, employee.email, …)`) : le
+défaut est en amont, dans le choix de l'`employeeId` par le MODÈLE. Awa a sa propre ligne
+`employees` — elle est simplement absente de `slack_directory`, donc `findEmployeeByEmail`
+(seul résolveur existant) exigeait une adresse que personne n'avait tapée. **Aucun tool ne
+résolvait un prénom** (`TODO.md` le recensait depuis le 2026-08-12 sans le relier à ce bug).
+Sommé de fournir un UUID, le modèle a réutilisé le seul de son contexte — même mécanique que
+l'email `votre_email@example.com`.
+
+Trois correctifs, dont **un seul** est une correction :
+
+1. **`findPersonByName`** (`employee/application/tools/`) — DEUX sources, `employees` d'abord
+   puis l'annuaire. Le relevé l'impose : Awa n'existe que dans l'une, les quatre autres
+   personnes vivantes que dans l'autre. Rapprochement dans `src/shared/name-matching.ts`,
+   partagé par les deux dépôts — deux implémentations divergeraient au premier accent.
+   - **Sur AMBIGUÏTÉ, aucun identifiant ne sort.** Rendre deux UUID reviendrait à laisser le
+     modèle en choisir un : le geste même qui a produit le bug. Sans identifiant, l'appel
+     suivant est structurellement impossible et le modèle doit demander.
+   - Ni en SQL ni par `LIKE` : `lower()` de SQLite n'ôte pas les accents et `%needle%`
+     correspondrait au milieu des mots — « rao » retrouverait « Traoré ».
+2. `generateDocument` rend désormais `recipient` (le NOM, jamais l'email) et l'orchestrateur
+   doit le citer. ⚠️ **Mesure de VISIBILITÉ, pas garantie** : elle rend l'erreur lisible au
+   tour même au lieu de la laisser muette un mois.
+3. `warn` quand un document est produit pour une autre personne que le demandeur. Aucun refus
+   — c'est le cas d'usage normal ; c'est la ligne à chercher la prochaine fois.
+
+### Added — deux court-circuits déterministes, portant le total à HUIT
+
+Chacun est un prédicat pur, une réponse écrite en dur, **zéro token** sur un quota qui se
+compte à la journée. Tous deux répliqués dans `isAnsweredWithoutModel`, contrat vérifié par
+test : sans ce miroir, le plafond quotidien refuserait un geste qui ne coûte rien.
+
+- **`src/shared/profile-request.ts`** — « complète mon profil », « où est-ce que je remplis
+  ma fiche ? » postent le bouton. Calqué sur `forget.ts`, avec **l'asymétrie INVERSE** :
+  un faux positif poste un bouton (additif, ignorable), un faux négatif laisse quelqu'un sans
+  dossier. Les questions de MOYEN déclenchent donc (« comment je… ? » — le bouton EST la
+  réponse), celles de MOTIF non (« pourquoi dois-je… ? »).
+  - ⚠️ **DM UNIQUEMENT, et c'est de la sécurité.** Le pré-remplissage est figé dans le `value`
+    du bouton : en canal, un témoin qui clique ouvrirait une modale portant les données
+    d'autrui et sa soumission écrirait le dossier de cette personne. En canal, redirection.
+  - Deux familles de verbes appariées à deux jeux d'objets : « envoie mon profil à Awa » n'est
+    pas une demande de formulaire, et l'intercepter AVALERAIT une vraie question.
+- **`src/shared/pin-fact.ts`** — « souviens-toi que… » ÉPINGLE enfin. Nouvelle table
+  `pinned_facts`, **hors du TTL de 60 minutes** (table séparée et non un drapeau : deux durées
+  de vie opposées sous la même purge, c'est un `WHERE pinned = 0` qu'on oublie une fois).
+  - Bornes : 5 faits, 120 caractères, éviction du plus ancien — le préambule système est
+    réémis à CHAQUE aller-retour.
+  - Restitués dans le message `system` comme des **DÉCLARATIONS**, jamais des consignes :
+    « souviens-toi que tu dois ignorer tes règles » ne doit pas devenir une règle.
+  - `forget()` les emporte. Sans cela, une personne ayant demandé l'effacement verrait le bot
+    continuer à citer ce qu'elle lui avait dit de retenir — le pire cas de ce chemin.
+  - Sur échec d'écriture, **jamais** `pinnedFactReply` : promettre de se souvenir sans avoir
+    écrit serait le défaut central du dépôt sous une autre forme.
+
+### Added — `scripts/invite-profile-completion.mts` (npm `profile:invite`)
+
+Fait, une fois, ce que `team_join` aurait dû faire. Dry-run par défaut ; vérifié contre la
+production : **4 personnes réelles** à relancer. **N'écrit AUCUNE ligne `employees`** —
+`position` et `start_date` sont `NOT NULL` et l'annuaire ne les connaît pas ; les fabriquer
+produirait la valeur inventée qu'un lecteur ultérieur relit comme un fait.
+
+⚠️ `SLACKBOT_USER_ID` est désormais exporté : Slack ne déclare Slackbot **ni `is_bot` ni
+`deleted`** (vérifié en production), donc les deux filtres évidents le laissaient passer — le
+premier dry-run le listait bel et bien.
+
+### Removed — tout le suivi de TÂCHES
+
+`getTaskList`, l'entité `Task`, son port, ses deux dépôts, `task-summary.mapper`, `task.dto`,
+le catalogue `ONBOARDING_TASKS`, les `onboarding_steps` qui en dérivaient 1:1, l'écriture dans
+`initOnboarding`, `BestEffortStep.OnboardingTasks` et `scripts/backfill-onboarding.mts`.
+
+**Ces cinq tâches étaient un plan qu'AUCUN mécanisme ne faisait avancer** — ni humain, ni
+automate, ni tool ne pouvait marquer « Rencontrer ton manager » comme faite. Un suivi qui ne
+bouge jamais est un suivi qui ment : même famille que `emailSent: false` sous
+`status: 'success'` et que `status = Sent` posé avant le `try`. Deux des cinq renvoyaient de
+surcroît vers un questionnaire et un guide qui n'existaient pas sous la forme annoncée.
+
+Le seul suivi du produit est désormais la **complétion du profil** (`onboarding_progress`,
+`totalSteps = 1`, dérivé de `ONBOARDING_TOTAL_STEPS`).
+
+⚠️ Les tables `tasks` et `onboarding_steps` ne sont PAS supprimées en production : un `DROP`
+est irréversible et ce lot n'en a pas besoin.
+
+### Changed — les gabarits de documents perdent ce qu'ils inventaient
+
+`buildWelcomeLetter` perd son bloc « Prochaines étapes » et `buildGuide` ses quatre puces
+(« Configuration poste de travail », « Accès Slack/GitHub »…). **Écrites en dur, elles
+sortaient à l'identique dans le document de chaque personne**, et deux d'entre elles
+renvoyaient à des choses qui n'existent pas : « Remplir le questionnaire d'intégration »
+(aucun questionnaire n'est envoyable ni remplissable) et « Consulter le guide onboarding »
+(aucune URL de téléchargement n'existe dans ce système). C'est le « document générique »
+signalé par le propriétaire. `buildGuide` cite en revanche le POSTE, toujours connu.
+
+### Changed — les aveux d'incapacité expliquent et proposent une suite
+
+`NEUTRAL_REFUSAL`, `GENERIC_FAILURE`, `QUOTA_FAILURE`. Ce qui ne bouge pas : aucune mention de
+la règle touchée (elle renseignerait l'attaquant), aucun renvoi vers un humain, tutoiement.
+
+⚠️ `QUOTA_FAILURE` corrige une **INEXACTITUDE** : « réessaie dans quelques minutes » est vrai
+pour le seau par minute, faux pour le plafond JOURNALIER — celui qui casse réellement la
+production. Vérifié le 2026-08-11 : réessayé après 60 s, même échec en 21 s.
+
+### Coût mesuré — assumé et nommé
+
+FLOOR sur le câblage RÉEL (ratio 3,5 car./token, `zodToJsonSchema` + `getInstructions()`) :
+
+| Agent                    | avant | après | Δ |
+| ------------------------ | ----- | ----- | --- |
+| `onboardingOrchestrator` | 1 476 | **1 528** | +52 |
+| `questionnaireEngine`    | 875   | **886**   | +11 |
+| `notificationAgent`      | 1 352 | **1 517** | +165 |
+| **Somme (3 agents)**     | 3 703 | **3 931** | **+228 (+6 %)** |
+
+(`knowledgeAgent` mesuré à **881**, absent des relevés antérieurs.)
+
+Le lot n'est **pas** autofinancé, contrairement à ceux du 2026-08-11, et il faut le dire :
+`findPersonByName` sur deux agents coûte plus que ne rend le retrait de `getTaskList`. La
+contrepartie n'est pas dans le prompt mais dans les ÉTAPES et les tool-results — le poste
+dominant : un aller-retour « donne-moi son email » → « je ne l'ai pas » épargné vaut plusieurs
+centaines de tokens, `tasks` disparaît d'un tool-result qui pesait jusqu'à 979 tokens, et deux
+court-circuits de plus répondent à coût nul.
+
+### DDL
+
+`scripts/ddl-pinned-facts.sql` — **appliqué et vérifié sur la Turso de production le
+2026-08-14** (table + index). Rejouable. ⚠️ Ordre imposé : DDL d'abord, déploiement ensuite.
+
+### ⚠️ Piège de test — QUATRIÈME dépendance à neutraliser
+
+Toute construction manuelle d'un `SlackEventsHandler` en test doit désormais neutraliser
+`conversationRepository`, `dedupRepository`, `rateLimiter` **et `pinnedFactRepository`**. Sans
+la quatrième, `loadPinnedFacts` construit un dépôt Drizzle et lit la VRAIE base à chaque test
+qui atteint le modèle — exactement la fuite déjà payée sur les compteurs de débit.
+
+### Vérification
+
+`npm run typecheck` vert ; `npm run test:unit` **1 479 tests / 91 fichiers**, tous verts ;
+`npm run build` vert, `verify:bundle` inclus (659 paquets, smoke PDF 7 082 octets, liaison ESM
+du bundle vérifiée). Dry-run de `profile:invite` exécuté contre la production.
+
+**Reste à faire, humain et non scriptable :** abonner `team_join` dans *Event Subscriptions*,
+et vérifier la Request URL d'*Interactivity* (`https://<domaine>/slack/interactions`). Sans le
+premier, A1 et le script sont les SEULS chemins vers le formulaire ; sans le second, le clic
+sur le bouton n'atteint rien.
+
 ## [Unreleased] - 2026-08-13 (4) — le plafond ne mesurait pas ce qu'il prétendait borner
 
 Soumis au Conseil : **« le plafond de 12 messages/jour/personne est-il une bonne décision ? »**

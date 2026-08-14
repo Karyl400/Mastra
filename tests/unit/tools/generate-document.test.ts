@@ -161,6 +161,7 @@ type Result = {
   format?: string;
   filename?: string;
   delivery: string;
+  recipient?: string;
   reason?: string;
   hint?: string;
 };
@@ -688,5 +689,48 @@ describe('generateDocument — assainissement du contenu', () => {
 
     expect(upload.calls[0]!.title).not.toContain('SECURITY_BLOCK');
     expect(upload.calls[0]!.title).toBe('Guide [retiré]');
+  });
+});
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * LE DESTINATAIRE, rendu VISIBLE — relevé de production du 2026-08-13
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ *   employee_id=d20df236…(Karyl)  type=welcome_letter  title="Bienvenue Awa"  status=sent
+ *
+ * Les DIX documents de la Turso portent l'UUID de Karyl, y compris celui intitulé
+ * « Bienvenue Awa » — dont l'email est donc parti à l'adresse de Karyl. Le tool a fait
+ * exactement ce qu'on lui demandait : c'est l'`employeeId` choisi par le modèle qui était
+ * faux, faute d'un résolveur par nom (corrigé par `findPersonByName`).
+ *
+ * ⚠️ Ce champ ne CORRIGE rien — il rend le fait lisible au tour même, au lieu qu'il reste
+ * muet jusqu'à ce qu'on interroge la base un mois plus tard. C'est une mesure de
+ * visibilité, et ces tests verrouillent ce qu'elle expose ET ce qu'elle n'expose pas.
+ */
+describe('generateDocument — destinataire rendu au modèle', () => {
+  it('nomme la personne pour laquelle le document a été produit', async () => {
+    const result = await run({}, input({ deliverTo: 'none' }));
+
+    expect(result.recipient).toBe(`${employee.firstName} ${employee.lastName}`);
+  });
+
+  it("n'expose JAMAIS l'adresse email du destinataire", async () => {
+    // Ce tool est atteignable depuis un message Slack arbitraire. Le NOM lève l'ambiguïté ;
+    // l'adresse serait une donnée personnelle de plus dans la fenêtre du modèle, donc
+    // potentiellement dans une réponse visible par n'importe quel membre du workspace.
+    // Même arbitrage que `findEmployeeByEmail`, qui ne rend pas l'email non plus.
+    const serialise = JSON.stringify(await run({}, input({ deliverTo: 'none' })));
+
+    expect(serialise).not.toContain(employee.email);
+  });
+
+  it('le rend AUSSI quand la livraison échoue', async () => {
+    // C'est le cas où il sert le plus : « le document est prêt mais je n'ai pas pu te
+    // l'envoyer » doit dire de QUI il s'agit, sinon la personne ne peut pas corriger.
+    const result = await run({}, input({ deliverTo: 'email' }));
+
+    expect(result.delivery).not.toBe('email');
+    expect(result.recipient).toBe(`${employee.firstName} ${employee.lastName}`);
   });
 });

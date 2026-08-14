@@ -1,5 +1,18 @@
 # Plan d'architecture — à valider avant exécution
 
+> ✅ **DOCTRINE VIVANTE — ce fichier n'est PAS un instantané historique.**
+> Contrairement aux autres rapports de la racine, il est **cité par le code** : 20 renvois dans
+> `src/`, notamment §3.1 (« un garde-fou LLM échoue ouvert ET bruyant ») et §4.2 (lecture agrégée
+> + écriture externe = canal d'exfiltration), qui justifient respectivement le refus de décider
+> d'un droit sur une valeur passée par le modèle et la quarantaine du `knowledgeAgent`.
+> Ses §§ font donc autorité et ne doivent pas être renumérotés à la légère.
+>
+> ⚠️ Nuance ajoutée le 2026-08-14 : le PIPELINE qu'il propose (Skill Manager, Prompt Engineer,
+> analyse de complexité) a été **examiné puis écarté**, et pour la raison que le document
+> lui-même chiffre — un étage de décision LLM coûte plus qu'il n'économise (374 > 272 tokens).
+> Ce sont ses PRINCIPES DE SÉCURITÉ qui vivent, pas son architecture d'agents.
+
+
 > Réponse à la proposition d'architecture multi-agents (pipeline Prompt Defense → Analyse de
 > complexité → Skill Manager → Sélecteur d'outils → Prompt Engineer → Agent métier, plus agents
 > Knowledge et Pré-recrutement).

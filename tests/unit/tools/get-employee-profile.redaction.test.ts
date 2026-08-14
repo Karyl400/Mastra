@@ -50,7 +50,6 @@ function makeTool() {
   return makeGetEmployeeProfile(
     { findById: vi.fn().mockResolvedValue(ligneComplete) } as never,
     { findByEmployee: vi.fn().mockResolvedValue(null) } as never,
-    { findByEmployee: vi.fn().mockResolvedValue([]) } as never,
   );
 }
 

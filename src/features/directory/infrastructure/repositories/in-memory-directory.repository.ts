@@ -1,5 +1,6 @@
 import type { DirectoryMember, DirectoryMemberFacts } from '../../domain/entities/directory-member';
 import type { DirectoryRepository } from '../../domain/ports/directory.repository';
+import { matchesName } from '../../../../shared/name-matching';
 
 /**
  * Doublure de test du `DirectoryRepository`. Même contrat et même sémantique que
@@ -89,6 +90,16 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
   }
 
   /** Trié sur la clé, comme l'`ORDER BY` de l'implémentation Drizzle. */
+  /** Même rapprochement que la production — le module partagé est le seul juge. */
+  async findByName(query: string, limit: number): Promise<DirectoryMember[]> {
+    if (limit <= 0) return [];
+
+    return Array.from(this.rows.values())
+      .sort((a, b) => compareBinary(a.slackUserId, b.slackUserId))
+      .filter((m) => matchesName(query, [m.firstName, m.lastName, m.displayName, m.realName]))
+      .slice(0, limit);
+  }
+
   async listAll(): Promise<DirectoryMember[]> {
     return Array.from(this.rows.values()).sort((a, b) =>
       compareBinary(a.slackUserId, b.slackUserId),

@@ -2,7 +2,7 @@ import { Workflow, createStep } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { logger } from '../../../../shared/logger';
 import { createEmployee } from '../../../employee/domain/entities/employee';
-import { ONBOARDING_TASKS, buildOnboardingPlan } from '../../domain/services/onboarding-plan';
+import { buildOnboardingPlan } from '../../domain/services/onboarding-plan';
 import {
   BestEffortStep,
   OnboardingOutcome,
@@ -11,7 +11,6 @@ import {
   toFailureReason,
   type StepFailure,
 } from '../../domain/value-objects/onboarding-outcome';
-import type { TaskRepository } from '../../../employee/domain/ports/task.repository';
 import type { EmployeeRepository } from '../../../employee/domain/ports/employee.repository';
 import type { OnboardingRepository } from '../../domain/ports/onboarding.repository';
 import type { NotificationRepository } from '../../../notification/domain/ports/notification.repository';
@@ -160,7 +159,6 @@ export function createEmployeeOnboardingWorkflow(deps: {
   employeeRepo: EmployeeRepository;
   onboardingRepo: OnboardingRepository;
   notificationRepo: NotificationRepository;
-  taskRepo: TaskRepository;
   emailProvider: EmailProvider;
   slackProvider?: SlackWorkspaceProvider;
 }) {
@@ -230,45 +228,24 @@ export function createEmployeeOnboardingWorkflow(deps: {
     execute: async ({ inputData }) => {
       logger.info('Onboarding — initialisation progress', { employeeId: inputData.employeeId });
 
-      // Catalogue et mise en plan viennent du DOMAINE
-      // (`domain/services/onboarding-plan.ts`), partagés avec
-      // `scripts/backfill-onboarding.mts` : une recopie ici ferait diverger le
-      // parcours créé à l'arrivée de celui posé par le rattrapage.
-      const plan = buildOnboardingPlan({
-        employeeId: inputData.employeeId,
-        startDate: inputData.startDate,
-      });
-      const started = plan.progress;
+      // La mise en plan vient du DOMAINE (`domain/services/onboarding-plan.ts`).
+      const started = buildOnboardingPlan({ employeeId: inputData.employeeId }).progress;
 
       await deps.onboardingRepo.save(started);
 
-      // Best-effort assumé : un échec ici ne doit PAS faire échouer le workflow.
-      // L'employé est déjà créé ; perdre la création pour un suivi incomplet
-      // serait un moins bon compromis que de livrer un parcours dégradé, qui
-      // reste réparable — `scripts/backfill-onboarding.mts` le répare.
-      // L'erreur est journalisée, jamais avalée en silence, et elle est
-      // désormais RENDUE à l'appelant : le seul log ne suffisait pas, personne
-      // ne lit les logs d'un run qui s'annonce `success`.
+      // ⚠️ Ce tableau reste, VIDE, et ce n'est pas un résidu.
+      //
+      // Il portait l'échec de création des cinq tâches d'intégration, retirées le
+      // 2026-08-14 : un plan qu'aucun mécanisme ne faisait avancer. Le tableau est
+      // conservé parce qu'il traverse le schéma de sortie de cette étape et se cumule
+      // avec ceux des deux étapes suivantes (email, invitation Slack) — le supprimer
+      // obligerait à réécrire le chaînage pour ne rien gagner.
+      //
+      // La sauvegarde du suivi, elle, n'est PAS best-effort : elle est au-dessus, hors
+      // du `try`. Sans `onboarding_progress`, `updateOnboardingStatus` et
+      // `getEmployeeProfile` dégradent tous les deux — c'est un échec du parcours, pas
+      // une dégradation à noter au passage.
       const degraded: StepFailure[] = [];
-
-      try {
-        for (const [index, task] of plan.tasks.entries()) {
-          await deps.taskRepo.save(task);
-          await deps.onboardingRepo.saveStep(plan.steps[index]!);
-        }
-
-        logger.info("Tâches d'intégration créées", {
-          progressId: started.id,
-          count: ONBOARDING_TASKS.length,
-        });
-      } catch (error) {
-        degraded.push({ step: BestEffortStep.OnboardingTasks, reason: toFailureReason(error) });
-        logger.error("Échec de création des tâches d'intégration", {
-          error,
-          employeeId: inputData.employeeId,
-          progressId: started.id,
-        });
-      }
 
       logger.info('Onboarding progress créé', { progressId: started.id });
 

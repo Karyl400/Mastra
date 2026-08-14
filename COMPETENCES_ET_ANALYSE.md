@@ -1,5 +1,14 @@
 # COMPÉTENCES ET ANALYSE — Kisso Onboarding
 
+> ⚠️ **INSTANTANÉ HISTORIQUE DU 2026-08-12 — NE PAS LIRE COMME L'ÉTAT COURANT.**
+> Antérieur au retrait du suivi de tâches, de la feature `questionnaire`, et à l'ajout de `findPersonByName` / `findExpertise` / de l'entretien post-profil.
+> Ce document n'est **pas** mis à jour et n'a pas vocation à l'être : il vaut comme trace de ce
+> qui était vrai ce jour-là. Pour l'état réel, dans cet ordre : `npx vercel ls` (ce qui tourne),
+> `CLAUDE.md` (le dépôt), `CONTEXT.md` (l'intention), `TODO.md` (les dettes ouvertes).
+> Banderole posée le 2026-08-14, après qu'un inventaire a montré que plusieurs de ces fichiers
+> décrivaient des agents, des tools et des répertoires supprimés depuis — sans qu'aucun ne le dise.
+
+
 > Synthèse technique du projet : compétences réellement mobilisées, problèmes rencontrés et
 > solutions, plan de tests du bot Slack.
 >

@@ -26,7 +26,7 @@
  * 1. Un run Mastra qui échoue ne LÈVE PAS : il renvoie `{status:'failed'}` avec
  *    un HTTP 200. On assert donc TOUJOURS sur `status`, jamais sur le code HTTP.
  * 2. `status:'success'` ne dit QUE « le workflow est allé au bout » : les étapes
- *    best-effort (email, invitation Slack, tâches) avalent leur erreur. Le
+ *    best-effort (email, invitation Slack) avalent leur erreur. Le
  *    verdict est `result.outcome` ('completed' | 'degraded' | 'failed'), asserté
  *    SÉPARÉMENT du statut global, `emailSent` restant asserté pour localiser.
  * 3. On n'assert JAMAIS sur le texte produit par le LLM. La preuve d'un

@@ -3,7 +3,6 @@ import { createEmployeeOnboardingWorkflow } from '../../../src/features/onboardi
 import type { EmployeeRepository } from '../../../src/features/employee/domain/ports/employee.repository';
 import type { OnboardingRepository } from '../../../src/features/onboarding/domain/ports/onboarding.repository';
 import type { NotificationRepository } from '../../../src/features/notification/domain/ports/notification.repository';
-import type { TaskRepository } from '../../../src/features/employee/domain/ports/task.repository';
 import type { EmailProvider } from '../../../src/features/notification/domain/ports/providers';
 import type { SlackWorkspaceProvider } from '../../../src/features/notification/domain/ports/slack-workspace.port';
 import {
@@ -29,12 +28,12 @@ function makeDeps(
     notificationRepo?: Partial<NotificationRepository>;
     emailProvider?: Partial<EmailProvider>;
     slackProvider?: Partial<SlackWorkspaceProvider> | null;
-    taskRepo?: Partial<TaskRepository>;
   } = {},
 ) {
   const employeeRepo: EmployeeRepository = {
     findById: vi.fn().mockResolvedValue(null),
     findByEmail: vi.fn().mockResolvedValue(null),
+    findByName: vi.fn().mockResolvedValue([]),
     save: vi.fn().mockResolvedValue(undefined),
     update: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn().mockResolvedValue(undefined),
@@ -66,14 +65,6 @@ function makeDeps(
     ...overrides.emailProvider,
   };
 
-  const taskRepo: TaskRepository = {
-    findById: vi.fn().mockResolvedValue(null),
-    findByEmployee: vi.fn().mockResolvedValue([]),
-    save: vi.fn().mockResolvedValue(undefined),
-    update: vi.fn().mockResolvedValue(undefined),
-    ...overrides.taskRepo,
-  };
-
   const slackProvider =
     overrides.slackProvider === null
       ? undefined
@@ -94,7 +85,7 @@ function makeDeps(
           ...overrides.slackProvider,
         } as SlackWorkspaceProvider);
 
-  return { employeeRepo, onboardingRepo, notificationRepo, emailProvider, slackProvider, taskRepo };
+  return { employeeRepo, onboardingRepo, notificationRepo, emailProvider, slackProvider };
 }
 
 describe('Workflow: employee-onboarding', () => {
@@ -123,86 +114,24 @@ describe('Workflow: employee-onboarding', () => {
     expect(deps.slackProvider?.inviteToChannel).toHaveBeenCalledWith('C-ENG', 'U01');
   });
 
-  describe("tâches d'intégration", () => {
-    it('persiste une tâche ET une étape de suivi pour chaque item du parcours', async () => {
-      // Sans cela, `tasks` et `onboarding_progress` restent vides — mesuré en
-      // production le 2026-08-10 : `tasks = 0`. Le DM de suivi que porte le
-      // nouveau flux d'arrivée n'aurait alors rien à suivre.
-      const deps = makeDeps();
-      const workflow = createEmployeeOnboardingWorkflow(deps);
-      const run = await workflow.createRun();
-      const result = await run.start({ inputData: baseInput });
+  it("crée le suivi d'intégration et RIEN d'autre", async () => {
+    // ⚠️ Ce test a REMPLACÉ, le 2026-08-14, un bloc entier qui vérifiait la création de
+    // cinq tâches et de leurs étapes. Ces tâches ont été retirées : aucun mécanisme du
+    // système ne pouvait les faire avancer, donc le suivi qu'elles dessinaient ne bougeait
+    // jamais. Le seul suivi du produit est la complétion du profil.
+    const deps = makeDeps();
+    const workflow = createEmployeeOnboardingWorkflow(deps);
+    const run = await workflow.createRun();
+    const result = await run.start({ inputData: baseInput });
 
-      expect(result.status).toBe('success');
-      const nbTaches = (deps.taskRepo.save as ReturnType<typeof vi.fn>).mock.calls.length;
-      const nbEtapes = (deps.onboardingRepo.saveStep as ReturnType<typeof vi.fn>).mock.calls.length;
+    expect(result.status).toBe('success');
 
-      expect(nbTaches).toBeGreaterThan(0);
-      expect(nbEtapes, 'une étape de suivi par tâche').toBe(nbTaches);
-    });
-
-    it('déclare un totalSteps égal au nombre réel de tâches créées', async () => {
-      // `totalSteps` était le littéral 5, sans qu'aucune étape ne soit créée :
-      // un compteur qui aurait menti dès le premier ajout de tâche.
-      const deps = makeDeps();
-      const workflow = createEmployeeOnboardingWorkflow(deps);
-      const run = await workflow.createRun();
-      await run.start({ inputData: baseInput });
-
-      const progress = (deps.onboardingRepo.save as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      const nbTaches = (deps.taskRepo.save as ReturnType<typeof vi.fn>).mock.calls.length;
-
-      expect(progress.totalSteps).toBe(nbTaches);
-    });
-
-    it('rattache chaque tâche à l’employé et chaque étape à la progression', async () => {
-      const deps = makeDeps();
-      const workflow = createEmployeeOnboardingWorkflow(deps);
-      const run = await workflow.createRun();
-      await run.start({ inputData: baseInput });
-
-      const progress = (deps.onboardingRepo.save as ReturnType<typeof vi.fn>).mock.calls[0][0];
-      const taches = (deps.taskRepo.save as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
-      const etapes = (deps.onboardingRepo.saveStep as ReturnType<typeof vi.fn>).mock.calls.map(
-        (c) => c[0],
-      );
-
-      // Garde anti test-vert-à-vide : sans elle, les boucles ci-dessous ne
-      // s'exécutent pas et le test passe alors qu'AUCUNE tâche n'est créée.
-      expect(taches.length, 'aucune tâche créée').toBeGreaterThan(0);
-      expect(etapes.length, 'aucune étape créée').toBe(taches.length);
-
-      for (const t of taches) {
-        expect(t.employeeId).toBe(progress.employeeId);
-        expect(t.status).toBe('pending');
-        expect(t.title.length).toBeGreaterThan(0);
-      }
-
-      // Les étapes pointent la progression et les tâches réellement créées,
-      // dans un ordre stable et sans trou.
-      const idsTaches = new Set(taches.map((t) => t.id));
-      for (const e of etapes) {
-        expect(e.progressId).toBe(progress.id);
-        expect(idsTaches.has(e.taskId), 'étape orpheline').toBe(true);
-      }
-      expect(etapes.map((e) => e.stepOrder).sort((a, b) => a - b)).toEqual(
-        taches.map((_, i) => i + 1),
-      );
-    });
-
-    it("n'échoue pas le workflow si la persistance d'une tâche échoue", async () => {
-      // Le parcours reste utilisable même dégradé : l'employé est créé, seul le
-      // suivi manque. Échouer ici perdrait aussi la création.
-      const deps = makeDeps({
-        taskRepo: { save: vi.fn().mockRejectedValue(new Error('db down')) },
-      });
-      const workflow = createEmployeeOnboardingWorkflow(deps);
-      const run = await workflow.createRun();
-      const result = await run.start({ inputData: baseInput });
-
-      expect(result.status).toBe('success');
-      expect(deps.employeeRepo.save).toHaveBeenCalledTimes(1);
-    });
+    const progress = (deps.onboardingRepo.save as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(progress.totalSteps).toBe(1);
+    expect(progress.currentStep).toBe(0);
+    expect(progress.status).toBe('in_progress');
+    // Garde-fou de non-retour : aucune étape ne doit plus être écrite.
+    expect(deps.onboardingRepo.saveStep).not.toHaveBeenCalled();
   });
 
   it('fails when employee email already exists', async () => {
@@ -310,7 +239,7 @@ describe('Workflow: employee-onboarding', () => {
       expect(result.result.degradedSteps[0]?.reason).toContain('SMTP down');
     });
 
-    it("persiste malgré tout l'employé ET ses tâches quand l'email échoue", async () => {
+    it("persiste malgré tout l'employé ET son suivi quand l'email échoue", async () => {
       // C'est cette garantie qui justifie de ne PAS lever : perdre la création
       // parce que le SMTP est indisponible serait pire que l'échec silencieux.
       const deps = makeDeps({
@@ -323,10 +252,6 @@ describe('Workflow: employee-onboarding', () => {
       expect(result.status).toBe('success');
       expect(deps.employeeRepo.save).toHaveBeenCalledTimes(1);
       expect(deps.onboardingRepo.save).toHaveBeenCalledTimes(1);
-      expect(
-        (deps.taskRepo.save as ReturnType<typeof vi.fn>).mock.calls.length,
-        'aucune tâche persistée',
-      ).toBeGreaterThan(0);
       // La notification reste tracée, en statut d'échec.
       expect(deps.notificationRepo.save).toHaveBeenCalledTimes(1);
     });
@@ -382,25 +307,6 @@ describe('Workflow: employee-onboarding', () => {
       expect(result.result.outcome).toBe(OnboardingOutcome.Completed);
       expect(result.result.degradedSteps).toEqual([]);
       expect(result.result.slackInvited).toBe(false);
-    });
-
-    it('marque le parcours DÉGRADÉ quand la persistance des tâches échoue', async () => {
-      const deps = makeDeps({
-        taskRepo: { save: vi.fn().mockRejectedValue(new Error('db down')) },
-      });
-      const workflow = createEmployeeOnboardingWorkflow(deps);
-      const run = await workflow.createRun();
-      const result = await run.start({ inputData: baseInput });
-
-      expect(result.status).toBe('success');
-      if (result.status !== 'success') return;
-
-      expect(result.result.outcome).toBe(OnboardingOutcome.Degraded);
-      expect(result.result.degradedSteps.map((f) => f.step)).toEqual([
-        BestEffortStep.OnboardingTasks,
-      ]);
-      expect(result.result.degradedSteps[0]?.reason).toContain('db down');
-      expect(deps.employeeRepo.save).toHaveBeenCalledTimes(1);
     });
 
     it('cumule TOUTES les étapes best-effort en échec, sans en masquer aucune', async () => {

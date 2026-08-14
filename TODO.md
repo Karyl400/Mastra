@@ -21,6 +21,24 @@ bug, ce qui a coûté des heures.
       quota sera de nouveau lue comme un défaut logiciel — c'est exactement ce qui vient
       d'arriver. Le seau par MINUTE était PLEIN au moment de l'incident
       (`x-ratelimit-remaining-tokens: 12000` dans 56 échantillons sur 64) : ne pas s'y fier.
+- [ ] ⚠️ **Abonner `team_join` dans *Event Subscriptions*.** Les abonnements réels sont
+      `app_mention`, `message.im`, `message.channels`, `message.groups` — **`team_join` n'y
+      est pas**. C'est pour cette raison que `employees` ne comptait que 2 lignes le
+      2026-08-14 pour 6 personnes réelles : le DM d'accueil portant le bouton « Compléter mon
+      profil » n'est JAMAIS parti. Sans ce geste, le court-circuit du 2026-08-14 et
+      `npm run profile:invite` restent les seuls chemins vers le formulaire, à jamais.
+- [ ] **Vérifier la Request URL d'*Interactivity*** : `https://<domaine>/slack/interactions`.
+      La route est déclarée dans `server.apiRoutes` et testée, mais si l'URL n'est pas posée
+      côté app, le clic sur le bouton n'atteint rien — symptôme identique à « le bouton ne
+      marche pas ». Sonde : un POST signé avec `ssl_check=1` doit rendre `200` vide.
+- [ ] **Lancer `npm run profile:invite -- --apply`** après les deux points ci-dessus. Le
+      dry-run du 2026-08-14 liste **4 personnes** (Nazer, Pamela, Mistourath, ridwanenico77).
+      ⚠️ Il envoie de vrais DM à de vraies personnes : relire le dry-run d'abord.
+- [ ] **Lancer `npx tsx --env-file=.env scripts/sync-slack-directory.mts --channels --apply`**
+      de temps en temps. L'inventaire `slack_channels` n'est alimenté QUE par ce script —
+      aucun événement ne le tient à jour (`member_joined_channel` n'est pas abonné). L'entretien
+      post-profil y puise la liste des canaux proposés : sans synchronisation, il en propose des
+      périmés, ou aucun. Relevé du 2026-08-14 : 32 canaux dont 26 archivés, 6 joignables.
 - [ ] **Déployer les quatre lots de correction**, puis vérifier que dépôt et production
       convergent — `npx vercel ls` puis `git log --oneline -1`. Ils sont dans l'arbre de
       travail, **pas même committés** : tant que ce n'est pas fait, l'avertissement en tête de
@@ -33,24 +51,29 @@ est ce qui a été CONSTATÉ et NON corrigé, pour qu'aucun diagnostic futur ne 
 une régression.
 
 **Routage — le palier collant a DÉPLACÉ l'état absorbant, il ne l'a pas supprimé**
-- [ ] ⚠️ Simulation vérifiée sur les 8 messages d'une campagne type : après « Envoie un rappel
-      à Pamela » (échappement `rappel` → `notificationAgent`), le message « Génère-moi le guide
-      en PDF » **reste chez `notificationAgent`**, qui n'a pas `generateDocument`. `guide` et
-      `pdf` vivent en bande 3, évaluée SOUS le collant. C'est exactement le défaut « état
-      absorbant » que la refonte du 2026-08-11 prétend avoir corrigé — il a changé d'agent.
-      En DM la clé de conversation est le CANAL, donc le verrou tient une heure sur tous les
-      sujets.
-- [ ] **`knowledgeAgent` est inatteignable sur les phrases réelles.** Ses seuls mots d'entrée
-      sont `conversation` et `historique` (+ pluriel). « Résume ce qui s'est dit dans
-      #kisso-hq » et « De quoi on a parlé cette semaine ? » partent au défaut, donc chez
-      l'orchestrateur, qui n'a aucun tool de canal. Conséquence : **toute la
-      `disclosure-policy.ts` est du code mort sur la phrase que quelqu'un dirait vraiment** —
-      rien ne fuit, mais ce n'est pas la politique qui l'empêche, c'est l'inaccessibilité.
-      `résume`, `dit`, `parle` ont été écartés volontairement de la bande 1 (trop courants) ;
-      le manque est qu'il n'a **aucun** terme en bande 3, contrairement aux trois autres.
-      Piste : la bande 3 n'est évaluée que hors fil vivant, elle ne peut donc pas détourner une
-      réponse de suivi — c'est l'endroit sûr pour `résume`, ou pour la présence d'un jeton de
-      canal `<#C…>`, qui survit à `cleanText`.
+- [x] ⚠️ ✅ **CORRIGÉ le 2026-08-14 par le routage sensible aux CAPACITÉS.** Simulation
+      vérifiée sur les 8 messages d'une campagne type : après « Envoie un rappel à Pamela »
+      (échappement `rappel` → `notificationAgent`), le message « Génère-moi le guide en PDF »
+      **restait chez `notificationAgent`**, qui n'a pas `generateDocument`.
+      Le palier 3 peut désormais déloger le fil, à **une seule condition** : l'agent qui le mène
+      ne porte pas l'outil exigé (`AGENT_TOOLS` dans `src/shared/agent-capabilities.ts`). La
+      règle est sûre dans les deux sens — elle n'arrache jamais un fil à un agent qui sait
+      répondre, donc elle ne rejoue pas le défaut du 2026-08-11.
+      ⚠️ Un test **verrouillait le défaut** et a dû être retourné : il asseyait « Donne le PDF
+      alors » restant chez `notificationAgent`, en le justifiant par « un agent qui promet une
+      capacité qu'il n'a pas » — or c'est l'inverse, l'orchestrateur PORTE `generateDocument`.
+      ⚠️ `email` / `message` sont explicitement NON délogeants, et c'est une correction et non
+      une prudence : `generateDocument` porte `deliverTo: 'email'`, donc l'orchestrateur sert
+      « Par email » sans `sendNotification`. Un test de non-régression du 2026-08-11 l'a attrapé
+      pendant l'implémentation.
+- [x] ✅ **CORRIGÉ le 2026-08-14. `knowledgeAgent` est atteignable sur les phrases réelles.**
+      Ses seuls mots d'entrée étaient `conversation` et `historique` : « Résume ce qui s'est dit
+      dans #kisso-hq » partait au défaut, donc chez l'orchestrateur, qui n'a aucun tool de canal
+      — et **toute la `disclosure-policy.ts` était du code mort sur la phrase que quelqu'un
+      dirait vraiment**. Rien ne fuyait, mais ce n'était pas la politique qui l'empêchait.
+      Ajout de `résume|résumé|resume|resumé` **en bande 3** (l'endroit sûr : elle ne peut pas
+      détourner une réponse de suivi) et du **jeton de canal `<#C…>`**, meilleur signal que tout
+      mot-clé — produit par le client Slack, jamais tapé, et il survit à `cleanText`.
 
 **Réconciliation FAIT/NARRATION — armée, mais son champ reste étroit**
 - [ ] Elle ne compare toujours pas l'annonce au **résultat** du tool. Un `scheduleReminder` qui
@@ -66,22 +89,28 @@ une régression.
       conception hors de son champ.
 
 **Résolution des personnes**
-- [ ] **Aucun tool ne résout un PRÉNOM.** `findEmployeeByEmail` n'accepte qu'un email. « Awa »,
-      « Pamela », « Karyl » ne sont résolubles par rien : le modèle redemande l'email (boucle,
-      donc un aller-retour de plus sur un budget de ≈ 19 messages/jour) ou fabrique une
-      adresse. L'annuaire porte pourtant `display_name`, `first_name` et `last_name`.
+- [x] **Aucun tool ne résout un PRÉNOM.** ✅ CORRIGÉ le 2026-08-14 par `findPersonByName`
+      (`employee/application/tools/`), câblé sur `onboardingOrchestrator` et
+      `notificationAgent`, deux sources (`employees` puis l'annuaire).
+      ⚠️ **Ce manque n'était pas seulement une gêne : c'est LUI qui a envoyé le document
+      d'Awa à l'adresse de Karyl.** Relevé sur la Turso le 2026-08-14 — les DIX documents de
+      la base portent l'UUID de Karyl, dont un intitulé « Bienvenue Awa ». Sommé de fournir
+      un `employeeId`, le modèle a réutilisé le seul de son contexte. Le lien entre cette
+      ligne et le bug de destinataire n'avait jamais été fait.
 
-**Sécurité — trou connu, non fermé**
-- [ ] **`requestContext` est forgeable par le corps HTTP sur `/api/*`.** Mastra fusionne
-      `body.requestContext` dans le contexte serveur et ne filtre que `RESERVED_CONTEXT_KEYS`
-      (`mastra__*`, `organizationId`) : `slackUserId`, `slackChannel` et `slackAccessLevel` n'y
-      sont pas. Un appelant porteur de `MASTRA_API_TOKEN` peut donc se faire passer pour
-      n'importe quel utilisateur Slack et lire les canaux dont il est membre. La route est
-      protégée par le bearer, ce n'est pas anonyme — mais **le jeton de service équivaut
-      désormais à l'usurpation totale**, et l'invariant écrit en tête de
-      `slack-request-context.ts` (« un canal que le modèle ne peut pas écrire ») ne vaut que
-      sur `/slack/events`. Correctif naturel : le middleware `/api/*` existe déjà, il peut
-      retirer les clés `slack*` du `requestContext` fourni par le corps.
+**Sécurité — trou fermé le 2026-08-14**
+- [x] ✅ **`requestContext` n'est plus forgeable par le corps HTTP sur `/api/*`.** Mastra
+      fusionne `body.requestContext` dans le contexte serveur et ne filtre que
+      `RESERVED_CONTEXT_KEYS` — vérifié dans le paquet installé : la liste tient `mastra__*` et
+      `organizationId`, et **aucune clé `slack*`**. Un porteur de `MASTRA_API_TOKEN` se déclarait
+      donc n'importe qui : `slackEmployeeId` gouverne `canReadPersonRecord` (dossier RH complet),
+      `slackAccessLevel` gouverne les effets de bord.
+      `createRequestContextGuard` est monté **en premier** dans `server.middleware` et **REFUSE**
+      en 400 au lieu d'assainir — assainir laisserait l'appel aboutir, les tools dégraderaient
+      proprement, et l'usurpation ressemblerait à un succès partiel sans laisser de trace.
+      Il surveille un **PRÉFIXE** et non une liste recopiée : un test vérifie que toutes les clés
+      déclarées dans `slack-request-context.ts` le portent, donc celles pas encore écrites sont
+      couvertes d'avance. 10 tests.
 
 **Inventaire des canaux — écrit, testé, jamais exécuté par le code déployé**
 - [ ] `src/mastra/index.ts` construit `channelCoverage` **sans `inventory`** : `recordInventory()`
@@ -92,23 +121,33 @@ une régression.
       propres instances). Trois méthodes de port (`listObservedMembers`,
       `listChannelsObservedForUser`, `listChannels` côté Drizzle) n'ont que des tests pour
       appelants — et `idx_slack_channel_members_user` a été créé pour servir la deuxième.
-- [ ] `SlackRateLimiter.prune()` n'a **aucun site d'appel** : `rate_limit_counters` croît d'une
-      ligne par sujet et par fenêtre, indéfiniment. Les trois autres tables à TTL
-      (`conversation_turns`, `slack_event_dedup`) sont purgées opportunément, pas celle-ci.
-- [ ] Aucun des quatre scripts (`sync-slack-directory`, `show-directory`,
-      `prune-employees-without-slack`, `apply-ddl`) n'a de script npm.
+- [x] ✅ **PÉRIMÉ — `SlackRateLimiter.prune()` A un site d'appel** (`slack-events.handler.ts`,
+      purge opportuniste comme les deux autres tables à TTL). Vérifié le 2026-08-14 : la table
+      `rate_limit_counters` compte 44 lignes en production, elle ne croît donc pas sans borne.
+      L'entrée décrivait un état antérieur au correctif.
+- [x] ✅ **Les six scripts ont désormais une entrée npm** (2026-08-14) : `directory:sync`,
+      `directory:show`, `directory:prune`, `db:ddl`, `probe:replies`, `probe:erasure` —
+      en plus de `profile:invite` qui existait déjà.
 
 **Divers vérifiés**
 - [ ] `sync-slack-directory.mts` fait `import 'dotenv/config'` : il atteint la Turso de
       production et l'API Slack **même sans variables d'environnement dans le shell**. Le
       dry-run neutralise bien les écritures au niveau des ports (vérifié), mais la ligne
       d'usage ne laisse pas deviner qu'une invocation sans identifiants touche la production.
-- [ ] Le bot est désormais membre de **6** canaux (`#kisso-hq`, `#engineer-karyl`, `#random`,
-      `#signals`, `#alerts-dev`, `#engineering-chat`) — `CLAUDE.md` dit encore « 2 sur 5 ».
-- [ ] `npm run lint` : 0 erreur, 104 warnings, dont **18 dans `llm-guardrail.ts`** —
-      plusieurs `security/detect-unsafe-regex` et `sonarjs/super-linear-regex` (ReDoS) sur un
-      module qui analyse de l'entrée Slack non fiable. C'est le seul lot de warnings qui mérite
-      un examen.
+- [x] ✅ **PÉRIMÉ** — `CLAUDE.md` ne dit plus « 2 sur 5 » : il liste bien les **6** canaux
+      (`#kisso-hq`, `#engineer-karyl`, `#random`, `#signals`, `#alerts-dev`,
+      `#engineering-chat`). Corrigé avant le 2026-08-14.
+- [x] ⚠️ **`npm run lint` disait FAUX, et `|| true` le masquait** — corrigé le 2026-08-14.
+      Le relevé « 0 erreur, 104 warnings » était périmé : il y avait **9 erreurs**, muettes
+      parce que le script se terminait par `|| true`. Sept étaient des faux positifs de
+      `sonarjs/todo-tag` — cette règle cherche des `// TODO:` abandonnés mais matche le mot
+      n'importe où dans un commentaire, donc elle se déclenchait sur les renvois à **ce
+      fichier**, que la culture de commentaires du dépôt cite constamment. Règle désactivée,
+      la neuvième erreur (littéral de gabarit imbriqué) corrigée, `|| true` **retiré** :
+      `npm run lint` est redevenu un signal et sort en 0 erreur / 113 warnings.
+- [ ] **Le lot ReDoS reste ouvert** : plusieurs `security/detect-unsafe-regex` et
+      `sonarjs/super-linear-regex` dans `llm-guardrail.ts`, sur un module qui analyse de
+      l'entrée Slack non fiable. C'est le seul lot de warnings qui mérite un examen.
 - [ ] `tests/unit/handlers/slack-events.handler.test.ts` écrit toujours dans `audit_logs`
       (`writeAuditLog` est une fonction de module, non injectable) — 1 528 lignes accumulées
       dans `data/kisso.db`. Même classe de fuite que celle corrigée pour les compteurs, autre
@@ -121,14 +160,22 @@ CHANGELOG ; ce qui suit a été CONSTATÉ et NON corrigé, pour qu'aucun diagnos
 redécouvre comme une régression.
 
 **Rétention et RGPD — l'effacement ne couvre que la mémoire conversationnelle**
-- [ ] ⚠️ `forget()` ne touche QUE `conversation_turns`. `notifications` (dont `body`),
-      `documents` (dont `content`) et `audit_logs` n'ont **aucune rétention, ni purge, ni
-      chemin d'effacement**. La réponse rendue à la personne le dit explicitement et la
+- [ ] ⚠️ `forget()` ne touche QUE `conversation_turns` et `pinned_facts` (ajoutés le
+      2026-08-14). `notifications` (dont `body`), `documents` (dont `content`),
+      `onboarding_interview` (dont deux champs de texte libre écrits par la personne, ajouté
+      le 2026-08-14) et `audit_logs` n'ont **aucune rétention, ni purge, ni chemin
+      d'effacement**.
+      ⚠️ L'entretien est délibérément HORS du champ de `forget()` : effacer des données de
+      DOSSIER sur « oublie ce que je t'ai dit » serait bien plus large que ce que la personne
+      demande. C'est un chemin d'effacement RH qui manque, pas une extension de celui-ci. La réponse rendue à la personne le dit explicitement et la
       renvoie vers les RH — c'est honnête, ce n'est pas suffisant si le produit doit tenir
       une demande RGPD complète.
-- [ ] `maskPii` ne couvre ni `text`, ni `content`, ni `body` : un champ de prose qui
-      traverserait un log passerait en clair. Aucun site d'appel connu ne le fait
-      aujourd'hui — c'est la garantie qui manque, pas un incident.
+- [x] ✅ **CORRIGÉ le 2026-08-14.** `maskPii` couvre désormais `text`, `content`, `body`,
+      `fact`, `dailyWork` et `workStyle` — le message Slack brut, le corps d'un document, celui
+      d'un email, un fait épinglé et les deux champs de l'entretien. Aucun site d'appel ne les
+      journalisait : c'était bien la garantie qui manquait, pas un incident.
+      ⚠️ `message` reste délibérément EXCLU : c'est le champ des messages d'erreur dans tout le
+      dépôt, le masquer supprimerait le diagnostic au lieu de protéger quelqu'un.
 - [ ] La purge par tirage (`DEFAULT_PRUNE_PROBABILITY = 0.2`) est une BORNE, pas une
       garantie : sans trafic, aucune purge. Seul un cron en ferait une garantie.
 - [ ] Résidu ASSUMÉ de la détection d'effacement : « supprime l'historique de Awa » contient
@@ -136,8 +183,10 @@ redécouvre comme une régression.
       tours, TTL 60 min) et **visible** — la réponse annonce « N messages de nos échanges ».
 
 **Mémoire — quatre comportements sans mécanisme dédié**
-- [ ] « souviens-toi que… » n'ÉPINGLE rien : le tour est traité comme les autres et peut être
-      évincé par `selectWindow`. Le modèle promettra pourtant de s'en souvenir.
+- [x] « souviens-toi que… » n'ÉPINGLE rien. ✅ CORRIGÉ le 2026-08-14 : table `pinned_facts`
+      hors TTL, court-circuit `src/shared/pin-fact.ts` (5 faits, 120 car., éviction du plus
+      ancien), restitution dans le message `system` comme DÉCLARATIONS et non consignes, et
+      `forget()` les emporte. DDL appliqué en production.
 - [ ] Une référence hors fenêtre ou hors TTL disparaît EN SILENCE : rien ne dit au modèle
       « c'est hors de ma mémoire » plutôt que « ça n'a jamais été dit ».
 - [ ] Aucune détection de contradiction entre deux tours de la même personne.
@@ -150,8 +199,12 @@ redécouvre comme une régression.
       requête. La personne relance, ce qui double le coût pour le même résultat.
 - [ ] Un tableau n'a pas d'équivalent mrkdwn Slack : la demande est structurellement
       insatisfaisable et rien ne le dit.
-- [ ] Le jeu de rôle n'est couvert que par les motifs d'injection déjà listés
-      (`joue le role`, `fais semblant d'`…) ; « imagine que tu es… » passe.
+- [x] ✅ **CORRIGÉ le 2026-08-14.** « imagine / imaginons / suppose / supposons … que tu es »
+      est désormais détecté comme `Role redefinition (FR)`, accentué comme non accentué.
+      ⚠️ L'exigence de « que tu es » fait la différence entre une ATTRIBUTION D'IDENTITÉ et une
+      simple hypothèse : « imagine qu'on ajoute un canal », « suppose que Awa arrive lundi » ne
+      déclenchent pas — trois phrases de trafic RH nominal le verrouillent. Même critère que
+      celui qui a fait écarter « à partir de maintenant » seul.
 
 **Deux propositions REJETÉES — ne pas les réintroduire sans lire le CHANGELOG**
 - [ ] Court-circuit « merci / ok / parfait » : ce sont des CONFIRMATIONS, pas des clôtures.
@@ -186,18 +239,30 @@ redécouvre comme une régression.
 - [x] Validation Zod (schémas employé, questionnaire, notification)
 - [x] Helpers et utilitaires
 
-## [5] Développer les outils Mastra (10)
-- [x] createEmployee, getEmployeeProfile, findEmployeeByEmail
-- [x] updateOnboardingStatus, getTaskList
-- [x] generateQuestionnaire, evaluateResponse
+## [5] Développer les outils Mastra — ⚠️ SECTION HISTORIQUE, voir `CONTEXT.md` pour l'état réel
+
+Ces cases décrivent ce qui a été ÉCRIT en 2026-08, pas ce qui est câblé aujourd'hui. Cinq des
+tools cochés ici ont depuis été **décâblés ou supprimés**, et laisser la liste telle quelle en
+faisait un inventaire faux — le mode d'échec exact que l'en-tête de `CLAUDE.md` met en garde.
+
+- [x] createEmployee ⚠️ **DÉCÂBLÉ** (le modèle substituait une valeur d'allowlist avant l'appel)
+- [x] getEmployeeProfile, findEmployeeByEmail
+- [x] updateOnboardingStatus, ~~getTaskList~~ ⚠️ **SUPPRIMÉ le 2026-08-14** avec tout le suivi
+      de tâches
+- [x] ~~generateQuestionnaire~~, ~~evaluateResponse~~ ⚠️ **SUPPRIMÉS** (2026-08-14 / 2026-08-12)
 - [x] generateDocument
 - [x] sendNotification (email + Slack API), scheduleReminder, getNotificationHistory
       — le provider email est passé de Resend → Brevo → SMTP, voir [12] et ADR-006
+- [x] findPersonByName, findExpertise — **ajoutés le 2026-08-14**, absents de la liste d'origine
 
-## [6] Développer les agents Mastra (3)
+**Câblage réel au 2026-08-14 : 11 tools** — inventaire tenu dans `CONTEXT.md`, et déclaré une
+seule fois en code dans `src/shared/agent-capabilities.ts`.
+
+## [6] Développer les agents Mastra — ⚠️ 3 exposés, pas ceux d'origine
 - [x] OnboardingOrchestrator
-- [x] QuestionnaireEngine
+- [x] ~~QuestionnaireEngine~~ ⚠️ **RETIRÉ du registre le 2026-08-14** — 5 quiz en base, 0 réponse
 - [x] NotificationAgent
+- [x] KnowledgeAgent — **ajouté le 2026-08-12**, absent de la liste d'origine
 
 ### Étape 7 : Développement des Workflows Mastra (Machine à états) - [x]
 - [x] Concevoir le flux principal (EmployeeOnboarding).
@@ -419,16 +484,17 @@ redécouvre comme une régression.
       d'erreur générique côté API plutôt que le message brut du provider.
 
 **Configuration et dette**
-- [ ] **Câbler ou supprimer `src/config/index.ts`** — code mort : `getConfig()` n'est appelé
-      nulle part, donc ses garde-fous Zod ne s'exécutent jamais. Le brancher **tel quel**
-      casserait le boot : son schéma `database.url` n'accepte que `file:` ou `postgresql://`
-      alors que la valeur réelle est `libsql://`.
+- [x] ✅ **SANS OBJET — `src/config/` n'existe plus du tout.** Vérifié le 2026-08-14 :
+      le répertoire est absent et `getConfig` a **zéro occurrence** dans `src/`, `tests/` et
+      `scripts/`. Il avait été supprimé sans que la tâche ni les **trois** mentions de
+      `CLAUDE.md` ne soient mises à jour — cette entrée invitait donc à trancher sur un fichier
+      absent. Conséquence à connaître : il n'existe **aucune validation centralisée de
+      l'environnement**, chaque module lit `process.env` à son point d'usage.
 - [ ] **Purger les variables mortes** de `.env` et de Vercel : `RESEND_API_KEY` (adaptateur
       supprimé), `GOOGLE_GEMINI_API_KEY`, `SLACK_USER_TOKEN`, `OPENAI_API_KEY`
       (lu uniquement par le `config/index.ts` mort).
-- [ ] **Mettre à jour `.env.example`** : la section « CONFIG MORTE » y liste encore
-      `SMTP_HOST/PORT/USER/PASS` comme inutilisés — ce sont désormais les variables du
-      fournisseur email **principal**.
+- [x] ✅ **PÉRIMÉ** — `.env.example` porte déjà la ligne « NB : SMTP_* N'EST PLUS de la config
+      morte depuis le passage à nodemailer ». Corrigé avant le 2026-08-14, entrée jamais fermée.
 - [ ] **Passer Node en `>=22.13.0`** : l'environnement tourne sur v20.19.4 alors que
       `engines` exige 22.13.0.
 
@@ -624,19 +690,26 @@ Ces manques sont **connus, mesurés et assumés**. Les inscrire ici évite qu'un
 diagnostic les traite comme des régressions — et évite surtout qu'un agent prétende le
 contraire à un utilisateur.
 
-- [ ] **`generateQuestionnaire` est une boucle d'écho.** Il renvoie l'entité construite à partir
-      des arguments du modèle, estampillée `status: Published`, alors que **rien ne publie ni
-      n'assigne** (`employee_id` reste NULL). Le titre « Quiz sur nos valeurs » est littéralement
-      l'argument du modèle qui lui revient comme un fait.
-- [ ] **Aucun tool ne sait LIRE un questionnaire ou une réponse.** « Awa a-t-elle répondu ? » est
-      **structurellement insoluble** — et un modèle qui ne peut pas regarder devine. C'est
-      l'origine des réponses les plus fausses de la série B.
+- [x] ✅ **SANS OBJET depuis le lot 2 (2026-08-14) — `generateQuestionnaire` et son agent ont
+      été RETIRÉS du registre.** L'entrée décrivait une boucle d'écho : le tool renvoyait
+      l'entité construite à partir des arguments du modèle, estampillée `status: Published`,
+      alors que rien ne publiait ni n'assignait. Le remplaçant est l'**entretien post-profil**,
+      qui inverse la construction — le formulaire Block Kit existe D'ABORD, en code, et sa
+      soumission invite réellement aux canaux cochés.
+- [x] ✅ **SANS OBJET, même raison.** « Aucun tool ne sait LIRE un questionnaire ou une
+      réponse » : il n'y a plus de questionnaire. Le constat qui a motivé le retrait est que la
+      table comptait **5 questionnaires pour 0 réponse** — personne n'avait jamais pu répondre.
+      ⚠️ La leçon, elle, reste valable pour tout le reste : un modèle qui ne peut pas regarder
+      DEVINE. C'est ce qui a produit les réponses les plus fausses de la série B, et c'est le
+      même raisonnement qui a fait ajouter `findPersonByName` puis `findExpertise`.
 - [ ] **Aucun ordonnanceur ne reprend les rappels.** `scheduleReminder` enregistre un mémo ; le
       statut `Scheduled` n'est lu nulle part, `findPending()` n'a aucun site d'appel. Le tool le
       DIT désormais (`willBeSentAutomatically: false`) — c'est le mensonge qui a été corrigé,
       pas le manque.
-- [ ] **`notificationCycleWorkflow` est un stub** : il retourne `successCount: N`,
-      `failuresCount: 0` sans aucune E/S — et `production-scenarios.mjs` l'enregistre en PASS.
+- [ ] ⚠️ **`notificationCycleWorkflow` a été retiré du registre le 2026-08-12, mais
+      `scripts/production-scenarios.mjs` le teste TOUJOURS** (3 occurrences). Ce n'est plus un
+      faux PASS — le scénario échouera désormais, l'identifiant n'étant plus résolvable — mais
+      c'est un échec qui ne signale rien d'utile. Le scénario est à retirer du script.
 - [ ] **« étape 0 sur 5 »** — donnée exacte, mais indicible telle quelle à un humain.
 - [x] **Fusion des trois agents en un seul : examinée et REJETÉE.** Mesurée à **+80 % de tokens
       par aller-retour** — les schémas des 10 tools réunis pèsent ≈ 1 622 tokens, davantage que

@@ -1,5 +1,14 @@
 # Résumé de la Conversation — Passage de Relais
 
+> ⚠️ **INSTANTANÉ HISTORIQUE DU 2026-08-05 — NE PAS LIRE COMME L'ÉTAT COURANT.**
+> Le plus ancien du dépôt, et le plus trompeur : il parle de Docker, d'un déploiement Railway/Render, d'`OPENAI_API_KEY` et de Mastra 1.53. Le projet tourne sur **Vercel**, en **Groq → Mistral**, en **Mastra 1.57**.
+> Ce document n'est **pas** mis à jour et n'a pas vocation à l'être : il vaut comme trace de ce
+> qui était vrai ce jour-là. Pour l'état réel, dans cet ordre : `npx vercel ls` (ce qui tourne),
+> `CLAUDE.md` (le dépôt), `CONTEXT.md` (l'intention), `TODO.md` (les dettes ouvertes).
+> Banderole posée le 2026-08-14, après qu'un inventaire a montré que plusieurs de ces fichiers
+> décrivaient des agents, des tools et des répertoires supprimés depuis — sans qu'aucun ne le dise.
+
+
 ## Contexte
 Le projet consiste à développer une plateforme intelligente d'onboarding RH pour "Kisso Industries", basée sur une architecture multi-agents utilisant le framework Mastra (v1.53.0). L'objectif initial était de concevoir l'architecture applicative (Clean Architecture), d'implémenter les workflows (génération de documents PDF, notifications Slack/Email), et de déployer une première version (MVP) fonctionnelle en production.
 

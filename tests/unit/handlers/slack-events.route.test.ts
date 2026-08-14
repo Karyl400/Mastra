@@ -287,7 +287,7 @@ describe('Route: POST /slack/events', () => {
         {
           type: 'app_mention',
           user: 'U000HUMAN01',
-          text: `<@${BOT_USER_ID}> lance le questionnaire`,
+          text: `<@${BOT_USER_ID}> envoie une notification à Awa`,
           channel: 'C0MOCKCHAN',
           channel_type: 'channel',
           ts: '1700000000.000100',
@@ -298,7 +298,7 @@ describe('Route: POST /slack/events', () => {
     );
 
     expect(result.status).toBe(200);
-    await vi.waitFor(() => expect(getAgent).toHaveBeenCalledWith('questionnaireEngine'));
+    await vi.waitFor(() => expect(getAgent).toHaveBeenCalledWith('notificationAgent'));
     await vi.waitFor(() =>
       expect(postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ channel: 'C0MOCKCHAN', thread_ts: '1700000000.000100' }),

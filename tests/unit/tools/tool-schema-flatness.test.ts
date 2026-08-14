@@ -24,7 +24,6 @@ import { makeGenerateDocument } from '../../../src/features/document/application
 import { makeCreateEmployee } from '../../../src/features/employee/application/tools/create-employee';
 import { makeFindEmployeeByEmail } from '../../../src/features/employee/application/tools/find-employee-by-email';
 import { makeGetEmployeeProfile } from '../../../src/features/employee/application/tools/get-employee-profile';
-import { makeGetTaskList } from '../../../src/features/employee/application/tools/get-task-list';
 import { makeDiscoverSlackWorkspace } from '../../../src/features/notification/application/tools/discover-slack-workspace';
 import { makeGetNotificationHistory } from '../../../src/features/notification/application/tools/get-notification-history';
 import { makeScheduleReminder } from '../../../src/features/notification/application/tools/schedule-reminder';
@@ -74,8 +73,7 @@ const tools: Array<[name: string, tool: { id?: string; inputSchema?: unknown }]>
   ['generateDocument', makeGenerateDocument(stub)],
   ['createEmployee', makeCreateEmployee(stub)],
   ['findEmployeeByEmail', makeFindEmployeeByEmail(stub)],
-  ['getEmployeeProfile', makeGetEmployeeProfile(stub, stub, stub)],
-  ['getTaskList', makeGetTaskList(stub)],
+  ['getEmployeeProfile', makeGetEmployeeProfile(stub, stub)],
   ['discoverSlackWorkspace', makeDiscoverSlackWorkspace(stub)],
   ['getNotificationHistory', makeGetNotificationHistory(stub)],
   ['scheduleReminder', makeScheduleReminder(stub)],

@@ -1,5 +1,14 @@
 # Rapport de Test — Kisso Onboarding Platform
 
+> ⚠️ **INSTANTANÉ HISTORIQUE DU 2026-08-07 — NE PAS LIRE COMME L'ÉTAT COURANT.**
+> Rapport d'UNE campagne, sur un déploiement qui n'est plus le courant. Plusieurs de ses « PASS » portaient sur des workflows depuis reconnus comme des stubs sans E/S, et retirés du registre le 2026-08-12.
+> Ce document n'est **pas** mis à jour et n'a pas vocation à l'être : il vaut comme trace de ce
+> qui était vrai ce jour-là. Pour l'état réel, dans cet ordre : `npx vercel ls` (ce qui tourne),
+> `CLAUDE.md` (le dépôt), `CONTEXT.md` (l'intention), `TODO.md` (les dettes ouvertes).
+> Banderole posée le 2026-08-14, après qu'un inventaire a montré que plusieurs de ces fichiers
+> décrivaient des agents, des tools et des répertoires supprimés depuis — sans qu'aucun ne le dise.
+
+
 **Date d'exécution** : 7 août 2026, 11h30 – 12h00 (UTC+1 / WAT)
 **Portée** : poste local + déploiement Vercel `mastra-71ya.vercel.app` + Slack `Kisso Ind.` + Turso (base de production)
 **Identifiants** : réels, lus depuis `.env`. Aucun mock, aucune valeur de secret n'apparaît dans ce rapport.

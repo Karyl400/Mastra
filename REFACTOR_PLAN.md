@@ -1,5 +1,14 @@
 # REFACTOR_PLAN.md — Plan de refactoring
 
+> ⚠️ **INSTANTANÉ HISTORIQUE DU 2026-08-10 — NE PAS LIRE COMME L'ÉTAT COURANT.**
+> Plan d'étape 0, marqué « EN ATTENTE DE VALIDATION ». Il a été exécuté en partie depuis, sur cette branche même — l'en-tête « aucune modification n'a été effectuée » ne vaut plus.
+> Ce document n'est **pas** mis à jour et n'a pas vocation à l'être : il vaut comme trace de ce
+> qui était vrai ce jour-là. Pour l'état réel, dans cet ordre : `npx vercel ls` (ce qui tourne),
+> `CLAUDE.md` (le dépôt), `CONTEXT.md` (l'intention), `TODO.md` (les dettes ouvertes).
+> Banderole posée le 2026-08-14, après qu'un inventaire a montré que plusieurs de ces fichiers
+> décrivaient des agents, des tools et des répertoires supprimés depuis — sans qu'aucun ne le dise.
+
+
 > Produit à l'**Étape 0** de `REFACTOR_LOOP.md`. Statut : **EN ATTENTE DE VALIDATION**.
 > Aucune modification n'a été effectuée. Aucun commit, aucune branche, aucune suppression.
 >

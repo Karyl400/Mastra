@@ -1,5 +1,14 @@
 # Comment ça marche — Kisso Onboarding
 
+> ⚠️ **INSTANTANÉ HISTORIQUE DU 2026-08-09 — NE PAS LIRE COMME L'ÉTAT COURANT.**
+> Décrit 4 agents et 4 workflows. Il en reste **3 et 1** : `questionnaireEngine` a été retiré le 2026-08-14, trois workflows le 2026-08-12.
+> Ce document n'est **pas** mis à jour et n'a pas vocation à l'être : il vaut comme trace de ce
+> qui était vrai ce jour-là. Pour l'état réel, dans cet ordre : `npx vercel ls` (ce qui tourne),
+> `CLAUDE.md` (le dépôt), `CONTEXT.md` (l'intention), `TODO.md` (les dettes ouvertes).
+> Banderole posée le 2026-08-14, après qu'un inventaire a montré que plusieurs de ces fichiers
+> décrivaient des agents, des tools et des répertoires supprimés depuis — sans qu'aucun ne le dise.
+
+
 > Document d'explication. Objectif : comprendre **ce que fait le projet, comment il est
 > construit, ce qui marche, ce qui ne marche pas et pourquoi**, sans être obligé de lire
 > les 10 639 lignes de `src/`.

@@ -39,6 +39,13 @@ import {
  * `https://kisso.internal/docs/<uuid>/download`), et l'obligation de lire le champ
  * `delivery` plutôt que de supposer.
  *
+ * ⚠️ « Cite toujours le `recipient` » a été ajouté le 2026-08-14 (≈ 6 tokens). Le relevé de
+ * production montre les DIX documents de la base enregistrés sous l'UUID de Karyl, dont un
+ * intitulé « Bienvenue Awa » — dont l'email est donc parti à l'adresse de Karyl. La cause
+ * est corrigée en amont (`findPersonByName` : aucun tool ne résolvait un prénom) ; cette
+ * consigne-ci ne fait que rendre l'erreur VISIBLE au tour même, en obligeant le modèle à
+ * dire pour qui il vient de produire. C'est une mesure de visibilité, pas une garantie.
+ *
  * S'y ajoute la seule contrainte existante sur le CONTENU d'un document.
  * `sanitizeAgentOutput` ne s'applique qu'à `response.text` : les arguments de tool
  * ne le traversent jamais. Vérifié en décodant la CMap de vrais PDF — les emojis
@@ -52,13 +59,13 @@ export function makeOnboardingOrchestrator(tools: ToolsInput) {
     name: 'Onboarding Orchestrator',
     instructions: buildAgentInstructions(`
 Tu es l'agent d'onboarding de Kisso : tu supervises le parcours d'intégration des nouveaux employés.
-Résous d'abord l'employé par son email (findEmployeeByEmail) quand tu n'as pas son identifiant.
+Quand tu n'as pas son identifiant, résous d'abord la personne : findEmployeeByEmail par email, findPersonByName par nom ou prénom.
 
 ${agentToolBoundary(tools)}
 
 CRÉATION D'EMPLOYÉ : tu ne peux PAS créer d'employé. L'enregistrement part du DM « Compléter mon profil », reçu quand la personne rejoint Slack — dis-le, n'invente jamais une création réussie.
 
-DOCUMENTS : generateDocument crée et livre le fichier (pdf/docx) — deliverTo : slack (ce fil) ou email. Son \`content\` n'est filtré par rien : ni markdown ni emoji. Si \`delivery\` n'est ni slack ni email : prêt mais NON livré, dis-le. N'invente jamais de lien.
+DOCUMENTS : generateDocument crée et livre le fichier (pdf/docx) — deliverTo : slack (ce fil) ou email. Dans \`content\` : ni markdown ni emoji. Nomme le \`recipient\`. Si \`delivery\` n'est ni slack ni email : prêt mais NON livré, dis-le. N'invente jamais de lien.
 
 ${AGENT_STYLE_BLOCK}
 

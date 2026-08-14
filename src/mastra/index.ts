@@ -9,20 +9,20 @@ import { LibSQLStore } from '@mastra/libsql';
 import { VercelDeployer } from '@mastra/deployer-vercel';
 
 import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
-import { DrizzleTaskRepository } from '../features/employee/infrastructure/repositories/drizzle-task.repository';
 import { DrizzleQuestionnaireRepository } from '../features/questionnaire/infrastructure/repositories/drizzle-questionnaire.repository';
 import { DrizzleResponseRepository } from '../features/questionnaire/infrastructure/repositories/drizzle-response.repository';
 import { DrizzleDocumentRepository } from '../features/document/infrastructure/repositories/drizzle-document.repository';
 import { DrizzleNotificationRepository } from '../features/notification/infrastructure/repositories/drizzle-notification.repository';
 import { DrizzleOnboardingRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding.repository';
+import { DrizzleOnboardingInterviewRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding-interview.repository';
+import { DrizzleChannelInventoryRepository } from '../features/directory/infrastructure/repositories/drizzle-channel.repository';
 
 import { getDb, healthCheck } from '../infrastructure/database/connection';
 
 import { makeFindEmployeeByEmail } from '../features/employee/application/tools/find-employee-by-email';
+import { makeFindPersonByName } from '../features/employee/application/tools/find-person-by-name';
 import { makeGetEmployeeProfile } from '../features/employee/application/tools/get-employee-profile';
 import { makeUpdateOnboardingStatus } from '../features/onboarding/application/tools/update-onboarding-status';
-import { makeGetTaskList } from '../features/employee/application/tools/get-task-list';
-import { makeGenerateQuestionnaire } from '../features/questionnaire/application/tools/generate-questionnaire';
 import { makeEvaluateResponse } from '../features/questionnaire/application/tools/evaluate-response';
 import { makeGenerateDocument } from '../features/document/application/tools/generate-document';
 import { makeSendNotification } from '../features/notification/application/tools/send-notification';
@@ -30,7 +30,6 @@ import { makeScheduleReminder } from '../features/notification/application/tools
 import { makeGetNotificationHistory } from '../features/notification/application/tools/get-notification-history';
 
 import { makeOnboardingOrchestrator } from '../features/onboarding/application/agents/onboarding-orchestrator';
-import { makeQuestionnaireEngine } from '../features/questionnaire/application/agents/questionnaire-engine';
 import { makeNotificationAgent } from '../features/notification/application/agents/notification-agent';
 import { makeKnowledgeAgent } from '../features/knowledge/application/agents/knowledge-agent';
 
@@ -44,6 +43,7 @@ import { DrizzleBotMemoryRepository } from '../features/knowledge/infrastructure
 import { SlackChannelHistoryAdapter } from '../features/knowledge/infrastructure/providers/slack-channel-history.adapter';
 import { makeGetUserConversations } from '../features/knowledge/application/tools/get-user-conversations';
 import { makeGetChannelHistory } from '../features/knowledge/application/tools/get-channel-history';
+import { makeFindExpertise } from '../features/knowledge/application/tools/find-expertise';
 
 import { BrevoAdapter } from '../features/notification/infrastructure/providers/brevo.adapter';
 import { SmtpAdapter } from '../features/notification/infrastructure/providers/smtp.adapter';
@@ -59,6 +59,7 @@ import { slackEventsRoute } from '../api/slack-events.route';
 import { slackInteractionsRoute } from '../api/slack-interactions.route';
 import { createApiAuthConfig } from '../shared/security/api-auth';
 import { createCallerErrorMiddleware } from '../shared/security/caller-error-mapping';
+import { createRequestContextGuard } from '../shared/security/request-context-guard';
 import { logger } from '../shared/logger';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,12 +96,13 @@ void healthCheck().catch((error) => {
 });
 
 const employeeRepo = new DrizzleEmployeeRepository();
-const taskRepo = new DrizzleTaskRepository();
 const questionnaireRepo = new DrizzleQuestionnaireRepository();
 const responseRepo = new DrizzleResponseRepository();
 const documentRepo = new DrizzleDocumentRepository();
 const notificationRepo = new DrizzleNotificationRepository();
 const onboardingRepo = new DrizzleOnboardingRepository();
+const interviewRepo = new DrizzleOnboardingInterviewRepository();
+const channelInventoryRepo = new DrizzleChannelInventoryRepository();
 
 /**
  * Sélection du fournisseur email.
@@ -200,13 +202,32 @@ export const channelCoverage = makeChannelCoverage({ source: slackChannelAccess 
 // avec prénom, nom et poste. `directorySync` alimentait cette table depuis le
 // 2026-08-12 sans qu'aucun tool ne la lise.
 const findEmployeeByEmail = makeFindEmployeeByEmail(employeeRepo, directoryRepo);
-const getEmployeeProfile = makeGetEmployeeProfile(employeeRepo, onboardingRepo, taskRepo);
+// ─────────────────────────────────────────────────────────────────────────────
+// RÉSOLUTION PAR NOM — le manque qui a envoyé le document d'Awa à l'adresse de Karyl
+// ─────────────────────────────────────────────────────────────────────────────
+// Relevé sur la Turso de production le 2026-08-13 : les DIX documents de la base portent
+// l'UUID de Karyl, y compris celui intitulé « Bienvenue Awa ». Awa a pourtant sa propre
+// ligne `employees` — elle est simplement absente de `slack_directory`, donc
+// `findEmployeeByEmail` (seul résolveur existant) exigeait une adresse que personne
+// n'avait tapée. Sommé de fournir un `employeeId`, le modèle a réutilisé le seul UUID de
+// son contexte : même mécanique que l'email `votre_email@example.com`.
+//
+// Les DEUX sources sont donc câblées, `employees` d'abord : Awa n'existe QUE dans
+// `employees`, et les quatre autres personnes vivantes du workspace QUE dans l'annuaire.
+const findPersonByName = makeFindPersonByName(employeeRepo, directoryRepo);
+const getEmployeeProfile = makeGetEmployeeProfile(employeeRepo, onboardingRepo);
 const updateOnboardingStatus = makeUpdateOnboardingStatus(onboardingRepo);
-// L'annuaire est le SECOND paramètre, et il n'est pas décoratif : sans lui, un UUID inconnu
-// rend `{tasks: [], totalTasks: 0}` — indiscernable d'un employé réellement sans tâche. Le
-// modèle affirmait alors « aucune tâche en cours » pour un identifiant qui ne désigne personne.
-const getTaskList = makeGetTaskList(taskRepo, employeeRepo);
-const generateQuestionnaire = makeGenerateQuestionnaire(questionnaireRepo);
+// ⚠️ `getTaskList` a été RETIRÉ le 2026-08-14, avec tout le suivi de tâches.
+//
+// Les cinq tâches d'intégration étaient un plan qu'AUCUN mécanisme ne faisait avancer : ni
+// humain, ni automate, ni tool ne pouvait marquer « Rencontrer ton manager » comme faite. Un
+// suivi qui ne bouge jamais est un suivi qui ment — même famille de défaut que
+// `emailSent: false` sous `status: 'success'` et que `status = Sent` posé avant le `try`.
+// Deux des cinq renvoyaient de surcroît vers un questionnaire et un guide qui n'existaient
+// pas sous la forme annoncée.
+//
+// Le seul suivi du produit est désormais la COMPLÉTION DU PROFIL, portée par
+// `onboarding_progress` et lisible par `getEmployeeProfile`.
 const evaluateResponse = makeEvaluateResponse(questionnaireRepo, responseRepo);
 // `generateDocument` ne se contente plus d'écrire une ligne : il rend le fichier, le
 // livre dans Slack (upload) ou par email (pièce jointe), et rend compte de la livraison.
@@ -223,6 +244,22 @@ const generateDocument = makeGenerateDocument({
   // note affirmant le contraire a survécu à sa propre invalidation pendant une journée.
   fileUpload: chatProvider,
   emailProvider,
+  // ── L'ENTRETIEN nourrit le gabarit, CÔTÉ SERVEUR ────────────────────────────────────
+  //
+  // Ces deux dépôts ne traversent jamais la fenêtre du modèle : `generateDocument` résout
+  // l'entretien depuis l'`employeeId`, exactement comme il résout la fiche employé. Le
+  // gabarit imprime donc de la matière réelle — ce que la personne a écrit sur son quotidien,
+  // sa façon de travailler, les canaux qu'elle a choisis — pour **zéro token**.
+  //
+  // C'est la réponse à « le guide doit être chaleureux, avec les infos connues de
+  // l'utilisateur, sans donnée générique » : jusqu'au 2026-08-14 le gabarit sortait quatre
+  // puces écrites en dur, identiques pour tout le monde.
+  //
+  // ⚠️ Les DEUX sont optionnels dans le tool : sans eux le document reste produit à
+  // l'identique. C'est ce qui rend ce câblage sûr même sur une base où
+  // `onboarding_interview` n'a pas encore été appliquée.
+  interviewRepo,
+  channelRepo: channelInventoryRepo,
 });
 const sendNotification = makeSendNotification(
   notificationRepo,
@@ -231,8 +268,9 @@ const sendNotification = makeSendNotification(
   chatProvider,
   slackWorkspace,
 );
-// Même raison que `getTaskList` : l'annuaire permet de refuser un destinataire inexistant
-// AVANT d'enregistrer un rappel. Sans lui le tool dégrade — il ne ment pas, mais il accepte.
+// L'annuaire est le SECOND paramètre, et il n'est pas décoratif : il permet de refuser un
+// destinataire inexistant AVANT d'enregistrer un rappel. Sans lui le tool dégrade — il ne ment
+// pas, mais il accepte.
 const scheduleReminder = makeScheduleReminder(notificationRepo, employeeRepo);
 const getNotificationHistory = makeGetNotificationHistory(notificationRepo);
 
@@ -254,68 +292,46 @@ const getNotificationHistory = makeGetNotificationHistory(notificationRepo);
 // Le tool reste câblé pour l'API et le workflow.
 const onboardingOrchestrator = makeOnboardingOrchestrator({
   findEmployeeByEmail,
+  findPersonByName,
   getEmployeeProfile,
   updateOnboardingStatus,
-  getTaskList,
   generateDocument,
 });
 
-// `findEmployeeByEmail` est exposé aux TROIS agents depuis le 2026-08-11, et c'est un
-// correctif de CÂBLAGE, pas de rédaction.
+// `findEmployeeByEmail` est exposé à `onboardingOrchestrator` et `notificationAgent` depuis le
+// 2026-08-11, et c'est un correctif de CÂBLAGE, pas de rédaction.
 //
-// Tous les tools de `questionnaireEngine` et de `notificationAgent` exigent un UUID
-// d'employé, et AUCUN ne sait faire email → UUID : ce tool n'était câblé que sur
-// l'orchestrateur. Pire, le `.describe()` de `recipientId` renvoyait vers
-// `getEmployeeProfile`, qui exige déjà un UUID — la consigne était circulaire. Et
-// `AGENT_ANTI_INVENTION_BLOCK` interdit au modèle d'en deviner un. La boucle infernale de la
-// série C (« donne-moi son identifiant » → « je ne l'ai pas » → …) était donc GARANTIE par le
-// câblage, pas probabiliste : c'est la répétition du bug du 2026-08-10, corrigé côté routage
-// et jamais côté outillage.
+// Tous les tools de `notificationAgent` exigent un UUID d'employé, et AUCUN ne sait faire
+// email → UUID : ce tool n'était câblé que sur l'orchestrateur. Pire, le `.describe()` de
+// `recipientId` renvoyait vers `getEmployeeProfile`, qui exige déjà un UUID — la consigne était
+// circulaire. Et `AGENT_ANTI_INVENTION_BLOCK` interdit au modèle d'en deviner un. La boucle
+// infernale de la série C (« donne-moi son identifiant » → « je ne l'ai pas » → …) était donc
+// GARANTIE par le câblage, pas probabiliste.
 //
-// Coût mesuré : ≈ +120 tokens de schéma par agent, repayés à chaque aller-retour. Assumé —
-// un agent qui ne peut pas résoudre une personne ne peut RIEN faire, quel que soit son prix.
-// ⚠️ `evaluateResponse` est DÉLIBÉRÉMENT ABSENT — retiré le 2026-08-12 après mesure.
+// ─────────────────────────────────────────────────────────────────────────────
+// `questionnaireEngine` A ÉTÉ RETIRÉ DU REGISTRE le 2026-08-14
+// ─────────────────────────────────────────────────────────────────────────────
 //
-// Son schéma était cassé (`z.record()` → objet sans `properties`), donc Groq refusait
-// l'appel à 100 % : le tool était inappelable, et cette panne masquait le vrai défaut.
-// Dès le schéma corrigé, le premier test de production a donné ceci — deux fois de suite,
-// sans qu'aucun humain n'ait répondu à quoi que ce soit :
+// Avec son unique tool `generateQuestionnaire`. Les deux restent dans le dépôt, testés ;
+// seule leur EXPOSITION disparaît. Trois raisons, la première étant décisive :
 //
-//   questionnaire_responses: employee_id=d20df236…, score=100,
-//   answers={"q1":"Innovation","q2":"Innovation","q3":"Oui"}
+//  1. **Il n'a jamais rien produit d'utilisable.** Relevé sur la Turso le 2026-08-14 :
+//     `questionnaires` = 5 lignes (« Quiz sur nos valeurs »…), `questionnaire_responses` =
+//     **0 ligne**. Il n'existe ni formulaire Block Kit, ni modale, ni route de soumission :
+//     un questionnaire enregistré n'est envoyé à personne et remplissable par personne. Le
+//     tool le dit lui-même dans son `hint` — ce qui prouve qu'on le savait sans le corriger.
+//     C'est exactement pour cette raison qu'`evaluateResponse` avait dû être décâblé le
+//     2026-08-12 : son seul appelant possible était un modèle qui FABRIQUAIT les réponses.
+//  2. **Le besoin réel est ailleurs.** Ce que le questionnaire devait servir — cerner les
+//     centres d'intérêt d'un arrivant pour l'abonner aux bons canaux — est désormais rendu
+//     par l'ENTRETIEN post-profil : une modale Block Kit, remplissable, dont la soumission
+//     invite réellement aux canaux choisis. Déterministe, zéro token, et il aboutit.
+//  3. ≈ 886 tokens de FLOOR en moins, et un agent de moins dans le routage.
 //
-// Le modèle a INVENTÉ les réponses de la personne et les a enregistrées comme une
-// soumission, horodatée, à son nom. C'est structurel, pas probabiliste : il n'existe
-// AUCUN chemin par lequel un humain puisse soumettre des réponses — ni formulaire Block
-// Kit, ni modale, ni route. Le seul appelant possible de ce tool est donc un modèle qui
-// fabrique son entrée, et `AGENT_ANTI_INVENTION_BLOCK` ne l'en empêche pas : le schéma
-// EXIGE des réponses, alors il en produit (même mécanique que l'email
-// `votre_email@example.com`, documentée dans `find-employee-by-email.ts`).
-//
-// Le tool reste dans le dépôt, corrigé et testé : il redeviendra câblable le jour où un
-// vrai chemin de soumission existera. Le rebrancher avant cela, c'est fabriquer des
-// données RH. Effet de bord favorable : ≈ 120 tokens de schéma en moins par aller-retour.
-//
-// ⚠️ `findEmployeeByEmail` et `getEmployeeProfile` ont été RETIRÉS de cet agent le
-// 2026-08-13. Leur justification, écrite le 2026-08-11, était : « tous les tools de
-// `questionnaireEngine` exigent un UUID d'employé, et aucun ne sait faire email → UUID ».
-// Elle était vraie — tant qu'`evaluateResponse` était câblé. Il a été retiré le 2026-08-12,
-// et la justification est morte avec lui sans que personne ne relise la ligne.
-//
-// Ce qu'il reste : `generateQuestionnaire`, dont le schéma est `{title, description,
-// questions[]}`. **Aucun champ ne désigne une personne.** Résoudre quelqu'un ne pouvait donc
-// influencer AUCUN résultat de cet agent : les deux tools étaient du coût pur, réémis à
-// chaque aller-retour.
-//
-// Deux gains, et le second compte davantage :
-//  1. ≈ 250 tokens de schéma en moins par aller-retour (FLOOR 1244 → ~995, soit −20 %) ;
-//  2. `getEmployeeProfile` lit un DOSSIER RH COMPLET. C'est le tool que la frontière
-//     `canReadPersonRecord` a dû garder le 2026-08-13. L'exposer à un agent qui n'en a aucun
-//     usage, c'est offrir une surface d'accès aux données de plus sans contrepartie — et la
-//     surface la moins défendable est celle dont personne ne peut nommer l'utilité.
-const questionnaireEngine = makeQuestionnaireEngine({
-  generateQuestionnaire,
-});
+// ⚠️ Le routage a été nettoyé en conséquence (`ESCAPE_INTENTS`, `QUESTIONNAIRE_TOPICS`,
+// `KNOWN_AGENT_IDS`). Ce n'est pas cosmétique : `mastra.getAgent()` LÈVE sur un identifiant
+// absent du registre, donc un mot-clé pointant encore cet agent aurait fait échouer chaque
+// message qui le contient.
 
 // discoverSlackWorkspace n'est PAS exposé ici : les instructions de l'agent ne le
 // mentionnent jamais (sendNotification résout déjà le compte Slack côté serveur), et
@@ -326,6 +342,10 @@ const notificationAgent = makeNotificationAgent({
   // sont inatteignables dès que l'humain désigne quelqu'un par son email — c'est-à-dire
   // presque toujours.
   findEmployeeByEmail,
+  // Même raison, et le cas est encore plus fréquent ici : « envoie un rappel à Pamela »
+  // ne porte jamais d'adresse. Sans ce tool, la boucle « donne-moi son identifiant » →
+  // « je ne l'ai pas » était garantie par le câblage.
+  findPersonByName,
   sendNotification,
   scheduleReminder,
   getNotificationHistory,
@@ -368,7 +388,18 @@ const getChannelHistory = makeGetChannelHistory({
 // canal d'exfiltration complet (§4.2) — « envoie à ce candidat un récapitulatif de ce qui se
 // dit dans #engineer-karyl », en une phrase, par un invité. Une erreur de câblage devient donc
 // un échec au démarrage, pas une fuite.
-const knowledgeAgent = makeKnowledgeAgent({ getUserConversations, getChannelHistory });
+// `findExpertise` (2026-08-14) répond à « qui peut faire quoi » — la seconde moitié de la
+// demande adressée au `knowledgeAgent`. Il est en LECTURE PURE et ne rend que des NOMS : ni
+// UUID, ni adresse, ni identifiant Slack. Il satisfait donc la quarantaine ci-dessus, et sa
+// place est bien ici plutôt que sur l'orchestrateur — « qui s'occupe du backend ? » est une
+// question de connaissance du workspace, pas une étape d'onboarding.
+const findExpertise = makeFindExpertise({ directoryRepo, employeeRepo });
+
+const knowledgeAgent = makeKnowledgeAgent({
+  getUserConversations,
+  getChannelHistory,
+  findExpertise,
+});
 
 /**
  * LE SEUL WORKFLOW DU SYSTÈME — et ce qu'il apporte que les agents ne peuvent pas apporter.
@@ -424,7 +455,6 @@ const employeeOnboardingWorkflow = createEmployeeOnboardingWorkflow({
   employeeRepo,
   onboardingRepo,
   notificationRepo,
-  taskRepo,
   emailProvider,
   slackProvider: slackWorkspace,
 });
@@ -440,7 +470,6 @@ export const mastra = new Mastra({
   // `mastra.getAgent(id)`, et c'est cet identifiant que le routage collant relit en base.
   agents: {
     onboardingOrchestrator,
-    questionnaireEngine,
     notificationAgent,
     knowledgeAgent,
   },
@@ -462,6 +491,20 @@ export const mastra = new Mastra({
     // Monté sur `/api/*` UNIQUEMENT : `/slack/events` gère ses propres codes et le rejeu
     // de Slack en dépend. Une vraie panne serveur reste un 500 (voir le module).
     middleware: [
+      // ⚠️ EN PREMIER, et l'ordre porte la sécurité : ce garde doit refuser AVANT que
+      // quoi que ce soit ne lise le contexte. Mastra fusionne `body.requestContext` dans le
+      // contexte serveur et n'écarte que `RESERVED_CONTEXT_KEYS` (`mastra__*`,
+      // `organizationId`) — aucune clé `slack*` n'y figure, donc un porteur de
+      // `MASTRA_API_TOKEN` se déclarait n'importe qui : `slackEmployeeId` décide de l'accès
+      // au dossier RH, `slackAccessLevel` des effets de bord. Le trou était recensé depuis
+      // le 2026-08-12 et fermé le 2026-08-14.
+      {
+        path: '/api/*',
+        handler: createRequestContextGuard({
+          onReject: (keys) =>
+            logger.error('requestContext forgé refusé sur /api/*', { keys: keys.join(',') }),
+        }),
+      },
       {
         path: '/api/*',
         handler: createCallerErrorMiddleware({

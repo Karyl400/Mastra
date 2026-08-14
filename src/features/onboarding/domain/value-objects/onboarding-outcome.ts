@@ -47,12 +47,15 @@ export enum OnboardingOutcome {
  * Les étapes qui peuvent échouer SANS faire échouer le parcours.
  *
  * L'inventaire est exhaustif et c'est la moitié du correctif : ne traiter que
- * l'email aurait laissé l'invitation Slack et la création des tâches dans le
- * même angle mort, avec exactement le même symptôme.
+ * l'email aurait laissé l'invitation Slack dans le même angle mort, avec
+ * exactement le même symptôme.
+ *
+ * ⚠️ `OnboardingTasks` a été RETIRÉ le 2026-08-14 avec les tâches d'intégration
+ * elles-mêmes. Ne pas le réintroduire pour couvrir l'écriture du suivi : cette
+ * écriture n'est plus best-effort, un parcours sans `onboarding_progress` fait
+ * dégrader `updateOnboardingStatus` ET `getEmployeeProfile`.
  */
 export enum BestEffortStep {
-  /** Écriture des tâches et de leurs étapes de suivi (`initOnboarding`). */
-  OnboardingTasks = 'onboardingTasks',
   /** Envoi de l'email de bienvenue (`sendWelcomeEmail`). */
   WelcomeEmail = 'welcomeEmail',
   /** Invitation de l'arrivant dans le canal Slack du département (`inviteToSlack`). */

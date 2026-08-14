@@ -647,6 +647,100 @@ export const conversationTurns = sqliteTable(
 );
 
 // ============================================
+// 11 ter. ONBOARDING INTERVIEW (Entretien post-profil)
+// ============================================
+//
+// Ce que la personne dit d'elle APRÈS avoir complété son profil : les canaux qui l'intéressent,
+// ce qu'elle fait au quotidien, comment elle préfère travailler.
+//
+// ── Pourquoi une table et pas `questionnaire_responses` ─────────────────────────────────
+// Cette table existe déjà et porte `score`, `max_score`, `percentage`, `reviewed_by`,
+// `review_notes` : elle est en forme de QUIZ CORRIGÉ. Un entretien n'a ni bonne réponse ni
+// note, et sept colonnes resteraient NULL sur 100 % des lignes — un schéma qui décrit autre
+// chose que ce qu'il contient finit toujours par être relu comme s'il disait vrai. Elle a de
+// surcroît une clé étrangère vers `questionnaires`, qui obligerait à fabriquer une ligne de
+// définition pour un formulaire écrit en dur dans le code.
+//
+// Relevé du 2026-08-14 : `questionnaire_responses` = **0 ligne** pour 5 questionnaires
+// enregistrés. Personne n'a jamais pu répondre à quoi que ce soit, parce qu'aucun chemin de
+// soumission n'existait. C'est ce chemin-là qu'apporte l'entretien.
+//
+// ── `employee_id` EST la clé primaire ───────────────────────────────────────────────────
+// Un employé a un entretien, pas une collection. Cette forme rend l'upsert trivial et
+// l'invariant STRUCTUREL plutôt que conventionnel : il ne peut pas exister deux réponses
+// concurrentes dont on ne saurait laquelle est courante.
+
+export const onboardingInterview = sqliteTable(
+  'onboarding_interview',
+  {
+    employeeId: text('employee_id').primaryKey(),
+    /** Auteur Slack — conservé pour l'effacement et pour ré-inviter sans relire `employees`. */
+    slackUserId: text('slack_user_id').notNull(),
+    /**
+     * Identifiants `C…` des canaux choisis, en JSON.
+     *
+     * Les ID et non les NOMS : un canal se renomme sans que son `C…` bouge, et c'est l'ID que
+     * `conversations.invite` consomme. Même arbitrage que la clé de `slack_channels`.
+     */
+    channels: text('channels', { mode: 'json' }).notNull(),
+    /** Texte libre — ce que la personne fait au quotidien. Assaini avant écriture. */
+    dailyWork: text('daily_work').notNull().default(''),
+    /** Texte libre — comment elle préfère travailler. Assaini avant écriture. */
+    workStyle: text('work_style').notNull().default(''),
+
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    // Sert l'effacement par personne et la relecture depuis un identifiant Slack — le seul
+    // disponible sur le chemin d'un message.
+    slackUserIdx: index('idx_onboarding_interview_slack_user').on(table.slackUserId),
+  }),
+);
+
+// ============================================
+// 11 bis. PINNED FACTS (Mémoire longue, hors TTL)
+// ============================================
+//
+// `conversation_turns` porte un TTL de 60 minutes et une fenêtre de 1 600 tokens : tout ce
+// qu'on y écrit est destiné à disparaître. C'est le bon comportement pour un fil de
+// discussion, et le mauvais pour « souviens-toi que mon poste est Backend Developer » —
+// `TODO.md` le recense depuis le 2026-08-13 : la demande n'ÉPINGLAIT rien, alors que le
+// modèle promettait de s'en souvenir.
+//
+// D'où une table SÉPARÉE, et non un drapeau sur `conversation_turns` : les deux ont des
+// durées de vie opposées, et un `WHERE pinned = 0` dans la purge finirait par être oublié
+// une fois. La séparation rend l'invariant structurel — cette table n'est JAMAIS purgée par
+// le TTL.
+//
+// La clé est le `slack_user_id`, pas la conversation : un fait sur soi vaut dans tous les
+// fils. C'est aussi ce qui permet à `forget()` de les emporter par la même clé.
+//
+// ⚠️ Aucune borne en SQL. Le plafond (5 faits, 120 caractères) vit dans le CODE
+// (`src/shared/pin-fact.ts`), parce qu'il est dicté par le budget de tokens du préambule et
+// non par le stockage — et parce qu'un dépassement doit ÉVINCER le plus ancien, pas échouer.
+
+export const pinnedFacts = sqliteTable(
+  'pinned_facts',
+  {
+    id: text('id').primaryKey(),
+    slackUserId: text('slack_user_id').notNull(),
+    /** Texte D'ORIGINE de la personne, assaini — jamais normalisé ni reformulé. */
+    fact: text('fact').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    // Sert les deux accès : lecture des faits d'une personne (égalité + tri) et éviction du
+    // plus ancien. Aucun index sur `created_at` seul — rien ne purge cette table par l'âge,
+    // et c'est tout son objet.
+    userCreatedAtIdx: index('idx_pinned_facts_user_created_at').on(
+      table.slackUserId,
+      table.createdAt,
+    ),
+  }),
+);
+
+// ============================================
 // 12. SLACK EVENT DEDUP (Déduplication multi-instance)
 // ============================================
 //

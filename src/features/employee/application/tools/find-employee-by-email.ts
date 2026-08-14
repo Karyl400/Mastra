@@ -108,7 +108,7 @@ function isPlaceholderEmail(email: string): boolean {
  *
  * L'annuaire est un MIROIR de Slack, `employees` une donnée PROPRE au produit. D'où
  * l'ordre : `employees` d'abord — c'est lui qui porte l'UUID interne dont dépendent
- * `getEmployeeProfile`, `getTaskList` et `scheduleReminder` — puis l'annuaire en repli.
+ * `getEmployeeProfile`, `generateDocument` et `scheduleReminder` — puis l'annuaire en repli.
  * L'inverse ferait perdre l'identifiant interne d'un employé enregistré.
  *
  * ⚠️ Dépendance OPTIONNELLE : le tool reste appelable sans annuaire (tests, playground,
@@ -213,7 +213,7 @@ export function makeFindEmployeeByEmail(repo: EmployeeRepository, directory?: Di
           hint: member.employeeId
             ? undefined
             : "Cette personne est dans Slack mais n'a aucun dossier d'onboarding : " +
-              'getEmployeeProfile, getTaskList et les rappels ne fonctionneront pas pour elle. ' +
+              'getEmployeeProfile et les rappels ne fonctionneront pas pour elle. ' +
               "N'invente aucun identifiant interne ; dis-le simplement.",
         };
       }

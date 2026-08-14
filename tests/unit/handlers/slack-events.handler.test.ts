@@ -40,6 +40,7 @@ import {
   readSlackContext,
 } from '../../../src/shared/slack-request-context';
 import { InMemoryConversationRepository } from '../../../src/features/conversation/infrastructure/repositories/in-memory-conversation.repository';
+import type { PinnedFactRepository } from '../../../src/features/conversation/domain/ports/pinned-fact.repository';
 import type { ConversationRepository } from '../../../src/features/conversation/domain/ports/conversation.repository';
 import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
 import type { SlackEventDedupRepository } from '../../../src/features/notification/domain/ports/slack-event-dedup.repository';
@@ -120,6 +121,8 @@ function makeHandler(
     workspaceProvider?: { getUserById: ReturnType<typeof vi.fn> };
     /** Mémoire conversationnelle. `null` par défaut : ces tests restent hermétiques. */
     conversationRepository?: ConversationRepository | null;
+    /** Mémoire longue (faits épinglés). `null` par défaut, même raison. */
+    pinnedFactRepository?: PinnedFactRepository | null;
     conversationTokenBudget?: number;
     /** Une SEULE doublure partagée par deux handlers simule deux instances serverless. */
     dedupRepository?: SlackEventDedupRepository | null;
@@ -147,6 +150,12 @@ function makeHandler(
     // Explicitement `null` et non `undefined` : sans cela le handler construirait un
     // `DrizzleConversationRepository`, donc ouvrirait une connexion base dans un test unitaire.
     conversationRepository: options.conversationRepository ?? null,
+    // QUATRIÈME dépendance à neutraliser, ajoutée le 2026-08-14 avec la mémoire longue.
+    // Sans cette ligne, `loadPinnedFacts` construit un `DrizzlePinnedFactRepository` et lit
+    // la VRAIE base à chaque test qui atteint le modèle — exactement la fuite déjà payée sur
+    // les compteurs de débit, dont la seule raison de ne pas avoir cassé la suite était
+    // l'ABSENCE de la table.
+    pinnedFactRepository: options.pinnedFactRepository ?? null,
     conversationTokenBudget: options.conversationTokenBudget,
     // Tirage neutralisé par défaut : la purge est une tâche de fond, et la laisser à sa
     // probabilité de production ferait échouer un test sur cinq de façon irreproductible.
@@ -740,10 +749,15 @@ describe('SlackEventsHandler — routeToAgent()', () => {
   const { handler } = makeHandler();
 
   it.each([
-    ['peux-tu lancer le questionnaire ?', 'questionnaireEngine'],
-    ['je veux une évaluation', 'questionnaireEngine'],
-    ['démarre le quiz', 'questionnaireEngine'],
-    ['fais passer un test technique', 'questionnaireEngine'],
+    // ⚠️ « questionnaire », « évaluation », « quiz » et « test » retombent au DÉFAUT depuis le
+    // 2026-08-14 : `questionnaireEngine` a été retiré du registre avec son unique tool.
+    // Relevé de production qui l'a motivé : `questionnaires` = 5 lignes, `questionnaire_responses`
+    // = 0 — il n'a jamais rien produit qu'un humain puisse remplir. Les laisser pointer un agent
+    // absent aurait fait LEVER `mastra.getAgent()` sur chaque message les contenant.
+    ['peux-tu lancer le questionnaire ?', 'onboardingOrchestrator'],
+    ['je veux une évaluation', 'onboardingOrchestrator'],
+    ['démarre le quiz', 'onboardingOrchestrator'],
+    ['fais passer un test technique', 'onboardingOrchestrator'],
     ['envoie une notification', 'notificationAgent'],
     ['programme un rappel', 'notificationAgent'],
     ['envoie un email à Jean', 'notificationAgent'],
@@ -755,14 +769,33 @@ describe('SlackEventsHandler — routeToAgent()', () => {
   });
 
   it('is case-insensitive', () => {
-    expect(handler.routeToAgent('QUESTIONNAIRE')).toBe('questionnaireEngine');
     expect(handler.routeToAgent('RAPPEL')).toBe('notificationAgent');
+    expect(handler.routeToAgent('NOTIFICATION')).toBe('notificationAgent');
   });
 
-  it('gives questionnaire keywords priority over notification keywords', () => {
-    expect(handler.routeToAgent('envoie un email avec le questionnaire')).toBe(
-      'questionnaireEngine',
-    );
+  it('ne route plus RIEN vers un agent absent du registre', () => {
+    // Garde-fou de NON-RÉGRESSION. `mastra.getAgent()` LÈVE sur un identifiant inconnu
+    // (`MASTRA_GET_AGENT_BY_NAME_NOT_FOUND`) : un mot-clé oublié dans le routage ne
+    // produirait pas un mauvais aiguillage, mais un échec sur le message générique.
+    const registre = new Set(['onboardingOrchestrator', 'notificationAgent', 'knowledgeAgent']);
+    const phrases = [
+      'questionnaire',
+      'évaluation',
+      'quiz',
+      'test',
+      'envoie un email avec le questionnaire',
+      'notification',
+      'rappel',
+      'conversation',
+      'historique',
+      'crée un employé',
+      'guide en pdf',
+      '',
+    ];
+
+    for (const phrase of phrases) {
+      expect(registre.has(handler.routeToAgent(phrase)), `« ${phrase} »`).toBe(true);
+    }
   });
 
   /**
@@ -811,7 +844,7 @@ describe('SlackEventsHandler — routeToAgent()', () => {
 
   it('tolère le pluriel des mots-clés', () => {
     expect(handler.routeToAgent('les emails sont-ils partis ?')).toBe('notificationAgent');
-    expect(handler.routeToAgent('montre-moi les questionnaires')).toBe('questionnaireEngine');
+    expect(handler.routeToAgent('les rappels sont-ils programmés ?')).toBe('notificationAgent');
   });
 
   /**
@@ -831,9 +864,11 @@ describe('SlackEventsHandler — routeToAgent()', () => {
     expect(handler.routeToAgent(text)).toBe('onboardingOrchestrator');
   });
 
-  it('still matches "test" as a standalone word, including punctuation-adjacent', () => {
-    expect(handler.routeToAgent('lance le test.')).toBe('questionnaireEngine');
-    expect(handler.routeToAgent('Test ?')).toBe('questionnaireEngine');
+  it('« test » ne désigne plus aucun agent — et c est une amélioration', () => {
+    // Le mot-clé pointait un agent de quiz, alors que « test » dans ce workspace parle
+    // presque toujours d'un test logiciel. Son retrait supprime un faux positif structurel.
+    expect(handler.routeToAgent('lance le test.')).toBe('onboardingOrchestrator');
+    expect(handler.routeToAgent('Test ?')).toBe('onboardingOrchestrator');
   });
 });
 
@@ -873,10 +908,10 @@ describe('SlackEventsHandler — handleEvent() (traitement de fond)', () => {
     const { handler, slack, getAgent, generate } = makeHandler();
 
     await handler.handleEvent(
-      envelope(mention({ text: `<@${BOT_USER_ID}> lance le questionnaire` })),
+      envelope(mention({ text: `<@${BOT_USER_ID}> envoie une notification à Awa` })),
     );
 
-    expect(getAgent).toHaveBeenCalledWith('questionnaireEngine');
+    expect(getAgent).toHaveBeenCalledWith('notificationAgent');
     // Le texte Slack brut ne doit plus jamais partir tel quel dans generate() : il est
     // encadré par wrapAgentInput() (délimiteurs, détection d'injection). Le wrapping est
     // déterministe pour un même texte (même session partagée par processus, cf.
@@ -892,7 +927,7 @@ describe('SlackEventsHandler — handleEvent() (traitement de fond)', () => {
     // `AGENT_STYLE_BLOCK` résout « tu » sur lui — d'où « Ton profil » quand on interroge un
     // tiers. Il est délibérément HORS du bloc balisé, que la DIRECTIVE 3.1 déclare non fiable.
     expect(generate).toHaveBeenCalledWith(
-      [preamble(), { role: 'user', content: wrapAgentInput('lance le questionnaire') }],
+      [preamble(), { role: 'user', content: wrapAgentInput('envoie une notification à Awa') }],
       expect.objectContaining({ requestContext: expect.anything() }),
     );
     expect(slack.chat.postMessage).toHaveBeenCalledWith({
@@ -1327,7 +1362,11 @@ describe('SlackEventsHandler — routage collant', () => {
     const { handler } = makeHandler();
     // Un identifiant obsolète en base condamnerait le fil entier si on le suivait aveuglément.
     expect(handler.routeToAgent('bonjour', 'agentRetiréDuRegistre')).toBe('onboardingOrchestrator');
-    expect(handler.routeToAgent('bonjour', 'questionnaireEngine')).toBe('questionnaireEngine');
+    // Cas RÉEL depuis le 2026-08-14 : des `conversation_turns` en production portent encore
+    // `agentId: 'questionnaireEngine'`, retiré du registre. Le suivre ferait LEVER
+    // `mastra.getAgent()` à chaque message et condamnerait le fil jusqu'au TTL de 60 min.
+    expect(handler.routeToAgent('bonjour', 'questionnaireEngine')).toBe('onboardingOrchestrator');
+    expect(handler.routeToAgent('bonjour', 'notificationAgent')).toBe('notificationAgent');
   });
 });
 
@@ -1346,25 +1385,80 @@ describe('SlackEventsHandler — routage : échappement symétrique', () => {
 
   it.each([
     ['planifie un rappel pour lundi', 'onboardingOrchestrator', 'notificationAgent'],
-    ['envoie une notification à Awa', 'questionnaireEngine', 'notificationAgent'],
-    ['lance le questionnaire d’accueil', 'notificationAgent', 'questionnaireEngine'],
-    ['prépare une évaluation', 'onboardingOrchestrator', 'questionnaireEngine'],
+    ['envoie une notification à Awa', 'knowledgeAgent', 'notificationAgent'],
     ['retrouve son identifiant', 'notificationAgent', 'onboardingOrchestrator'],
-    ['crée un employé : Awa TRAORE', 'questionnaireEngine', 'onboardingOrchestrator'],
+    ['crée un employé : Awa TRAORE', 'notificationAgent', 'onboardingOrchestrator'],
+    ['résume notre conversation', 'notificationAgent', 'knowledgeAgent'],
   ])('« %s » sort d’un fil mené par %s et atteint %s', (text, sticky, expected) => {
     expect(handler.routeToAgent(text, sticky)).toBe(expected);
   });
 
-  it('n’arrache plus un fil en cours sur « pdf » / « guide » (C7)', () => {
-    // C7 : « Donne le PDF alors » a arraché le fil vers l'orchestrateur, qui a hérité de la
-    // mémoire de `notificationAgent` et promis une capacité qu'il n'a pas. Ces termes sont
-    // des RÉPONSES DE SUIVI dans l'immense majorité des cas : c'est exactement ce que le
-    // palier collant sait router.
+  it('rend le fil à l’orchestrateur quand l’agent en place N’A PAS `generateDocument`', () => {
+    // ⚠️ CE TEST A CHANGÉ DE SENS le 2026-08-14, et c'est délibéré — il asseyait auparavant
+    // le comportement que `TODO.md` [0 bis] recense comme un DÉFAUT :
+    //
+    //   « après "Envoie un rappel à Pamela" (échappement `rappel` → notificationAgent), le
+    //     message "Génère-moi le guide en PDF" RESTE chez notificationAgent, qui n'a pas
+    //     `generateDocument`. C'est exactement l'état absorbant que la refonte du 2026-08-11
+    //     prétend avoir corrigé — il a changé d'agent. »
+    //
+    // Le commentaire d'origine justifiait la collance par « un agent qui a promis une capacité
+    // qu'il n'a pas » — or c'est l'inverse qui est vrai : l'orchestrateur PORTE
+    // `generateDocument`, et c'est `notificationAgent` qui ne l'a pas. Le fil restait donc
+    // collé sur le seul agent incapable de répondre, une heure durant (en DM la clé de
+    // conversation est le canal).
+    //
+    // La règle n'est plus une priorité de bande mais une CAPACITÉ : le fil cède si, et
+    // seulement si, l'agent qui le mène ne porte pas l'outil exigé.
     expect(handler.routeToAgent('Donne le PDF alors', 'notificationAgent')).toBe(
-      'notificationAgent',
+      'onboardingOrchestrator',
     );
-    expect(handler.routeToAgent('et le guide de bienvenue ?', 'questionnaireEngine')).toBe(
-      'questionnaireEngine',
+    expect(handler.routeToAgent('et le guide de bienvenue ?', 'knowledgeAgent')).toBe(
+      'onboardingOrchestrator',
+    );
+
+    // Le SENS INVERSE reste garanti, et c'est lui qui protège l'acquis du 2026-08-11 : un
+    // agent qui SAIT faire garde son fil. Aucune réponse de suivi ne lui est arrachée.
+    expect(handler.routeToAgent('Donne le PDF alors', 'onboardingOrchestrator')).toBe(
+      'onboardingOrchestrator',
+    );
+  });
+
+  it('ne déloge JAMAIS un fil sur « email » / « message » — ils ne désignent pas un seul agent', () => {
+    // Garde-fou de la règle d'admission de `overridesSticky`. `generateDocument` porte
+    // `deliverTo: 'email'` : l'orchestrateur sert donc « par email » sans `sendNotification`,
+    // et l'en déloger rejouerait le défaut A → B → A du 2026-08-11.
+    expect(handler.routeToAgent('Par email', 'onboardingOrchestrator')).toBe(
+      'onboardingOrchestrator',
+    );
+    expect(handler.routeToAgent('plutôt par message', 'onboardingOrchestrator')).toBe(
+      'onboardingOrchestrator',
+    );
+  });
+
+  it('rejoue la campagne type de TODO [0 bis] — le fil n’est plus un piège', () => {
+    // Le scénario EXACT du relevé, dans l'ordre. Avant le 2026-08-14 le message 2 restait
+    // chez `notificationAgent` et la demande de document était structurellement insatisfaite.
+    expect(handler.routeToAgent('Envoie un rappel à Pamela')).toBe('notificationAgent');
+    expect(handler.routeToAgent('Génère-moi le guide en PDF', 'notificationAgent')).toBe(
+      'onboardingOrchestrator',
+    );
+  });
+
+  it('rend `knowledgeAgent` atteignable sur les phrases réelles (TODO [0 bis])', () => {
+    // Ses seules portes d'entrée étaient `conversation` et `historique`. « Résume ce qui s'est
+    // dit dans #kisso-hq » partait au défaut, donc chez un agent sans aucun outil de canal —
+    // et toute `disclosure-policy.ts` était du code mort sur la phrase que quelqu'un dirait
+    // vraiment. Rien ne fuyait, mais ce n'était pas la politique qui l'empêchait.
+    expect(handler.routeToAgent('Résume ce qui s’est dit cette semaine')).toBe('knowledgeAgent');
+
+    // Un JETON DE CANAL suffit, sans aucun mot-clé : il est produit par le client Slack,
+    // jamais tapé, et il survit à `cleanText`.
+    expect(handler.routeToAgent('quoi de neuf dans <#C0ABC123|kisso-hq> ?')).toBe('knowledgeAgent');
+
+    // Et il déloge un fil mené par un agent qui ne sait pas lire un canal.
+    expect(handler.routeToAgent('résume <#C0ABC123|kisso-hq>', 'onboardingOrchestrator')).toBe(
+      'knowledgeAgent',
     );
   });
 
@@ -1378,9 +1472,9 @@ describe('SlackEventsHandler — routage : échappement symétrique', () => {
     // B6 : « ajoute une question à choix multiple » a été détourné vers un agent sans le
     // moindre tool de questionnaire. Même critère que celui qui a fait écarter « word » :
     // un verbe français générique n'a rien à faire dans un palier qui PRIME sur le fil.
-    expect(
-      handler.routeToAgent('ajoute une question à choix multiple', 'questionnaireEngine'),
-    ).toBe('questionnaireEngine');
+    expect(handler.routeToAgent('ajoute une question à choix multiple', 'knowledgeAgent')).toBe(
+      'knowledgeAgent',
+    );
     expect(handler.routeToAgent('ajoute Awa à la liste', 'notificationAgent')).toBe(
       'notificationAgent',
     );
@@ -1415,12 +1509,8 @@ describe('SlackEventsHandler — bord droit de la regex : les infinitifs matchen
   it('ne laisse pas les suffixes verbaux déborder sur les mots-clés NOMINAUX', () => {
     // `rappel` et `message` sont des NOMS : ils ne tolèrent que le pluriel. Leur ouvrir les
     // désinences verbales ferait revenir « rappelle » et « messagerie ».
-    expect(handler.routeToAgent('rappelle-moi ça', 'questionnaireEngine')).toBe(
-      'questionnaireEngine',
-    );
-    expect(handler.routeToAgent('ouvre la messagerie', 'questionnaireEngine')).toBe(
-      'questionnaireEngine',
-    );
+    expect(handler.routeToAgent('rappelle-moi ça', 'knowledgeAgent')).toBe('knowledgeAgent');
+    expect(handler.routeToAgent('ouvre la messagerie', 'knowledgeAgent')).toBe('knowledgeAgent');
     expect(handler.routeToAgent('les rappels sont partis ?')).toBe('notificationAgent');
   });
 });

@@ -1,6 +1,7 @@
 import type { Employee } from '../../domain/entities/employee';
 import type { EmployeeRepository } from '../../domain/ports/employee.repository';
 import { ConflictError } from '../../../../shared/errors';
+import { matchesName } from '../../../../shared/name-matching';
 
 /**
  * Doublure de `DrizzleEmployeeRepository`, utilisée par tous les tests de tools.
@@ -30,6 +31,19 @@ export class InMemoryEmployeeRepository implements EmployeeRepository {
       if (e.email === email && !this.deletedAt.has(e.id)) return e;
     }
     return null;
+  }
+
+  /** Même rapprochement que la production — le module partagé est le seul juge. */
+  async findByName(query: string, limit: number): Promise<Employee[]> {
+    if (limit <= 0) return [];
+
+    return Array.from(this.store.values())
+      .filter((e) => !this.deletedAt.has(e.id))
+      .filter((e) => matchesName(query, [e.firstName, e.lastName, `${e.firstName} ${e.lastName}`]))
+      .sort(
+        (a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName),
+      )
+      .slice(0, limit);
   }
 
   async findAll(): Promise<Employee[]> {
