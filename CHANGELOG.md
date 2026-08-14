@@ -79,6 +79,32 @@ forgeable fermé le même jour.
 blanche de tout appelant légitime, playground compris. Cela change le contrat d'une API — c'est
 une décision de produit, pas un correctif de routine. Voir `TODO.md` [0 quinquies].
 
+### Verified — campagne en production, et DEUX défauts trouvés par elle
+
+Trois invitations réelles préparées sur le déploiement de production. La campagne a trouvé ce
+qu'aucun test unitaire n'aurait pu trouver, parce que les deux défauts sont des comportements
+de MODÈLE, pas des erreurs de code :
+
+1. ⚠️ **Un champ REQUIS forçait l'invention d'un nom.** Sur « Envoie un email d'entretien à
+   ridwanenico77@gmail.com », aucun nom n'étant donné, le modèle a rendu
+   `candidateName: "Ridwane Nico"` — fabriqué depuis l'adresse. L'email s'ouvrait sur
+   « Bonjour Ridwane Nico, » : le premier contact de l'entreprise avec un candidat, sous un nom
+   que personne n'a écrit. `candidateName` est devenu OPTIONNEL ; absent ⇒ « Bonjour, ».
+2. ⚠️ **DEUX cartes postées à une seconde d'intervalle**, la seconde re-préparant l'invitation
+   du message PRÉCÉDENT depuis la mémoire conversationnelle. Garde d'idempotence ajoutée,
+   réutilisant `tool-idempotency` — même module, même mode d'échec que les « 7 documents en
+   8 minutes » de `generateDocument`.
+
+Relevé Slack après correctifs — le défaut et sa disparition, dans le même fil :
+
+    [13:27:18] CARTE → contact.kisso.test@gmail.com   mardi 25 août 2026 à 10:30
+    [13:27:19] CARTE → ridwanenico77@gmail.com        jeudi 20 août 2026 à 14:00   ← fantôme
+    [13:41:45] CARTE → contact.kisso.test@gmail.com   jeudi 27 août 2026 à 09:00   ← une seule
+
+Vérifié sur la dernière carte : « Bonjour, » sans nom inventé, date correctement transcrite et
+affichée avec son offset, lien Meet accepté, et confirmation de présence adressée à l'adresse
+réelle du demandeur.
+
 ### Budget
 
 FLOOR : orchestrateur **1 528**, notification **1 517**, knowledge **998**,
