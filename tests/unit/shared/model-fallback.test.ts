@@ -5,6 +5,8 @@ import {
   makeModelChain,
   PRIMARY_MODEL_ID,
   FALLBACK_MODEL_ID,
+  GROQ_MODEL_ID,
+  MISTRAL_MODEL_ID,
   LAST_RESORT_MAX_RETRIES,
 } from '../../../src/shared/llm/model-fallback';
 
@@ -121,10 +123,7 @@ describe('makeModelChain — configuration de la chaîne de repli', () => {
     const list = await agent.getModelList();
 
     expect(list?.map((entry) => entry.id)).toEqual([PRIMARY_MODEL_ID, FALLBACK_MODEL_ID]);
-    expect(list?.map((entry) => entry.model.modelId)).toEqual([
-      'llama-3.3-70b-versatile',
-      'mistral-large-latest',
-    ]);
+    expect(list?.map((entry) => entry.model.modelId)).toEqual([GROQ_MODEL_ID, MISTRAL_MODEL_ID]);
     expect(list?.map((entry) => entry.maxRetries)).toEqual([0, LAST_RESORT_MAX_RETRIES]);
     expect(list?.every((entry) => entry.enabled)).toBe(true);
   });
@@ -144,8 +143,16 @@ describe('Moteur de repli Mastra — sémantique observée', () => {
       name: 'failoverProbe',
       instructions: 'x',
       model: [
-        { id: 'primary', model: makeFakeModel({ modelId: 'primary', failTimes: Infinity, calls }), maxRetries: 0 },
-        { id: 'fallback', model: makeFakeModel({ modelId: 'fallback', failTimes: 0, calls }), maxRetries: 0 },
+        {
+          id: 'primary',
+          model: makeFakeModel({ modelId: 'primary', failTimes: Infinity, calls }),
+          maxRetries: 0,
+        },
+        {
+          id: 'fallback',
+          model: makeFakeModel({ modelId: 'fallback', failTimes: 0, calls }),
+          maxRetries: 0,
+        },
       ],
     });
 
@@ -166,12 +173,22 @@ describe('Moteur de repli Mastra — sémantique observée', () => {
       model: [
         {
           id: 'primary',
-          model: makeFakeModel({ modelId: 'primary', failTimes: Infinity, message: 'Groq quota', calls }),
+          model: makeFakeModel({
+            modelId: 'primary',
+            failTimes: Infinity,
+            message: 'Groq quota',
+            calls,
+          }),
           maxRetries: 0,
         },
         {
           id: 'fallback',
-          model: makeFakeModel({ modelId: 'fallback', failTimes: Infinity, message: 'Rate limit exceeded', calls }),
+          model: makeFakeModel({
+            modelId: 'fallback',
+            failTimes: Infinity,
+            message: 'Rate limit exceeded',
+            calls,
+          }),
           maxRetries: 0,
         },
       ],
@@ -211,7 +228,11 @@ describe('Moteur de repli Mastra — sémantique observée', () => {
       name: 'noRetryProbe',
       instructions: 'x',
       model: [
-        { id: 'only', model: makeFakeModel({ modelId: 'only', failTimes: 1, calls }), maxRetries: 0 },
+        {
+          id: 'only',
+          model: makeFakeModel({ modelId: 'only', failTimes: 1, calls }),
+          maxRetries: 0,
+        },
       ],
     });
 

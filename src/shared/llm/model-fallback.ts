@@ -41,10 +41,44 @@ import { logger as sharedLogger } from '../logger';
  * et s'en sert pour `findIndex`, les journaux et `reorderModels` — elle n'est
  * jamais analysée, le modèle étant déjà une instance résolue.
  */
-export const PRIMARY_MODEL_ID = 'groq/llama-3.3-70b-versatile';
+/**
+ * Modèle Groq réellement demandé à l'API — la valeur qui part sur le fil.
+ *
+ * ⚠️ **`llama-3.3-70b-versatile` a été RETIRÉ du compte Groq**, constaté le 2026-08-15 par
+ * appel direct : `404 model_not_found`, et `GET /openai/v1/models` ne rend plus AUCUN modèle
+ * de chat Llama (13 modèles disponibles, dont `openai/gpt-oss-*`, `qwen/qwen3.6-27b`,
+ * `groq/compound`, et des modèles audio). Ce n'est pas une panne de clé : la clé est valide et
+ * les autres modèles répondent 200 avec elle.
+ *
+ * Le symptôme était le PIRE possible pour le diagnostic : la chaîne de repli faisait son
+ * travail, donc le bot RÉPONDAIT — mais chaque message payait d'abord un aller-retour Groq
+ * perdu, puis tombait chez Mistral, **plafonné à 4 REQUÊTES par minute**. Un flux à plusieurs
+ * étapes épuise ce seau en un seul message. C'est exactement la panne que `CLAUDE.md` décrit
+ * comme ayant coûté un diagnostic entier — lue comme un bug logiciel alors qu'elle est un
+ * problème de quota, ici aggravée par un modèle absent.
+ *
+ * `openai/gpt-oss-120b` est retenu parce qu'il APPELLE LES OUTILS, ce que tout ce dépôt exige :
+ * vérifié par une requête réelle portant un schéma de tool, qui a bien produit un `tool_calls`
+ * nommant la fonction. `qwen/qwen3.6-27b` a été ÉCARTÉ sur ce même test — il répond 200 mais
+ * n'émet aucun appel d'outil, donc il rendrait chaque agent bavard et impuissant.
+ */
+export const GROQ_MODEL_ID = 'openai/gpt-oss-120b';
+
+/** Modèle Mistral réellement demandé. Vérifié joignable (HTTP 200) le 2026-08-15. */
+export const MISTRAL_MODEL_ID = 'mistral-large-latest';
+
+/**
+ * Identifiant stable du modèle primaire (Groq).
+ *
+ * DÉRIVÉ de `GROQ_MODEL_ID`, jamais réécrit à la main : l'étiquette et le modèle réellement
+ * appelé étaient deux littéraux distincts, donc libres de diverger — un journal aurait alors
+ * accusé un modèle qui n'a jamais été sollicité, sur un chemin dont `CLAUDE.md` documente déjà
+ * qu'il a fait diagnostiquer à tort « Groq saturé » pendant des heures.
+ */
+export const PRIMARY_MODEL_ID = `groq/${GROQ_MODEL_ID}`;
 
 /** Identifiant stable du modèle de repli (Mistral). */
-export const FALLBACK_MODEL_ID = 'mistral/mistral-large-latest';
+export const FALLBACK_MODEL_ID = `mistral/${MISTRAL_MODEL_ID}`;
 
 /**
  * Budget de reprise accordé au DERNIER maillon de la chaîne uniquement.
@@ -163,10 +197,10 @@ export function makeModelChain(deps: ModelChainDeps = {}): ModelWithRetries[] {
   const chain: Omit<ModelWithRetries, 'maxRetries'>[] = [
     {
       id: PRIMARY_MODEL_ID,
-      model: withChainFailureLogging(createGroq({ apiKey: groqApiKey })('llama-3.3-70b-versatile'), {
+      model: withChainFailureLogging(createGroq({ apiKey: groqApiKey })(GROQ_MODEL_ID), {
         chainId: PRIMARY_MODEL_ID,
         provider: 'groq',
-        modelId: 'llama-3.3-70b-versatile',
+        modelId: GROQ_MODEL_ID,
       }),
     },
   ];
@@ -174,10 +208,10 @@ export function makeModelChain(deps: ModelChainDeps = {}): ModelWithRetries[] {
   if (mistralApiKey) {
     chain.push({
       id: FALLBACK_MODEL_ID,
-      model: withChainFailureLogging(createMistral({ apiKey: mistralApiKey })('mistral-large-latest'), {
+      model: withChainFailureLogging(createMistral({ apiKey: mistralApiKey })(MISTRAL_MODEL_ID), {
         chainId: FALLBACK_MODEL_ID,
         provider: 'mistral',
-        modelId: 'mistral-large-latest',
+        modelId: MISTRAL_MODEL_ID,
       }),
     });
   }

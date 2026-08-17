@@ -1,5 +1,43 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-15 (2) — le modèle primaire n'existait plus
+
+### Fixed — `llama-3.3-70b-versatile` a été RETIRÉ du compte Groq
+
+Constaté par appel direct : `404 model_not_found`. Et `GET /openai/v1/models` le confirme —
+sur les 13 modèles que la clé peut servir, **aucun modèle de chat Llama** ne subsiste. La clé
+est valide : les autres modèles répondent `200` avec elle. Ce n'est donc pas une panne
+d'authentification, c'est une **dépréciation côté fournisseur**.
+
+Le symptôme était le pire possible pour le diagnostic : **le bot répondait quand même**. La
+chaîne de repli faisait exactement son travail, donc rien ne paraissait cassé — mais chaque
+message payait d'abord un aller-retour Groq perdu, puis tombait chez Mistral, **plafonné à
+4 REQUÊTES par minute**. Un flux à plusieurs étapes épuise ce seau sur un seul message. C'est
+la panne que `CLAUDE.md` décrit comme ayant déjà coûté un diagnostic entier — lue comme un bug
+logiciel alors qu'elle relevait du quota — ici aggravée par un modèle absent.
+
+`openai/gpt-oss-120b` est retenu **parce qu'il appelle les outils**, ce que tout ce dépôt
+exige : vérifié par une requête réelle portant un schéma de tool, qui a bien produit un
+`tool_calls` nommant la fonction. `qwen/qwen3.6-27b` a été **écarté sur ce même test** — il
+répond `200` mais n'émet aucun appel d'outil, ce qui rendrait chaque agent bavard et impuissant.
+
+### Changed — l'identifiant du modèle est déclaré UNE SEULE FOIS
+
+`PRIMARY_MODEL_ID` (l'étiquette des journaux) et le littéral passé à `createGroq(...)` étaient
+**deux chaînes distinctes**, donc libres de diverger. C'est ce qui a permis au modèle mort de
+survivre dans le code : rien ne reliait l'étiquette au modèle réellement appelé. `GROQ_MODEL_ID`
+et `MISTRAL_MODEL_ID` sont désormais la source unique, et `PRIMARY_MODEL_ID` en est **dérivé**.
+
+⚠️ Les tests recopiaient eux aussi le littéral `'llama-3.3-70b-versatile'` — dans **quatre**
+fichiers. Ils passaient au vert en vérifiant qu'on demandait bien un modèle qui n'existe plus.
+Ils portent maintenant sur les constantes : la même dérive ne peut plus se reproduire en silence.
+
+⚠️ **Non vérifié de bout en bout depuis ce poste** : l'egress local expire à 10 s sur
+`api.groq.com` comme sur Turso (connexion mesurée à 6,1 s), ce qui interdit un essai complet
+agent → outil ici. Les deux bords sont prouvés séparément (le modèle répond et appelle l'outil
+en HTTP direct ; la chaîne est verrouillée par les tests). **À confirmer par un message Slack
+réel après déploiement.**
+
 ## [Unreleased] - 2026-08-14 (5) — la réalité de la personne, la saillance, et le grand ménage
 
 ### Fixed — l'email de bienvenue PROMETTAIT ce qu'aucun mécanisme ne tient

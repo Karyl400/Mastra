@@ -3,6 +3,8 @@ import { makeOnboardingOrchestrator } from '../../../src/features/onboarding/app
 import {
   PRIMARY_MODEL_ID,
   FALLBACK_MODEL_ID,
+  GROQ_MODEL_ID,
+  MISTRAL_MODEL_ID,
   LAST_RESORT_MAX_RETRIES,
 } from '../../../src/shared/llm/model-fallback';
 import { AGENT_STYLE_BLOCK } from '../../../src/shared/agent-style';
@@ -45,10 +47,7 @@ describe('OnboardingOrchestrator Agent', () => {
       const list = await makeOnboardingOrchestrator({}).getModelList();
 
       expect(list?.map((entry) => entry.id)).toEqual([PRIMARY_MODEL_ID, FALLBACK_MODEL_ID]);
-      expect(list?.map((entry) => entry.model.modelId)).toEqual([
-        'llama-3.3-70b-versatile',
-        'mistral-large-latest',
-      ]);
+      expect(list?.map((entry) => entry.model.modelId)).toEqual([GROQ_MODEL_ID, MISTRAL_MODEL_ID]);
       expect(list?.map((entry) => entry.maxRetries)).toEqual([0, LAST_RESORT_MAX_RETRIES]);
     });
 

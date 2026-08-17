@@ -61,7 +61,7 @@ Documentation en français, **code et identifiants en anglais**.
 | Runtime     | Node.js `>=22.13.0`, ESM (`"type": "module"`)                |
 | Langage     | TypeScript `6.0.3`, mode strict                              |
 | Framework   | Mastra `@mastra/core` `1.57.x` (Agents / Tools / Workflows)  |
-| LLM         | Groq `llama-3.3-70b-versatile` → fallback Mistral `mistral-large-latest` |
+| LLM         | Groq `openai/gpt-oss-120b` → fallback Mistral `mistral-large-latest` (⚠️ `llama-3.3-70b-versatile` a été RETIRÉ du compte Groq le 2026-08-15 — voir Pièges) |
 | DB          | Turso / LibSQL (`@libsql/client`) + Drizzle ORM `0.45.x`     |
 | Validation  | Zod `3.25.76` (version **épinglée**, voir Pièges)            |
 | Tests       | Vitest `4.1.10`                                              |
@@ -884,6 +884,28 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
   - `KeyManager.KEY_ITERATIONS` valait `100000` — or `scryptSync` exige que `N` soit une puissance
     de 2, donc toute instanciation réelle levait `ERR_CRYPTO_INVALID_SCRYPT_PARAMS`. Le bug était
     masqué tant que rien n'instanciait la classe. Corrigé à `16384` (2^14, RFC 7914).
+
+- ⚠️ **LE MODÈLE PRIMAIRE A DISPARU DU COMPTE GROQ — constaté le 2026-08-15.**
+  `llama-3.3-70b-versatile` répond `404 model_not_found`, et `GET /openai/v1/models` ne rend
+  plus **aucun modèle de chat Llama** (13 modèles servis par la clé : `openai/gpt-oss-120b` et
+  `-20b`, `qwen/qwen3.6-27b`, `groq/compound`, `whisper-*`, `allam-2-7b`, les `prompt-guard`).
+  La clé est VALIDE — les autres modèles répondent `200` avec elle.
+  - **Le symptôme trompe** : le bot RÉPOND quand même, la chaîne de repli faisant son travail.
+    Mais chaque message paie un aller-retour Groq perdu puis tombe chez Mistral, **4 requêtes
+    par minute**, que le moindre flux multi-étapes épuise. Devant un bot lent qui échoue au
+    2ᵉ ou 3ᵉ message, **vérifier d'abord que le modèle primaire existe encore** :
+    `curl -s https://api.groq.com/openai/v1/models -H "Authorization: Bearer $GROQ_API_KEY"`.
+  - Primaire remplacé par **`openai/gpt-oss-120b`**, choisi parce qu'il **appelle les outils** —
+    vérifié par une requête portant un vrai schéma de tool, qui a produit un `tool_calls`.
+    `qwen/qwen3.6-27b` a été écarté sur ce test : il répond `200` sans jamais appeler d'outil.
+  - ⚠️ **Le seau par minute a CHANGÉ aussi** : `x-ratelimit-limit-tokens: 8000` (et non plus
+    12 000), `x-ratelimit-limit-requests: 1000`. Les chiffres ci-dessous datent de `llama` — les
+    relever à nouveau avant d'en tirer une conclusion.
+  - `GROQ_MODEL_ID` / `MISTRAL_MODEL_ID` (`src/shared/llm/model-fallback.ts`) sont désormais la
+    source UNIQUE, et `PRIMARY_MODEL_ID` en est dérivé. L'étiquette et le modèle réellement
+    demandé étaient deux littéraux séparés : c'est ce qui a laissé un modèle mort survivre dans
+    le code, et **quatre fichiers de tests recopiaient le même littéral**, donc restaient verts
+    en vérifiant qu'on demandait bien un modèle qui n'existe plus.
 
 - **PLAFOND GROQ : c'est le quota JOURNALIER qui casse la production, PAS le seau par minute.**
   L'ancienne rédaction de cette section — « PLAFOND GROQ 12 000 tokens/minute, c'est la limite

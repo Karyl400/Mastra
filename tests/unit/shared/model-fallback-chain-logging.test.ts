@@ -58,11 +58,13 @@ function makeControllableModel(modelId: string, provider: string, failTimesRef: 
 }
 
 vi.mock('@ai-sdk/groq', () => ({
-  createGroq: () => (modelId: string) => makeControllableModel(modelId, 'groq.chat', () => groqFailTimes),
+  createGroq: () => (modelId: string) =>
+    makeControllableModel(modelId, 'groq.chat', () => groqFailTimes),
 }));
 
 vi.mock('@ai-sdk/mistral', () => ({
-  createMistral: () => (modelId: string) => makeControllableModel(modelId, 'mistral.chat', () => mistralFailTimes),
+  createMistral: () => (modelId: string) =>
+    makeControllableModel(modelId, 'mistral.chat', () => mistralFailTimes),
 }));
 
 describe('makeModelChain — journalisation de la chaîne complète des échecs', () => {
@@ -83,7 +85,8 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
     const { logger } = await import('../../../src/shared/logger');
     const errorSpy = vi.spyOn(logger, 'error');
 
-    const { makeModelChain, PRIMARY_MODEL_ID } = await import('../../../src/shared/llm/model-fallback');
+    const { makeModelChain, PRIMARY_MODEL_ID, GROQ_MODEL_ID, MISTRAL_MODEL_ID } =
+      await import('../../../src/shared/llm/model-fallback');
 
     const agent = new Agent({
       id: 'chainLoggingProbe',
@@ -94,14 +97,19 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
 
     const result = await agent.generate('bonjour');
 
-    expect(calls).toEqual(['llama-3.3-70b-versatile', 'mistral-large-latest']);
-    expect(result.text).toBe('ok:mistral-large-latest');
+    // Les identifiants viennent des CONSTANTES, jamais de littéraux recopiés : c'est
+    // exactement la duplication qui a laissé `llama-3.3-70b-versatile` survivre ici après son
+    // retrait du compte Groq.
+    expect(calls).toEqual([GROQ_MODEL_ID, MISTRAL_MODEL_ID]);
+    expect(result.text).toBe(`ok:${MISTRAL_MODEL_ID}`);
 
     // La panne Groq doit être journalisée avec l'identifiant du maillon qui a
     // réellement échoué — pas celui d'un autre maillon de la chaîne.
     expect(errorSpy).toHaveBeenCalled();
     const loggedGroqFailure = errorSpy.mock.calls.find(
-      (call) => JSON.stringify(call).includes(PRIMARY_MODEL_ID) && JSON.stringify(call).includes('llama-3.3-70b-versatile'),
+      (call) =>
+        JSON.stringify(call).includes(PRIMARY_MODEL_ID) &&
+        JSON.stringify(call).includes(GROQ_MODEL_ID),
     );
     expect(loggedGroqFailure).toBeDefined();
   });
@@ -113,7 +121,8 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
     const { logger } = await import('../../../src/shared/logger');
     const errorSpy = vi.spyOn(logger, 'error');
 
-    const { makeModelChain, FALLBACK_MODEL_ID } = await import('../../../src/shared/llm/model-fallback');
+    const { makeModelChain, FALLBACK_MODEL_ID, MISTRAL_MODEL_ID } =
+      await import('../../../src/shared/llm/model-fallback');
 
     const agent = new Agent({
       id: 'chainLoggingExhaustedProbe',
@@ -125,7 +134,9 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
     await expect(agent.generate('bonjour')).rejects.toThrow();
 
     const loggedMistralFailure = errorSpy.mock.calls.find(
-      (call) => JSON.stringify(call).includes(FALLBACK_MODEL_ID) && JSON.stringify(call).includes('mistral-large-latest'),
+      (call) =>
+        JSON.stringify(call).includes(FALLBACK_MODEL_ID) &&
+        JSON.stringify(call).includes(MISTRAL_MODEL_ID),
     );
     expect(loggedMistralFailure).toBeDefined();
   });
@@ -136,7 +147,8 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
     const { logger } = await import('../../../src/shared/logger');
     const errorSpy = vi.spyOn(logger, 'error');
 
-    const { makeModelChain } = await import('../../../src/shared/llm/model-fallback');
+    const { makeModelChain, GROQ_MODEL_ID } =
+      await import('../../../src/shared/llm/model-fallback');
 
     const agent = new Agent({
       id: 'chainLoggingHappyProbe',
@@ -147,7 +159,7 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
 
     const result = await agent.generate('bonjour');
 
-    expect(result.text).toBe('ok:llama-3.3-70b-versatile');
+    expect(result.text).toBe(`ok:${GROQ_MODEL_ID}`);
     expect(errorSpy).not.toHaveBeenCalled();
   });
 });
