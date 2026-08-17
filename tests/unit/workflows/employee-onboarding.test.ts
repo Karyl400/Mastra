@@ -134,18 +134,62 @@ describe('Workflow: employee-onboarding', () => {
     expect(deps.onboardingRepo.saveStep).not.toHaveBeenCalled();
   });
 
-  it('fails when employee email already exists', async () => {
+  /**
+   * ⚠️ COMPORTEMENT CHANGÉ le 2026-08-15, et c'est un changement de FOND assumé.
+   *
+   * Ce workflow échouait sur un email connu (`ConflictError`), et deux tests le
+   * verrouillaient. C'était défendable quand la création était un geste d'administration.
+   *
+   * Le point d'entrée a changé : le seul appelant est la soumission de la modale « Compléter
+   * mon profil », où le demandeur EST la personne concernée. Un échec y signifie qu'elle
+   * remplit le formulaire, valide, et **ne reçoit rien**. Mesuré en production le
+   * 2026-08-15 : « Profile submission accepted » puis « Onboarding workflow failed », en
+   * silence total pour l'utilisateur.
+   */
+  const EXISTING = {
+    id: '11111111-1111-4111-8111-111111111111',
+    email: 'alice@kisso.com',
+    firstName: 'Alice',
+    lastName: 'Martin',
+    department: null,
+    position: 'Software Engineer',
+    startDate: '2026-09-01T00:00:00.000Z',
+  };
+
+  it('RÉUTILISE le dossier existant au lieu d’échouer', async () => {
     const deps = makeDeps({
       employeeRepo: {
-        findByEmail: vi.fn().mockResolvedValue({ id: 'existing' }),
+        findByEmail: vi.fn().mockResolvedValue(EXISTING),
       },
     });
     const workflow = createEmployeeOnboardingWorkflow(deps);
     const run = await workflow.createRun();
     const result = await run.start({ inputData: baseInput });
 
-    expect(result.status).toBe('failed');
+    expect(result.status).toBe('success');
+    // On ne réécrit PAS le dossier : la re-soumission ne doit pas écraser ce que d'autres
+    // chemins y ont mis (département, manager), absents de la modale.
     expect(deps.employeeRepo.save).not.toHaveBeenCalled();
+    if (result.status !== 'success') return;
+    expect(result.result.employeeId).toBe(EXISTING.id);
+  });
+
+  it('ne RENVOIE PAS l’email de bienvenue à quelqu’un déjà accueilli', async () => {
+    // « Non applicable » n'est PAS « dégradé » : compter cette étape comme une dégradation
+    // rendrait « dégradé » le cas normal d'une re-soumission et détruirait le signal.
+    const deps = makeDeps({
+      employeeRepo: {
+        findByEmail: vi.fn().mockResolvedValue(EXISTING),
+      },
+    });
+    const workflow = createEmployeeOnboardingWorkflow(deps);
+    const run = await workflow.createRun();
+    const result = await run.start({ inputData: baseInput });
+
+    expect(deps.emailProvider.sendEmail).not.toHaveBeenCalled();
+    if (result.status !== 'success') return;
+    expect(result.result.emailSent).toBe(false);
+    expect(result.result.degradedSteps ?? []).toEqual([]);
   });
 
   it('continues when email send fails (best-effort)', async () => {
@@ -332,19 +376,25 @@ describe('Workflow: employee-onboarding', () => {
     });
   });
 
-  it('fails with a conflict message for duplicate emails', async () => {
+  it('n’échoue plus sur un email déjà connu (voir le changement de fond plus haut)', async () => {
     const deps = makeDeps({
       employeeRepo: {
-        findByEmail: vi.fn().mockResolvedValue({ id: 'existing' }),
+        findByEmail: vi.fn().mockResolvedValue({
+          id: '11111111-1111-4111-8111-111111111111',
+          email: 'alice@kisso.com',
+          firstName: 'Alice',
+          lastName: 'Martin',
+          department: null,
+          position: 'Software Engineer',
+          startDate: '2026-09-01T00:00:00.000Z',
+        }),
       },
     });
     const workflow = createEmployeeOnboardingWorkflow(deps);
     const run = await workflow.createRun();
     const result = await run.start({ inputData: baseInput });
 
-    expect(result.status).toBe('failed');
-    if (result.status !== 'failed') return;
-    expect(String(result.error?.message ?? result.error)).toContain('existe déjà');
+    expect(result.status).toBe('success');
   });
 
   // ──────────────────────────────────────────────────────────────────────────

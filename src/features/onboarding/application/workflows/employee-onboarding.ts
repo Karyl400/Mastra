@@ -25,7 +25,6 @@ import {
   Department,
 } from '../../../../shared/types';
 import { VALIDATION_CONSTRAINTS } from '../../../../shared/validation';
-import { ConflictError } from '../../../../shared/errors';
 
 // ============================================
 // SCHEMAS
@@ -87,6 +86,23 @@ const onboardingInputSchema = z.object({
 
 const employeeCreatedSchema = z.object({
   employeeId: z.string().uuid(),
+  /**
+   * Le dossier existait-il DÉJÀ pour cette adresse ?
+   *
+   * Ce workflow échouait purement et simplement sur un email connu (`ConflictError`), et deux
+   * tests verrouillaient cet échec. C'était défendable quand la création était un geste
+   * d'administration : refuser un doublon protégeait la base.
+   *
+   * ⚠️ Le point d'entrée a changé. Le seul appelant est désormais la soumission de la modale
+   * « Compléter mon profil », où le demandeur EST la personne concernée, identifiée par Slack.
+   * Un échec y signifie : la personne remplit le formulaire, valide, et **ne reçoit rien** —
+   * ni dossier, ni message, ni explication. Mesuré en production le 2026-08-15 : « Profile
+   * submission accepted » puis « Onboarding workflow failed », en silence.
+   *
+   * On réutilise donc le dossier existant au lieu de lever. Le drapeau voyage jusqu'à l'email
+   * de bienvenue, qui n'a rien à faire d'être renvoyé à quelqu'un déjà accueilli.
+   */
+  alreadyExisted: z.boolean(),
   email: z.string().email(),
   firstName: z.string(),
   lastName: z.string(),
@@ -109,6 +125,8 @@ const stepFailureSchema = z.object({
 
 const onboardingInitializedSchema = z.object({
   employeeId: z.string().uuid(),
+  /** Propagé depuis `employeeCreatedSchema` : décide si l'email de bienvenue part. */
+  alreadyExisted: z.boolean(),
   progressId: z.string().uuid(),
   email: z.string().email(),
   firstName: z.string(),
@@ -180,12 +198,23 @@ export function createEmployeeOnboardingWorkflow(deps: {
     execute: async ({ inputData }) => {
       logger.info('Onboarding — création employé', { email: inputData.email });
 
+      // RÉUTILISATION, et non conflit — voir `alreadyExisted` dans le schéma de sortie.
       const existing = await deps.employeeRepo.findByEmail(inputData.email);
       if (existing) {
-        throw new ConflictError(`Un employé avec l'email ${inputData.email} existe déjà`, {
-          email: inputData.email,
-          existingId: existing.id,
+        logger.info('Onboarding — dossier déjà existant, réutilisé', {
+          employeeId: existing.id,
         });
+        return {
+          employeeId: existing.id,
+          alreadyExisted: true,
+          email: existing.email,
+          firstName: existing.firstName,
+          lastName: existing.lastName,
+          department: existing.department ?? null,
+          position: existing.position,
+          startDate: existing.startDate,
+          slackChannelId: inputData.slackChannelId ?? null,
+        };
       }
 
       // Normaliser les champs optionnels avec null par défaut
@@ -213,6 +242,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
 
       return {
         employeeId: employee.id,
+        alreadyExisted: false,
         email: employee.email,
         firstName: employee.firstName,
         lastName: employee.lastName,
@@ -258,6 +288,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
 
       return {
         employeeId: inputData.employeeId,
+        alreadyExisted: inputData.alreadyExisted,
         progressId: started.id,
         email: inputData.email,
         firstName: inputData.firstName,
@@ -297,6 +328,17 @@ export function createEmployeeOnboardingWorkflow(deps: {
 
       let emailSent = false;
       const degraded: StepFailure[] = [...inputData.degraded];
+
+      // ⚠️ NON APPLICABLE ≠ DÉGRADÉ, distinction déjà tranchée dans ce dépôt. Renvoyer un
+      // email de BIENVENUE à quelqu'un qui a déjà un dossier n'est pas un échec : c'est une
+      // étape qui n'avait pas lieu d'être. La compter comme dégradation rendrait « dégradé »
+      // le cas normal d'une re-soumission du formulaire et détruirait le signal.
+      if (inputData.alreadyExisted) {
+        logger.info('Email de bienvenue NON envoyé — dossier préexistant', {
+          employeeId: inputData.employeeId,
+        });
+        return { ...inputData, emailSent: false, degraded };
+      }
 
       try {
         await deps.emailProvider.sendEmail(inputData.email, subject, body);
