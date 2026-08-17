@@ -20,6 +20,25 @@ bug, ce qui a coûté des heures.
       12 000) et `x-ratelimit-limit-requests: 1000`, relevés le 2026-08-15. Les chiffres de
       `CLAUDE.md` datent de `llama` — les relever à nouveau avant d'en tirer une conclusion.
 
+- [ ] ⚠️ **DÉCISION DU CONSEIL (2026-08-15) — payer le palier Groq, et GELER l'optimisation de
+      tokens.** Quatre avis indépendants (Contrarian, First Principles, Expansionist, Outsider)
+      ont convergé, sans s'être consultés :
+      - **Le plancher est atteint.** L'irréductible mesuré est ≈ 1 600 tokens/étape (schémas
+        d'outils + instructions + préambule) contre ~1 550 réellement observés : la campagne
+        4 954 → 3 097 a consommé le gisement entier. Le prochain effort rendrait 5–10 %.
+      - **Le vrai risque n'est pas le volume, c'est le FOURNISSEUR.** Groq a supprimé le modèle
+        primaire sans préavis ; aucun rabotage n'aurait protégé de ça.
+      - **Les deux monnaies ne sont pas convertibles** : Groq facture un VOLUME/jour, Mistral un
+        DÉBIT/minute. Raboter 500 tokens rend +5 messages chez l'un et **exactement zéro** chez
+        l'autre — or c'est le débit qui casse en rafale.
+      - **Le chiffre qui clôt le débat** : ~3 M tokens/mois ⇒ **≈ 1 à 2 €/mois**. Des dizaines
+        d'heures d'ingénierie ont été dépensées pour économiser ~12 €/an.
+      ⚠️ Réserve du Contrarian, à ne pas balayer : empiler des modèles Groq supplémentaires est
+      du **théâtre** — ils tirent sur le MÊME quota. Et `qwen3.6-27b` est disqualifié : il
+      répond 200 **sans appeler d'outils**, or la chaîne bascule sur ERREUR, pas sur qualité —
+      on obtiendrait un agent qui raconte au lieu d'agir.
+      Si un second maillon est ajouté un jour, il doit être d'un AUTRE fournisseur, avec appel
+      d'outils vérifié (Gemini Flash est le candidat cité).
 - [ ] ⚠️ **Passer Groq sur un palier payant.** Le plafond réel est de **100 000 tokens par
       JOUR** (`TPD: Limit 100000, Used 98207` dans les en-têtes de l'incident), soit — à
       5 168 tokens par message mesurés — ≈ **19 messages par jour, tous canaux confondus**.

@@ -1,5 +1,52 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-15 (5) — les deux boutons fonctionnent réellement
+
+### Fixed — « Envoyer » (et « Annuler ») bloquaient l'ACK des 3 secondes
+
+Mesuré par un clic SIGNÉ en production : la route répondait **200 en 22,5 s**. L'email partait
+bien — « Invitation d'entretien envoyée » dans les journaux — mais Slack n'accorde que
+**3 secondes** à une interaction et affiche une erreur au-delà.
+
+Pour un email SORTANT vers un candidat, la conséquence est sérieuse : la personne voit un échec,
+reclique, et **le candidat reçoit deux invitations**. Le bouton « marchait » tout en paraissant
+cassé. `handleInterviewSend` rendait déjà compte dans le fil : rien n'était perdu à acquitter
+tout de suite. Idem pour « Annuler » (5,3 s, un `replyInThread` awaité).
+
+Mesuré après correctif, à chaud : **annuler 1,18 s, envoyer 0,99 s**. Les ~6 s résiduelles sont
+des démarrages à froid, qui frappent aussi une action sans aucune E/S (référence : 0,9 s à
+chaud, 5,9 s à froid) — ce n'est donc pas le handler.
+
+### Fixed — « Compléter mon profil » échouait EN SILENCE, à deux endroits
+
+Soumission signée en production : « Profile submission accepted » puis « Onboarding workflow
+failed ». La personne remplit le formulaire, valide, et **ne reçoit rien**.
+
+Deux défauts successifs, le second n'apparaissant qu'une fois le premier corrigé :
+1. `createEmployeeStep` levait `ConflictError` sur un email connu ;
+2. `initOnboardingStep` violait ensuite `UNIQUE constraint … onboarding_progress.employee_id`.
+
+⚠️ **Changement de fond assumé** : refuser un doublon était défendable quand la création était
+un geste d'ADMINISTRATION. Le seul appelant est désormais la modale « Compléter mon profil », où
+le demandeur EST la personne concernée — un doublon y est une re-soumission légitime, ou un
+double-clic. Le dossier et le suivi existants sont donc RÉUTILISÉS, jamais réécrits : la modale
+ne porte que 4 champs, et le suivi porte l'avancement réel.
+
+⚠️ L'email de bienvenue n'est pas renvoyé à quelqu'un déjà accueilli, et cette étape n'est PAS
+comptée comme dégradée — « non applicable » ≠ « dégradé ». Vérifié en production :
+« Onboarding workflow completed » + « Email de bienvenue NON envoyé — dossier préexistant ».
+
+### Verified — `message.channels` / `message.groups`, désormais abonnés
+
+Le code rendu inatteignable par leur absence est vivant et se comporte comme documenté :
+- message de canal **hors fil** → ignoré avant tout rationnement (`not_a_dm`) ;
+- réponse dans un fil où le bot n'a jamais parlé → **« Ignoring a channel thread reply »**,
+  abandon en tâche de fond, **aucun appel de modèle**.
+
+Le correctif de quota déployé plus tôt (débit du budget modèle au moment d'appeler le modèle,
+et non à l'ACK) est ce qui rend cet abandon réellement gratuit.
+
+
 ## [Unreleased] - 2026-08-15 (4) — Groq réparé, et −35 % de tokens par message
 
 ### Fixed — SÉCURITÉ : le prompt prescrivait des sorties que le filtre censure
