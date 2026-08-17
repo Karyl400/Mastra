@@ -645,14 +645,50 @@ function sanitizeInputAdvanced(input: string, delimiters: DelimiterSet): string 
   let sanitized = input.normalize('NFKC');
 
   // Étape 2: Détecter les balises Unicode
+  //
+  // ⚠️ Les deux classes de déguisement sont BORNÉES (`{0,16}`), et ce n'est pas une
+  // coquetterie : deux classes étoilées devant un littéral obligent le moteur à essayer
+  // chaque découpe avant de conclure à l'échec, et le drapeau `g` rejoue ce travail
+  // depuis chaque `<`. Mesuré : 39 ms sur 8 000 caractères, ~1,5 s sur les 50 000 que
+  // `wrapExternalData` accepte. Un déguisement homoglyphe réel tient en quelques
+  // caractères de substitution — 16 est déjà très large, et la borne rend le motif
+  // linéaire. Voir `tests/unit/security/llm-guardrail-redos.test.ts`.
   const unicodeTagPattern =
-    /<[⁄∕ⅼ<>]*[⁣\u0455\u03F2\u0435\u0440]*(?:user_input|external_data|system|instruction)[^>]*>/gi;
+    /<[⁄∕ⅼ<>]{0,16}[⁣\u0455\u03F2\u0435\u0440]{0,16}(?:user_input|external_data|system|instruction)[^>]*>/gi;
   sanitized = sanitized.replace(unicodeTagPattern, (match) => {
     return match.replace(/</g, '&lt;').replace(/>/g, '&gt;');
   });
 
   // Étape 3: Neutraliser les balises XML
-  sanitized = sanitized.replace(/<\/?\s*[a-zA-Z_][\w-]*(?:\s+[^>]*)?\s*\/?>/g, (match) => {
+  //
+  // ⚠️⚠️ CE MOTIF A ÉTÉ UN DÉNI DE SERVICE À DISTANCE — ne pas le « compléter » sans
+  // relire ceci. La forme d'origine était :
+  //
+  //     /<\/?\s*[a-zA-Z_][\w-]*(?:\s+[^>]*)?\s*\/?>/g
+  //
+  // `[\w-]*`, `\s+`, `[^>]*` et `\s*` se recouvrent : un même espace pouvait être
+  // consommé par trois quantificateurs différents, donc le moteur essayait un nombre
+  // explosif de découpes avant de conclure que le `>` manquait. Mesuré le 2026-08-17 :
+  // `<a` suivi de 7 998 espaces — 8 000 caractères, soit exactement ce que la borne de
+  // longueur laisse passer — occupait `wrapUserInput` pendant **106 secondes**.
+  //
+  // Ce n'était pas une gêne de performance mais une faille exploitable par quiconque
+  // peut écrire au bot : l'event loop de Node est mono-thread et Vercel réutilise une
+  // instance entre requêtes concurrentes, donc un seul DM gelait TOUTES les
+  // conversations servies par cette instance, très au-delà des 60 s de `maxDuration`.
+  // Et `wrapExternalData` passe par le même sanitizer avec 50 000 caractères venus
+  // d'un canal Slack — c'est-à-dire de n'importe qui.
+  //
+  // La forme actuelle n'a plus aucune ambiguïté : `\s*` est suivi de `[a-zA-Z_]`
+  // (classes disjointes, aucune découpe à essayer) et `[^>]*` est suivi de `>`,
+  // caractère que la classe exclut — le moteur ne peut donc jamais revenir en arrière.
+  // Linéaire, mesuré à 1 ms sur la même charge.
+  //
+  // Différence de couverture, vérifiée sur un corpus de 23 formes : une seule, et dans
+  // le sens SÛR — `<a=b>` (attribut collé au nom) est désormais neutralisé alors qu'il
+  // passait avant. Un filtre de neutralisation a le droit d'en couvrir plus, jamais
+  // moins.
+  sanitized = sanitized.replace(/<\/?\s*[a-zA-Z_][^>]*>/g, (match) => {
     if (match.includes(tagPrefix)) {
       return match;
     }
@@ -1008,7 +1044,13 @@ function neutralizeHiddenInstructions(text: string): string {
     /(?:color\s*:\s*(?:white|transparent|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))|font-size\s*:\s*0)/gi,
     /(?:<!--\s*(?:ignore|system|instruction|prompt|security).*?-->)/gi,
     /(?:display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0)/gi,
-    /(?:position\s*:\s*absolute\s*;?\s*(?:left|top)\s*:\s*-9999px)/gi,
+    // ⚠️ `[\s;]*` et non `\s*;?\s*` : deux quantificateurs d'espaces séparés par un
+    // caractère OPTIONNEL sont ambigus — sur une longue série d'espaces, le moteur
+    // essaie chaque point de coupure. Mesuré à 56 ms sur 8 000 caractères, ~2 s sur les
+    // 50 000 de `wrapExternalData`. La classe fusionnée tolère plusieurs points-virgules,
+    // ce qui n'est pas un relâchement : un filtre de neutralisation a le droit d'en
+    // couvrir plus. Même famille de défaut que l'étape 3 du sanitizer.
+    /(?:position\s*:\s*absolute[\s;]*(?:left|top)\s*:\s*-9999px)/gi,
   ];
 
   for (const pattern of hiddenPatterns) {
