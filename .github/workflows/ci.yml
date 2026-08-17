@@ -1,10 +1,12 @@
 name: CI
 
+# ⚠️ Les déclencheurs ne visaient que `main`/`master` — or tout le développement de ce projet
+# vit sur `refactor/cleanup-20260810`, qui n'est ni l'un ni l'autre. La CI n'avait donc JAMAIS
+# tourné sur le code réellement écrit : elle donnait une assurance sans rien valider.
 on:
   push:
-    branches: [main, master]
+    branches: ['**']
   pull_request:
-    branches: [main, master]
 
 jobs:
   build-and-test:
@@ -16,7 +18,10 @@ jobs:
     - name: Use Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20.x'
+        # `package.json` exige `>=22.13.0` et `scripts/fix-vercel-output.js` force le runtime
+        # Vercel à `nodejs22.x`. Tester en 20 validait donc sur une version que le projet
+        # déclare non supportée et que la production n'exécute pas.
+        node-version: '22.x'
         cache: 'npm'
         
     - name: Install dependencies

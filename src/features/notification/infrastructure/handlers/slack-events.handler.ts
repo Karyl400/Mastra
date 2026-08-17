@@ -2968,12 +2968,19 @@ export class SlackEventsHandler {
     // ─────────────────────────────────────────────────────────────────────────
     //
     // Le défaut : `buildWelcomeBlocks` était le SEUL émetteur du bouton, et son seul
-    // appelant `handleTeamJoin`. Un salarié déjà présent n'avait donc AUCUN chemin vers le
-    // formulaire — et `team_join` ne figure même pas dans les abonnements de l'app Slack,
-    // si bien que les arrivants non plus. Mesuré sur la Turso le 2026-08-14 : `employees`
-    // = 2 lignes, `slack_directory` = 4 personnes vivantes de plus, toutes non rattachées.
+    // appelant `handleTeamJoin`. Un salarié DÉJÀ PRÉSENT n'avait donc aucun chemin vers le
+    // formulaire — `team_join` ne se déclenche que sur une ARRIVÉE. Mesuré sur la Turso le
+    // 2026-08-14 : `employees` = 2 lignes, `slack_directory` = 4 personnes vivantes de plus,
+    // toutes non rattachées.
     //
-    // C'est la cause racine du guide « générique » (aucun dossier à personnaliser) et de
+    // ⚠️ La suite de ce commentaire affirmait que « `team_join` ne figure même pas dans les
+    // abonnements de l'app Slack, si bien que les arrivants non plus ». C'est FAUX : vérifié
+    // dans la console le 2026-08-15, l'événement EST abonné et `handleTeamJoin` s'exécute.
+    // Les cinq personnes sans dossier étaient déjà là AVANT l'installation du bot — un retard
+    // de rattrapage, pas un chemin manquant. Ce court-circuit sert donc le rattrapage, aux
+    // côtés de `npm run profile:invite`, et non les futurs arrivants.
+    //
+    // Cela reste la cause du guide « générique » (aucun dossier à personnaliser) et de
     // l'échec de `getEmployeeProfile` sur la plupart des gens.
     //
     // Placé APRÈS l'effacement et AVANT la frontière d'autorisation : remplir son propre

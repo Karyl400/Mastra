@@ -113,9 +113,11 @@ Toujours dans `#engineer-karyl` :
 
 **Attendu** : **exactement une** réponse, pas deux.
 
-Une mention en canal déclenche simultanément `app_mention` **et**
-`message.channels`. N'accepter `message` que pour les DM est précisément ce qui
-évite le doublon. Deux réponses identiques = régression de ce filtre.
+Une mention en canal déclenche simultanément `app_mention` **et** `message.channels`.
+⚠️ Ce n'est PAS le filtre « `message` seulement en DM » qui évite le doublon — il a été
+assoupli le 2026-08-11 pour laisser passer les réponses en fil. C'est `dedupKey`, qui unifie
+les deux événements sous la même clé `ts:<channel>:<ts>` : le premier arrivé gagne, le second
+est écarté comme doublon. Deux réponses identiques = régression de la déduplication.
 
 Vérifier aussi que le bot **ne se répond pas à lui-même** : sa propre réponse ne
 doit déclencher aucune nouvelle réponse. Une boucle infinie serait immédiatement

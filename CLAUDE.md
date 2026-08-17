@@ -356,11 +356,15 @@ jointe (`subtype: file_share`), message sans contenu textuel et message trop lon
 formulaire de profil** (`shared/profile-request.ts`). Chacun est un prédicat pur + une réponse
 écrite en dur, et coûte **zéro token** sur un quota qui se compte à la journée.
 
-**Le septième — `profile-request.ts` — ferme le trou le plus coûteux du produit.**
-`buildWelcomeBlocks` était le SEUL émetteur du bouton « Compléter mon profil », et son seul
-appelant `handleTeamJoin` : un salarié déjà présent n'avait AUCUN chemin vers le formulaire, et
-`team_join` n'est même pas abonné. Relevé sur la Turso le 2026-08-14 : `employees` = 2 lignes,
-`slack_directory` = 4 personnes vivantes de plus, toutes non rattachées.
+**Le septième — `profile-request.ts` — donne un chemin vers le formulaire aux personnes DÉJÀ
+présentes.** `buildWelcomeBlocks` était le SEUL émetteur du bouton « Compléter mon profil », et
+son seul appelant `handleTeamJoin` : un salarié déjà dans le workspace n'avait donc aucun moyen
+de l'obtenir. Relevé sur la Turso le 2026-08-14 : `employees` = 2 lignes, `slack_directory` = 4
+personnes vivantes de plus, toutes non rattachées.
+⚠️ **La justification d'origine — « et `team_join` n'est même pas abonné » — est FAUSSE** :
+l'événement EST abonné (vérifié le 2026-08-15, voir la table des abonnements). Ce court-circuit
+garde toute son utilité pour le RATTRAPAGE des personnes déjà là, mais il ne comble pas un trou
+d'arrivée : les nouveaux arrivants reçoivent bien leur DM.
 - **Asymétrie INVERSE de `forget.ts`** : un faux positif poste un bouton (additif, ignorable),
   un faux négatif laisse quelqu'un sans dossier. Les questions de MOYEN déclenchent donc
   (« comment je complète mon profil ? » — le bouton EST la réponse), celles de MOTIF non.
@@ -764,7 +768,42 @@ rencontrés et corrigés) :
   `dedupKey`, qui unifie `message` et `app_mention` sous la même clé `ts:<channel>:<ts>`. Sans
   `app_mention` abonné, les mentions en canal ne déclenchent toujours rien.
 
-Abonnements actuels : `app_mention`, `message.im`, `message.channels`, `message.groups`.
+⚠️ **ABONNEMENTS — SOURCE UNIQUE DE VÉRITÉ. Ne PAS recopier cette liste ailleurs : y renvoyer.**
+
+Relevé dans la console Slack le 2026-08-15, auprès du propriétaire :
+
+| Événement | Scope requis | État |
+| --------- | ------------ | ---- |
+| `app_mention` | `app_mentions:read` | abonné |
+| `message.im` | `im:history` | abonné |
+| `team_join` | `users:read` | abonné |
+| `message.channels` / `message.groups` | `channels:history` / `groups:history` | **en cours d'ajout** (lot du 2026-08-15) |
+
+**Deux affirmations répétées partout dans ce dépôt étaient FAUSSES**, et elles se
+contredisaient l'une l'autre :
+- « Abonnements actuels : `app_mention`, `message.im`, `message.channels`, `message.groups` » —
+  les deux derniers n'étaient **pas** abonnés. Conséquence : tout le correctif du 2026-08-11
+  (« un `message` de canal est accepté dans un fil déjà engagé ») décrivait un comportement
+  **structurellement impossible**. `shouldAbandonThreadReply` et la branche `not_a_dm` étaient
+  du code atteignable en test et jamais en production, et il fallait re-mentionner le bot à
+  chaque tour en canal.
+- « `team_join` n'est pas abonné, c'est le trou le plus coûteux du produit » — il **l'est**.
+  `handleTeamJoin` s'exécute réellement : il enregistre l'arrivant dans `slack_directory` et
+  lui envoie le DM portant le bouton « Compléter mon profil ». L'invitation aux canaux, elle,
+  reste conditionnée à `ONBOARDING_WELCOME_CHANNELS` (vide ⇒ aucune invitation, et la phrase
+  correspondante disparaît du message — jamais de promesse creuse).
+
+⚠️ **`message.channels` livre CHAQUE message de CHAQUE canal où le bot est membre.** Ce qui
+protège le budget n'est donc pas l'abonnement mais deux gardes, dans cet ordre : `rejectMessage`
+écarte tout message de canal **hors fil** avant même la limite de débit, et
+`shouldAbandonThreadReply` abandonne, en tâche de fond, tout fil où le bot n'a jamais parlé ou
+dont l'auteur ne lui a jamais parlé. Depuis le 2026-08-15, le budget MODÈLE n'est plus débité à
+l'ACK mais juste avant `agent.generate()` (`chargeModelBudget`) : un fil abandonné ne coûte donc
+plus rien à personne. C'était un défaut réel, dormant tant que ces événements n'arrivaient pas.
+
+⚠️ Un dernier réglage peut rendre `message.im` muet **sans que la liste ci-dessus le montre** :
+`features.app_home.messages_tab_enabled` doit être à `true` (il vit dans **App Home**, pas dans
+Event Subscriptions — piège déjà rencontré le 2026-08-08).
 
 ⚠️ **UN SEUL dossier employé est ACTIF (relevé du 2026-08-14, après déploiement).** La formule
 « `employees` = 2 lignes (Karyl, Awa) », répétée ici et dans `TODO.md`, est vraie au sens du
@@ -775,14 +814,22 @@ est introuvable partout. `findExpertise('backend')` ne rend personne alors qu'el
 « Backend Developer » : le résultat est CORRECT, et c'est la donnée qu'il faut regarder avant le
 code. Voir `TODO.md` [0 quater].
 
-⚠️ **`team_join` N'EST PAS abonné, et c'est le trou le plus coûteux du produit.** `handleTeamJoin`
-est écrit, testé et déclaré dans `SUPPORTED_EVENT_TYPES` — il n'est simplement jamais appelé. Or
-c'est le seul émetteur historique du DM portant le bouton « Compléter mon profil », donc le seul
-chemin qui remplissait `employees`. Constat du 2026-08-14 : **2 lignes dans `employees` pour un
-workspace de 6 personnes réelles**, d'où le guide « générique » (rien à personnaliser), l'échec de
-`getEmployeeProfile` sur presque tout le monde, et — de biais — le document parti à la mauvaise
-adresse. Le court-circuit `profile-request.ts` et `npm run profile:invite` contournent le
-manque ; ils ne le remplacent pas pour les futurs arrivants.
+✅ **`team_join` EST abonné — vérifié le 2026-08-15 dans la console Slack.** L'affirmation
+inverse, qui a longtemps figuré ici (« le trou le plus coûteux du produit »), était **fausse**.
+`handleTeamJoin` s'exécute réellement : il enregistre l'arrivant dans `slack_directory`, puis lui
+envoie le DM portant le bouton « Compléter mon profil ». Les nouveaux arrivants ont donc bien un
+chemin vers leur dossier.
+
+Ce qui reste vrai du constat du 2026-08-14 — **2 lignes dans `employees` pour 6 personnes
+réelles** — n'a donc pas la cause qu'on lui prêtait : les cinq autres étaient déjà dans le
+workspace **avant** que le bot n'y soit installé, et `team_join` ne se déclenche que sur une
+arrivée. C'est un retard de RATTRAPAGE, pas un chemin manquant. Les outils du rattrapage sont
+`profile-request.ts` (la personne demande elle-même le formulaire) et `npm run profile:invite`
+(dry-run par défaut).
+
+⚠️ Ne pas confondre les deux conditions : l'événement est abonné, mais **l'invitation aux canaux
+d'accueil reste conditionnée à `ONBOARDING_WELCOME_CHANNELS`**. Vide ou absente ⇒ aucune
+invitation, et la phrase « Je t'ai ajouté à … » disparaît du message plutôt que de mentir.
 
 **Le bot ne recevait AUCUN événement : la cause était l'INSTALLATION, pas la configuration.**
 Résolu le 2026-08-08 par une réinstallation de l'app dans le workspace (*Settings → Install App →

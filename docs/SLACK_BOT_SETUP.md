@@ -49,8 +49,13 @@ Sous "Event Subscriptions":
 3. Sous "Subscribe to bot events", ajoutez:
    - `app_mention` - **REQUIS** — mentions `@bot` dans un canal (ajoute le scope `app_mentions:read`)
    - `message.im` - **REQUIS** — messages directs (DM)
-   - `message.channels` / `message.groups` - facultatifs : le handler les ignore
-     (`reason: not_a_dm`), ils ne servent qu'à d'éventuels usages futurs.
+   - `message.channels` / `message.groups` - **REQUIS depuis le 2026-08-15** — sans eux, le
+     bot n'entend rien en canal hors mention, et il faut le re-mentionner à CHAQUE tour d'un
+     fil. La description « facultatifs : le handler les ignore » était périmée depuis le
+     2026-08-11 : le handler accepte un `message` de canal qui répond dans un fil déjà engagé.
+     ⚠️ Ils livrent CHAQUE message de CHAQUE canal où le bot est membre — ce qui protège le
+     budget est `rejectMessage` (hors fil) puis `shouldAbandonThreadReply` (fil non engagé),
+     et le fait que le budget modèle ne soit débité qu'au moment d'appeler le modèle.
    - `team_join` - **REQUIS** — arrivée d'une personne dans le workspace. C'est ce qui
      déclenche le DM de bienvenue et le bouton « Compléter mon profil ». Le scope
      nécessaire, `users:read`, est **déjà accordé** : aucun scope nouveau à demander.

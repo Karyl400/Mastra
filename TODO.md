@@ -35,12 +35,21 @@ bug, ce qui a coûté des heures.
       quota sera de nouveau lue comme un défaut logiciel — c'est exactement ce qui vient
       d'arriver. Le seau par MINUTE était PLEIN au moment de l'incident
       (`x-ratelimit-remaining-tokens: 12000` dans 56 échantillons sur 64) : ne pas s'y fier.
-- [ ] ⚠️ **Abonner `team_join` dans *Event Subscriptions*.** Les abonnements réels sont
-      `app_mention`, `message.im`, `message.channels`, `message.groups` — **`team_join` n'y
-      est pas**. C'est pour cette raison que `employees` ne comptait que 2 lignes le
-      2026-08-14 pour 6 personnes réelles : le DM d'accueil portant le bouton « Compléter mon
-      profil » n'est JAMAIS parti. Sans ce geste, le court-circuit du 2026-08-14 et
-      `npm run profile:invite` restent les seuls chemins vers le formulaire, à jamais.
+- [x] ~~**Abonner `team_join`**~~ — **il l'était déjà.** Relevé dans la console le 2026-08-15 :
+      les abonnements réels sont `app_mention`, `message.im` et `team_join`. La liste qui
+      figurait ici (`message.channels`, `message.groups` abonnés, `team_join` absent) était
+      **fausse dans les deux sens**, et elle a servi de prémisse à plusieurs diagnostics.
+      `handleTeamJoin` s'exécute donc réellement : les nouveaux arrivants reçoivent bien leur
+      DM. Les 2 lignes d'`employees` pour 6 personnes s'expliquent autrement — les cinq autres
+      étaient là AVANT l'installation du bot, et `team_join` ne se déclenche qu'à l'arrivée.
+      Liste faisant foi désormais : `CLAUDE.md`, section « ABONNEMENTS ».
+- [ ] ⚠️ **Abonner `message.channels` et `message.groups`** dans *Event Subscriptions*.
+      Sans eux, le bot n'entend rien en canal hors mention : il faut le re-mentionner à CHAQUE
+      tour d'un fil, et tout le correctif du 2026-08-11 sur les fils engagés décrit un
+      comportement **impossible** en production.
+      ⚠️ **Ne les ajouter qu'une fois le lot du 2026-08-15 déployé** : ils livrent CHAQUE
+      message de CHAQUE canal où le bot est membre, et le débit du budget modèle à l'ACK
+      faisait alors payer le quota à des messages abandonnés (corrigé par `chargeModelBudget`).
 - [ ] **Vérifier la Request URL d'*Interactivity*** : `https://<domaine>/slack/interactions`.
       La route est déclarée dans `server.apiRoutes` et testée, mais si l'URL n'est pas posée
       côté app, le clic sur le bouton n'atteint rien — symptôme identique à « le bouton ne
@@ -389,8 +398,25 @@ seule fois en code dans `src/shared/agent-capabilities.ts`.
 - [x] Vérification typecheck et build
 
 ## [9] Sécurité, Qualité & CI/CD (Bonnes Pratiques)
-- [ ] Configurer les outils de qualité de code (ESLint, Prettier, Husky, lint-staged)
-- [ ] Créer le workflow GitHub Actions pour la CI/CD (`.github/workflows/ci.yml`)
+- [x] ~~Configurer les outils de qualité de code (ESLint, Prettier, Husky, lint-staged)~~ —
+      **fait** : `eslint.config.js`, `prettier`, `husky` + `lint-staged` tournent réellement
+      (observé à chaque commit). `npm run lint` ne se termine plus par `|| true` et rend
+      **0 erreur / 90 warnings**.
+- [x] ~~Créer le workflow GitHub Actions pour la CI/CD~~ — **le fichier existait déjà**, mais il
+      ne servait à rien : déclencheurs limités à `main`/`master` alors que tout le travail vit
+      sur `refactor/cleanup-20260810`, donc **il n'avait jamais tourné sur ce code**, et il
+      testait en Node 20 quand `engines` exige `>=22.13` et que la prod tourne en `nodejs22.x`.
+      Corrigé le 2026-08-15 : déclenchement sur toutes les branches, Node 22.
+- [ ] **Mesurer la couverture de tests** — `vitest.config.ts` n'a aucune option `coverage`,
+      donc aucun seuil. 1 568 tests verts, mais rien ne dit ce qui n'est PAS couvert. Poser un
+      seuil sur `src/shared/security/**` au niveau déjà atteint (un seuil global produirait un
+      échec permanent sans signal).
+- [ ] **Étendre `npm run lint` à `tests/` et `scripts/`** (`package.json` : `eslint src`
+      uniquement) — ~99 fichiers de test et tous les scripts d'exploitation y échappent.
+- [ ] **`nanoid < 3.3.18`** — vulnérabilité HIGH (boucle infinie si `size` = 0), dépendance
+      transitive de `docx`. `npm audit fix` est disponible mais a échoué en `ETIMEDOUT` sur le
+      registre npm depuis ce poste ; à relancer depuis un réseau stable. Risque réel faible :
+      aucun appel du dépôt ne passe `size: 0`.
 - [ ] Mettre à jour le schéma de base de données pour inclure la table `AuditLogs`
 - [ ] Ajouter le statut `PENDING_APPROVAL` pour les notifications sensibles et validations RH
 - [ ] Rédiger les tests E2E avec Chaos Testing pour la sécurité LLM

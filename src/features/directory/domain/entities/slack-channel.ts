@@ -15,8 +15,8 @@
  * EN DIRECT à chaque décision de divulgation.
  *
  * L'aggravant est vérifié, pas supposé : **il n'existe aucun chemin d'invalidation**. Les
- * abonnements de l'app sont `app_mention`, `message.im`, `message.channels`, `message.groups` —
- * ni `member_joined_channel`, ni `member_left_channel`. Aucun événement Slack ne viendra jamais
+ * abonnements de l'app n'incluent ni `member_joined_channel`, ni `member_left_channel` (liste
+ * faisant foi : `CLAUDE.md`, section « ABONNEMENTS »). Aucun événement Slack ne viendra jamais
  * démentir une ligne d'ici. Ces données ne sont donc pas « périmées dans trois jours » : elles
  * sont fausses, et silencieuses, dès la première personne qui quitte un canal entre deux
  * synchronisations manuelles. Une donnée fausse et muette employée comme frontière de sécurité

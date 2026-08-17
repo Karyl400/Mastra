@@ -16,8 +16,8 @@ import { fileURLToPath } from 'node:url';
  * feature `knowledge` ferme en interrogeant Slack EN DIRECT à chaque décision de divulgation.
  *
  * L'aggravant est vérifié : **il n'existe aucun chemin d'invalidation**. Les abonnements de
- * l'app Slack sont `app_mention`, `message.im`, `message.channels`, `message.groups` — ni
- * `member_joined_channel`, ni `member_left_channel`. Aucun événement ne viendra jamais démentir
+ * l'app n'incluent ni `member_joined_channel`, ni `member_left_channel` (liste faisant foi :
+ * `CLAUDE.md`, section « ABONNEMENTS »). Aucun événement ne viendra jamais démentir
  * une ligne de cet inventaire : elle n'est pas « périmée dans trois jours », elle est fausse et
  * silencieuse dès la première personne qui quitte un canal entre deux synchronisations.
  *

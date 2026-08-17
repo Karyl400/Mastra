@@ -13,8 +13,8 @@
  *     observés de chaque canal où le bot peut écrire).
  *
  * ⚠️ L'inventaire est de l'OBSERVABILITÉ, JAMAIS de l'autorisation. Aucun événement Slack ne
- * l'invalide : `member_joined_channel` et `member_left_channel` ne sont pas abonnés, seuls
- * `app_mention`, `message.im`, `message.channels` et `message.groups` le sont. Ces lignes sont
+ * l'invalide : `member_joined_channel` et `member_left_channel` ne sont pas abonnés (liste
+ * faisant foi : `CLAUDE.md`, section « ABONNEMENTS »). Ces lignes sont
  * donc fausses et silencieuses dès qu'une personne quitte un canal entre deux passages de ce
  * script. Voir `src/features/directory/domain/entities/slack-channel.ts`.
  *

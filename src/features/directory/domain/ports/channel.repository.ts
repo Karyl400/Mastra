@@ -20,8 +20,9 @@ import type {
  * lire (`syncedAt`) et dont il doit tirer ses propres conclusions.
  *
  * La raison de fond : **aucun événement ne viendra jamais invalider ces lignes**. Les
- * abonnements Slack de l'app sont `app_mention`, `message.im`, `message.channels`,
- * `message.groups` — ni `member_joined_channel`, ni `member_left_channel`. Une décision
+ * abonnements de l'app N'INCLUENT ni `member_joined_channel`, ni `member_left_channel`
+ * (liste faisant foi : `CLAUDE.md`, section « ABONNEMENTS » — ne pas la recopier ici, la
+ * copie qui s'y trouvait était fausse). Une décision
  * d'accès prise ici serait prise sur un état que rien ne dément et que personne ne rafraîchit.
  * La feature `knowledge` interroge Slack EN DIRECT pour cette raison exacte ; ce port ne doit
  * pas devenir le raccourci qui la contourne.

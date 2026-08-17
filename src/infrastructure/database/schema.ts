@@ -923,8 +923,8 @@ export const rateLimitCounters = sqliteTable(
 // Slack EN DIRECT à chaque décision de divulgation.
 //
 // L'aggravant est vérifiable et n'a rien d'hypothétique : **il n'existe AUCUN chemin
-// d'invalidation**. Les abonnements de l'app Slack sont `app_mention`, `message.im`,
-// `message.channels`, `message.groups` — ni `member_joined_channel`, ni `member_left_channel`.
+// d'invalidation**. Les abonnements de l'app n'incluent ni `member_joined_channel`, ni
+// `member_left_channel` (liste faisant foi : `CLAUDE.md`, section « ABONNEMENTS »).
 // Aucun événement ne viendra jamais démentir une ligne d'ici. Ces tables ne sont donc pas
 // « périmées dans trois jours » : elles sont fausses, et silencieuses, dès la première personne
 // qui quitte un canal entre deux synchronisations manuelles.
