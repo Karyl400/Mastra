@@ -706,12 +706,22 @@ function sanitizeInputAdvanced(input: string, delimiters: DelimiterSet): string 
   // `<a` suivi de 7 998 espaces — 8 000 caractères, soit exactement ce que la borne de
   // longueur laisse passer — occupait `wrapUserInput` pendant **106 secondes**.
   //
-  // Ce n'était pas une gêne de performance mais une faille exploitable par quiconque
-  // peut écrire au bot : l'event loop de Node est mono-thread et Vercel réutilise une
-  // instance entre requêtes concurrentes, donc un seul DM gelait TOUTES les
-  // conversations servies par cette instance, très au-delà des 60 s de `maxDuration`.
-  // Et `wrapExternalData` passe par le même sanitizer avec 50 000 caractères venus
-  // d'un canal Slack — c'est-à-dire de n'importe qui.
+  // ⚠️ CORRECTION DE SÉVÉRITÉ, vérifiée le 2026-08-17 : ce n'était PAS exploitable en
+  // production, contrairement à ce que le premier diagnostic affirmait. Les deux chemins
+  // d'entrée réels neutralisent la charge AVANT d'arriver ici, et ils le font par accident,
+  // pas par intention :
+  //   • Slack — `cleanText` du handler compacte `\s+` en une espace, donc `<a` suivi de
+  //     7 998 espaces devient `<a`, soit 2 caractères ;
+  //   • historique de canal — `flatten` (`excerpt-budget.ts`) RETIRE `<` et `>` et borne
+  //     chaque extrait à 180 caractères, donc `wrapExternalData` ne voit jamais de chevron.
+  // Rejoué avec l'ancien motif sur les deux chemins : 0 ms. En appel direct : 105 818 ms.
+  //
+  // Le correctif reste nécessaire, et pour une raison qui ne dépend d'aucun appelant : ce
+  // module DÉCLARE accepter 8 000 caractères (`MAX_USER_INPUT_LENGTH`) et se présente comme
+  // « la garantie de dernier recours pour les appelants qui ne passent pas par ici (route
+  // HTTP, workflow, playground) ». Une fonction qui met 106 secondes sur une entrée que sa
+  // propre borne accepte est cassée, que ses appelants d'aujourd'hui la protègent ou non —
+  // et le prochain appelant n'aura pas forcément de `cleanText` en amont.
   //
   // La forme actuelle n'a plus aucune ambiguïté : `\s*` est suivi de `[a-zA-Z_]`
   // (classes disjointes, aucune découpe à essayer) et `[^>]*` est suivi de `>`,

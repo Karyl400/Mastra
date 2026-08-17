@@ -11,15 +11,19 @@
  * recouvrent, donc un nombre de découpes exponentiel avant de conclure à
  * l'échec, et le drapeau `g` rejouait ce travail depuis chaque position.
  *
- * Ce n'est pas une gêne de performance, c'est un **déni de service à distance** :
- * l'event loop de Node est mono-thread, et Vercel Fluid Compute réutilise une
- * instance entre requêtes concurrentes. Un seul DM gelait donc l'instance —
- * toutes conversations confondues — bien au-delà des 60 s de `maxDuration`.
- * Aucune authentification n'était requise au-delà de pouvoir écrire au bot.
+ * ⚠️ **Ce n'était PAS exploitable en production** — vérifié le 2026-08-17, après
+ * avoir d'abord conclu l'inverse. Les deux chemins d'entrée réels neutralisent la
+ * charge en amont, et par accident plutôt que par intention : côté Slack,
+ * `cleanText` compacte `\s+` en une espace (le message devient `<a`, 2 caractères) ;
+ * côté historique de canal, `flatten` retire `<` et `>` et borne chaque extrait à
+ * 180 caractères. Rejoué avec l'ancien motif sur ces deux chemins : 0 ms.
  *
- * `wrapExternalData` tronque à 50 000 caractères et passe par le MÊME sanitizer :
- * un message posté dans un canal, relu par `getChannelHistory`, atteignait donc
- * la même faille avec une charge six fois plus longue.
+ * Le correctif reste nécessaire, et le test avec lui, pour une raison qui ne dépend
+ * d'aucun appelant : `wrapUserInput` DÉCLARE accepter 8 000 caractères et se
+ * présente comme la garantie de dernier recours des appelants qui n'ont pas de
+ * nettoyage en amont — route HTTP, workflow, playground. Une fonction qui met
+ * 106 secondes sur une entrée que sa propre borne accepte est cassée, que ses
+ * appelants d'aujourd'hui la protègent ou non.
  *
  * ## Pourquoi le test porte sur les FONCTIONS et non sur les motifs
  *
@@ -147,8 +151,10 @@ describe('ReDoS — batterie générique (couvre les motifs à venir)', () => {
 });
 
 describe('ReDoS — wrapExternalData reste linéaire sur une charge adverse', () => {
-  // Six fois plus long : `wrapExternalData` tronque à 50 000 caractères, pas à
-  // 8 000. Le contenu vient d’un canal Slack — donc de n’importe qui.
+  // Six fois plus long : `wrapExternalData` tronque à 50 000 caractères, pas à 8 000. Son
+  // seul appelant actuel (`wrapRetrievedContent`) ne lui livre jamais rien d'approchant —
+  // `flatten` borne chaque extrait à 180 caractères et retire les chevrons — mais la borne
+  // de 50 000 est ce que la fonction PROMET, et c'est sur sa promesse qu'on la mesure.
   const EXTERNAL_LENGTH = 50000;
 
   it.each([
