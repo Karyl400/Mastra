@@ -174,6 +174,24 @@ describe('Workflow: employee-onboarding', () => {
     expect(result.result.employeeId).toBe(EXISTING.id);
   });
 
+  it('RÉUTILISE le suivi d’intégration existant, sans le réinitialiser', async () => {
+    // `onboarding_progress.employee_id` est UNIQUE : ré-insérer lève `SQLITE_CONSTRAINT` et
+    // fait échouer tout le workflow. Mesuré en production juste après avoir rendu la création
+    // d'employé idempotente — le défaut s'était simplement déplacé d'une étape.
+    const existingProgress = { id: '22222222-2222-4222-8222-222222222222', currentStep: 1 };
+    const deps = makeDeps({
+      employeeRepo: { findByEmail: vi.fn().mockResolvedValue(EXISTING) },
+      onboardingRepo: { findByEmployee: vi.fn().mockResolvedValue(existingProgress) },
+    });
+    const workflow = createEmployeeOnboardingWorkflow(deps);
+    const run = await workflow.createRun();
+    const result = await run.start({ inputData: baseInput });
+
+    expect(result.status).toBe('success');
+    // Réinitialiser effacerait l'avancement réel de la personne.
+    expect(deps.onboardingRepo.save).not.toHaveBeenCalled();
+  });
+
   it('ne RENVOIE PAS l’email de bienvenue à quelqu’un déjà accueilli', async () => {
     // « Non applicable » n'est PAS « dégradé » : compter cette étape comme une dégradation
     // rendrait « dégradé » le cas normal d'une re-soumission et détruirait le signal.

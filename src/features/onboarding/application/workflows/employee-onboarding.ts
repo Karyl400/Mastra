@@ -265,10 +265,23 @@ export function createEmployeeOnboardingWorkflow(deps: {
     execute: async ({ inputData }) => {
       logger.info('Onboarding — initialisation progress', { employeeId: inputData.employeeId });
 
-      // La mise en plan vient du DOMAINE (`domain/services/onboarding-plan.ts`).
-      const started = buildOnboardingPlan({ employeeId: inputData.employeeId }).progress;
+      // ⚠️ IDEMPOTENT, même raison que l'étape précédente. `onboarding_progress.employee_id`
+      // porte une contrainte d'UNICITÉ : ré-insérer pour un employé qui en a déjà un lève
+      // `SQLITE_CONSTRAINT` et fait échouer tout le workflow. Mesuré en production le
+      // 2026-08-15, juste après avoir rendu la création d'employé idempotente — le défaut
+      // s'était simplement déplacé d'une étape.
+      //
+      // On RELIT le suivi existant plutôt que d'en créer un second : il porte l'avancement
+      // réel de la personne, qu'une réinitialisation effacerait.
+      const existingProgress = await deps.onboardingRepo.findByEmployee(inputData.employeeId);
+      const started =
+        existingProgress ?? buildOnboardingPlan({ employeeId: inputData.employeeId }).progress;
 
-      await deps.onboardingRepo.save(started);
+      if (!existingProgress) {
+        await deps.onboardingRepo.save(started);
+      } else {
+        logger.info('Onboarding — suivi déjà existant, réutilisé', { progressId: started.id });
+      }
 
       // ⚠️ Ce tableau reste, VIDE, et ce n'est pas un résidu.
       //
