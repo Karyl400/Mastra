@@ -1,5 +1,60 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-15 (3) — audit complet : le quota, les abonnements, la CI
+
+### Fixed — le budget modèle était débité pour des messages qui n'atteignent aucun modèle
+
+`checkRateLimit` vit dans `accept()`, sur le chemin de l'ACK. La décision d'ABANDONNER un
+message — fil de canal où le bot n'a jamais parlé, ou dont l'auteur ne lui a jamais parlé — ne
+se prend qu'en tâche de fond, une fois l'historique lu. **Entre les deux, le budget QUOTIDIEN
+était déjà débité.**
+
+Le défaut était **dormant** : sans `message.channels` abonné, aucun message de canal n'arrivait.
+Il devient actif dès l'abonnement — deux collègues qui se répondent dans un fil épuiseraient
+leur budget (≈ 12 msg/jour) sans consommer un seul token, après quoi leurs DM légitimes seraient
+refusés.
+
+`accept()` ne fait plus que **RÉSERVER** (`reserveOnly`) ; le débit vit dans `chargeModelBudget`,
+juste avant `agent.generate()` — et avant `startProgress`, pour ne jamais poster « Je regarde
+ça… » qu'un refus de quota viendrait remplacer.
+
+⚠️ Le compteur est **projeté** (`count + 1`) en réservation : la lecture rend l'état AVANT le
+message, le verdict doit porter sur celui d'APRÈS. Sans cela le dernier message d'un budget
+passerait deux fois.
+
+Corrige aussi, mécaniquement, le débit de `team_join` : `handleTeamJoin` n'appelle aucun modèle,
+mais `isAnsweredWithoutModel` rend `false` pour lui — l'arrivée d'une personne prélevait une
+unité de son propre quota pour zéro token. Les deux tests ajoutés ont été **vérifiés rouges**
+sans le correctif.
+
+### Fixed — la documentation mentait sur les abonnements Slack, dans les DEUX sens
+
+Relevé dans la console le 2026-08-15 : les abonnements réels sont `app_mention`, `message.im` et
+`team_join`.
+
+- `message.channels` / `message.groups` étaient documentés comme abonnés et ne l'étaient **pas** :
+  tout le correctif du 2026-08-11 sur les fils de canal décrivait un comportement
+  **structurellement impossible**.
+- `team_join` était documenté comme **non** abonné (« le trou le plus coûteux du produit ») et
+  l'était : on avait construit un contournement pour un trou inexistant.
+
+La liste vit désormais dans **une seule** section de `CLAUDE.md` ; les dix autres emplacements y
+renvoient — même discipline que `agent-capabilities.ts`.
+
+### Fixed — la CI n'avait jamais tourné sur ce code
+
+Déclencheurs limités à `main`/`master` alors que tout le travail vit sur
+`refactor/cleanup-20260810` : elle donnait une assurance sans rien valider. Et elle testait en
+**Node 20** quand `engines` exige `>=22.13` et que la production tourne en `nodejs22.x`.
+
+### Added — couverture mesurée et bornée, et cinq skills projet
+
+Base : 82,1 % des instructions. Seuil **uniquement** sur `src/shared/security/**` (agrégat
+91,5 %) — un seuil global produirait un échec permanent que tout le monde apprendrait à ignorer.
+Vérifié qu'il garde réellement en le poussant temporairement à 99,9 %.
+
+`nanoid` 3.3.17 → 3.3.18 (vulnérabilité HIGH fermée).
+
 ## [Unreleased] - 2026-08-15 (2) — le modèle primaire n'existait plus
 
 ### Fixed — `llama-3.3-70b-versatile` a été RETIRÉ du compte Groq
