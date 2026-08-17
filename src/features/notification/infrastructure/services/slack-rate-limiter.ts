@@ -156,10 +156,28 @@ export class SlackRateLimiter {
    *   du budget quotidien d'une vraie question. Les règles anti-abus, elles, s'appliquent
    *   toujours : un script qui inonde le bot de « bonjour » reste un script.
    */
+  /**
+   * @param options.reserveOnly Évaluer les règles qui rationnent le modèle SANS les
+   *   incrémenter — une réservation, pas une consommation. La consommation réelle revient à
+   *   `consumeModelBudget`, appelée juste avant `agent.generate()`.
+   *
+   *   ## Pourquoi ce mode existe
+   *
+   *   `check()` vit sur le chemin de l'ACK, qui a 3 secondes ; la décision d'ABANDONNER un
+   *   message (fil de canal où le bot n'a jamais parlé, ou dont l'auteur ne lui a jamais
+   *   parlé) ne se prend que bien plus tard, en tâche de fond, une fois l'historique lu.
+   *   Incrémenter à l'ACK débitait donc le budget quotidien de gens dont le message
+   *   n'atteindrait JAMAIS un modèle : deux collègues se répondant dans un fil épuisaient
+   *   leur quota sans consommer un seul token, puis leurs DM légitimes étaient refusés.
+   *
+   *   ⚠️ Le compteur est PROJETÉ (`count + 1`) dans ce mode : la lecture rend l'état AVANT ce
+   *   message, et le verdict doit porter sur l'état APRÈS. Sans cette projection, le dernier
+   *   message d'un budget passerait deux fois.
+   */
   async check(
     subjectId: string,
     now: Date = new Date(),
-    options: { answeredWithoutModel?: boolean } = {},
+    options: { answeredWithoutModel?: boolean; reserveOnly?: boolean } = {},
   ): Promise<RateLimitDecision> {
     // ────────────────────────────────────────────────────────────────────────
     // BUDGET DE L'ÉQUIPE — évalué EN PREMIER, et sans rien incrémenter
@@ -173,13 +191,18 @@ export class SlackRateLimiter {
       : this.rules;
 
     // Phase 1 — compteurs LOCAUX. Gratuits, donc évalués un par un et court-circuités.
-    const pending: { rule: RateLimitRule; key: string; by: number }[] = [];
+    // `projected` : le compteur lu n'inclut PAS ce message, il faut donc l'ajouter pour juger.
+    const pending: { rule: RateLimitRule; key: string; by: number; projected: boolean }[] = [];
 
     for (const rule of applicable) {
       const key = buildCounterKey(rule, subjectId, now);
 
+      // Une RÉSERVATION ne touche aucun compteur, ni local ni partagé : elle demande
+      // seulement « ce message passerait-il ? ». C'est `consumeModelBudget` qui débite.
+      const reserve = options.reserveOnly === true && rule.rationsModelBudget === true;
+
       const localCount = (this.local.get(key) ?? 0) + 1;
-      this.local.set(key, localCount, { ttl: rule.windowMs });
+      if (!reserve) this.local.set(key, localCount, { ttl: rule.windowMs });
 
       const localVerdict = evaluateCount(rule, localCount);
       if (!localVerdict.allowed) {
@@ -195,7 +218,7 @@ export class SlackRateLimiter {
         };
       }
 
-      pending.push({ rule, key, by: 1 });
+      pending.push({ rule, key, by: reserve ? 0 : 1, projected: reserve });
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -230,6 +253,10 @@ export class SlackRateLimiter {
         // Lecture seule : la consommation réelle est enregistrée APRÈS le run, quand
         // `usage.inputTokens` existe enfin. Voir `consumeTokens`.
         by: 0,
+        // ⚠️ PAS de projection ici, à la différence d'une réservation par personne : ce
+        // compteur est en TOKENS et saute par milliers. Lui ajouter 1 n'aurait aucun sens, et
+        // le dépassement est de toute façon constaté au message suivant (cf. `consumeTokens`).
+        projected: false,
       });
     }
 
@@ -241,10 +268,12 @@ export class SlackRateLimiter {
     if (!repository) return { ...ALLOWED, degraded: true };
 
     const outcomes = await Promise.all(
-      pending.map(async ({ rule, key, by }) => {
+      pending.map(async ({ rule, key, by, projected }) => {
         const { windowStart, expiresAt } = windowBounds(rule, now);
         try {
-          return { rule, key, count: await repository.increment(key, windowStart, expiresAt, by) };
+          const read = await repository.increment(key, windowStart, expiresAt, by);
+          // Une lecture de réservation rend l'état AVANT ce message : on juge celui d'APRÈS.
+          return { rule, key, count: read + (projected ? 1 : 0) };
         } catch (error) {
           // Journalisé ICI, à l'endroit où l'échec est connu : une panne du store ne doit
           // jamais être muette, même quand une autre règle tranche avant qu'on la lise.
@@ -285,6 +314,40 @@ export class SlackRateLimiter {
     }
 
     return degraded ? { ...ALLOWED, degraded: true } : ALLOWED;
+  }
+
+  /**
+   * Débite le budget MODÈLE d'une personne — à appeler juste avant `agent.generate()`.
+   *
+   * Contrepartie de `check(..., { reserveOnly: true })` : la réservation dit si le message
+   * PASSERAIT, celle-ci acte qu'il a réellement coûté un appel de modèle. Séparer les deux est
+   * ce qui empêche un message abandonné en tâche de fond — ou traité par un court-circuit
+   * déterministe — de consommer un quota qu'il n'utilise pas.
+   *
+   * ⚠️ Le budget d'ÉQUIPE (`workspaceRule`) n'est PAS touché ici : il se compte en tokens, et
+   * son débit réel a lieu après le run, quand `usage.inputTokens` existe (`consumeTokens`).
+   *
+   * NE LÈVE JAMAIS, même doctrine que `consumeTokens` : une panne du compteur ne doit pas
+   * priver quelqu'un d'une réponse. Le pire cas est un message de trop, visible et corrigeable.
+   */
+  async consumeModelBudget(subjectId: string, now: Date = new Date()): Promise<void> {
+    const rules = this.rules.filter((rule) => rule.rationsModelBudget);
+    if (rules.length === 0) return;
+
+    await Promise.all(
+      rules.map(async (rule) => {
+        const key = buildCounterKey(rule, subjectId, now);
+        this.local.set(key, (this.local.get(key) ?? 0) + 1, { ttl: rule.windowMs });
+
+        if (!this.repository) return;
+        const { windowStart, expiresAt } = windowBounds(rule, now);
+        try {
+          await this.repository.increment(key, windowStart, expiresAt, 1);
+        } catch (error) {
+          this.logDegradation(rule, error);
+        }
+      }),
+    );
   }
 
   /**

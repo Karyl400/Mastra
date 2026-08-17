@@ -2163,6 +2163,47 @@ describe('SlackEventsHandler — réponse dans un fil déjà engagé', () => {
     expect(slack.chat.postMessage).not.toHaveBeenCalled();
   });
 
+  it("n'entame PAS le budget quotidien pour un fil qui sera ABANDONNÉ", async () => {
+    // ══════════════════════════════════════════════════════════════════════
+    // Le défaut que ce test verrouille, et pourquoi il devient critique MAINTENANT
+    // ══════════════════════════════════════════════════════════════════════
+    // `checkRateLimit` vit dans `accept()`, sur le chemin de l'ACK. `shouldAbandonThreadReply`
+    // ne tranche que bien plus tard, en tâche de fond, une fois l'historique lu. Entre les
+    // deux, le budget QUOTIDIEN — celui qui rationne le modèle — était déjà débité.
+    //
+    // Tant que `message.channels` n'était pas abonné, aucun message de canal n'arrivait et le
+    // défaut restait DORMANT. En l'abonnant, chaque réponse dans un fil devient un événement
+    // reçu : deux collègues qui se répondent dans un fil où le bot a parlé une fois épuisent
+    // leur budget (≈ 12 msg/jour) sans qu'un seul token ne soit consommé — puis leurs DM
+    // légitimes sont refusés.
+    //
+    // La règle : on ne débite le budget du MODÈLE que si un modèle est réellement appelé.
+    const limiter = new SlackRateLimiter({
+      rules: [{ name: 'daily', limit: 1, windowMs: 86_400_000, rationsModelBudget: true }],
+      repository: null,
+    });
+    // Le fil est engagé par QUELQU'UN D'AUTRE : le bot y a parlé, mais pas à HUMAN. C'est
+    // exactement le cas que `shouldAbandonThreadReply` abandonne.
+    const { handler, generate } = makeHandler({
+      rateLimiter: limiter,
+      conversationRepository: await engagedThread('U0SOMEONEELSE'),
+    });
+
+    const reply = threadReply({ ts: nextTs() });
+    expect((await handler.accept(envelope(reply, 'EvBUDGET1'))).action).toBe('process');
+    await handler.handleEvent(envelope(reply, 'EvBUDGET1'));
+
+    // Le fil a bien été abandonné : aucun modèle appelé.
+    expect(generate).not.toHaveBeenCalled();
+
+    // ⚠️ LE POINT DU TEST : le budget de HUMAN doit être INTACT. Sa vraie question, en DM,
+    // doit donc encore passer.
+    const real = await handler.accept(
+      envelope(dm({ text: 'où en est le dossier de Awa ?', ts: nextTs() }), 'EvBUDGET2'),
+    );
+    expect(real.action).toBe('process');
+  });
+
   /** Fil réaliste : la personne a parlé, le bot a répondu. C'est ce que `rememberTurn` écrit. */
   async function engagedThread(author: string = HUMAN) {
     const repo = new InMemoryConversationRepository();
@@ -2601,6 +2642,35 @@ describe('SlackEventsHandler — court-circuits sans appel LLM', () => {
     });
 
     expect(decision.action).toBe('process');
+  });
+
+  it("l'ARRIVÉE d'une personne ne consomme pas son propre budget quotidien", async () => {
+    // `team_join` est réellement abonné (vérifié auprès du propriétaire), et `handleTeamJoin`
+    // n'appelle AUCUN modèle : il enregistre l'arrivant et lui envoie un DM en Block Kit.
+    // Pourtant `isAnsweredWithoutModel` rend `false` pour cet événement, donc l'ancien débit à
+    // l'ACK prélevait une unité du quota de l'arrivant pour un traitement à zéro token.
+    //
+    // La réservation corrige cela d'elle-même : rien n'est débité tant qu'un modèle n'est pas
+    // appelé, et le chemin `team_join` n'atteint jamais `chargeModelBudget`.
+    const limiter = new SlackRateLimiter({
+      rules: [{ name: 'daily', limit: 1, windowMs: 86_400_000, rationsModelBudget: true }],
+      repository: null,
+    });
+    const { handler } = makeHandler({ rateLimiter: limiter });
+
+    expect((await handler.accept(envelope(teamJoin(), 'EvJOINBUDGET'))).action).toBe('process');
+
+    // ⚠️ La question doit être une VRAIE question, qu'aucun court-circuit déterministe
+    // n'intercepte : ceux-ci sont déjà exemptés du budget, donc ils rendraient ce test
+    // vacuous — il passerait sans le correctif. Vérifié : avec « comment je complète mon
+    // dossier ? », `requestsProfileForm` répondait et le test ne prouvait rien.
+    const first = await handler.accept(
+      envelope(
+        dm({ text: 'où en est le dossier de Awa ?', user: NEWCOMER, ts: nextTs() }),
+        'EvJOINQ',
+      ),
+    );
+    expect(first.action).toBe('process');
   });
 
   it('ACCEPTE une salutation quand le budget quotidien est ÉPUISÉ', async () => {

@@ -1937,6 +1937,11 @@ export class SlackEventsHandler {
     try {
       const decision = await limiter.check(subject, new Date(), {
         answeredWithoutModel: this.isAnsweredWithoutModel(event),
+        // ⚠️ RÉSERVATION, pas consommation. La décision d'abandonner un fil ne se prend qu'en
+        // tâche de fond, une fois l'historique lu — bien après ce point. Débiter ici faisait
+        // payer le budget quotidien à des messages qui n'atteindront jamais un modèle. Le
+        // débit réel vit dans `chargeModelBudget`, juste avant `agent.generate()`.
+        reserveOnly: true,
       });
       if (decision.allowed) return null;
 
@@ -1966,6 +1971,30 @@ export class SlackEventsHandler {
       // corrigeable, un bot muet ne l'est pas.
       logger.error('Rate limit check failed — letting the event through', { error });
       return null;
+    }
+  }
+
+  /**
+   * Débite le budget MODÈLE du demandeur, une fois qu'il est acquis qu'un modèle sera appelé.
+   *
+   * Contrepartie de la RÉSERVATION faite dans `accept()`. Sans auteur identifiable il n'y a
+   * personne à débiter — même raison que dans `checkRateLimit`.
+   *
+   * ⚠️ Ne REFUSE pas et ne lève pas : le refus a déjà eu lieu à l'ACK, sur la réservation. Ce
+   * point-ci ne fait qu'acter la dépense. Y rejouer un refus ferait renoncer après avoir lu
+   * l'historique et résolu l'identité, pour un verdict que l'appelant a déjà obtenu.
+   */
+  private async chargeModelBudget(slackUserId: string | undefined): Promise<void> {
+    if (!slackUserId) return;
+    const limiter = this.getRateLimiter();
+    if (!limiter) return;
+
+    try {
+      await limiter.consumeModelBudget(slackUserId);
+    } catch (error) {
+      // Même doctrine que le fail-open de `checkRateLimit` : un compteur en panne ne doit
+      // jamais priver quelqu'un d'une réponse.
+      logger.error('Could not charge the model budget — serving the message anyway', { error });
     }
   }
 
@@ -3057,6 +3086,19 @@ export class SlackEventsHandler {
       // d'un salaire ou d'un litige, et une table consultable n'expire pas comme un log.
       details: { accessLevel: accessLevel ?? 'not_evaluated', isDirectMessage },
     });
+
+    // ⚠️ LE DÉBIT DU BUDGET MODÈLE A LIEU ICI, et pas à l'ACK.
+    //
+    // Tout ce qui précède peut encore renoncer sans rien coûter : un fil abandonné, une
+    // salutation, une pièce jointe, une demande d'effacement… Ces chemins ne doivent pas
+    // entamer un quota qui se compte à la JOURNÉE (≈ 19 messages tous canaux confondus).
+    // `accept()` n'a fait que RÉSERVER — vérifier que le message passerait — parce qu'à
+    // l'ACK on ignore encore s'il sera abandonné : l'historique n'est pas lu.
+    //
+    // Placé AVANT `startProgress` à dessein : le marqueur est le premier écrit Slack, et
+    // poster « Je regarde ça… » pour le remplacer aussitôt par un refus de quota serait la
+    // pire des séquences.
+    await this.chargeModelBudget(user);
 
     // Marqueur de progression posté IMMÉDIATEMENT, avant tout appel LLM. Un run prend 2 à
     // 17 s (jusqu'à ~21 s quand le back-off du dernier maillon se déclenche), pendant
