@@ -17,3 +17,9 @@ __pycache__/
 ngrok
 ngrok-v3-stable-linux-amd64.tgz
 lint_output.txt
+
+# Rapports de couverture — régénérés par `npm run test:coverage`, jamais versionnés.
+coverage
+
+# Réglages Claude Code PERSONNELS (par poste). Les skills du projet, eux, sont versionnés.
+.claude/settings.local.json
