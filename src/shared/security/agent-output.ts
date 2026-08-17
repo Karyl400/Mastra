@@ -217,6 +217,9 @@ function convertBold(segment: string): string {
  * dans une classe. Les teintes de peau `1F3FB-1F3FF` ne sont pas listées : elles
  * tombent déjà dans la plage `1F000-1FAFF`.
  */
+// Une alternance de trois plages et deux points de code, sans quantificateur imbriqué :
+// 0,73 ms mesurées sur 4 000 emojis.
+// eslint-disable-next-line security/detect-unsafe-regex
 const UNICODE_EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]|\u{FE0F}|\u{200D}/gu;
 
 /**

@@ -231,13 +231,16 @@ export class SlackChannelHistoryAdapter implements ChannelHistoryPort {
       }
     }
 
+    // Un auteur connu prend son libellé d'annuaire, à défaut son identifiant ; sinon c'est
+    // le bot, sinon on ne sait pas. Trois cas, écrits comme trois cas.
+    const labelOf = (message: RawChannelMessage): string => {
+      if (message.authorId) return labels.get(message.authorId) ?? message.authorId;
+      return message.isBot ? 'Kisso' : '?';
+    };
+
     return raw.map((message) => ({
       authorId: message.authorId,
-      authorLabel: message.authorId
-        ? (labels.get(message.authorId) ?? message.authorId)
-        : message.isBot
-          ? 'Kisso'
-          : '?',
+      authorLabel: labelOf(message),
       text: message.text,
       at: message.at,
       isBot: message.isBot,

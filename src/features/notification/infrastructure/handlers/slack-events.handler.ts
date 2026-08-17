@@ -434,6 +434,23 @@ function resolveThreadTarget(
   return { isDirectMessage, threadTs: isAlreadyThreaded ? event.thread_ts : undefined };
 }
 
+/**
+ * Les trois refus de rationnement, un par règle.
+ *
+ * Une table plutôt que trois ternaires imbriqués : le lecteur vient ici pour savoir ce que le
+ * bot DIT, et une cascade de conditions rend justement cela illisible. Une règle ajoutée
+ * demain sans son texte retombe sur `burst`, le moins engageant des trois.
+ */
+const RATE_LIMIT_REPLIES: Readonly<Record<string, string>> = {
+  workspaceTokens:
+    "Le budget d'IA partagé de l'équipe est épuisé pour aujourd'hui. Il repart demain — " +
+    'ce n’est pas ton quota à toi, et personne ne peut le relever en attendant.',
+  daily:
+    "Tu as atteint ta part du budget partagé pour aujourd'hui. Elle repart demain, et " +
+    'elle est relevable — c’est un réglage de déploiement.',
+  burst: 'Tu m’écris plus vite que je ne sais répondre. Laisse-moi une minute et reformule.',
+};
+
 export class SlackEventsHandler {
   private slack: WebClient;
   private mastra: Mastra;
@@ -997,14 +1014,7 @@ export class SlackEventsHandler {
         //    littéral figé à la compilation. Et la personne à qui le bot disait ça est
         //    l'administratrice. La phrase n'est rétablie que maintenant que les limites se
         //    lisent réellement depuis l'environnement.
-        text:
-          rule === 'workspaceTokens'
-            ? "Le budget d'IA partagé de l'équipe est épuisé pour aujourd'hui. Il repart demain — " +
-              'ce n’est pas ton quota à toi, et personne ne peut le relever en attendant.'
-            : rule === 'daily'
-              ? "Tu as atteint ta part du budget partagé pour aujourd'hui. Elle repart demain, et " +
-                'elle est relevable — c’est un réglage de déploiement.'
-              : 'Tu m’écris plus vite que je ne sais répondre. Laisse-moi une minute et reformule.',
+        text: (rule && RATE_LIMIT_REPLIES[rule]) || RATE_LIMIT_REPLIES.burst,
       });
     } catch (error) {
       logger.warn('Could not notify the user about the rate limit', { channel, error });
@@ -1322,9 +1332,11 @@ export class SlackEventsHandler {
   private cleanText(text: string | undefined, botUserId?: string): string {
     // Le nettoyage de `botUserId` n'est pas cosmétique : la valeur vient de `auth.test()`,
     // donc du réseau, et elle est interpolée dans une expression régulière.
-    const mentions = botUserId
-      ? new RegExp(`<@${botUserId.replace(/[^A-Z0-9]/gi, '')}>`, 'g')
-      : /<@[A-Z0-9]+>/g;
+    // `botUserId` est réduit à `[A-Z0-9]` — liste BLANCHE, pas noire — avant interpolation :
+    // rien de métacaractère ne peut survivre.
+    // eslint-disable-next-line security/detect-non-literal-regexp
+    const botMention = new RegExp(`<@${(botUserId ?? '').replace(/[^A-Z0-9]/gi, '')}>`, 'g');
+    const mentions = botUserId ? botMention : /<@[A-Z0-9]+>/g;
 
     return (text ?? '').replace(mentions, ' ').replace(/\s+/g, ' ').trim();
   }
@@ -2544,6 +2556,11 @@ export class SlackEventsHandler {
   private pruneIsDue(): boolean {
     if (this.pruneProbability <= 0) return false;
     if (this.pruneProbability >= 1) return true;
+    // Échantillonnage d'une purge de maintenance : aucune décision de sécurité n'en dépend.
+    // Le tirage SANS ÉTAT remplace un compteur en mémoire PAR INSTANCE, remis à zéro à chaque
+    // démarrage à froid et dont le seuil de 100 n'était donc jamais atteint à ≈ 19 messages
+    // par jour : les lignes restaient sur la Turso sans borne réelle.
+    // eslint-disable-next-line sonarjs/pseudo-random
     return Math.random() < this.pruneProbability;
   }
 

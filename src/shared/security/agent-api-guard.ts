@@ -163,12 +163,10 @@ async function detectInjectionInBody(raw: Request): Promise<string[]> {
   const found = new Set<string>();
   for (const message of messages) {
     // Les deux formes que l'API accepte : la chaîne nue et `{role, content}`.
-    const text =
-      typeof message === 'string'
-        ? message
-        : typeof (message as { content?: unknown })?.content === 'string'
-          ? (message as { content: string }).content
-          : '';
+    const content = (message as { content?: unknown })?.content;
+    let text = '';
+    if (typeof message === 'string') text = message;
+    else if (typeof content === 'string') text = content;
     if (!text) continue;
     for (const type of detectInjectionAttempts(text)) found.add(type);
   }

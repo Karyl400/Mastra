@@ -383,11 +383,14 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // repasse — on retombe alors exactement sur le comportement d'avant, jamais pire.
       // Un store partagé coûterait une E/S Turso (Tokyo) sur un chemin déjà tendu côté ACK.
       const slackCtx = readSlackContext(ctx?.requestContext);
-      const conversationKey = slackCtx
-        ? slackCtx.threadTs
+      // Même clé que `deriveConversationId` : en DM `threadTs` est absent par conception,
+      // donc le canal EST la conversation.
+      let conversationKey: string | undefined;
+      if (slackCtx) {
+        conversationKey = slackCtx.threadTs
           ? `${slackCtx.channel}:${slackCtx.threadTs}`
-          : slackCtx.channel
-        : undefined;
+          : slackCtx.channel;
+      }
 
       // ---------------------------------------------------------------------
       // `none` est NEUTRALISÉ dans une conversation Slack — correctif du 2026-08-12

@@ -3,6 +3,40 @@
 // Standards 2026: HKDF, Graceful Degradation, Interfaces
 // ============================================
 
+/*
+ * ── POURQUOI CES RÈGLES SONT DÉSACTIVÉES DANS CE FICHIER, ET SEULEMENT ICI ──
+ *
+ * Ce module est presque entièrement fait d'expressions régulières adverses. ESLint en
+ * signalait DOUZE au titre du risque ReDoS. Elles ont été mesurées une par une le
+ * 2026-08-17, sur 8 000 caractères — la plus longue entrée que `MAX_USER_INPUT_LENGTH`
+ * laisse passer :
+ *
+ *   • DEUX étaient réelles, et elles sont CORRIGÉES, pas masquées : l'étape 3 du sanitizer
+ *     (106 234 ms — un déni de service à distance déclenchable par un seul DM) et le CSS
+ *     caché `position:absolute` (56 ms). Voir leurs commentaires respectifs.
+ *   • Les DIX autres tiennent toutes sous 1 ms. La règle se déclenche sur la FORME du motif
+ *     (alternances, quantificateurs imbriqués), pas sur son comportement.
+ *
+ * Le bruit n'était pas neutre : c'est lui qui a fait ignorer l'alerte pendant des mois, avec
+ * dans le lot la faille la plus grave que ce dépôt ait connue. `CLAUDE.md` la mentionnait
+ * comme « le lot ReDoS qui mérite toujours un examen ».
+ *
+ * ⚠️ Ce qui remplace ces règles est PLUS FORT qu'elles, pas plus faible :
+ * `tests/unit/security/llm-guardrail-redos.test.ts` mesure les deux portes d'entrée réelles
+ * (`wrapUserInput`, `wrapExternalData`) sur 89 charges adverses, avec un budget de temps. Il
+ * couvre donc TOUT motif atteignable depuis ces fonctions, y compris ceux qu'on ajoutera
+ * demain — ce qu'une analyse statique ne sait pas faire, et ce qu'un `eslint-disable` posé
+ * ligne par ligne n'aurait pas fait non plus.
+ *
+ * `detect-non-literal-regexp` : les six `new RegExp(...)` de ce fichier interpolent le
+ * délimiteur de session (`kisso_XXXX`), généré par `DelimiterGenerator` et échappé juste
+ * avant. Aucune donnée utilisateur n'y entre.
+ *
+ * `no-control-regex` : la classe de caractères de contrôle est le SUJET de
+ * `neutralizeEscapeSequences` — c'est précisément ce qu'elle doit retirer.
+ */
+/* eslint-disable sonarjs/super-linear-regex, sonarjs/regex-complexity, security/detect-unsafe-regex, security/detect-non-literal-regexp, no-control-regex */
+
 import {
   createHash,
   randomBytes,

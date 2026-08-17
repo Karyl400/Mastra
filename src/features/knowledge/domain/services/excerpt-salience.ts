@@ -61,7 +61,10 @@ import type { ConversationExcerpt } from '../entities/conversation-excerpt';
  * Rencontré auparavant sur `matchesKeyword` (bords des deux côtés, 2026-08-11) et sur
  * `EXPERTISE_QUESTION_PATTERN` (« à qui », 2026-08-14).
  */
+// `alternatives` n'est appelé qu'avec les littéraux de `SIGNALS`, ci-dessous : aucune
+// entrée externe n'atteint ce constructeur.
 const word = (alternatives: string): RegExp =>
+  // eslint-disable-next-line security/detect-non-literal-regexp
   new RegExp(`(?<![\\p{L}])(?:${alternatives})(?![\\p{L}])`, 'iu');
 
 const SIGNALS: ReadonlyArray<{ readonly weight: number; readonly test: RegExp }> = [

@@ -48,9 +48,16 @@ export function buildDocumentFilename(title: string, format: DocumentFormat): st
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
+    // Les trois motifs de tirets ci-dessous sont signalés comme super-linéaires, et ils le
+    // sont : `-+` suivi d'une ancre revient en arrière tiret par tiret. Ils s'appliquent
+    // pourtant à un titre de document, borné par `MAX_BASENAME_LENGTH` juste après — et
+    // mesurés à 0,03 ms sur 8 000 caractères de tirets, soit très au-delà de toute entrée
+    // possible ici. Voir `tests/unit/security/llm-guardrail-redos.test.ts` pour la méthode.
+    // eslint-disable-next-line sonarjs/super-linear-regex
     .replace(/^-+|-+$/g, '')
     .slice(0, MAX_BASENAME_LENGTH)
     // La troncature peut recréer un tiret terminal.
+    // eslint-disable-next-line sonarjs/super-linear-regex
     .replace(/-+$/g, '');
 
   const basename = slug.length > 0 ? slug : FALLBACK_DOCUMENT_BASENAME;

@@ -297,14 +297,21 @@ export const ERASURE_SCOPE_NOTICE =
 
 /** Effacement réussi. `count` est le nombre de tours réellement supprimés. */
 export function erasureDoneReply(count: number): string {
-  const what =
-    count === 0
-      ? "Je n'avais rien retenu de nos échanges."
-      : `C'est effacé : ${count} message${count > 1 ? 's' : ''} que j'avais gardé${
-          count > 1 ? 's' : ''
-        } de nos échanges${count > 1 ? ' ont' : ' a'} été supprimé${count > 1 ? 's' : ''}.`;
+  if (count === 0) {
+    return `Je n'avais rien retenu de nos échanges. ${ERASURE_SCOPE_NOTICE}`;
+  }
 
-  return `${what} ${ERASURE_SCOPE_NOTICE}`;
+  // L'accord était écrit en quatre ternaires imbriqués dans une seule interpolation, ce qui
+  // rendait la phrase illisible pour la seule chose qui compte ici : ce qu'elle DIT. Le
+  // pluriel se décide une fois.
+  const plural = count > 1;
+  const s = plural ? 's' : '';
+  const verb = plural ? 'ont' : 'a';
+
+  return (
+    `C'est effacé : ${count} message${s} que j'avais gardé${s} de nos échanges ` +
+    `${verb} été supprimé${s}. ${ERASURE_SCOPE_NOTICE}`
+  );
 }
 
 /**

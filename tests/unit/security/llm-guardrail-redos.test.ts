@@ -71,6 +71,45 @@ const PAYLOADS: ReadonlyArray<readonly [string, string]> = [
   ['verbe d’annulation répété', 'oublie '.repeat(Math.floor(MAX_USER_INPUT_LENGTH / 7))],
 ];
 
+/**
+ * Batterie GÉNÉRIQUE, en plus des charges ciblées ci-dessus.
+ *
+ * ⚠️ C'est elle qui couvre les motifs FUTURS. Les charges ciblées visent des ambiguïtés
+ * connues — donc ma liste, pas le produit. Celle-ci croise les amorces réellement utilisées
+ * par les motifs du module (`<`, `system`, `ignore`, `color:`, `position:`…) avec les
+ * remplissages qui font exploser un quantificateur (espaces, ponctuation, répétition d'une
+ * amorce). Un motif ajouté demain qui serait super-linéaire sur l'un de ces remplissages
+ * fait tomber ce test, sans que personne n'ait à y penser.
+ *
+ * C'est ce qui permet de désactiver les règles ReDoS d'ESLint sur `llm-guardrail.ts` : elles
+ * signalaient 12 motifs, dont DEUX seulement étaient réels — et ce test les aurait attrapés
+ * tous les deux, là où le bruit des dix autres avait fait ignorer l'alerte pendant des mois.
+ */
+const PREFIXES = [
+  '<',
+  '<a',
+  '<!--',
+  '<|',
+  'system',
+  'system prompt',
+  'ignore',
+  'oublie',
+  'affiche',
+  'color:',
+  'position:absolute',
+  'the real instruction',
+  'imagine que tu es',
+] as const;
+
+const FILLERS: ReadonlyArray<readonly [string, (n: number) => string]> = [
+  ['espaces', (n) => ' '.repeat(n)],
+  ['tabulations', (n) => '\t'.repeat(n)],
+  ['lettres', (n) => 'a'.repeat(n)],
+  ['ponctuation', (n) => ':'.repeat(n)],
+  ['chevrons alternés', (n) => '<>'.repeat(Math.floor(n / 2))],
+  ['espaces et deux-points', (n) => ' : '.repeat(Math.floor(n / 3))],
+];
+
 describe('ReDoS — wrapUserInput reste linéaire sur une charge adverse', () => {
   it.each(PAYLOADS)('%s', (_label, payload) => {
     const started = Date.now();
@@ -85,6 +124,25 @@ describe('ReDoS — wrapUserInput reste linéaire sur une charge adverse', () =>
     }
 
     expect(Date.now() - started).toBeLessThan(TIME_BUDGET_MS);
+  });
+});
+
+describe('ReDoS — batterie générique (couvre les motifs à venir)', () => {
+  it.each(PREFIXES)('amorce « %s », tous remplissages', (prefix) => {
+    // Un seul `it` par amorce : 13 × 6 = 78 charges de 8 000 caractères, et les déclarer une
+    // par une rendrait la sortie de vitest illisible pour un gain nul.
+    for (const [, fill] of FILLERS) {
+      const payload = (prefix + fill(MAX_USER_INPUT_LENGTH)).slice(0, MAX_USER_INPUT_LENGTH);
+      const started = Date.now();
+
+      try {
+        wrapUserInput(payload, 'redos-matrix', sessionManager);
+      } catch {
+        /* un blocage est une issue légitime — seul le TEMPS est en cause ici */
+      }
+
+      expect(Date.now() - started).toBeLessThan(TIME_BUDGET_MS);
+    }
   });
 });
 
