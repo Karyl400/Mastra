@@ -3,7 +3,7 @@
 // Standards 2026: Pino-compatible, OpenTelemetry, Anti-circular
 // ============================================
 
-import { trace, context, propagation, SpanStatusCode } from '@opentelemetry/api';
+import { trace, context } from '@opentelemetry/api';
 import { randomUUID } from 'crypto';
 
 // ============================================
@@ -240,24 +240,10 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Vérifie si un objet est potentiellement cyclique
+ * Au-delà, un objet journalisé est tronqué. Le seuil n'a pas changé depuis l'origine
+ * (50) ; c'est la manière de choisir les clés retenues qui l'a fait.
  */
-function hasCircularReference(obj: unknown, seen = new WeakSet<object>()): boolean {
-  if (typeof obj !== 'object' || obj === null) return false;
-
-  if (seen.has(obj as object)) return true;
-  seen.add(obj as object);
-
-  if (Array.isArray(obj)) {
-    return obj.some((item) => hasCircularReference(item, seen));
-  }
-
-  if (isPlainObject(obj)) {
-    return Object.values(obj).some((val) => hasCircularReference(val, seen));
-  }
-
-  return false;
-}
+const MAX_LOGGED_KEYS = 50;
 
 /**
  * Masque les PII de manière récursive avec protection anti-circulaire
@@ -338,10 +324,17 @@ function maskPii(
     const masked: Record<string, unknown> = {};
 
     const entries = Object.entries(obj);
-    const isLargeObject = entries.length > 50;
-    const sampledEntries = isLargeObject
-      ? entries.filter(() => Math.random() < 0.5) // Échantillonnage 50% pour gros objets
-      : entries;
+    const isLargeObject = entries.length > MAX_LOGGED_KEYS;
+    // ⚠️ TRONCATURE DÉTERMINISTE, et c'est une correction du 2026-08-17. La forme d'origine
+    // était `entries.filter(() => Math.random() < 0.5)` : deux occurrences du MÊME incident
+    // produisaient deux lignes de journal différentes, et le champ dont on avait besoin
+    // pouvait manquer une fois sur deux — précisément quand on relit les logs pour
+    // comprendre une panne. Un journal non reproductible n'est pas un journal.
+    //
+    // On garde donc les N PREMIÈRES clés dans l'ordre d'insertion : ce sont celles que
+    // l'appelant a écrites en premier, c'est-à-dire les identifiants. Le nombre d'omissions
+    // reste annoncé — la ligne dit ce qu'elle ne montre pas.
+    const sampledEntries = isLargeObject ? entries.slice(0, MAX_LOGGED_KEYS) : entries;
 
     for (const [key, value] of sampledEntries) {
       const newKeyPath = [...keyPath, key];
@@ -368,8 +361,8 @@ function maskPii(
     }
 
     if (isLargeObject && sampledEntries.length < entries.length) {
-      masked['_sampling_note'] =
-        `Object had ${entries.length} keys, ${sampledEntries.length} sampled for logging`;
+      masked['_truncation_note'] =
+        `Object had ${entries.length} keys, the first ${sampledEntries.length} were logged`;
     }
 
     return masked;
@@ -380,9 +373,15 @@ function maskPii(
 }
 
 /**
- * Masque une valeur primitive si elle correspond à un pattern PII
+ * Masque une valeur primitive si elle correspond à un pattern PII.
+ *
+ * ⚠️ `_keyPath` est reçu et délibérément NON LU : le masquage d'une primitive se décide
+ * sur la VALEUR (`isPiiValue`), jamais sur son chemin — le masquage par CLÉ est le rôle
+ * distinct d'`isPiiKey`. Le paramètre est conservé pour que les deux appelants gardent
+ * la même forme d'appel que le reste du sérialiseur, et le préfixe `_` dit que
+ * l'omission est voulue.
  */
-function maskPrimitiveValue(value: unknown, keyPath: string[]): unknown {
+function maskPrimitiveValue(value: unknown, _keyPath: string[]): unknown {
   if (typeof value === 'string' && isPiiValue(value)) {
     return maskPiiValue(value);
   }

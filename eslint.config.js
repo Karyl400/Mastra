@@ -27,7 +27,21 @@ export default defineConfig([
       ...sonarjs.configs.recommended.rules,
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-require-imports': 'warn',
-      '@typescript-eslint/no-unused-vars': 'warn',
+      // ⚠️ Le préfixe `_` est une CONVENTION ACTIVE de ce dépôt, pas une négligence :
+      // `execute: async (data, _ctx)` déclare que le tool reçoit bien un contexte et
+      // choisit de ne pas le lire. Supprimer le paramètre changerait l'arité et ferait
+      // perdre cette information ; le renommer sans préfixe ferait mentir la convention.
+      // Sans ces motifs, la règle signalait 6 paramètres délibérés et noyait les 6 vrais
+      // symboles morts au milieu.
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+        },
+      ],
       'sonarjs/unused-import': 'warn',
       'sonarjs/cognitive-complexity': 'warn',
       'sonarjs/pseudo-random': 'warn',
@@ -52,6 +66,30 @@ export default defineConfig([
       // règle qui ne produit que du bruit finit par masquer le signal qu'elle devait porter —
       // c'est ce qui est arrivé ici.
       'sonarjs/todo-tag': 'off',
+
+      // ⚠️ DÉSACTIVÉE le 2026-08-17, APRÈS avoir instruit les 21 signalements un par un —
+      // pas pour faire taire un chiffre. Résultat de l'instruction :
+      //
+      //  • 19 sont des LECTURES dans une table constante (`MIME_TYPES[format]`,
+      //    `TASK_STATUS_TRANSITIONS[from]`, `LOG_LEVELS[level]`) ou des index de tableau
+      //    (`turns[start].role`, `words[i]`). Il n'y a pas de sink : rien n'est écrit.
+      //    La règle ne distingue pas la lecture de l'écriture — elle se déclenche sur TOUT
+      //    accès membre calculé, ce que ce dépôt fait partout où il y a une enum.
+      //  • 2 étaient réels, et ils ont été CORRIGÉS plutôt que masqués : `agentHasTool`
+      //    levait une TypeError sur cinq noms hérités d'`Object.prototype` (voir
+      //    `agent-capabilities.ts`), et le journal tirait au sort les clés conservées.
+      //
+      // Une règle dont 90 % des signalements sont du bruit finit par masquer le signal
+      // qu'elle devait porter — c'est exactement ce qui est arrivé ici et à `todo-tag` : les
+      // deux vrais défauts étaient noyés au milieu de 19 faux positifs et personne ne les
+      // avait vus. Les 21 lignes de `eslint-disable` qu'il aurait fallu semer auraient
+      // produit le même aveuglement, en moins lisible.
+      //
+      // ⚠️ Ce qui remplace la règle n'est PAS rien : la pollution de prototype par clé non
+      // maîtrisée est désormais couverte par un test — voir le bloc « nom hérité » de
+      // `tests/unit/agents/agent-capabilities.test.ts`. Avant d'écrire une valeur dans un
+      // objet sous une clé venue de l'extérieur, se poser la question à la main.
+      'security/detect-object-injection': 'off',
     },
     settings: {
       ...sonarjs.configs.recommended.settings,

@@ -61,7 +61,22 @@ export const AGENT_TOOLS: Readonly<Record<string, readonly string[]>> = {
   recruitmentAgent: ['scheduleCandidateInterview'],
 };
 
-/** Cet agent porte-t-il cet outil ? Un agent inconnu ne porte rien — jamais d'exception. */
+/**
+ * Cet agent porte-t-il cet outil ? Un agent inconnu ne porte rien — jamais d'exception.
+ *
+ * ⚠️ `Object.hasOwn` n'est PAS une précaution de style : sans lui, la promesse ci-dessus
+ * était fausse pour cinq identifiants. `AGENT_TOOLS['toString']` ne rend pas `undefined`
+ * mais la méthode héritée d'`Object.prototype` — sur laquelle `?.` ne court-circuite pas,
+ * puisqu'elle n'est ni `null` ni `undefined` — d'où `…includes is not a function`. Idem
+ * `constructor`, `valueOf`, `hasOwnProperty`, `__proto__`.
+ *
+ * L'identifiant vient de `conversation_turns.agent_id`, une colonne de texte libre relue au
+ * tour suivant par le palier COLLANT du routage. Une ligne portant l'un de ces cinq noms
+ * condamnait le fil : chaque message levait avant même d'atteindre le modèle.
+ * `KNOWN_AGENT_IDS` filtre déjà en amont, mais une fonction dont le contrat dit « jamais
+ * d'exception » ne doit pas dépendre de la vigilance de son appelant.
+ */
 export function agentHasTool(agentId: string, toolName: string): boolean {
-  return AGENT_TOOLS[agentId]?.includes(toolName) ?? false;
+  if (!Object.hasOwn(AGENT_TOOLS, agentId)) return false;
+  return AGENT_TOOLS[agentId].includes(toolName);
 }

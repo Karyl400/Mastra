@@ -79,4 +79,23 @@ describe('AGENT_TOOLS — cohérence avec le routage par capacité', () => {
     expect(agentHasTool('questionnaireEngine', 'generateQuestionnaire')).toBe(false);
     expect(agentHasTool('', 'generateDocument')).toBe(false);
   });
+
+  it.each(['toString', 'constructor', 'valueOf', 'hasOwnProperty', '__proto__'])(
+    'rend false sans lever sur le nom hérité « %s »',
+    (inherited) => {
+      // ⚠️ « Un agent inconnu ne porte rien — JAMAIS d'exception » : la promesse du commentaire
+      // de `agentHasTool` était fausse pour cinq identifiants. `AGENT_TOOLS['toString']` ne rend
+      // pas `undefined` mais la MÉTHODE héritée d'`Object.prototype`, sur laquelle `?.` ne court-
+      // circuite pas — d'où `…includes is not a function`, une TypeError et non un `false`.
+      //
+      // L'identifiant vient de `conversation_turns.agent_id`, une colonne de texte libre relue
+      // au tour suivant. Le palier COLLANT du routage appelle cette fonction sur cette valeur :
+      // une ligne portant l'un de ces cinq noms condamnait le fil, chaque message levant avant
+      // même d'atteindre le modèle. `KNOWN_AGENT_IDS` filtre en amont, mais une fonction dont
+      // le contrat dit « jamais d'exception » ne doit pas dépendre de la vigilance de son
+      // appelant.
+      expect(() => agentHasTool(inherited, 'generateDocument')).not.toThrow();
+      expect(agentHasTool(inherited, 'generateDocument')).toBe(false);
+    },
+  );
 });

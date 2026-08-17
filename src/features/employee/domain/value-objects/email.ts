@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { emailSchema } from '../../../../shared/validation';
 import { ValidationError } from '../../../../shared/errors';
 

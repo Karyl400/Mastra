@@ -96,40 +96,17 @@ const departmentSchema = z
 // 3. SCHEMAS MÉTIER COMPLEXES
 // ============================================
 
-/**
- * Validation de cohérence manager/employé
- */
-const managerValidationSchema = z
-  .object({
-    managerId: uuidSchema.nullable().optional(),
-    status: z.nativeEnum(EmployeeStatus),
-  })
-  .refine(
-    (data) => {
-      // Un employé actif doit avoir un manager
-      if (data.status === EmployeeStatus.Active && !data.managerId) {
-        return false;
-      }
-      return true;
-    },
-    {
-      message: 'Active employees must have a manager assigned',
-      path: ['managerId'],
-    },
-  )
-  .refine(
-    (data) => {
-      // Un employé en attente ne peut pas avoir de manager
-      if (data.status === EmployeeStatus.Pending && data.managerId) {
-        return false;
-      }
-      return true;
-    },
-    {
-      message: 'Pending employees cannot have a manager assigned',
-      path: ['managerId'],
-    },
-  );
+// ⚠️ `managerValidationSchema` a été SUPPRIMÉ le 2026-08-17 — il n'avait aucun appelant.
+// Il déclarait deux règles métier (« un employé actif doit avoir un manager », « un employé
+// en attente ne peut pas en avoir ») que RIEN n'appliquait : le seul chemin de création
+// réel est le formulaire « Compléter mon profil », qui ne collecte aucun manager et crée
+// des dossiers actifs. La règle était donc à la fois morte ET fausse pour ce produit —
+// la câbler aurait cassé le formulaire.
+//
+// Une règle qu'aucun code n'applique est de la même famille que `emailSent: false` sous
+// `status: 'success'` : elle donne l'illusion d'une garantie. Si le rattachement
+// hiérarchique devient un vrai besoin, il se réécrira contre le parcours qui existera
+// alors, pas contre celui de 2026-08-05.
 
 // ============================================
 // 4. SCHEMA PRINCIPAL AVEC DISCRIMINATED UNIONS
@@ -141,14 +118,13 @@ const managerValidationSchema = z
 const baseEmployeeSchema = z.object({
   firstName: nameSchema,
   lastName: nameSchema,
-  email: emailSchema.refine(
-    (email) => {
-      // Validation asynchrone optionnelle : vérifier si l'email existe déjà
-      // return await checkEmailUniqueness(email);
-      return true;
-    },
-    { message: 'Email already exists in the system' },
-  ),
+  // ⚠️ Le `.refine()` qui enrobait ce champ a été RETIRÉ le 2026-08-17 : son prédicat
+  // retournait `true` en toute circonstance, sous le message « Email already exists in
+  // the system ». Il ne pouvait donc rien refuser, tout en faisant croire à un contrôle
+  // d'unicité — un test de schéma l'aurait vu « passer » sans qu'aucune vérification
+  // n'ait lieu. L'unicité EST vérifiée, mais là où elle peut l'être : la contrainte
+  // `UNIQUE` de la table et `findByEmail` dans `createEmployeeStep`.
+  email: emailSchema,
   // NULLABLE depuis le 2026-08-13 : le parcours d'arrivée ne collecte plus le département.
   // Le schéma de VALEUR reste inchangé — quand une valeur est présente, elle doit toujours
   // appartenir à l'enum. On assouplit la présence, jamais la validité.
