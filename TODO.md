@@ -6,6 +6,20 @@ Aucun correctif logiciel ne contourne les trois points ci-dessous. La campagne d
 s'est arrêtée sur un **quota**, pas sur un bug — et le quota a d'abord été diagnostiqué comme un
 bug, ce qui a coûté des heures.
 
+- [ ] ⚠️ **CONFIRMER LE NOUVEAU MODÈLE PAR UN VRAI MESSAGE SLACK** (déployé le 2026-08-15,
+      `f4bd560`). `llama-3.3-70b-versatile` a été **retiré du compte Groq** (`404
+      model_not_found`, absent de `GET /openai/v1/models`) ; le primaire est désormais
+      `openai/gpt-oss-120b`. Les deux bords sont prouvés séparément — le modèle répond et
+      **appelle bien les outils** en HTTP direct, et la chaîne est verrouillée par les tests —
+      mais l'essai complet agent → outil **n'a PAS pu être fait depuis le poste de dev** :
+      l'egress local expire à 10 s sur `api.groq.com` comme sur Turso (connexion mesurée à
+      6,1 s). Le premier message réel est donc la vérification qui manque. Demander quelque
+      chose qui APPELLE UN OUTIL (« retrouve l'employé dont l'email est … »), pas un simple
+      bonjour — une salutation est un court-circuit déterministe et ne touche aucun modèle.
+- [ ] ⚠️ **Le seau Groq par minute a CHANGÉ** : `x-ratelimit-limit-tokens: 8000` (et non plus
+      12 000) et `x-ratelimit-limit-requests: 1000`, relevés le 2026-08-15. Les chiffres de
+      `CLAUDE.md` datent de `llama` — les relever à nouveau avant d'en tirer une conclusion.
+
 - [ ] ⚠️ **Passer Groq sur un palier payant.** Le plafond réel est de **100 000 tokens par
       JOUR** (`TPD: Limit 100000, Used 98207` dans les en-têtes de l'incident), soit — à
       5 168 tokens par message mesurés — ≈ **19 messages par jour, tous canaux confondus**.
