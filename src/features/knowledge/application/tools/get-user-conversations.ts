@@ -170,6 +170,28 @@ function designatesRequester(
   return Boolean(ownEmail) && value.toLowerCase() === ownEmail;
 }
 
+/**
+ * Le demandeur, tel que l'annuaire le connaît — ou `null`.
+ *
+ * ⚠️ Une panne d'annuaire ne doit pas casser la réponse : le demandeur reste identifié (donc
+ * il lit ses propres échanges) mais n'obtient AUCUN privilège. Monotone restrictif, même
+ * doctrine que `SlackAccessGuard` — une indisponibilité ne doit jamais élargir un droit.
+ */
+async function lookUpRequester(
+  directory: { findBySlackUserId(id: string): Promise<DirectoryPerson | null> },
+  requesterId: string,
+): Promise<DirectoryPerson | null> {
+  try {
+    return await directory.findBySlackUserId(requesterId);
+  } catch (error) {
+    logger.warn('Knowledge — annuaire indisponible, demandeur traité comme inconnu', {
+      requesterId,
+      error,
+    });
+    return null;
+  }
+}
+
 export function makeGetUserConversations(deps: GetUserConversationsDeps) {
   return createTool({
     id: 'getUserConversations',
@@ -198,18 +220,7 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
 
       const requesterId = slack.slackUserId;
 
-      // Une panne d'annuaire ne doit pas casser la réponse : le demandeur reste
-      // identifié (donc il lit ses propres échanges), mais n'obtient aucun
-      // privilège. Monotone restrictif — même doctrine que `SlackAccessGuard`.
-      let requesterPerson: DirectoryPerson | null = null;
-      try {
-        requesterPerson = await deps.directory.findBySlackUserId(requesterId);
-      } catch (error) {
-        logger.warn('Knowledge — annuaire indisponible, demandeur traité comme inconnu', {
-          requesterId,
-          error,
-        });
-      }
+      const requesterPerson = await lookUpRequester(deps.directory, requesterId);
 
       const requester: Requester = { slackUserId: requesterId, subject: requesterPerson };
 

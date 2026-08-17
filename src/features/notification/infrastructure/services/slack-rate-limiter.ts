@@ -191,35 +191,9 @@ export class SlackRateLimiter {
       : this.rules;
 
     // Phase 1 — compteurs LOCAUX. Gratuits, donc évalués un par un et court-circuités.
-    // `projected` : le compteur lu n'inclut PAS ce message, il faut donc l'ajouter pour juger.
-    const pending: { rule: RateLimitRule; key: string; by: number; projected: boolean }[] = [];
-
-    for (const rule of applicable) {
-      const key = buildCounterKey(rule, subjectId, now);
-
-      // Une RÉSERVATION ne touche aucun compteur, ni local ni partagé : elle demande
-      // seulement « ce message passerait-il ? ». C'est `consumeModelBudget` qui débite.
-      const reserve = options.reserveOnly === true && rule.rationsModelBudget === true;
-
-      const localCount = (this.local.get(key) ?? 0) + 1;
-      if (!reserve) this.local.set(key, localCount, { ttl: rule.windowMs });
-
-      const localVerdict = evaluateCount(rule, localCount);
-      if (!localVerdict.allowed) {
-        // Le compteur partagé est nécessairement ≥ au local (il voit un sur-ensemble des
-        // événements) : s'il est dépassé ici, il l'est là-bas. Refuser sans l'interroger est
-        // donc correct, et épargne un aller-retour au moment précis où le trafic est le plus
-        // dense.
-        return {
-          allowed: false,
-          rule: rule.name,
-          shouldNotify: localVerdict.shouldNotify,
-          degraded: false,
-        };
-      }
-
-      pending.push({ rule, key, by: reserve ? 0 : 1, projected: reserve });
-    }
+    const local = this.checkLocalCounters(applicable, subjectId, now, options);
+    if (local.refusal) return local.refusal;
+    const pending = local.pending;
 
     // ────────────────────────────────────────────────────────────────────────
     // BUDGET DE L'ÉQUIPE — dans le MÊME lot parallèle, et lu EN PREMIER
@@ -287,6 +261,68 @@ export class SlackRateLimiter {
     // réponses : `rules` est déclaré par priorité (« la règle la moins chère à déclencher
     // d'abord »), et c'est ce nom-là qui remonte jusqu'au message adressé à l'utilisateur.
     // Sans ce tri, la règle citée dépendrait de l'aléa réseau.
+    return this.readSharedVerdicts(outcomes);
+  }
+
+  /**
+   * Phase 1 — les compteurs en mémoire. Gratuits, donc évalués un par un et court-circuités.
+   *
+   * Rend soit un REFUS immédiat, soit la liste des incréments à porter au store partagé.
+   * `projected` dit que le compteur lu n'inclura PAS ce message et qu'il faut donc l'ajouter
+   * pour juger.
+   */
+  private checkLocalCounters(
+    applicable: readonly RateLimitRule[],
+    subjectId: string,
+    now: Date,
+    options: { reserveOnly?: boolean },
+  ): {
+    refusal?: RateLimitDecision;
+    pending: { rule: RateLimitRule; key: string; by: number; projected: boolean }[];
+  } {
+    const pending: { rule: RateLimitRule; key: string; by: number; projected: boolean }[] = [];
+
+    for (const rule of applicable) {
+      const key = buildCounterKey(rule, subjectId, now);
+
+      // Une RÉSERVATION ne touche aucun compteur, ni local ni partagé : elle demande
+      // seulement « ce message passerait-il ? ». C'est `consumeModelBudget` qui débite.
+      const reserve = options.reserveOnly === true && rule.rationsModelBudget === true;
+
+      const localCount = (this.local.get(key) ?? 0) + 1;
+      if (!reserve) this.local.set(key, localCount, { ttl: rule.windowMs });
+
+      const localVerdict = evaluateCount(rule, localCount);
+      if (!localVerdict.allowed) {
+        // Le compteur partagé est nécessairement ≥ au local (il voit un sur-ensemble des
+        // événements) : s'il est dépassé ici, il l'est là-bas. Refuser sans l'interroger est
+        // donc correct, et épargne un aller-retour au moment précis où le trafic est le plus
+        // dense.
+        return {
+          refusal: {
+            allowed: false,
+            rule: rule.name,
+            shouldNotify: localVerdict.shouldNotify,
+            degraded: false,
+          },
+          pending,
+        };
+      }
+
+      pending.push({ rule, key, by: reserve ? 0 : 1, projected: reserve });
+    }
+
+    return { pending };
+  }
+
+  /**
+   * Phase 3 — relire les verdicts DANS L'ORDRE DES RÈGLES, jamais dans l'ordre d'arrivée des
+   * réponses réseau. `rules` est déclaré par priorité, et c'est ce nom-là qui remonte jusqu'au
+   * message adressé à la personne : sans ce tri, la règle citée dépendrait de l'aléa réseau.
+   */
+  private readSharedVerdicts(
+    outcomes: readonly { rule: RateLimitRule; key: string; count: number | undefined }[],
+  ): RateLimitDecision {
     let degraded = false;
 
     for (const { rule, key, count } of outcomes) {

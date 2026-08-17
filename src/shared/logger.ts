@@ -246,6 +246,107 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 const MAX_LOGGED_KEYS = 50;
 
 /**
+ * Un objet ordinaire, clé par clé : masquage par NOM de clé, puis par VALEUR, puis récursion.
+ *
+ * Extrait de `maskPii` le 2026-08-17 — le dispatch de types et le parcours d'un objet sont
+ * deux choses, et les lire ensemble empêchait de voir ce que fait la troncature.
+ */
+function maskPlainObject(
+  obj: Record<string, unknown>,
+  ctx: { depth: number; maxDepth: number; seen: WeakSet<object>; keyPath: string[] },
+): Record<string, unknown> {
+  const { depth, maxDepth, keyPath } = ctx;
+  const masked: Record<string, unknown> = {};
+
+  const entries = Object.entries(obj);
+  const isLargeObject = entries.length > MAX_LOGGED_KEYS;
+  // ⚠️ TRONCATURE DÉTERMINISTE, et c'est une correction du 2026-08-17. La forme d'origine
+  // était `entries.filter(() => Math.random() < 0.5)` : deux occurrences du MÊME incident
+  // produisaient deux lignes de journal différentes, et le champ dont on avait besoin
+  // pouvait manquer une fois sur deux — précisément quand on relit les logs pour
+  // comprendre une panne. Un journal non reproductible n'est pas un journal.
+  //
+  // On garde donc les N PREMIÈRES clés dans l'ordre d'insertion : ce sont celles que
+  // l'appelant a écrites en premier, c'est-à-dire les identifiants. Le nombre d'omissions
+  // reste annoncé — la ligne dit ce qu'elle ne montre pas.
+  const sampledEntries = isLargeObject ? entries.slice(0, MAX_LOGGED_KEYS) : entries;
+
+  for (const [key, value] of sampledEntries) {
+    const newKeyPath = [...keyPath, key];
+
+    // Vérifier si la clé est une PII
+    if (isPiiKey(key)) {
+      masked[key] = '[REDACTED:' + getPiiCategory(key) + ']';
+      continue;
+    }
+
+    // Vérifier si la valeur correspond à un pattern PII
+    if (typeof value === 'string' && isPiiValue(value)) {
+      masked[key] = maskPiiValue(value);
+      continue;
+    }
+
+    // Récursion
+    masked[key] = maskPii(value, {
+      depth: depth + 1,
+      maxDepth,
+      seen: new WeakSet<object>(),
+      keyPath: newKeyPath,
+    });
+  }
+
+  if (isLargeObject && sampledEntries.length < entries.length) {
+    masked['_truncation_note'] =
+      `Object had ${entries.length} keys, the first ${sampledEntries.length} were logged`;
+  }
+
+  return masked;
+  return masked;
+}
+
+/**
+ * Sentinelle : `undefined` et `null` sont des résultats LÉGITIMES de masquage, on ne peut
+ * donc pas s'en servir pour dire « ce n'est pas un type spécial ».
+ */
+const NOT_SPECIAL = Symbol('not-a-special-type');
+
+/**
+ * Les types qui ne se sérialisent pas tels quels. Chacun se résume à une ÉTIQUETTE, jamais à
+ * son contenu : un `Buffer` ou une `Map` dans une ligne de journal noierait le message utile,
+ * et rien ne garantit qu'ils ne portent pas de donnée personnelle.
+ *
+ * L'`Error` fait exception et garde sa substance — c'est souvent la seule chose utile de la
+ * ligne. Sa pile est réduite à une étiquette, son message passe par le masquage PII (il cite
+ * volontiers une adresse), et sa `cause` est suivie récursivement : `withChainFailureLogging`
+ * réemballe l'échec du dernier maillon, donc le motif réel n'est jamais au premier niveau.
+ */
+function maskSpecialType(
+  obj: object,
+  ctx: { depth: number; maxDepth: number; seen: WeakSet<object>; keyPath: string[] },
+): unknown {
+  const { depth, maxDepth, seen, keyPath } = ctx;
+
+  if (obj instanceof Date) return obj.toISOString();
+  if (obj instanceof RegExp) return obj.toString();
+  if (obj instanceof Error) {
+    return {
+      name: obj.name,
+      message: maskPrimitiveValue(obj.message, [...keyPath, 'message']),
+      stack: obj.stack ? '[STACK_TRACE]' : undefined,
+      cause: obj.cause
+        ? maskPii(obj.cause, { depth: depth + 1, maxDepth, seen, keyPath: [...keyPath, 'cause'] })
+        : undefined,
+    };
+  }
+  if (Buffer.isBuffer(obj)) return '[BUFFER:' + obj.length + 'bytes]';
+  if (obj instanceof Map) return '[MAP:' + obj.size + 'entries]';
+  if (obj instanceof Set) return '[SET:' + obj.size + 'entries]';
+  if (typeof obj === 'function') return '[FUNCTION:' + (obj.name || 'anonymous') + ']';
+
+  return NOT_SPECIAL;
+}
+
+/**
  * Masque les PII de manière récursive avec protection anti-circulaire
  * et gestion des types spéciaux
  */
@@ -275,35 +376,11 @@ function maskPii(
     return '[CIRCULAR_REFERENCE]';
   }
 
-  // Types spéciaux non modifiables
-  if (obj instanceof Date) {
-    return obj.toISOString();
-  }
-  if (obj instanceof RegExp) {
-    return obj.toString();
-  }
-  if (obj instanceof Error) {
-    return {
-      name: obj.name,
-      message: maskPrimitiveValue(obj.message, [...keyPath, 'message']),
-      stack: obj.stack ? '[STACK_TRACE]' : undefined,
-      cause: obj.cause
-        ? maskPii(obj.cause, { depth: depth + 1, maxDepth, seen, keyPath: [...keyPath, 'cause'] })
-        : undefined,
-    };
-  }
-  if (Buffer.isBuffer(obj)) {
-    return '[BUFFER:' + obj.length + 'bytes]';
-  }
-  if (obj instanceof Map) {
-    return '[MAP:' + obj.size + 'entries]';
-  }
-  if (obj instanceof Set) {
-    return '[SET:' + obj.size + 'entries]';
-  }
-  if (typeof obj === 'function') {
-    return '[FUNCTION:' + (obj.name || 'anonymous') + ']';
-  }
+  // Types spéciaux non sérialisables tels quels — chacun se résume à une ÉTIQUETTE, jamais à
+  // son contenu : un `Buffer` ou une `Map` dans une ligne de journal noierait le message
+  // utile, et rien ne garantit qu'ils ne portent pas de donnée personnelle.
+  const special = maskSpecialType(obj, { depth, maxDepth, seen, keyPath });
+  if (special !== NOT_SPECIAL) return special;
 
   // Arrays
   if (Array.isArray(obj)) {
@@ -321,51 +398,7 @@ function maskPii(
   // Objets
   if (isPlainObject(obj)) {
     seen.add(obj as object);
-    const masked: Record<string, unknown> = {};
-
-    const entries = Object.entries(obj);
-    const isLargeObject = entries.length > MAX_LOGGED_KEYS;
-    // ⚠️ TRONCATURE DÉTERMINISTE, et c'est une correction du 2026-08-17. La forme d'origine
-    // était `entries.filter(() => Math.random() < 0.5)` : deux occurrences du MÊME incident
-    // produisaient deux lignes de journal différentes, et le champ dont on avait besoin
-    // pouvait manquer une fois sur deux — précisément quand on relit les logs pour
-    // comprendre une panne. Un journal non reproductible n'est pas un journal.
-    //
-    // On garde donc les N PREMIÈRES clés dans l'ordre d'insertion : ce sont celles que
-    // l'appelant a écrites en premier, c'est-à-dire les identifiants. Le nombre d'omissions
-    // reste annoncé — la ligne dit ce qu'elle ne montre pas.
-    const sampledEntries = isLargeObject ? entries.slice(0, MAX_LOGGED_KEYS) : entries;
-
-    for (const [key, value] of sampledEntries) {
-      const newKeyPath = [...keyPath, key];
-
-      // Vérifier si la clé est une PII
-      if (isPiiKey(key)) {
-        masked[key] = '[REDACTED:' + getPiiCategory(key) + ']';
-        continue;
-      }
-
-      // Vérifier si la valeur correspond à un pattern PII
-      if (typeof value === 'string' && isPiiValue(value)) {
-        masked[key] = maskPiiValue(value);
-        continue;
-      }
-
-      // Récursion
-      masked[key] = maskPii(value, {
-        depth: depth + 1,
-        maxDepth,
-        seen: new WeakSet<object>(),
-        keyPath: newKeyPath,
-      });
-    }
-
-    if (isLargeObject && sampledEntries.length < entries.length) {
-      masked['_truncation_note'] =
-        `Object had ${entries.length} keys, the first ${sampledEntries.length} were logged`;
-    }
-
-    return masked;
+    return maskPlainObject(obj, { depth, maxDepth, seen, keyPath });
   }
 
   // Fallback pour types inconnus
