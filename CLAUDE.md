@@ -954,6 +954,38 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
     le code, et **quatre fichiers de tests recopiaient le même littéral**, donc restaient verts
     en vérifiant qu'on demandait bien un modèle qui n'existe plus.
 
+- ⚠️ **UN PROMPT NE DOIT JAMAIS PRESCRIRE UNE SORTIE QUE LE FILTRE DE SORTIE CENSURE.**
+  Découvert le 2026-08-15, en production, sur DEUX agents. La DIRECTIVE 6.1 ordonnait de
+  répondre littéralement `[SECURITY_BLOCK] …` — chaîne qui figure dans `INTERNAL_MARKERS`.
+  Toute réponse OBÉISSANT à la directive était donc détectée comme fuite et **remplacée en
+  bloc** : la consigne ne pouvait produire aucun résultat visible correct.
+  - Symptôme : `recruitmentAgent` répondait « Réponse retirée : elle exposait la configuration
+    interne » sur une demande d'entretien parfaitement légitime, alors que
+    `scheduleCandidateInterview` avait bien tourné. **La feature était cassée par le garde-fou
+    censé la protéger**, et le symptôme est indiscernable d'une panne.
+  - Même mécanique avec `KISSO-AGENT-v3` : l'orchestrateur récitait son identité en refusant
+    une demande hors-métier, donc son refus — pourtant correct — était détruit et remplacé. Ce
+    qu'on lisait comme une belle réponse était le texte de remplacement.
+  - Corrigé : 6.1 demande un refus en une phrase sans code entre crochets, 1.1 interdit
+    explicitement de répéter l'identifiant, 1.2 ne cite plus `STRICT-ENTERPRISE-MODE`. Un test
+    d'invariant interdit désormais toute prescription d'un marqueur interne.
+
+- ⚠️ **L'ENTRÉE EST CUMULATIVE : économiser X tokens de prompt en économise X × le nombre
+  d'étapes.** Mesuré le 2026-08-15 sur « profil de l'employé dont l'email est X » :
+  1 417 + 1 559 + 1 735 = **4 711 tokens d'entrée** pour 3 étapes. C'est la vérification
+  chiffrée de la doctrine « le poste dominant est le NOMBRE D'ÉTAPES » — une étape épargnée
+  vaut ≈ 1 500 tokens, un prompt raboté quelques dizaines.
+  - `getEmployeeProfile` et `getNotificationHistory` acceptent donc un **email** en plus de
+    l'identifiant : l'aller-retour `findEmployeeByEmail` disparaît. Mesuré en production :
+    4 954 → 3 097 tokens (−37 %) et 4 424 → 2 866 (−35 %). Capacité quotidienne ≈ 20 → ≈ 32.
+  - ⚠️ **Le chemin email ne doit JAMAIS devenir un ORACLE.** Il doit lire pour résoudre : il
+    passe donc l'identifiant RÉSOLU (ou `null`) à `canReadPersonRecord`, si bien qu'un
+    demandeur non autorisé reçoit le MÊME verdict que l'adresse désigne quelqu'un ou personne.
+    Sinon on énumère l'annuaire une adresse à la fois. Le chemin par identifiant, lui, refuse
+    toujours AVANT toute lecture.
+  - ⚠️ `generateDocument` n'accepte QUE l'UUID, à dessein : une adresse produite par le modèle
+    n'y est jamais utilisée. Ne pas « harmoniser » sans lire son en-tête.
+
 - **PLAFOND GROQ : c'est le quota JOURNALIER qui casse la production, PAS le seau par minute.**
   L'ancienne rédaction de cette section — « PLAFOND GROQ 12 000 tokens/minute, c'est la limite
   qui casse la production » — était **FAUSSE**, et cette erreur a coûté un diagnostic entier :

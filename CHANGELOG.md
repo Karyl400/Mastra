@@ -1,5 +1,68 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-15 (4) — Groq réparé, et −35 % de tokens par message
+
+### Fixed — SÉCURITÉ : le prompt prescrivait des sorties que le filtre censure
+
+Défaut mesuré en production sur DEUX agents, confirmé par les logs du garde d'API.
+
+La DIRECTIVE 6.1 ordonnait de répondre littéralement « [SECURITY_BLOCK] Request blocked by
+enterprise policy. » — or `[SECURITY_BLOCK]` figure dans `INTERNAL_MARKERS`. **Toute réponse
+obéissant à la directive était donc détectée comme fuite et remplacée en bloc.** La consigne ne
+pouvait produire aucun résultat visible correct.
+
+Relevé : `recruitmentAgent` a émis `[SECURITY_BLOCK]` sur une demande d'entretien légitime — le
+tool avait pourtant tourné — et l'utilisateur recevait « Réponse retirée : elle exposait la
+configuration interne ». **La feature était inutilisable, non par un refus mais par le garde-fou
+censé la protéger.** Même mécanique pour `KISSO-AGENT-v3`, que l'orchestrateur récitait en
+refusant une demande hors-métier : son refus, pourtant correct, était détruit et remplacé.
+
+⚠️ **Règle générale à retenir : un prompt ne doit jamais prescrire une sortie que le filtre de
+sortie censure.** Sinon le garde-fou se retourne contre le produit, et le symptôme est
+indiscernable d'une panne. Verrouillé par un test d'invariant.
+
+### Changed — le NOMBRE D'ÉTAPES, mesuré puis attaqué
+
+L'entrée d'un run est **cumulative** : elle est réémise en entier à chaque étape. Mesuré sur
+« profil de l'employé dont l'email est X » : 1 417 + 1 559 + 1 735 = **4 711 tokens d'entrée**
+pour 3 étapes. Une étape épargnée vaut donc ≈ 1 500 tokens — près d'un tiers du message — là où
+raboter le prompt en rend quelques dizaines. La doctrine du dépôt, vérifiée au chiffre.
+
+`getEmployeeProfile` et `getNotificationHistory` acceptent désormais un **email** en plus de
+l'identifiant, ce qui supprime l'aller-retour `findEmployeeByEmail` intermédiaire.
+
+⚠️ La frontière d'autorisation ne bouge pas. Le chemin identifiant refuse toujours AVANT toute
+lecture. Le chemin email doit lire pour résoudre : il passe donc l'identifiant **résolu (ou
+`null`)** à `canReadPersonRecord`, si bien qu'un demandeur non autorisé reçoit le même verdict
+que l'adresse existe ou non — sans quoi le tool devenait un **ORACLE** permettant d'énumérer
+l'annuaire une adresse à la fois.
+
+⚠️ `generateDocument` n'accepte toujours QUE l'UUID, à dessein : une adresse fournie par le
+modèle n'y est jamais utilisée.
+
+### Changed — dégraissage de ce qui est repayé à chaque étape
+
+Retrait des séparateurs `═══` et des en-têtes `LAYER n` du prompt de sécurité : ~190 caractères
+d'ornementation ouvrant les QUATRE agents. **Le texte de chaque DIRECTIVE est inchangé au
+caractère près.** Instructions des 4 agents : 2 909 → 2 517 tokens (−13,5 %).
+
+### Résultat mesuré sur la production déployée
+
+| Requête | Avant | Après |
+| --- | --- | --- |
+| Profil par email | 3 étapes, 4 954 tokens | **2 étapes, 3 097** (−37 %) |
+| Historique notifications par email | 3 étapes, 4 424 tokens | **2 étapes, 2 866** (−35 %) |
+
+Sur un plafond de 100 000 tokens/jour, la capacité passe de ≈ 20 à **≈ 32 messages**.
+
+### Vérifié — les QUATRE agents, en production
+
+`onboardingOrchestrator` (profil, refus de création, refus hors-métier), `notificationAgent`
+(historique, destinataire introuvable), `knowledgeAgent` (expertise, résumé de canal),
+`recruitmentAgent` (entretien préparé, jamais envoyé). Aucune réponse rédigée, aucune fuite de
+marqueur, aucune invention. ⚠️ **Il y a QUATRE agents, pas cinq** — `questionnaireEngine` a été
+supprimé le 2026-08-14.
+
 ## [Unreleased] - 2026-08-15 (3) — audit complet : le quota, les abonnements, la CI
 
 ### Fixed — le budget modèle était débité pour des messages qui n'atteignent aucun modèle
