@@ -1,8 +1,9 @@
 // employee.validation.ts
 import { z } from 'zod';
-import validator from 'validator';
+// Sous-chemin — voir la note d'`isEmail` dans `shared/validation.ts`.
+import contains from 'validator/lib/contains.js';
 import { sanitizeHtml } from '../../../../shared/security/html-sanitizer.js';
-import { EmployeeStatus, Department, Position } from '../../../../shared/types';
+import { EmployeeStatus, Department } from '../../../../shared/types';
 import { emailSchema, timestampsSchema, uuidSchema } from '../../../../shared/validation';
 
 // ============================================
@@ -56,7 +57,7 @@ const nameSchema = z
   .regex(EMPLOYEE_CONSTRAINTS.NAME.PATTERN, EMPLOYEE_CONSTRAINTS.NAME.MESSAGE)
   .transform((val) => sanitizeHtml(val)) // Protection XSS
   .refine(
-    (val) => !validator.contains(val, '<script>', { ignoreCase: true }),
+    (val) => !contains(val, '<script>', { ignoreCase: true }),
     'Name contains potentially unsafe content',
   );
 
@@ -143,61 +144,19 @@ const baseEmployeeSchema = z.object({
   status: z.nativeEnum(EmployeeStatus).default(EmployeeStatus.Pending),
 });
 
-/**
- * Schema objet sans les validations globales (pour réutilisation)
- */
-const employeeObjectSchema = baseEmployeeSchema.extend({
-  // Champs additionnels pour la création
-  emergencyContact: z
-    .object({
-      phone: z.string().min(10).max(20).optional(),
-      name: z.string().min(1).max(100),
-      relationship: z.string().min(2).max(50),
-    })
-    .optional(),
-
-  salary: z
-    .object({
-      amount: z.number().min(EMPLOYEE_CONSTRAINTS.SALARY.MIN).max(EMPLOYEE_CONSTRAINTS.SALARY.MAX),
-      currency: z.string().length(3).default('EUR'),
-    })
-    .optional(),
-
-  documents: z
-    .array(
-      z.object({
-        name: z.string().min(1).max(255),
-        url: z.string().url(),
-        type: z.enum(['contract', 'id', 'certification', 'other']),
-      }),
-    )
-    .max(10)
-    .optional(),
-
-  managerId: uuidSchema.nullable().optional(),
-});
-
 const applyManagerValidation = <T extends z.ZodTypeAny>(schema: T) => {
   return schema
     .refine(
-      (data: { status?: string; managerId?: string | null }) => {
-        if (data.status === EmployeeStatus.Active && !data.managerId) {
-          return false;
-        }
-        return true;
-      },
+      (data: { status?: string; managerId?: string | null }) =>
+        !(data.status === EmployeeStatus.Active && !data.managerId),
       {
         message: 'Active employees must have a manager assigned',
         path: ['managerId'],
       },
     )
     .refine(
-      (data: { status?: string; managerId?: string | null }) => {
-        if (data.status === EmployeeStatus.Pending && data.managerId) {
-          return false;
-        }
-        return true;
-      },
+      (data: { status?: string; managerId?: string | null }) =>
+        !(data.status === EmployeeStatus.Pending && data.managerId),
       {
         message: 'Pending employees cannot have a manager assigned',
         path: ['managerId'],
@@ -206,21 +165,7 @@ const applyManagerValidation = <T extends z.ZodTypeAny>(schema: T) => {
 };
 
 /**
- * Schema complet avec extension pour création
- */
-export const createEmployeeSchema = applyManagerValidation(employeeObjectSchema);
-
-/**
- * Schema pour la mise à jour (tous les champs optionnels)
- */
-export const updateEmployeeSchema = applyManagerValidation(
-  employeeObjectSchema.partial().extend({
-    id: uuidSchema, // ID obligatoire pour la mise à jour
-  }),
-);
-
-/**
- * Schema pour la réponse (DTO)
+ * Schema pour la réponse (DTO) — le SEUL schéma vivant de ce module.
  */
 export const employeeDtoSchema = applyManagerValidation(
   baseEmployeeSchema
@@ -239,212 +184,28 @@ export const employeeDtoSchema = applyManagerValidation(
 // 5. TYPES INFÉRÉS
 // ============================================
 
-export type CreateEmployeeInput = z.infer<typeof createEmployeeSchema>;
-export type UpdateEmployeeInput = z.infer<typeof updateEmployeeSchema>;
 export type EmployeeDto = z.infer<typeof employeeDtoSchema>;
 
-// Types pour les réponses paginées
-export type EmployeeListResponse = {
-  data: EmployeeDto[];
-  total: number;
-  page: number;
-  pageSize: number;
-};
-
 // ============================================
-// 6. MIDDLEWARE DE VALIDATION
+// ⚠️ SECTIONS 6 À 9 SUPPRIMÉES LE 2026-08-17
 // ============================================
-
-/**
- * Middleware de validation avec transformation et sanitization
- */
-export class EmployeeValidator {
-  /**
-   * Valide les données de création d'employé
-   */
-  static async validateCreate(data: unknown): Promise<CreateEmployeeInput> {
-    try {
-      const validated = await createEmployeeSchema.parseAsync(data);
-      return validated;
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        throw new EmployeeValidationError('Invalid employee creation data', error.errors);
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Valide les données de mise à jour
-   */
-  static async validateUpdate(data: unknown): Promise<UpdateEmployeeInput> {
-    try {
-      const validated = await updateEmployeeSchema.parseAsync(data);
-      return validated;
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        throw new EmployeeValidationError('Invalid employee update data', error.errors);
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Sanitize les données pour la réponse API
-   */
-  static sanitizeResponse(employee: EmployeeDto): EmployeeDto {
-    // Ne jamais exposer de données sensibles
-    const { ...safe } = employee;
-    return employeeDtoSchema.parse(safe);
-  }
-}
-
-// ============================================
-// 7. GESTION D'ERREURS PERSONNALISÉE
-// ============================================
-
-export class EmployeeValidationError extends Error {
-  public readonly code = 'EMPLOYEE_VALIDATION_ERROR';
-  public readonly statusCode = 422;
-
-  constructor(
-    message: string,
-    public readonly details: z.ZodIssue[],
-  ) {
-    super(message);
-    this.name = 'EmployeeValidationError';
-
-    // Capture du stack trace
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, EmployeeValidationError);
-    }
-  }
-
-  toJSON() {
-    return {
-      error: {
-        code: this.code,
-        message: this.message,
-        details: this.details.map((detail) => ({
-          field: detail.path.join('.'),
-          message: detail.message,
-          code: detail.code,
-        })),
-      },
-    };
-  }
-}
-
-// ============================================
-// 8. HOOKS DE PRÉ/POST VALIDATION
-// ============================================
-
-/**
- * Transformations avant validation
- */
-export const preValidationHooks = {
-  /**
-   * Normalise les données avant validation
-   */
-  normalizeData(data: Record<string, unknown>): Record<string, unknown> {
-    const normalized = { ...data };
-
-    // Normalisation email : lowercase
-    if (typeof normalized.email === 'string') {
-      normalized.email = normalized.email.toLowerCase().trim();
-    }
-
-    // Normalisation noms : capitalisation
-    if (typeof normalized.firstName === 'string') {
-      normalized.firstName = this.capitalize(normalized.firstName);
-    }
-    if (typeof normalized.lastName === 'string') {
-      normalized.lastName = this.capitalize(normalized.lastName);
-    }
-
-    return normalized;
-  },
-
-  capitalize(str: string): string {
-    const words = str.split(/[\s-']/);
-    const capitalizedWords = words.map(
-      (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase(),
-    );
-    let separator = ' ';
-    if (str.includes('-')) {
-      separator = '-';
-    } else if (str.includes("'")) {
-      separator = "'";
-    }
-    return capitalizedWords.join(separator);
-  },
-};
-
-// ============================================
-// 9. TESTS DE VALIDATION (INTÉGRÉS)
-// ============================================
-
-/**
- * Test cases pour la validation
- */
-export const validationTestCases = {
-  valid: {
-    minimal: {
-      firstName: 'John',
-      lastName: 'Doe',
-      email: 'john.doe@company.com',
-      department: Department.Engineering,
-      position: Position.SeniorDeveloper,
-      startDate: new Date().toISOString(),
-      status: EmployeeStatus.Active,
-      managerId: '123e4567-e89b-12d3-a456-426614174000',
-    },
-    complete: {
-      firstName: 'Jane',
-      lastName: "O'Connor-Smith",
-      email: 'jane.oconnor@company.com',
-      department: Department.Marketing,
-      position: Position.Director,
-      startDate: '2024-01-15T00:00:00Z',
-      status: EmployeeStatus.Active,
-      managerId: '123e4567-e89b-12d3-a456-426614174000',
-      emergencyContact: {
-        name: 'John Smith',
-        phone: '+33123456789',
-        relationship: 'Spouse',
-      },
-      salary: {
-        amount: 75000,
-        currency: 'EUR',
-      },
-    },
-  },
-  invalid: {
-    xssAttempt: {
-      firstName: '<script>alert("xss")</script>',
-      lastName: 'Doe',
-      email: 'test@test.com',
-      department: Department.Engineering,
-      position: Position.BackendDeveloper,
-      startDate: new Date().toISOString(),
-    },
-    futureDate: {
-      firstName: 'John',
-      lastName: 'Doe',
-      email: 'john@test.com',
-      department: Department.Engineering,
-      position: Position.BackendDeveloper,
-      startDate: '2099-01-01T00:00:00Z',
-    },
-    noManager: {
-      firstName: 'John',
-      lastName: 'Doe',
-      email: 'john@test.com',
-      department: Department.Engineering,
-      position: Position.BackendDeveloper,
-      startDate: new Date().toISOString(),
-      status: EmployeeStatus.Active,
-      // Pas de managerId alors que status = Active
-    },
-  },
-};
+//
+// Ce module faisait 474 lignes pour DEUX symboles réellement importés :
+// `EmployeeDto` (par `employee.mapper.ts`) et `employeeDtoSchema` (par son seul test).
+// Ont été retirés :
+//
+//  • `EmployeeValidator` — une classe de validation à zéro appelant, seule consommatrice
+//    de `createEmployeeSchema` et d'`updateEmployeeSchema`, eux-mêmes sans importateur.
+//    C'est ce qui rendait morte la règle « un employé actif doit avoir un manager » :
+//    elle EXISTAIT, mais aucun chemin d'exécution ne la traversait.
+//  • `EmployeeValidationError` — levée nulle part, donc rattrapée nulle part.
+//  • `preValidationHooks` — normalisation d'entrée qu'aucun appelant n'invoquait ; le
+//    parcours réel normalise dans `createEmployeeStep`.
+//  • `validationTestCases` — des FIXTURES DE TEST exportées depuis le code de production,
+//    qui n'étaient utilisées par aucun test. Elles décrivaient un contrat (« ces entrées
+//    doivent être refusées ») que rien ne vérifiait : la forme la plus trompeuse de code
+//    mort, puisqu'elle ressemble à une garantie.
+//  • `EmployeeListResponse` — pagination d'une API qui n'existe pas.
+//
+// `applyManagerValidation` est CONSERVÉE : `employeeDtoSchema` l'applique réellement, et
+// son test la traverse.
