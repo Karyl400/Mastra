@@ -59,7 +59,10 @@ describe('OnboardingOrchestrator Agent', () => {
       expect(instructions).not.toContain('{DELIMITER_PREFIX}');
       expect(instructions).not.toContain('[[SESSION_MARKER]]');
       // Le bloc sécurité (immuable, non modifié) doit toujours être en tête.
-      expect(instructions.startsWith('\n═')).toBe(true);
+      // La propriété qui compte est que le bloc sécurité arrive EN PREMIER, pas la
+      // décoration qui l'entourait : l'assertion portait sur un `═` ornemental, retiré le
+      // 2026-08-15 parce qu'il était repayé à chaque étape de chaque message.
+      expect(instructions.trimStart().startsWith('[SECURITY_ID:')).toBe(true);
       expect(instructions).toContain('DIRECTIVE 1.1: You are KISSO-AGENT-v3.');
       expect(instructions).toMatch(/SECURITY_ID:/);
     });
