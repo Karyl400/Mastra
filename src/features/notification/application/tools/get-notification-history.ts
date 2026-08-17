@@ -34,7 +34,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 import type { NotificationRepository } from '../../domain/ports/notification.repository';
 import type { Notification } from '../../domain/entities/notification';
-import { uuidSchema } from '../../../../shared/validation';
+import { uuidSchema, emailSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { canReadPersonRecord } from '../../../../shared/slack-request-context';
 import type { NotificationChannel, NotificationStatus } from '../../../../shared/types';
@@ -99,20 +99,92 @@ function toSummary(n: Notification): NotificationSummary {
   return { channel: n.channel, status: n.status, subject, at: dateOf(n) };
 }
 
-export function makeGetNotificationHistory(repo: NotificationRepository) {
+/**
+ * @param employeeRepo OPTIONNEL, et seulement pour résoudre un email en identifiant.
+ *
+ * Mesuré en production le 2026-08-15 : « historique des notifications de <email> » coûtait
+ * TROIS étapes — `findEmployeeByEmail`, puis `getNotificationHistory`, puis la réponse — pour
+ * 4 424 tokens. L'entrée étant CUMULATIVE (chaque étape réémet tout le contexte), l'étape
+ * intermédiaire vaut à elle seule ≈ 1 500 tokens. Même défaut, même correctif que
+ * `getEmployeeProfile`.
+ *
+ * Le paramètre est optionnel pour ne pas casser les appelants existants : sans lui, seul le
+ * chemin `recipientId` fonctionne et le chemin email INSTRUIT au lieu d'échouer.
+ */
+export function makeGetNotificationHistory(
+  repo: NotificationRepository,
+  employeeRepo?: { findByEmail(email: string): Promise<{ id: string } | null> },
+) {
   return createTool({
     id: 'getNotificationHistory',
     description: 'Les 5 derniers messages envoyés à un destinataire (sans leur contenu).',
     inputSchema: z.object({
-      recipientId: uuidSchema,
+      recipientId: uuidSchema.optional(),
+      email: emailSchema.optional().describe('Email pro — alternative à recipientId'),
     }),
     execute: async (data, _ctx) => {
+      const email = data.email ? String(data.email).trim().toLowerCase() : undefined;
+
+      if (!data.recipientId && !email) {
+        return {
+          notifications: [],
+          total: 0,
+          shown: 0,
+          reason: 'missing_identifier' as const,
+          hint: "Précise QUI : l'email professionnel ou l'identifiant du destinataire.",
+        };
+      }
+
+      // ── Chemin EMAIL ──────────────────────────────────────────────────────
+      // Même construction anti-ORACLE que `getEmployeeProfile` : l'identifiant RÉSOLU (ou
+      // `null`) est passé à la garde, si bien qu'un demandeur non autorisé reçoit le MÊME
+      // verdict que l'adresse désigne quelqu'un ou personne. Sans cela, le tool permettrait
+      // d'énumérer l'annuaire une adresse à la fois.
+      let recipientId = data.recipientId;
+
+      if (!recipientId && email) {
+        if (!employeeRepo) {
+          return {
+            notifications: [],
+            total: 0,
+            shown: 0,
+            reason: 'missing_identifier' as const,
+            hint: "Donne l'identifiant du destinataire : la recherche par email n'est pas disponible ici.",
+          };
+        }
+
+        const resolved = await employeeRepo.findByEmail(email);
+
+        if (!canReadPersonRecord(_ctx?.requestContext, resolved?.id ?? null)) {
+          logger.warn('Lecture d’historique refusée — demandeur non autorisé (par email)');
+          return {
+            notifications: [],
+            total: 0,
+            shown: 0,
+            reason: 'not_authorized' as const,
+            hint: NOT_AUTHORIZED_HINT,
+          };
+        }
+
+        if (!resolved) {
+          return {
+            notifications: [],
+            total: 0,
+            shown: 0,
+            reason: 'recipient_not_found' as const,
+            hint: "Aucun employé ne porte cette adresse. Ne l'invente pas : demande-la.",
+          };
+        }
+
+        recipientId = resolved.id;
+      }
+
       // AVANT toute lecture en base — voir `canReadPersonRecord`. L'historique des messages
       // reçus par quelqu'un dit ce qu'on lui a écrit et quand : c'est une donnée personnelle
       // au même titre que son dossier.
-      if (!canReadPersonRecord(_ctx?.requestContext, data.recipientId)) {
+      if (!canReadPersonRecord(_ctx?.requestContext, recipientId)) {
         logger.warn('Lecture d’historique refusée — demandeur non autorisé', {
-          recipientId: data.recipientId,
+          recipientId,
         });
         return {
           notifications: [],
@@ -123,8 +195,8 @@ export function makeGetNotificationHistory(repo: NotificationRepository) {
         };
       }
 
-      logger.info('Récupération historique notifications', { recipientId: data.recipientId });
-      const all = await repo.findByRecipient(data.recipientId);
+      logger.info('Récupération historique notifications', { recipientId });
+      const all = await repo.findByRecipient(recipientId as string);
 
       // Tri déterministe : date décroissante, puis `id` décroissant pour départager
       // deux notifications de même horodatage. Sans ce second critère, deux appels

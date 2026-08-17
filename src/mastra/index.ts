@@ -255,7 +255,9 @@ const sendNotification = makeSendNotification(
 // destinataire inexistant AVANT d'enregistrer un rappel. Sans lui le tool dégrade — il ne ment
 // pas, mais il accepte.
 const scheduleReminder = makeScheduleReminder(notificationRepo, employeeRepo);
-const getNotificationHistory = makeGetNotificationHistory(notificationRepo);
+// ⚠️ `employeeRepo` est injecté UNIQUEMENT pour résoudre un email en identifiant, ce qui
+// supprime une étape entière (mesuré : 3 étapes / 4 424 tokens → 2). Voir la factory.
+const getNotificationHistory = makeGetNotificationHistory(notificationRepo, employeeRepo);
 
 // `discoverSlackWorkspace` a été retiré : il n'est mentionné dans AUCUNE instruction de
 // l'agent (vérifié par grep), et son schéma était le poste de coût le plus lourd après

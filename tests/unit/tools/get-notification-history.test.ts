@@ -141,6 +141,45 @@ describe('getNotificationHistory — budget et honnêteté du tool-result', () =
   it("n'expose plus de paramètre `limit` au modèle (coût de schéma inutile)", () => {
     const shape = (makeGetNotificationHistory(repo).inputSchema as never as { shape: object })
       .shape;
-    expect(Object.keys(shape)).toEqual(['recipientId']);
+
+    // La propriété qui compte est l'ABSENCE de `limit` : il ne servait qu'à laisser le modèle
+    // choisir combien on lui facture, et la borne doit être une propriété du serveur.
+    // L'assertion portait sur la liste EXACTE des clés, ce qui interdisait aussi toute clé
+    // légitime — `email` a été ajouté le 2026-08-15 pour supprimer une étape entière
+    // (mesuré : 3 étapes / 4 424 tokens → 2). On assert donc l'interdit, pas la liste close.
+    expect(Object.keys(shape)).not.toContain('limit');
+    expect(Object.keys(shape).sort()).toEqual(['email', 'recipientId']);
+  });
+  /**
+   * ⚠️ PROPRIÉTÉ ANTI-ORACLE, identique à celle de `getEmployeeProfile`.
+   *
+   * Le chemin `email` doit lire pour résoudre la personne. Si le verdict différait selon que
+   * l'adresse existe ou non, un demandeur non autorisé énumérerait l'annuaire une adresse à la
+   * fois. L'identifiant RÉSOLU (ou `null`) est donc passé à la garde.
+   */
+  it('par email, ne devient pas un ORACLE pour un demandeur non autorisé', async () => {
+    const { buildSlackRequestContext } = await import('../../../src/shared/slack-request-context');
+    const restricted = {
+      requestContext: buildSlackRequestContext({
+        channel: 'D0MOCKDM01',
+        slackUserId: 'U0BJBDGTJUD',
+        employeeId: 'd20df236-5c24-42a5-b205-d0d738d34fb4',
+        accessLevel: 'readonly',
+      }),
+    };
+    const existe = { findByEmail: async () => ({ id: 'd36b78dc-a039-4160-b86a-bd3d2a722b6c' }) };
+    const absente = { findByEmail: async () => null };
+
+    const a = await makeGetNotificationHistory(repo, existe).execute!(
+      { email: 'awa@kissohq.com' } as never,
+      restricted as never,
+    );
+    const b = await makeGetNotificationHistory(repo, absente).execute!(
+      { email: 'personne@kissohq.com' } as never,
+      restricted as never,
+    );
+
+    expect((a as { reason: string }).reason).toBe('not_authorized');
+    expect(b).toEqual(a);
   });
 });
