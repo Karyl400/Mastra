@@ -192,7 +192,24 @@ async function handleBlockActions(payload: SlackInteractionPayload): Promise<Res
 
   const sendAction = actions.find((a) => a.action_id === SEND_INTERVIEW_ACTION_ID);
   if (sendAction) {
-    await handleInterviewSend(payload, sendAction.value);
+    // ⚠️ TÂCHE DE FOND, et surtout PAS `await` — défaut mesuré en production le 2026-08-15 :
+    // un clic signé répondait 200 en **22,5 secondes**. L'email partait bien, mais Slack
+    // n'accorde que **3 secondes** à une interaction : passé ce délai il affiche une erreur.
+    //
+    // Pour un email SORTANT vers un candidat, la conséquence est sérieuse : la personne voit
+    // un échec, reclique, et le candidat reçoit DEUX invitations. Le bouton « marchait » tout
+    // en paraissant cassé — la pire des combinaisons, et exactement le genre d'écart entre le
+    // FAIT et ce qu'en perçoit l'utilisateur que ce dépôt traque partout ailleurs.
+    //
+    // `handleInterviewSend` rend déjà compte DANS LE FIL (`replyInThread`), succès comme
+    // échec : rien n'est perdu à répondre tout de suite. C'est le régime déjà retenu pour
+    // `view_submission`, énoncé en tête de ce fichier ; l'envoi d'entretien était resté sur le
+    // chemin synchrone alors qu'il fait un SMTP complet PUIS un appel Slack.
+    scheduleBackgroundWork(
+      handleInterviewSend(payload, sendAction.value).catch((error: unknown) => {
+        logger.error('Envoi d’entretien en tâche de fond échoué', { error: String(error) });
+      }),
+    );
     return ack();
   }
 

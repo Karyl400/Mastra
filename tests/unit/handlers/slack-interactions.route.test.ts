@@ -311,3 +311,75 @@ describe('Route /slack/interactions', () => {
     expect(await res.text()).toBe('');
   });
 });
+
+/* -------------------------------------------------------------------------- *
+ * L'ACK des 3 secondes — mesuré à 22,5 s en production
+ * -------------------------------------------------------------------------- */
+
+describe('bouton « Envoyer » — l’ACK ne doit pas attendre l’email', () => {
+  /**
+   * ⚠️ DÉFAUT MESURÉ EN PRODUCTION LE 2026-08-15.
+   *
+   * Un clic signé sur « Envoyer » a répondu 200 en **22,5 secondes**. L'email partait bien
+   * (`Invitation d'entretien envoyée` dans les journaux), mais Slack n'accorde que **3
+   * secondes** à une interaction : passé ce délai il affiche une erreur à l'utilisateur.
+   *
+   * Conséquence concrète, et elle est grave pour un email SORTANT vers un candidat : la
+   * personne voit un échec, reclique, et **le candidat reçoit deux invitations**. Le bouton
+   * « marchait » tout en paraissant cassé — la pire des combinaisons.
+   *
+   * L'en-tête de ce fichier énonçait déjà la règle : `view_submission` traite en TÂCHE DE
+   * FOND. L'envoi d'entretien, lui, était resté sur le chemin SYNCHRONE de `block_actions`,
+   * alors qu'il fait un SMTP complet puis un appel Slack.
+   */
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // ⚠️ Ce `describe` est au niveau RACINE : il n'hérite pas du `beforeEach` interne qui pose
+    // la clé de signature. Sans elle, la route répond 401 et le test mesurerait le refus.
+    process.env.SLACK_SIGNING_SECRET = SECRET;
+  });
+
+  it('répond AVANT que l’envoi SMTP ne soit terminé', async () => {
+    const { resetRecruitmentDependencies } =
+      await import('../../../src/api/slack-interactions.route');
+    resetRecruitmentDependencies();
+
+    let releaseSend: (() => void) | undefined;
+    const sendStarted = vi.fn();
+    const sendEmail = vi.fn().mockImplementation(() => {
+      sendStarted();
+      return new Promise<void>((resolve) => {
+        releaseSend = resolve;
+      });
+    });
+
+    const factory =
+      await import('../../../src/features/notification/infrastructure/providers/email-provider.factory');
+    const spy = vi.spyOn(factory, 'createEmailProvider').mockReturnValue({ sendEmail } as never);
+
+    const confirm = JSON.stringify({
+      to: 'candidat@exemple.com',
+      candidateName: 'Test Candidat',
+      startsAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+      requesterUserId: NEWCOMER,
+    });
+
+    const body = formEncoded({
+      type: 'block_actions',
+      user: { id: NEWCOMER, name: 'alice' },
+      channel: { id: 'D0MOCKDM01' },
+      message: { ts: '1700000000.000100' },
+      actions: [{ action_id: 'send_interview_email', value: confirm }],
+    });
+
+    // LE POINT DU TEST : la route doit rendre la main sans attendre le SMTP.
+    const res = await callRoute(body);
+
+    expect(res.status).toBe(200);
+    expect(sendStarted).toHaveBeenCalled();
+
+    releaseSend?.();
+    spy.mockRestore();
+    resetRecruitmentDependencies();
+  });
+});
