@@ -186,7 +186,14 @@ async function handleBlockActions(payload: SlackInteractionPayload): Promise<Res
   // besoin d'un `trigger_id`. Les placer après ferait échouer l'envoi sur une garde qui ne
   // les concerne pas.
   if (actions.some((a) => a.action_id === CANCEL_INTERVIEW_ACTION_ID)) {
-    await replyInThread(payload, INTERVIEW_CANCELLED_REPLY);
+    // Même régime que l'envoi ci-dessous, et pour la même raison : `replyInThread` est un
+    // appel réseau à Slack. Awaité, il portait l'ACK à 5,3 s (mesuré) — au-delà des 3 secondes
+    // accordées, alors qu'une annulation n'a strictement rien à faire attendre.
+    scheduleBackgroundWork(
+      replyInThread(payload, INTERVIEW_CANCELLED_REPLY).catch((error: unknown) => {
+        logger.error('Réponse d’annulation non postée', { error: String(error) });
+      }),
+    );
     return ack();
   }
 
