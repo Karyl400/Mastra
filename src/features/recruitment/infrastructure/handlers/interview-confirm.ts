@@ -23,6 +23,8 @@
  * affiché ici est une convocation que le demandeur vient lui-même de dicter.
  */
 
+import type { InterviewConfirmationPresenter } from '../../domain/ports/interview-confirmation.presenter';
+
 export const SEND_INTERVIEW_ACTION_ID = 'send_interview_email';
 export const CANCEL_INTERVIEW_ACTION_ID = 'cancel_interview_email';
 
@@ -196,3 +198,15 @@ export const INTERVIEW_NOT_YOURS_REPLY =
 
 export const INTERVIEW_SEND_FAILED_REPLY =
   "Je n'ai pas pu envoyer l'email — rien n'est parti. Réessaie, ou préviens l'équipe technique.";
+
+/**
+ * L'implémentation Slack du port de présentation.
+ *
+ * ⚠️ Elle vit ICI, avec les blocs qu'elle construit et l'`action_id` qu'ils portent : les
+ * séparer ferait qu'un renommage puisse casser un seul côté — et le côté cassé, la route, ne
+ * signalerait rien, un `action_id` inconnu se traduisant par un clic sans effet.
+ */
+export const slackInterviewConfirmationPresenter: InterviewConfirmationPresenter = {
+  buildBlocks: (input) => buildInterviewConfirmBlocks(input),
+  fallbackText: (candidateName) => interviewConfirmFallback(candidateName),
+};

@@ -7,10 +7,7 @@ import { canPerformSideEffects, readSlackContext } from '../../../../shared/slac
 import type { DirectoryRepository } from '../../../directory/domain/ports/directory.repository';
 import { parseInterviewSchedule } from '../../domain/value-objects/interview-schedule';
 import { buildInterviewEmail, checkInterviewLocation } from '../../domain/services/interview-email';
-import {
-  buildInterviewConfirmBlocks,
-  interviewConfirmFallback,
-} from '../../infrastructure/handlers/interview-confirm';
+import type { InterviewConfirmationPresenter } from '../../domain/ports/interview-confirmation.presenter';
 
 /**
  * PRÉPARE une invitation d'entretien — et ne l'envoie JAMAIS.
@@ -43,6 +40,13 @@ export interface ScheduleCandidateInterviewDeps {
   readonly chat: {
     sendBlocks(channelId: string, text: string, blocks: unknown[]): Promise<unknown>;
   };
+  /**
+   * ⚠️ Injecté depuis le 2026-08-18, et ce n'est pas une préférence de style : ce tool
+   * importait directement les blocs Block Kit depuis `infrastructure/`, l'unique violation de
+   * la règle de dépendance du dépôt. Ce dont il dépend n'est pas une carte Slack, c'est l'idée
+   * qu'un humain relit avant que ça parte — la seule garantie de toute la feature.
+   */
+  readonly presenter: InterviewConfirmationPresenter;
   /** Sert UNIQUEMENT à retrouver l'adresse du DEMANDEUR pour la confirmation de présence. */
   readonly directoryRepo?: Pick<DirectoryRepository, 'findBySlackUserId'>;
   /** Injectable pour rendre les tests déterministes. */
@@ -173,7 +177,7 @@ export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewD
       });
 
       try {
-        const blocks = buildInterviewConfirmBlocks({
+        const blocks = deps.presenter.buildBlocks({
           payload: {
             to: data.candidateEmail,
             candidateName: data.candidateName,
@@ -190,7 +194,7 @@ export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewD
 
         await deps.chat.sendBlocks(
           slack.channel,
-          interviewConfirmFallback(data.candidateName),
+          deps.presenter.fallbackText(data.candidateName),
           blocks,
         );
       } catch (error) {

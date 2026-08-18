@@ -152,3 +152,46 @@ describe('Règle de dépendance — la couche domain ne dépend de rien', () => 
     ).toBeGreaterThanOrEqual(20);
   });
 });
+
+/* -------------------------------------------------------------------------- *
+ * La couche APPLICATION non plus ne connaît pas l'infrastructure
+ * -------------------------------------------------------------------------- */
+
+describe('règle de dépendance — couche application', () => {
+  /**
+   * ⚠️ Ce test manquait, et le dépôt avait exactement UNE violation qu'il n'attrapait pas :
+   * `recruitment/application/tools/schedule-candidate-interview.ts` importait
+   * `buildInterviewConfirmBlocks` depuis `infrastructure/handlers/`. Tout le reste était
+   * propre — c'est bien pour cela qu'il valait la peine de le verrouiller : un dépôt à une
+   * seule exception en a bientôt cinq.
+   *
+   * La règle du projet est « `application` dépend de `domain` ; `infrastructure` implémente
+   * les ports du `domain` ». Un outil qui construit lui-même des blocs Block Kit connaît le
+   * détail de présentation d'un fournisseur précis — il ne pourrait pas être servi par un
+   * autre canal sans réécriture.
+   *
+   * ⚠️ La couche `application` a le droit d'importer `@mastra/core` : c'est ce qu'elle EST
+   * (agents, tools, workflows Mastra). Seuls les imports de `infrastructure/` sont interdits.
+   */
+  it("n'importe jamais la couche infrastructure d'une feature", () => {
+    const violations: string[] = [];
+
+    for (const feature of listFeatures()) {
+      const dir = path.resolve(FEATURES_DIR, feature, 'application');
+      if (!fs.existsSync(dir)) continue;
+
+      for (const file of collectTsFiles(dir)) {
+        for (const spec of importSpecifiers(fs.readFileSync(file, 'utf8'))) {
+          if (/(^|\/)infrastructure(\/|$)/.test(spec)) {
+            violations.push(`${path.relative(REPO_ROOT, file)} → ${spec}`);
+          }
+        }
+      }
+    }
+
+    expect(
+      violations,
+      `La couche application référence l'infrastructure :\n  - ${violations.join('\n  - ')}`,
+    ).toEqual([]);
+  });
+});

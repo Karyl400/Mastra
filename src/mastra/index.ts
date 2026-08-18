@@ -31,6 +31,7 @@ import { makeNotificationAgent } from '../features/notification/application/agen
 import { makeKnowledgeAgent } from '../features/knowledge/application/agents/knowledge-agent';
 import { makeRecruitmentAgent } from '../features/recruitment/application/agents/recruitment-agent';
 import { makeScheduleCandidateInterview } from '../features/recruitment/application/tools/schedule-candidate-interview';
+import { slackInterviewConfirmationPresenter } from '../features/recruitment/infrastructure/handlers/interview-confirm';
 
 import { DrizzleDirectoryRepository } from '../features/directory/infrastructure/repositories/drizzle-directory.repository';
 import { SlackMemberSource } from '../features/directory/infrastructure/providers/slack-member-source.adapter';
@@ -404,6 +405,9 @@ const knowledgeAgent = makeKnowledgeAgent({
 // valeur choisie par le modèle — le `slackUserId` vient du `requestContext`.
 const scheduleCandidateInterview = makeScheduleCandidateInterview({
   chat: chatProvider,
+  // La présentation de la carte de relecture est injectée : la couche `application` ne
+  // connaît pas Block Kit — voir `domain/ports/interview-confirmation.presenter.ts`.
+  presenter: slackInterviewConfirmationPresenter,
   directoryRepo,
 });
 

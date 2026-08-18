@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
+import { slackInterviewConfirmationPresenter } from '../../../src/features/recruitment/infrastructure/handlers/interview-confirm';
 import { makeScheduleCandidateInterview } from '../../../src/features/recruitment/application/tools/schedule-candidate-interview';
 import { makeRecruitmentAgent } from '../../../src/features/recruitment/application/agents/recruitment-agent';
 import {
@@ -29,6 +30,10 @@ function toolWith(over: Record<string, unknown> = {}) {
   const sendBlocks = vi.fn().mockResolvedValue({ ts: '1' });
   const tool = makeScheduleCandidateInterview({
     chat: { sendBlocks },
+    // La présentation est injectée depuis le 2026-08-18 — la couche `application` ne connaît
+    // plus Block Kit. Les tests utilisent l'implémentation SLACK réelle : ce qu'ils vérifient
+    // (le bouton ne transporte aucun corps d'email) porte sur la carte qui part vraiment.
+    presenter: slackInterviewConfirmationPresenter,
     directoryRepo: { findBySlackUserId: vi.fn().mockResolvedValue({ email: 'karyl@kisso.com' }) },
     now: () => NOW,
     ...over,
