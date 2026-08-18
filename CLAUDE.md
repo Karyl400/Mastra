@@ -614,6 +614,15 @@ valait l'usurpation totale**, ce qui n'est pas ce qu'un jeton de service est cen
 - `/slack/events` n'est PAS concerné : il est monté hors du préfixe `/api` et s'authentifie par
   signature HMAC. C'est le seul producteur légitime de ces clés.
 
+⚠️ **Les DEUX écrivains qui n'avaient aucune garde ont été fermés le 2026-08-18.**
+`updateOnboardingStatus` et `scheduleReminder` étaient les seuls outils exposés à un agent qui
+écrivent en base sans regarder qui demande — alors que `sendNotification`, leur voisin de
+gravité, a la sienne depuis le 2026-08-13. Un invité mono-canal pouvait déclarer terminé le
+parcours d'intégration d'un tiers, et écrire 5 000 caractères dans son historique de
+notifications. Les deux refus tombent AVANT toute lecture, pour ne pas devenir des oracles
+d'existence. ⚠️ Comme toute cette frontière, ils héritent du mode observation : sans
+`AUTHZ_ENFORCE`, ils ne refusent rien.
+
 **Une lecture de données RH exige désormais de savoir QUI demande** (2026-08-13).
 `canReadPersonRecord` (`src/shared/slack-request-context.ts`) garde **trois** outils :
 `getEmployeeProfile`, `getNotificationHistory` et `generateDocument` — ils étaient QUATRE
@@ -683,6 +692,30 @@ signalée par le propriétaire.
 - ⚠️ Le **jumeau `message`** d'une mention doit rester traité : il peut prendre la clé de
   déduplication le premier, et l'abandonner ferait ensuite écarter l'`app_mention` comme
   doublon — la mention resterait **sans réponse**.
+
+**LE TON — décision du Conseil du 2026-08-18 : zéro caractère ajouté aux `instructions`.**
+Ce qui fait « machine » dans ce produit n'est pas le vocabulaire (le bloc STYLE dit déjà
+« collègue, phrases courtes ») mais la **répétition littérale** des textes en dur. La variation
+vit donc dans le CODE (`shared/reply-variants.ts`), à coût nul et avec un effet garanti.
+
+⚠️ **L'argument décisif contre une consigne de style** : `claim-reconciliation.ts` détecte
+l'accompli non appuyé par un appel d'outil au moyen d'une liste **FERMÉE** de six motifs. Un
+modèle invité à varier ses formules écrirait « voilà, ton document t'attend » — hors motif, donc
+non requalifié. Demander de la variété au modèle DÉGRADE le seul détecteur de fausses annonces.
+
+Le choix de variante est **déterministe** (empreinte du `ts` du message), jamais `Math.random()` :
+un test ne peut pas verrouiller une réponse aléatoire, et un diagnostic ne peut pas la rejouer.
+⚠️ La DÉTRESSE n'a aucune variante, et un test le verrouille.
+
+⚠️ **Les textes écrits en dur ne passent par AUCUN filtre.** `sanitizeAgentOutput` — qui convertit
+le markdown en mrkdwn — n'a qu'un seul site d'appel, `response.text`. Un `**gras**` dans une
+réponse déterministe s'affiche littéralement dans Slack : constaté le 2026-08-18 sur le message
+de détresse. Écrire en mrkdwn (`*gras*`), un test le vérifie.
+
+⚠️ **Le message de détresse cite désormais des lignes NIGÉRIANES** : `0800 0787 746` (SURPIN,
+gratuit, 24h/24) et le `112`, vérifiés auprès de *LifeLine International*. Il citait le **3114**,
+numéro français, qui ne joignait personne. **Ne jamais y écrire un numéro non vérifié** — un
+numéro faux consomme le seul geste que la personne aura peut-être la force de faire.
 
 Setup complet de l'app Slack : `docs/SLACK_BOT_SETUP.md`.
 
@@ -915,6 +948,12 @@ Depuis le 2026-08-14, `maskPii` (`src/shared/logger.ts`) couvre aussi les champs
 d'appel ne les journalisait : c'est la garantie qui manquait, pas un incident. ⚠️ `message` en est
 délibérément EXCLU — c'est le champ des messages d'erreur dans tout le dépôt, et le masquer
 supprimerait le diagnostic au lieu de protéger quelqu'un.
+
+⚠️ **`discoverSlackWorkspace` a été SUPPRIMÉ le 2026-08-18.** Le commentaire de `src/mastra/index.ts`
+affirmait qu'il « reste câblé et testé isolément » — il n'était câblé à AUCUN agent, seulement
+testé, ce qui n'est pas la même chose. Ce qui a emporté la décision est ce qu'il portait : une
+action `inviteToChannel` **sans aucune garde d'autorisation**, dans un fichier qu'un futur
+recâblage aurait pu rebrancher sans relire.
 
 Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_KEY`
 (adaptateur supprimé), `GOOGLE_GEMINI_API_KEY`, `SLACK_USER_TOKEN`, `OPENAI_API_KEY`.
@@ -1221,8 +1260,12 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
   règle cherche des marqueurs `// TODO:` abandonnés, mais matche le mot n'importe où dans un
   commentaire, donc elle se déclenchait sur les RENVOIS à `TODO.md` — que la culture de
   commentaires de ce dépôt cite constamment. Règle désactivée, la neuvième erreur (un littéral
-  de gabarit imbriqué) corrigée, et `|| true` retiré : `lint` est redevenu un signal. Il reste
-  113 warnings, dont le lot ReDoS de `llm-guardrail.ts` qui mérite toujours un examen.
+  de gabarit imbriqué) corrigée, et `|| true` retiré : `lint` est redevenu un signal.
+  ✅ **Depuis le 2026-08-18, `npm run lint` rend ZÉRO warning et zéro erreur** — le compte était
+  de 90 la veille. Le lot ReDoS a été MESURÉ (deux motifs réels sur douze, corrigés ; les dix
+  autres tiennent sous 1 ms) et les règles correspondantes sont désactivées sur
+  `llm-guardrail.ts` au profit d'une garde empirique, `llm-guardrail-redos.test.ts`, qui mesure
+  89 charges adverses sur les deux portes d'entrée réelles.
 - **Les migrations `drizzle/` sont désynchronisées de `schema.ts`** : `0000_*.sql` crée
   `employees` avec 11 colonnes, le schéma en déclare 20. Appliquer `drizzle/` sur une base vierge
   échoue (`table employees has no column named phone`). `data/kisso.db` ne fonctionne que parce

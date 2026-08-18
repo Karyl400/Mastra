@@ -1,5 +1,100 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-18 — sécurité, boutons, ton, et zéro warning
+
+### Security — les deux SEULS écrivains exposés sans garde d'autorisation
+
+`grep -c` rendait **0** pour `update-onboarding-status.ts` et `schedule-reminder.ts`, contre 2
+pour `send-notification.ts`. `updateOnboardingStatus` reçoit un `employeeId` produit par le
+MODÈLE depuis un texte Slack arbitraire, et un statut `Completed` pose `completedAt` : un invité
+mono-canal pouvait déclarer terminé le parcours d'un tiers. `scheduleReminder` écrivait 5 000
+caractères sur le `recipientId` d'autrui, lignes qui ressortent ensuite par
+`getNotificationHistory`.
+
+Les deux refus tombent AVANT toute lecture — pas seulement avant l'écriture : lire d'abord ferait
+de ces outils des oracles d'existence. ⚠️ Portée à ne pas surestimer : la frontière hérite du mode
+observation, et tant qu'`AUTHZ_ENFORCE` n'est pas posé elle ne refusera rien en production.
+
+### Fixed — un seul email au candidat, et la carte le montre
+
+`handleInterviewSend` n'avait AUCUNE garde d'idempotence, alors que le tool en a une et le
+workflow aussi. Deux clics, deux invitations. Et `sendBlocks` rendait son `ts` avec, en
+commentaire, « le seul moyen de neutraliser un bouton après son premier clic » — capacité
+décrite, jamais câblée : la carte restait cliquable après un envoi réussi ET après « Annuler ».
+
+Vérifié en production par deux clics signés sur la même carte : `Invitation d'entretien envoyée`
+une fois, puis `Carte d'entretien déjà tranchée — second clic ignoré`.
+
+La prise est RENDUE sur échec SMTP (rien n'est parti, réessayer est légitime) et quand le
+cliqueur n'est pas le demandeur (sinon un témoin détruirait l'invitation d'autrui — un contrôle
+d'accès transformé en déni de service).
+
+### Fixed — cinq chemins où l'utilisateur n'apprenait rien
+
+Le verdict d'onboarding s'arrêtait au JOURNAL : sur `failed` comme sur `degraded`, la personne
+qui venait de valider sa modale ne recevait rien. En mode dégradé elle recevait même l'invitation
+à l'entretien comme en cas de succès, ignorant qu'un email de bienvenue aurait dû lui parvenir.
+Idem pour une modale qui ne s'ouvre pas (symptôme : « le bouton ne fait rien ») et une soumission
+d'entretien rejetée (la modale se fermait comme un succès).
+
+Et les tâches de fond de la route d'interactivité n'étaient pas instrumentées : si `waitUntil`
+disparaissait, l'email d'entretien et le workflow seraient tués en vol **sans une ligne de log**.
+
+### Fixed — deux affirmations fausses dans des textes lus par des humains
+
+**Le numéro d'urgence ne joignait personne.** Le message de détresse citait le **3114**, numéro
+FRANÇAIS ; les salariés sont au **Nigeria**. Remplacé par **0800 0787 746** (SURPIN, gratuit,
+24h/24) et le **112**, vérifiés auprès de *LifeLine International*. Le reste du texte ne bouge
+pas d'un mot — c'est le seul endroit où « presque humain » serait dangereux.
+
+**La salutation promettait une capacité supprimée** : « préparer un questionnaire », feature
+retirée le 2026-08-14. Chaque capacité annoncée porte désormais le NOM de l'outil qui la rend
+vraie, et un test vérifie qu'il est câblé.
+
+### Changed — le ton, à coût nul (décision du Conseil)
+
+Le Conseil a écarté toute consigne de style dans le prompt, pour deux raisons. La première est le
+budget : un caractère ajouté aux `instructions` est repayé à chaque étape. La seconde est
+décisive — **demander au modèle de varier ses formules dégraderait le garde-fou anti-mensonge**,
+dont la détection repose sur une liste FERMÉE de six formules d'accompli.
+
+La variation vit donc dans le CODE, où elle est bornée et vérifiable : trois formulations pour la
+salutation, le message vide et le message trop long, choisies DÉTERMINISTEMENT par empreinte du
+`ts` du message. La détresse n'en a aucune, et un test le verrouille.
+
+Les gabarits suivent : la lettre de bienvenue ne dit plus « en tant que N/A », n'imprime plus la
+date en ISO et TUTOIE comme le guide produit par le même bot ; l'email de bienvenue passe des
+puces étiquetées aux phrases.
+
+⚠️ Régression introduite et corrigée le jour même : `**gras**` s'affichait littéralement dans
+Slack, sur le message de détresse. Les textes en dur ne passent par aucun filtre — ils doivent
+être écrits en mrkdwn. Un test le verrouille sur l'ensemble de la table.
+
+### Refactor — SOLID, KISS, et zéro warning
+
+`npm run lint` rend **0 warning et 0 erreur** — une première. Le compte était de 90 le 2026-08-17.
+
+- `handleMessage` : complexité **64 → sous 15**. Le vrai défaut n'était pas le chiffre : la table
+  `DETERMINISTIC_REPLIES` n'était suivie qu'à moitié, les trois court-circuits agissants étant
+  ré-évalués à la main. Chaque message payait deux fois ces analyses, et un neuvième
+  court-circuit serait resté muet.
+- `generateDocument` : **55 → sous 15**, cinq extractions.
+- L'unique violation DIP du dépôt (`application` → `infrastructure`) fermée par un port, et le
+  test d'architecture étendu à la couche `application`.
+- Quatre duplications factorisées, dont trois avaient DÉJÀ divergé : `fullName` produisait un
+  double espace, `errorMessage` jetait l'information, `normalize` avait perdu ses commentaires
+  dans quatre exemplaires sur cinq.
+- `discoverSlackWorkspace` supprimé : câblé à aucun agent, et porteur d'un `inviteToChannel` sans
+  garde d'autorisation. Le commentaire qui le disait « câblé et testé » était faux.
+- 12 exports morts retirés de `types.ts`, une option de logger sans effet, un passe-plat qui
+  jetait son argument.
+
+### Fixed — un suivi qui mentait, réintroduit par la donnée
+
+Constaté en production : « en cours (**étape 1 sur 5**) ». La ligne datait d'avant le retrait des
+cinq tâches, et le workflow devenu idempotent la réutilise sans la corriger. Borné à la lecture.
+Vérifié après déploiement : « étape 1 sur 1 ».
+
 ## [Unreleased] - 2026-08-15 (5) — les deux boutons fonctionnent réellement
 
 ### Fixed — « Envoyer » (et « Annuler ») bloquaient l'ACK des 3 secondes

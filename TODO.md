@@ -1,5 +1,48 @@
 # TODO.md — Kisso Onboarding
 
+## [0 preamble] CE QUI RESTE APRÈS LE 2026-08-18
+
+Journée consacrée à quatre demandes : KISS/SOLID, les boutons, l'exécution réelle des agents, et
+le ton. Douze commits, `lint` à zéro warning, 1 653 tests verts, déployé et vérifié en production.
+Ce qui reste, dans l'ordre où je le ferais :
+
+- [ ] **Découper `src/api/slack-interactions.route.ts`** (≈ 950 lignes). C'est le nouveau god
+      object : plomberie HTTP + envoi d'email de recrutement + orchestration du workflow
+      d'onboarding + persistance de l'entretien et invitations. Découpage prévu :
+      `recruitment/application/services/interview-send.ts`,
+      `onboarding/application/services/profile-submission.ts` et `…/interview-submission.ts`.
+      ⚠️ **Ne PAS « harmoniser » les deux régimes d'ACK** (synchrone pour `block_actions`, tâche
+      de fond pour `view_submission`) : c'est ce qui casserait la modale, et c'est écrit en tête
+      de fichier.
+- [ ] **Extraire `shared/pii-masking.ts` de `logger.ts`** (≈ 400 lignes sur 740). Deux modules
+      dans un fichier. ⚠️ Déplacement PUR, sans reformuler une ligne : c'est un garde-fou de
+      confidentialité, les tests existants doivent passer inchangés.
+- [ ] **ISP** : le port `ChatProvider` ne déclare que `sendMessage`, si bien que le handler type
+      sa dépendance sur la CLASSE concrète (`Pick<SlackAdapter, 'sendBlocks'>`) et garde en
+      parallèle un `WebClient` brut — trois chemins pour poster le même message. Ajouter
+      `sendBlocks` et `updateMessage` au port. Et `EmployeeRepository.update`/`delete` n'ont
+      aucun appelant tout en obligeant deux implémentations.
+- [ ] **Décoder les erreurs Slack une seule fois** : quatre stratégies incompatibles
+      (`generate-document.ts:144`, `slack-welcome-channel.adapter.ts:48`,
+      `slack-channel-history.adapter.ts:70`, `channel-coverage.service.ts:225`). ⚠️ Porter
+      l'heuristique `files:write`, qui rattrape le code enrobé par l'adaptateur.
+- [ ] ⚠️ **DÉCISION À PRENDRE, pas une tâche** : `llm-guardrail.ts:147-466` — **~400 lignes de
+      cryptographie (scrypt, AES-256-GCM, HMAC, rotation de clés, spans OTel, 4 métriques)
+      chiffrent puis déchiffrent une constante du même module**, avec une clé `randomBytes(32)`
+      régénérée à chaque démarrage. Le commentaire l'admet : « aucune donnée réellement secrète
+      n'y transite ». `rotate()`, `rotateKey()`, `verifyIntegrity()`, `isHealthy()` n'ont aucun
+      appelant. Ce qui protège réellement — `assertSecurityHeaderIntact`,
+      `sanitizeInputAdvanced`, `detectInjectionAttempts` — est INDÉPENDANT de ce chiffrement.
+      Je n'y touche pas sans accord explicite : c'est du code d'apparence sécuritaire.
+- [ ] **Vérifier visuellement la neutralisation de la carte d'entretien.** La garde de non-envoi
+      est prouvée en production (deux clics signés → un seul email, `Carte d'entretien déjà
+      tranchée` pour le second). Le `chat.update` n'a PAS pu l'être : ma sonde utilise un `ts`
+      synthétique, et Slack répond `message_not_found` — comportement correct, non bloquant, mais
+      il faut un vrai clic sur une vraie carte pour voir les boutons disparaître.
+- [ ] **Le démarrage à froid reste au-dessus des 3 s de Slack** (≈ 6 s mesurées). Ce n'est pas un
+      défaut de handler mais l'initialisation du bundle Mastra. C'est ce qui provoque les rejeux
+      déjà documentés côté événements.
+
 ## [0] ACTIONS HUMAINES — rien de ce qui suit ne peut être scripté, et c'est ce qui bloque
 
 Aucun correctif logiciel ne contourne les trois points ci-dessous. La campagne du 2026-08-11
