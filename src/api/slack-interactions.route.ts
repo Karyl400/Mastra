@@ -355,7 +355,16 @@ async function replyInThread(payload: SlackInteractionPayload, text: string): Pr
   const channel = payload.channel?.id;
   if (!channel) return;
   try {
-    const threadTs = payload.message?.thread_ts ?? payload.message?.ts;
+    // ⚠️ JAMAIS dans un DM, et c'est une règle établie de ce dépôt : threader un DM enfouit
+    // le message hors de la conversation principale, ce qui a déjà fait paraître ce bot muet
+    // pendant des heures. `resolveThreadTarget`, côté handler d'événements, applique
+    // exactement le même critère — un canal `D…` EST la conversation, il n'y a rien à
+    // threader. En canal, en revanche, la confirmation doit rester attachée à la carte
+    // qu'elle confirme.
+    const isDirectMessage = channel.startsWith('D');
+    const threadTs = isDirectMessage
+      ? undefined
+      : (payload.message?.thread_ts ?? payload.message?.ts);
     await getSlackInteractionsAdapter().sendMessage(channel, text, threadTs);
   } catch (error) {
     // Ne jamais propager : Slack rejouerait l'interaction, donc l'email partirait DEUX FOIS.

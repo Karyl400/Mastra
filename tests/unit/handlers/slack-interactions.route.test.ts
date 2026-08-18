@@ -549,3 +549,47 @@ describe('« Compléter mon profil » — un échec ne doit plus être muet', ()
     expect(texts.join(' ')).toContain("Je n'ai pas réussi à enregistrer ton dossier");
   });
 });
+
+describe('les confirmations ne threadent JAMAIS dans un DM', () => {
+  /**
+   * ⚠️ Corrigé le 2026-08-18, après la vérification en production du threading. C'est une
+   * règle établie de ce dépôt : threader un DM enfouit le message hors de la conversation
+   * principale, ce qui a déjà fait paraître ce bot muet pendant des heures.
+   * `resolveThreadTarget`, côté handler d'événements, applique exactement le même critère.
+   *
+   * En CANAL, en revanche, la confirmation doit rester attachée à la carte qu'elle confirme —
+   * c'était tout l'objet du correctif de `replyInThread`, dont le commentaire promettait
+   * depuis l'origine un threading que le code ne faisait pas.
+   */
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    process.env.SLACK_SIGNING_SECRET = SECRET;
+    const { resetSettledCards } = await import('../../../src/api/slack-interactions.route');
+    resetSettledCards();
+  });
+
+  const cancelIn = (channel: string, ts: string) =>
+    formEncoded({
+      type: 'block_actions',
+      user: { id: NEWCOMER },
+      channel: { id: channel },
+      message: { ts },
+      actions: [{ action_id: 'cancel_interview_email', value: 'cancel' }],
+    });
+
+  it('ne pose aucun `thread_ts` en message direct', async () => {
+    await callRoute(cancelIn('D0MOCKDM01', '1700000000.001000'));
+    await new Promise((r) => setTimeout(r, 20));
+
+    const call = postMessage.mock.calls.at(-1)?.[0] as { thread_ts?: string };
+    expect(call?.thread_ts).toBeUndefined();
+  });
+
+  it('threade sous la carte en CANAL', async () => {
+    await callRoute(cancelIn('C0MOCKCHAN', '1700000000.001100'));
+    await new Promise((r) => setTimeout(r, 20));
+
+    const call = postMessage.mock.calls.at(-1)?.[0] as { thread_ts?: string };
+    expect(call?.thread_ts).toBe('1700000000.001100');
+  });
+});
