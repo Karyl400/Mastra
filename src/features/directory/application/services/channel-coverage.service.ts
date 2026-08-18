@@ -1,5 +1,6 @@
 import { logger } from '../../../../shared/logger';
 import type { ChannelInventoryRepository } from '../../domain/ports/channel.repository';
+import { errorMessage } from '../../../../shared/errors';
 
 /**
  * COUVERTURE DE CANAUX — le bot rejoint automatiquement les canaux publics.
@@ -452,7 +453,7 @@ async function recordOneChannel(
     );
   } catch (error) {
     // Sans ligne de canal, l'appartenance violerait la clé étrangère : on n'essaie même pas.
-    return { channelRecorded: false, error: messageOf(error) };
+    return { channelRecorded: false, error: errorMessage(error) };
   }
 
   if (!isMember) return { channelRecorded: true };
@@ -466,7 +467,7 @@ async function recordOneChannel(
       truncated: scan.truncated,
     };
   } catch (error) {
-    return { channelRecorded: true, error: messageOf(error) };
+    return { channelRecorded: true, error: errorMessage(error) };
   }
 }
 
@@ -474,8 +475,4 @@ async function recordOneChannel(
 function isInventoryDegraded(inventory: ChannelInventoryReport | undefined): boolean {
   if (!inventory) return false;
   return inventory.failures.length > 0 || inventory.truncatedChannels.length > 0;
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -34,6 +34,7 @@ import { readSlackContext, canReadPersonRecord } from '../../../../shared/slack-
 import type { OnboardingInterviewRepository } from '../../../onboarding/domain/ports/onboarding-interview.repository';
 import { buildRunKey, makeRunGuard } from '../../../../shared/tool-idempotency';
 import { DocumentFormat, DocumentStatus, DocumentType } from '../../../../shared/types';
+import { errorMessage } from '../../../../shared/errors';
 
 /**
  * Génération de document — outil exposé au LLM.
@@ -153,10 +154,6 @@ function isMissingScope(error: unknown): boolean {
     current = (current as { cause?: unknown }).cause;
   }
   return false;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Erreur inconnue';
 }
 
 export interface GenerateDocumentDeps {
@@ -534,7 +531,8 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // ⚠️ `warn` et non `info` : c'est la ligne à chercher la prochaine fois qu'un
       // document semble être parti au mauvais destinataire. On journalise le fait, jamais
       // l'adresse — le logger masquerait de toute façon un email.
-      const requesterEmployeeId = readSlackContext(ctx?.requestContext)?.employeeId;
+      // `slackCtx` a déjà été lu ligne 384 : un second appel ne rendrait rien de plus.
+      const requesterEmployeeId = slackCtx?.employeeId;
       if (requesterEmployeeId && requesterEmployeeId !== data.employeeId) {
         logger.warn('Document produit pour une AUTRE personne que le demandeur', {
           subjectId: data.employeeId,

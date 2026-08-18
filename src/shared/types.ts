@@ -66,16 +66,16 @@ export enum Position {
   DevOpsEngineer = 'DevOps Engineer',
   QAEngineer = 'QA Engineer',
   DataEngineer = 'Data Engineer',
-  
+
   // Design
   Designer = 'Designer',
   SeniorDesigner = 'Senior Designer',
   UXResearcher = 'UX Researcher',
-  
+
   // Product
   ProductManager = 'Product Manager',
   TechnicalProductManager = 'Technical Product Manager',
-  
+
   // Management
   TeamLead = 'Team Lead',
   Manager = 'Manager',
@@ -83,7 +83,7 @@ export enum Position {
   VP = 'VP',
   CTO = 'CTO',
   CEO = 'CEO',
-  
+
   // Support
   HRManager = 'HR Manager',
   Recruiter = 'Recruiter',
@@ -116,14 +116,19 @@ export enum TaskStatus {
 
 /** Transitions valides entre statuts de tâche */
 export const TASK_STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  [TaskStatus.Pending]:     [TaskStatus.InProgress, TaskStatus.Skipped, TaskStatus.Cancelled],
-  [TaskStatus.InProgress]:  [TaskStatus.Blocked, TaskStatus.InReview, TaskStatus.Completed, TaskStatus.Cancelled],
-  [TaskStatus.Blocked]:     [TaskStatus.InProgress, TaskStatus.Cancelled],
-  [TaskStatus.InReview]:    [TaskStatus.InProgress, TaskStatus.Completed, TaskStatus.Cancelled],
-  [TaskStatus.Completed]:   [TaskStatus.Archived],
-  [TaskStatus.Skipped]:     [TaskStatus.Archived, TaskStatus.Pending],
-  [TaskStatus.Cancelled]:   [TaskStatus.Archived],
-  [TaskStatus.Archived]:    [],
+  [TaskStatus.Pending]: [TaskStatus.InProgress, TaskStatus.Skipped, TaskStatus.Cancelled],
+  [TaskStatus.InProgress]: [
+    TaskStatus.Blocked,
+    TaskStatus.InReview,
+    TaskStatus.Completed,
+    TaskStatus.Cancelled,
+  ],
+  [TaskStatus.Blocked]: [TaskStatus.InProgress, TaskStatus.Cancelled],
+  [TaskStatus.InReview]: [TaskStatus.InProgress, TaskStatus.Completed, TaskStatus.Cancelled],
+  [TaskStatus.Completed]: [TaskStatus.Archived],
+  [TaskStatus.Skipped]: [TaskStatus.Archived, TaskStatus.Pending],
+  [TaskStatus.Cancelled]: [TaskStatus.Archived],
+  [TaskStatus.Archived]: [],
 };
 
 /** Type de tâche */
@@ -365,54 +370,22 @@ export interface QuestionResponse {
   comment?: string;
 }
 
-/** Réponse complète à un questionnaire */
-export interface QuestionnaireSubmission {
-  /** ID du questionnaire */
-  questionnaireId: string;
-  /** ID de l'employé qui répond */
-  employeeId: string;
-  /** Réponses aux questions */
-  responses: QuestionResponse[];
-  /** Statut de la soumission */
-  status: ResponseStatus;
-  /** Temps passé en secondes */
-  timeSpentSeconds?: number;
-  /** Date de soumission */
-  submittedAt?: string;
-}
-
-/** Métadonnées pagination */
-export interface PaginationMeta {
-  /** Page courante */
-  page: number;
-  /** Nombre d'éléments par page */
-  limit: number;
-  /** Nombre total d'éléments */
-  total: number;
-  /** Nombre total de pages */
-  totalPages: number;
-  /** Page suivante (null si dernière) */
-  hasNextPage: boolean;
-  /** Page précédente (null si première) */
-  hasPreviousPage: boolean;
-}
-
-/** Réponse paginée générique */
-export interface PaginatedResponse<T> {
-  /** Données */
-  data: T[];
-  /** Métadonnées de pagination */
-  pagination: PaginationMeta;
-}
+// ⚠️ DOUZE EXPORTS SUPPRIMÉS LE 2026-08-18 — aucun n'avait le moindre appelant, ni dans
+// `src/`, ni dans `tests/`, ni dans `scripts/`, et le compilateur le prouve.
+//
+// Trois sacs de ré-export (`Enums`, `Constants`, `Validators`) qui regroupaient des symboles
+// que tout le monde importe individuellement ; les statuts et types de question de deux
+// features SUPPRIMÉES du dépôt le 2026-08-14 ; et la pagination d'une API qui n'existe pas
+// (`PaginationMeta`, `PaginatedResponse`).
+//
+// Ce n'est pas du ménage pour le plaisir : un fichier de types qui expose un vocabulaire
+// mort le fait paraître disponible, et le prochain à écrire une fonctionnalité de pagination
+// croira qu'il y a une convention à suivre. Les enums individuels et les prédicats de
+// transition, eux, servent — ils ne bougent pas.
 
 // ============================================
 // 7. TYPES UTILITAIRES
 // ============================================
-
-/** Rend toutes les propriétés optionnelles récursivement */
-export type DeepPartial<T> = {
-  [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
-};
 
 /** Extrait les clés d'une enum string */
 export type EnumValues<T extends Record<string, string>> = T[keyof T];
@@ -440,44 +413,17 @@ export function isTaskFinalStatus(status: TaskStatus): boolean {
 
 /** Vérifie si un statut de tâche est un état actif */
 export function isTaskActiveStatus(status: TaskStatus): boolean {
-  return [TaskStatus.Pending, TaskStatus.InProgress, TaskStatus.Blocked, TaskStatus.InReview].includes(status);
+  return [
+    TaskStatus.Pending,
+    TaskStatus.InProgress,
+    TaskStatus.Blocked,
+    TaskStatus.InReview,
+  ].includes(status);
 }
 
 // ============================================
 // 9. CONSTANTES
 // ============================================
-
-/** Statuts d'employé considérés comme "actifs" */
-export const ACTIVE_EMPLOYEE_STATUSES: EmployeeStatus[] = [
-  EmployeeStatus.Active,
-  EmployeeStatus.Onboarding,
-  EmployeeStatus.Suspended,
-];
-
-/** Statuts d'employé considérés comme "inactifs" */
-export const INACTIVE_EMPLOYEE_STATUSES: EmployeeStatus[] = [
-  EmployeeStatus.Pending,
-  EmployeeStatus.Inactive,
-  EmployeeStatus.Terminated,
-];
-
-/** Canaux de notification supportés par défaut */
-export const DEFAULT_NOTIFICATION_CHANNELS: NotificationChannel[] = [
-  NotificationChannel.Email,
-  NotificationChannel.InApp,
-];
-
-/** Types de questions nécessitant des options */
-export const QUESTION_TYPES_REQUIRING_OPTIONS: QuestionType[] = [
-  QuestionType.Choice,
-  QuestionType.MultipleChoice,
-];
-
-/** Types de questions numériques */
-export const NUMERIC_QUESTION_TYPES: QuestionType[] = [
-  QuestionType.Scale,
-  QuestionType.Rating,
-];
 
 // ============================================
 // 10. EXPORTS
@@ -485,37 +431,3 @@ export const NUMERIC_QUESTION_TYPES: QuestionType[] = [
 
 // Tous les enums et interfaces sont déjà exportés individuellement ci-dessus.
 // Export groupé pour faciliter l'import :
-export const Enums = {
-  EmployeeStatus,
-  OnboardingStatus,
-  Department,
-  Position,
-  TaskStatus,
-  TaskType,
-  TaskPriority,
-  QuestionnaireStatus,
-  QuestionType,
-  ResponseStatus,
-  DocumentType,
-  DocumentFormat,
-  DocumentStatus,
-  NotificationChannel,
-  NotificationStatus,
-  NotificationPriority,
-  RecipientType,
-} as const;
-
-export const Constants = {
-  TASK_STATUS_TRANSITIONS,
-  ACTIVE_EMPLOYEE_STATUSES,
-  INACTIVE_EMPLOYEE_STATUSES,
-  DEFAULT_NOTIFICATION_CHANNELS,
-  QUESTION_TYPES_REQUIRING_OPTIONS,
-  NUMERIC_QUESTION_TYPES,
-} as const;
-
-export const Validators = {
-  isValidTaskTransition,
-  isTaskFinalStatus,
-  isTaskActiveStatus,
-} as const;

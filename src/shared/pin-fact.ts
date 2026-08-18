@@ -38,6 +38,8 @@
  * message — et si cela arrivait, l'effacement est évalué EN PREMIER dans le handler.
  */
 
+import { normalizeIntentText } from './intent-text';
+
 /**
  * Amorces, sous forme normalisée (minuscules, sans accent, apostrophes en espaces).
  *
@@ -84,15 +86,6 @@ const MAX_PIN_MESSAGE_LENGTH = 300;
  * rendre au modèle sans accent ni majuscule dégraderait une information qu'on a
  * précisément promis de garder.
  */
-function normalize(text: string): string {
-  return text
-    .normalize('NFD')
-    .toLowerCase()
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9 ]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 /**
  * Extrait le fait à retenir, ou `null` si le message n'en demande aucun.
@@ -112,7 +105,7 @@ export function extractPinnedFact(text: string | undefined | null): string | nul
   const raw = (text ?? '').trim();
   if (raw.length === 0 || raw.length > MAX_PIN_MESSAGE_LENGTH) return null;
 
-  const normalized = normalize(raw);
+  const normalized = normalizeIntentText(raw);
 
   const marker = PIN_MARKERS.find((candidate) => normalized.includes(`${candidate} `));
   if (!marker) return null;

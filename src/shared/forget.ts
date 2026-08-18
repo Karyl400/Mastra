@@ -77,6 +77,8 @@
  * supprimer les données de quelqu'un. Le geste est déterministe, donc il est en code.
  */
 
+import { normalizeIntentText } from './intent-text';
+
 /**
  * Normalisation commune : minuscules, accents retirés, ponctuation réduite à l'espace.
  *
@@ -85,15 +87,6 @@
  * « ce que je t ai dit » se normalisent pareillement : c'est voulu, la ponctuation de
  * quelqu'un qui écrit vite ne doit pas décider si ses données sont effacées.
  */
-function normalize(text: string): string {
-  return text
-    .normalize('NFD')
-    .toLowerCase()
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9 ]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 /**
  * Radicaux des verbes d'effacement, sous forme normalisée.
@@ -268,7 +261,7 @@ export function requestsErasure(text: string | undefined | null): boolean {
   const raw = (text ?? '').trim();
   if (raw.length === 0 || raw.length > MAX_ERASURE_LENGTH) return false;
 
-  const normalized = normalize(raw);
+  const normalized = normalizeIntentText(raw);
 
   if (!MEMORY_OBJECTS.some((object) => normalized.includes(object))) return false;
 

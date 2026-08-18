@@ -989,9 +989,19 @@ describe('SlackEventsHandler — handleEvent() (traitement de fond)', () => {
 
     await handler.handleEvent(envelope(dm()));
 
-    expect(slack.chat.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: expect.stringContaining('non disponible') }),
+    // ⚠️ Le texte a été réécrit le 2026-08-18. Il disait « Agent … non disponible. Veuillez
+    // contacter l'administrateur. » — il VOUVOYAIT quand tout le reste tutoie, et renvoyait
+    // vers un administrateur alors que la personne à qui le bot dit ça EST l'administratrice.
+    // Ce sont les deux défauts exacts pour lesquels `NEUTRAL_REFUSAL` avait été réécrit. Il
+    // ne cite plus l'identifiant d'agent non plus : c'est du vocabulaire interne.
+    //
+    // Ce que le test vérifie reste sa raison d'être : quelque chose est POSTÉ, la personne
+    // n'est pas laissée sans réponse.
+    const posted = (slack.chat.postMessage as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => (c[0] as { text?: string }).text ?? '',
     );
+    expect(posted.join(' ')).toContain("Je n'arrive pas à traiter ta demande");
+    expect(posted.join(' ')).not.toMatch(/Veuillez|administrateur/);
   });
 
   it('never throws when the agent generation fails, and posts an error message', async () => {

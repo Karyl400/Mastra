@@ -2,6 +2,7 @@ import { logger } from '../../../../shared/logger';
 import type { DirectoryMemberFacts } from '../../domain/entities/directory-member';
 import type { MemberSource } from '../../domain/ports/member-source';
 import type { DirectoryRepository } from '../../domain/ports/directory.repository';
+import { errorMessage } from '../../../../shared/errors';
 
 /**
  * SYNCHRONISATION DE L'ANNUAIRE — Slack dit qui existe, la base s'en souvient.
@@ -139,7 +140,7 @@ export function makeDirectorySync(deps: DirectorySyncDeps): DirectorySyncService
         } catch (error) {
           failureCount += 1;
           if (failures.length < MAX_REPORTED_FAILURES) {
-            failures.push({ slackUserId: facts.slackUserId, error: describe(error) });
+            failures.push({ slackUserId: facts.slackUserId, error: errorMessage(error) });
           }
           // Le rattachement suppose la ligne écrite : inutile de l'essayer.
           continue;
@@ -199,7 +200,7 @@ async function readKnownLinks(
     // une résolution employé de plus. C'est du travail en trop, jamais une perte de donnée —
     // `linkEmployee` est idempotent quand il repose la même valeur.
     logger.warn('Directory sync could not read existing links — employee lookups will repeat', {
-      error: describe(error),
+      error: errorMessage(error),
     });
     return new Map();
   }
@@ -246,12 +247,8 @@ async function linkEmployeeIfPossible(
   } catch (error) {
     logger.warn('Directory employee link failed', {
       slackUserId: facts.slackUserId,
-      error: describe(error),
+      error: errorMessage(error),
     });
     return 'failed';
   }
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -48,6 +48,8 @@
  * Tout le reste passe au chemin normal, comme avant.
  */
 
+import { normalizeIntentText } from './intent-text';
+
 /**
  * Tournures interceptées, sous forme NORMALISÉE (minuscules, sans accent).
  *
@@ -107,22 +109,13 @@ const MAX_DISTRESS_LENGTH = 2000;
  * Même méthode que `greeting.ts` — décomposition NFD puis retrait des marques combinantes
  * SANS rien mettre à la place, sinon « harcelé » deviendrait « harcel e ».
  */
-function normalize(text: string): string {
-  return text
-    .normalize('NFD')
-    .toLowerCase()
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9 ]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 /** Le message exprime-t-il explicitement une détresse ou un harcèlement subi ? */
 export function detectsDistress(text: string | undefined | null): boolean {
   const raw = (text ?? '').trim();
   if (raw.length === 0 || raw.length > MAX_DISTRESS_LENGTH) return false;
 
-  const normalized = normalize(raw);
+  const normalized = normalizeIntentText(raw);
   return DISTRESS_PHRASES.some((phrase) => normalized.includes(phrase));
 }
 

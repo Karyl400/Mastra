@@ -42,21 +42,14 @@
  *    autre geste.
  */
 
+import { normalizeIntentText } from './intent-text';
+
 /**
  * Normalisation commune : minuscules, accents retirés, ponctuation réduite à l'espace.
  *
  * Identique à `forget.ts` et `greeting.ts` — liste blanche `[a-z0-9 ]` après décomposition
  * NFD, jamais une liste noire.
  */
-function normalize(text: string): string {
-  return text
-    .normalize('NFD')
-    .toLowerCase()
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9 ]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 /**
  * Radicaux des verbes, comparés en PRÉFIXE DE MOT.
@@ -249,7 +242,7 @@ export function requestsProfileForm(text: string | undefined | null): boolean {
   const raw = (text ?? '').trim();
   if (raw.length === 0 || raw.length > MAX_REQUEST_LENGTH) return false;
 
-  const normalized = normalize(raw);
+  const normalized = normalizeIntentText(raw);
 
   const aboutMyProfile = PROFILE_OBJECTS.some((object) => normalized.includes(object));
   const aboutTheForm = FORM_OBJECTS.some((object) => normalized.includes(object));

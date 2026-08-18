@@ -1,4 +1,5 @@
 import { logger } from '../../../../shared/logger';
+import { errorMessage } from '../../../../shared/errors';
 
 /**
  * INVITATION D'UN ARRIVANT dans les canaux publics d'accueil.
@@ -124,7 +125,7 @@ export function makeWelcomeChannels(deps: WelcomeChannelsDeps): WelcomeChannelsS
           failures: deps.channelNames.map((name) => ({
             name,
             status: 'failed' as const,
-            error: messageOf(error),
+            error: errorMessage(error),
           })),
         };
       }
@@ -203,7 +204,7 @@ async function safely(call: () => Promise<ChannelInviteResult>): Promise<Channel
   try {
     return await call();
   } catch (error) {
-    return { status: 'failed', error: messageOf(error) };
+    return { status: 'failed', error: errorMessage(error) };
   }
 }
 
@@ -239,8 +240,4 @@ function logReport(
     slackUserId,
     joined: report.joinedNames,
   });
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -37,6 +37,8 @@
  * courte : chaque entrée est un message auquel le bot cessera de réfléchir.
  */
 
+import { normalizeIntentText } from './intent-text';
+
 /** Formules acceptées, sous forme NORMALISÉE (minuscules, sans accent ni ponctuation). */
 const BARE_GREETINGS = new Set([
   'bonjour',
@@ -94,30 +96,13 @@ const MAX_GREETING_LENGTH = 40;
  * après décomposition NFD, comme `document-file.ts`. La décomposition transforme « é » en
  * « e » + diacritique, et le filtre `[a-z ]` fait le reste : liste blanche, jamais noire.
  */
-function normalize(text: string): string {
-  return (
-    text
-      .normalize('NFD')
-      .toLowerCase()
-      // Les marques combinantes sont retirées SANS rien mettre à la place. Les remplacer
-      // par une espace, comme le fait le filtre suivant, couperait le mot en deux :
-      // « journée » se décompose en « journe » + accent + « e », et donnait « journe e ».
-      .replace(/[̀-ͯ]/g, '')
-      // Les CHIFFRES sont conservés : « 123 » est une sonde de vie au même titre que
-      // « ping », et un filtre `[^a-z ]` l'aurait réduit à la chaîne vide, donc jamais
-      // reconnu. Ils ne créent aucun faux positif — l'égalité est stricte.
-      .replace(/[^a-z0-9 ]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-  );
-}
 
 /** Le message ne contient-il RIEN d'autre qu'une salutation ? */
 export function isBareGreeting(text: string | undefined | null): boolean {
   const raw = (text ?? '').trim();
   if (raw.length === 0 || raw.length > MAX_GREETING_LENGTH) return false;
 
-  return BARE_GREETINGS.has(normalize(raw));
+  return BARE_GREETINGS.has(normalizeIntentText(raw));
 }
 
 /**

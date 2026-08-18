@@ -2042,8 +2042,6 @@ export class SlackEventsHandler {
     // la main sans attendre l'aller-retour Slack, et la réponse finale REMPLACE le marqueur
     // — un seul message dans le fil, jamais deux.
     const progress = await startProgress(this.slack, { channel, threadTs });
-    const postMessage = (payload: { channel: string; text: string }) =>
-      progress.resolve(payload.text);
 
     // Phase courante du traitement. Le catch générique ci-dessous couvrait cinq points
     // d'échec très différents — chaîne LLM épuisée, exception d'outil, `SecurityBlockError`
@@ -2068,10 +2066,16 @@ export class SlackEventsHandler {
       phase = 'resolve-agent';
       const agent = this.tryGetAgent(agentId);
       if (!agent) {
-        await postMessage({
-          channel,
-          text: `Agent ${agentId} non disponible. Veuillez contacter l'administrateur.`,
-        });
+        // ⚠️ Ce texte VOUVOYAIT et renvoyait « vers l'administrateur » — les deux défauts
+        // exacts pour lesquels `NEUTRAL_REFUSAL` a été réécrit : le basculement de registre
+        // au moment où ça casse donne l'impression de deux interlocuteurs, et la personne à
+        // qui le bot disait ça est justement l'administratrice. Il ne nomme plus l'identifiant
+        // d'agent non plus : c'est du vocabulaire interne, sans usage pour qui le lit.
+        await progress.resolve(
+          "Je n'arrive pas à traiter ta demande — c'est un problème de mon côté. Réessaie, et " +
+            'si ça recommence, remonte-le.',
+        );
+        logger.error('Agent introuvable dans le registre Mastra', { agentId });
         return;
       }
 
@@ -2219,10 +2223,13 @@ export class SlackEventsHandler {
       });
 
       phase = 'post';
-      await postMessage({
-        channel,
-        text: unsupportedClaim ? safeOutput.text + UNSUPPORTED_CLAIM_NOTICE : safeOutput.text,
-      });
+      // ⚠️ `progress.resolve` directement, et non plus un passe-plat qui recevait un
+      // `{ channel, text }` dont il JETAIT le `channel` : le marqueur de progression connaît
+      // déjà son canal, il a été construit avec. Un paramètre ignoré que les appelants
+      // remplissent quand même est une fausse indication sur ce que la fonction fait.
+      await progress.resolve(
+        unsupportedClaim ? safeOutput.text + UNSUPPORTED_CLAIM_NOTICE : safeOutput.text,
+      );
 
       // Ce que le log ne disait pas et qu'il fallait deviner : combien d'étapes le run a
       // coûté, quels outils ont réellement tourné, et combien de tokens d'entrée ont été

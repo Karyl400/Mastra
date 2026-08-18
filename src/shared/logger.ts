@@ -41,8 +41,10 @@ interface LoggerOptions {
   transport?: (entry: LogEntry) => void | Promise<void>;
   /** Taille maximale d'un objet avant troncature */
   maxObjectDepth: number;
-  /** Nombre maximal de clés dans un objet avant échantillonnage */
-  maxObjectKeys: number;
+  // ⚠️ `maxObjectKeys` a été SUPPRIMÉ le 2026-08-18. Il était déclaré ici, stocké dans le
+  // `Logger`, propagé aux loggers enfants… et JAMAIS LU : la troncature utilise la constante
+  // `MAX_LOGGED_KEYS`. Une option de configuration sans effet est un mensonge d'API — celui
+  // qui la pose croit avoir réglé quelque chose. La borne reste, seule la fausse manette part.
 }
 
 interface ChildLogger {
@@ -509,7 +511,6 @@ class Logger implements ChildLogger {
   private enabled: boolean;
   private transport?: (entry: LogEntry) => void | Promise<void>;
   private maxObjectDepth: number;
-  private maxObjectKeys: number;
   private requestId: string;
 
   constructor(options: Partial<LoggerOptions> = {}) {
@@ -518,7 +519,6 @@ class Logger implements ChildLogger {
     this.enabled = options.enabled !== false;
     this.transport = options.transport;
     this.maxObjectDepth = options.maxObjectDepth || 10;
-    this.maxObjectKeys = options.maxObjectKeys || 50;
     this.requestId = (this.baseContext.requestId as string) || randomUUID();
   }
 
@@ -564,7 +564,6 @@ class Logger implements ChildLogger {
       enabled: this.enabled,
       transport: this.transport,
       maxObjectDepth: this.maxObjectDepth,
-      maxObjectKeys: this.maxObjectKeys,
     });
 
     // Hériter du requestId si non fourni
