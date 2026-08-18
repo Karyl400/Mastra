@@ -1,4 +1,4 @@
-import { mkdir, cp, rm, readFile, writeFile } from 'fs/promises';
+import { mkdir, cp, rm, readFile, writeFile, readdir, stat } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, sep } from 'path';
 import { auditBundle, ensureTransitiveDependencies } from './vercel-bundle-deps.js';
@@ -105,6 +105,9 @@ async function fixOutput() {
     //   sera embarquée sans intervention.
     await healBundle(funcDir);
   }
+
+  // 1 ter. ÉLAGAGE — le vrai levier du démarrage à froid.
+  await pruneBundle(funcDir);
 
   // 2. Patch: Forcer Node 22 + maxDuration dans .vc-config.json
   //    - runtime  : Mastra core v1.56 exige Node 22.
@@ -256,3 +259,91 @@ async function healBundle(funcDir) {
 }
 
 fixOutput();
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * ÉLAGAGE DU BUNDLE — retirer ce que Node ne chargera JAMAIS
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * ## La mesure qui justifie cette fonction
+ *
+ * Le 2026-08-18, un POST **rejeté immédiatement** sur `/slack/events` — signature absente,
+ * donc zéro travail — mettait 4,9 s. Or le bundle entier s'IMPORTE en 822 ms en local : le
+ * temps n'était pas dans l'exécution des modules, il était dans leur DÉBALLAGE.
+ *
+ *     558 Mo, 52 998 fichiers.
+ *
+ * Et Slack accorde 3 secondes, `trigger_id` compris. Le budget était donc dépensé avant la
+ * première ligne de métier — cause unique des quatre boutons cassés.
+ *
+ * ⚠️ Deux fausses pistes écartées par la mesure, il faut les dire :
+ *  1. `views.open` — 0,85 s contre Slack, y compris quand il échoue. Ce n'était pas ça.
+ *  2. La MÉMOIRE de la fonction, portée à 3009 Mo (le CPU y est proportionnel sur Vercel) :
+ *     le chaud est passé de 1,65 s à 1,0 s, mais le FROID n'a pas bougé (4,63 s / 4,70 s).
+ *     C'est la preuve que le goulot n'est pas le CPU. Le réglage est conservé pour le gain
+ *     à chaud, mais il ne corrige PAS ce défaut-ci et ne doit pas être présenté ainsi.
+ *
+ * ## Ce qu'on retire, et pourquoi c'est sûr
+ *
+ * Uniquement des fichiers que le runtime Node ne lit dans aucun cas :
+ *  - `*.map` — 130,7 Mo à eux seuls, 11 986 fichiers. Ne servent qu'aux traces de pile d'un
+ *    débogueur attaché ; aucune incidence sur l'exécution ;
+ *  - `*.ts`, `*.d.ts`, `*.d.cts`, `*.tsx` — 53,4 Mo, 17 028 fichiers. Des TYPES et des
+ *    sources. Le bundle exécute du `.mjs` et du `.js` : rien ici n'est résolu à l'exécution ;
+ *  - `*.md` — 12,5 Mo de documentation.
+ *
+ * ⚠️ On ne touche à AUCUN répertoire, et c'est délibéré. Supprimer `test/` ou `src/` par leur
+ * nom gagnerait ~54 Mo de plus, mais un répertoire nommé `src` ou `test` PEUT être un chemin
+ * de module réellement importé (`require('pkg/src/foo')`), et l'échec serait un
+ * `Cannot find module` en production — exactement le défaut `js-md5` que `healBundle` existe
+ * pour ne plus jamais revoir. Le gain ne vaut pas ce risque : on ne supprime que par
+ * EXTENSION, où la garantie est structurelle.
+ *
+ * ⚠️ `verify:bundle` tourne APRÈS cette fonction et IMPORTE réellement `index.mjs` : c'est
+ * lui qui transformerait une erreur de jugement ici en build rouge plutôt qu'en panne de
+ * production. Ne pas inverser cet ordre.
+ */
+const PRUNABLE_SUFFIXES = ['.map', '.md', '.markdown', '.ts', '.tsx', '.cts', '.mts'];
+
+async function pruneBundle(funcDir) {
+  const modulesDir = join(funcDir, 'node_modules');
+  if (!existsSync(modulesDir)) return;
+
+  let removedFiles = 0;
+  let removedBytes = 0;
+
+  async function walk(dir) {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      // ⚠️ `.d.ts` tombe déjà sous `.ts` ; on ne teste QUE le suffixe, jamais le chemin.
+      if (!PRUNABLE_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))) continue;
+      try {
+        const info = await stat(full);
+        await rm(full, { force: true });
+        removedFiles += 1;
+        removedBytes += info.size;
+      } catch {
+        // Un fichier qu'on n'arrive pas à retirer n'est pas un échec de build : il ne fait
+        // que rester, et le bundle reste correct. On ne casse jamais un build pour un gain.
+      }
+    }
+  }
+
+  await walk(modulesDir);
+
+  console.log(
+    `✅ Élagage : ${removedFiles} fichiers retirés (${(removedBytes / 1048576).toFixed(1)} Mo) — ` +
+      'ni sources TypeScript, ni source maps, ni documentation ne sont chargées à l’exécution'
+  );
+}
