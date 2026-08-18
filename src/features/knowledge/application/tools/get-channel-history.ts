@@ -2,7 +2,7 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
 import { logger } from '../../../../shared/logger';
-import { readSlackContext } from '../../../../shared/slack-request-context';
+import { readSlackContext, writeExcerptCoverage } from '../../../../shared/slack-request-context';
 import {
   readOrgEmailDomains,
   type AccessPolicyConfig,
@@ -22,7 +22,7 @@ import {
   type DisclosureReason,
   type Requester,
 } from '../../domain/services/disclosure-policy';
-import { projectExcerpts } from '../../domain/services/excerpt-budget';
+import { describeCoverageForHuman, projectExcerpts } from '../../domain/services/excerpt-budget';
 import {
   KNOWLEDGE_LOOKBACK_MS,
   KNOWLEDGE_SCAN_LIMIT,
@@ -203,6 +203,15 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
         scanned: messages.length,
         shown,
       });
+
+      // ── LA COUVERTURE, DITE À L'HUMAIN — quatrième forme, 2026-08-18 ──────
+      // Les trois précédentes dépendaient toutes du modèle et ont été mesurées en échec :
+      // champ `coverage` ignoré, champ `hint` ignoré, préface lue mais non relayée — le
+      // 2026-08-18, « Aucun obstacle concret n'est mentionné » sur 6 messages vus sur 8,
+      // exactement ce que la préface interdit. Le `RequestContext` est un canal SERVEUR :
+      // le handler accole la note lui-même, le modèle n'est plus sur le chemin. Coût NUL.
+      const humanCoverage = describeCoverageForHuman(excerpts, shown);
+      if (humanCoverage) writeExcerptCoverage(ctx?.requestContext, humanCoverage);
 
       return {
         found: true,

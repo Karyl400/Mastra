@@ -68,6 +68,7 @@ import {
 import { DrizzleSlackEventDedupRepository } from '../repositories/drizzle-slack-event-dedup.repository';
 import {
   buildSlackRequestContext,
+  readExcerptCoverage,
   type SlackAccessLevel,
 } from '../../../../shared/slack-request-context';
 import { SlackAccessGuard } from '../../../directory/application/services/access-guard';
@@ -2002,6 +2003,30 @@ export class SlackEventsHandler {
       // redevient oublieux, il ne cesse pas de répondre.
       const pinnedFacts = await this.loadPinnedFacts(user);
 
+      // ⚠️ Hissé dans une variable parce qu'il est BIDIRECTIONNEL depuis le 2026-08-18 : les
+      // tools de `knowledge` y ÉCRIVENT la couverture des extraits, et cette boucle est
+      // relue plus bas. C'est un canal SERVEUR — il ne traverse ni le prompt, ni les schémas,
+      // ni le tool-result — donc l'aller comme le retour coûtent zéro token.
+      const requestContext = buildSlackRequestContext({
+        channel,
+        threadTs,
+        // Identifiant du RUN pour les gardes d'idempotence des tools. `event.ts` et non
+        // `threadTs` : en DM `threadTs` est absent par conception, donc deux messages
+        // successifs partageraient la même clé et la garde bloquerait le second document
+        // légitimement demandé.
+        eventTs: event.ts,
+        slackUserId: user,
+        // Fiche employé du DEMANDEUR — la seule donnée qui permette à un tool de
+        // distinguer « je consulte mon dossier » de « je consulte celui d'un collègue ».
+        // Elle était déjà résolue ici et injectée dans le préambule ; elle ne descendait
+        // pas jusqu'aux tools, qui n'avaient donc aucun contrôle possible.
+        employeeId: identity.employeeId ?? undefined,
+        // Coût en tokens : ZÉRO. Le `RequestContext` ne traverse ni le prompt, ni les
+        // schémas de tools, ni le tool-result — c'est ce qui permet de faire descendre une
+        // décision d'autorisation jusqu'aux tools sans jamais la soumettre au modèle.
+        accessLevel,
+      });
+
       const response = await agent.generate(
         this.buildMessages(history, safeInput, {
           agentId,
@@ -2010,25 +2035,7 @@ export class SlackEventsHandler {
           pinnedFacts,
         }),
         {
-          requestContext: buildSlackRequestContext({
-            channel,
-            threadTs,
-            // Identifiant du RUN pour les gardes d'idempotence des tools. `event.ts` et non
-            // `threadTs` : en DM `threadTs` est absent par conception, donc deux messages
-            // successifs partageraient la même clé et la garde bloquerait le second document
-            // légitimement demandé.
-            eventTs: event.ts,
-            slackUserId: user,
-            // Fiche employé du DEMANDEUR — la seule donnée qui permette à un tool de
-            // distinguer « je consulte mon dossier » de « je consulte celui d'un collègue ».
-            // Elle était déjà résolue ici et injectée dans le préambule ; elle ne descendait
-            // pas jusqu'aux tools, qui n'avaient donc aucun contrôle possible.
-            employeeId: identity.employeeId ?? undefined,
-            // Coût en tokens : ZÉRO. Le `RequestContext` ne traverse ni le prompt, ni les
-            // schémas de tools, ni le tool-result — c'est ce qui permet de faire descendre une
-            // décision d'autorisation jusqu'aux tools sans jamais la soumettre au modèle.
-            accessLevel,
-          }),
+          requestContext,
         },
       );
       const durationMs = Date.now() - startedAt;
@@ -2128,10 +2135,25 @@ export class SlackEventsHandler {
       // `{ channel, text }` dont il JETAIT le `channel` : le marqueur de progression connaît
       // déjà son canal, il a été construit avec. Un paramètre ignoré que les appelants
       // remplissent quand même est une fausse indication sur ce que la fonction fait.
+      // ── LA COUVERTURE, QUATRIÈME FORME — 2026-08-18 ────────────────────────
+      // Relue depuis le `RequestContext`, où les tools de `knowledge` l'ont écrite pendant le
+      // run. Les trois formes précédentes passaient toutes par le modèle et ont été mesurées
+      // en échec sur le même canal : champ `coverage` ignoré, champ `hint` ignoré, préface
+      // lue mais non relayée — et le jour même, une consigne d'agent réécrite pour couvrir
+      // l'affirmation NÉGATIVE a échoué elle aussi (« Aucun blocage explicite n'est
+      // mentionné », sur 6 messages vus sur 8). Deux agents, deux consignes, deux échecs :
+      // une consigne est PROBABLE, le code est GARANTI.
+      //
+      // ⚠️ Écrite UNIQUEMENT si le résultat a réellement été tronqué
+      // (`describeCoverageForHuman` rend `undefined` sinon) : un avertissement systématique
+      // deviendrait du bruit, et le bruit s'ignore.
+      const excerptCoverage = readExcerptCoverage(requestContext);
+
       await progress.resolve(
         safeOutput.text +
           (unsupportedClaim ? UNSUPPORTED_CLAIM_NOTICE : '') +
-          (deliveryPromise ? PROMISED_DELIVERY_NOTICE : ''),
+          (deliveryPromise ? PROMISED_DELIVERY_NOTICE : '') +
+          (excerptCoverage ? `\n\n${excerptCoverage}` : ''),
       );
 
       // Ce que le log ne disait pas et qu'il fallait deviner : combien d'étapes le run a

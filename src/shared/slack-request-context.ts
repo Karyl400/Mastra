@@ -64,6 +64,79 @@ export const SLACK_ACCESS_LEVEL_KEY = 'slackAccessLevel';
 export const SLACK_EMPLOYEE_ID_KEY = 'slackEmployeeId';
 
 /**
+ * COUVERTURE DES EXTRAITS — la seule clé de ce module qui remonte des tools vers le handler.
+ *
+ * ## Pourquoi elle existe
+ *
+ * Trois formes ont été essayées pour dire à l'utilisateur qu'un résumé de canal ne porte que
+ * sur un ÉCHANTILLON, et les trois ont été MESURÉES EN ÉCHEC en production, sur le même
+ * canal : un champ `coverage`, ignoré ; le même texte renommé `hint`, ignoré aussi (un champ
+ * séparé se lit comme une métadonnée, quel que soit son nom) ; puis la phrase inlinée avant
+ * les extraits, que le modèle lit sans la relayer — le 2026-08-18 il a conclu « Aucun
+ * obstacle concret n'est mentionné » sur 6 messages vus sur 8, exactement ce que cette phrase
+ * lui interdit. Une consigne d'agent réécrite pour couvrir l'affirmation NÉGATIVE a été
+ * déployée puis mesurée en échec le même jour.
+ *
+ * Deux agents, deux consignes, deux échecs : une consigne est PROBABLE, le code est GARANTI.
+ * Le tool écrit donc ici, le handler accole la note, et le modèle n'est plus sur le chemin.
+ *
+ * ## Pourquoi c'est SÛR
+ *
+ * `createRequestContextGuard` REFUSE toute clé de préfixe `slack` venue du corps HTTP — il
+ * surveille le préfixe et non une liste recopiée, précisément pour couvrir d'avance les clés
+ * pas encore écrites. Celle-ci ne peut donc pas être forgée par un appelant `/api/*`.
+ *
+ * ## Coût en tokens : ZÉRO
+ *
+ * Comme tout ce module : le `RequestContext` ne traverse ni le prompt, ni les schémas de
+ * tools, ni le tool-result.
+ */
+export const SLACK_EXCERPT_COVERAGE_KEY = 'slackExcerptCoverage';
+
+/**
+ * ⚠️ NE LÈVE JAMAIS. Un tool ne doit pas échouer parce qu'il n'a pas pu poser une note :
+ * l'échantillon reste utile sans son avertissement, l'inverse n'est pas vrai.
+ */
+export function writeExcerptCoverage(requestContext: unknown, coverage: string): void {
+  if (!coverage.trim()) return;
+  if (typeof requestContext !== 'object' || requestContext === null) return;
+
+  const set = (requestContext as { set?: unknown }).set;
+  if (typeof set !== 'function') return;
+
+  try {
+    (set as (this: unknown, key: string, value: unknown) => void).call(
+      requestContext,
+      SLACK_EXCERPT_COVERAGE_KEY,
+      coverage,
+    );
+  } catch {
+    // Silencieux à dessein — voir ci-dessus.
+  }
+}
+
+/**
+ * Rend `undefined` hors Slack (playground, route HTTP, workflow, test) : c'est le cas NORMAL
+ * de ces chemins, exactement comme `readSlackContext`.
+ */
+export function readExcerptCoverage(requestContext: unknown): string | undefined {
+  if (typeof requestContext !== 'object' || requestContext === null) return undefined;
+
+  const get = (requestContext as { get?: unknown }).get;
+  if (typeof get !== 'function') return undefined;
+
+  try {
+    const value = (get as (this: unknown, key: string) => unknown).call(
+      requestContext,
+      SLACK_EXCERPT_COVERAGE_KEY,
+    );
+    return nonEmptyString(value);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Ce que le demandeur a le droit de déclencher — décidé en CODE par
  * `features/directory/domain/services/access-policy.ts`, jamais par un modèle.
  *

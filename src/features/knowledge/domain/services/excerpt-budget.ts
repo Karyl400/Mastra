@@ -169,3 +169,32 @@ export function describeCoverage(
 
   return `${shown} extraits retenus sur ${all.length} messages, ${span} — les plus porteurs d'information, PAS les plus récents. Ne conclus pas que rien d'autre n'a été dit.`;
 }
+
+/**
+ * La MÊME couverture, dite à un HUMAIN.
+ *
+ * ⚠️ Deux fonctions et non un paramètre de forme, parce que les deux textes n'ont ni le même
+ * destinataire ni le même mode. `describeCoverage` ORDONNE (« Ne conclus pas que rien d'autre
+ * n'a été dit ») : c'est une consigne, elle s'adresse au modèle et n'a rien à faire dans
+ * Slack, où elle donnerait à lire une instruction interne. Celle-ci CONSTATE.
+ *
+ * Elle est rendue `undefined` dans les mêmes conditions, et pour la même raison : un
+ * avertissement posé même quand tout a été montré deviendrait du bruit, et le bruit s'ignore.
+ *
+ * ⚠️ mrkdwn Slack (`_italique_`), jamais markdown GitHub : ce texte est accolé par le handler
+ * et ne passe par AUCUN filtre — `sanitizeAgentOutput` n'a qu'un seul site d'appel,
+ * `response.text`. Un `**gras**` s'afficherait littéralement, constaté le 2026-08-18.
+ */
+export function describeCoverageForHuman(
+  all: readonly ConversationExcerpt[],
+  shown: number,
+): string | undefined {
+  if (all.length === 0 || shown >= all.length) return undefined;
+
+  const stamps = all.map((excerpt) => excerpt.at.getTime()).sort((a, b) => a - b);
+  const from = new Date(stamps[0]!).toISOString().slice(0, 10);
+  const to = new Date(stamps[stamps.length - 1]!).toISOString().slice(0, 10);
+  const span = from === to ? `le ${from}` : `du ${from} au ${to}`;
+
+  return `_Je n'ai lu que ${shown} messages sur ${all.length}, ${span} — les plus porteurs d'information, pas les plus récents. D'autres choses ont pu être dites._`;
+}
