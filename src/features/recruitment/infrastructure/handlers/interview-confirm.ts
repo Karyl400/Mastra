@@ -144,6 +144,39 @@ export function buildInterviewConfirmBlocks(input: {
   ];
 }
 
+/**
+ * La carte, RÉÉCRITE une fois qu'elle a servi — sans aucun bouton.
+ *
+ * ⚠️ C'est la pièce qui manquait. `sendBlocks` rendait son `ts` avec, en commentaire, « le
+ * seul moyen de neutraliser un bouton après son premier clic » : la capacité était décrite
+ * et n'avait jamais été câblée. La carte restait donc entièrement cliquable après un envoi
+ * réussi ET après « Annuler » — sur la seule action irréversible du système.
+ *
+ * Elle ne se contente pas d'empêcher : elle DIT ce qui s'est passé, à l'endroit même où on
+ * a cliqué. C'est ce qui manquait le plus — une personne qui ne voit pas si son clic a porté
+ * reclique, et c'est ainsi qu'un candidat reçoit deux invitations.
+ *
+ * On conserve le récapitulatif (à qui, quand) : la trace de ce qui a été envoyé vit dans le
+ * fil Slack et nulle part ailleurs — aucune ligne n'est écrite en base, par choix documenté.
+ */
+export function buildSettledCardBlocks(input: {
+  verdict: string;
+  facts?: readonly string[];
+}): Block[] {
+  const facts = input.facts && input.facts.length > 0 ? `\n\n${input.facts.join('\n')}` : '';
+  return [
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: `${input.verdict}${facts}` },
+    },
+  ];
+}
+
+/** Les faits à conserver sur la carte réécrite : à qui, et quand. */
+export function confirmFacts(payload: InterviewConfirmPayload, whenLabel: string): string[] {
+  return [`*À* ${payload.to}`, `*Quand* ${whenLabel}`];
+}
+
 /** Repli de notification : Slack l'utilise pour l'aperçu et les lecteurs d'écran. */
 export function interviewConfirmFallback(candidateName?: string): string {
   return candidateName ? `Entretien à confirmer pour ${candidateName}` : 'Entretien à confirmer';

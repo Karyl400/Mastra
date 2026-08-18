@@ -100,11 +100,48 @@ export class SlackAdapter implements ChatProvider, FileUploadProvider {
     this.slack = client ?? new WebClient(botToken);
   }
 
-  async sendMessage(channelId: string, text: string): Promise<void> {
+  /**
+   * @param threadTs répond DANS le fil plutôt qu'à la racine du canal.
+   *
+   * ⚠️ Ajouté le 2026-08-18, sur un commentaire qui mentait. `replyInThread` (route
+   * d'interactivité) annonçait « répond dans le fil de la carte — jamais à la racine, la
+   * carte y serait orpheline » et appelait cette méthode, qui n'avait aucun moyen de
+   * threader. Le `thread_ts` était même déclaré dans le type du payload Slack et lu nulle
+   * part. Résultat : « C'est envoyé à … » atterrissait à la racine du canal, détaché de la
+   * carte qu'il confirme.
+   *
+   * Optionnel, et non un second paramètre obligatoire : en DM on ne threade délibérément
+   * PAS — threader un DM enfouit le message hors de la conversation principale, ce qui a
+   * déjà fait paraître ce bot muet pendant des heures.
+   */
+  async sendMessage(channelId: string, text: string, threadTs?: string): Promise<void> {
     await this.slack.chat.postMessage({
       channel: channelId,
       text,
+      ...(threadTs ? { thread_ts: threadTs } : {}),
     });
+  }
+
+  /**
+   * Réécrit un message déjà posté — c'est ce qui NEUTRALISE un bouton après son premier clic.
+   *
+   * ⚠️ La capacité était décrite depuis l'origine dans le commentaire de `sendBlocks` (« le
+   * `ts` permet de mettre le message à jour par la suite ») et n'avait jamais été câblée : la
+   * carte d'invitation d'entretien restait entièrement cliquable, y compris après « Annuler »
+   * et après un envoi réussi. Sur la seule action irréversible de ce système — un email à un
+   * candidat — cela signifiait deux invitations pour deux clics.
+   *
+   * ⚠️ `blocks` REMPLACE les blocs existants : passer un tableau sans bloc `actions` est ce
+   * qui fait disparaître les boutons. Le `text` de repli doit rester non vide pour la même
+   * raison que dans `sendBlocks`.
+   */
+  async updateMessage(
+    channelId: string,
+    ts: string,
+    text: string,
+    blocks: SlackBlock[],
+  ): Promise<void> {
+    await this.slack.chat.update({ channel: channelId, ts, text, blocks });
   }
 
   /**

@@ -2,15 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Mastra } from '@mastra/core';
 
 // Aucun test unitaire ne doit toucher l'API Slack réelle.
-const { viewsOpen, postMessage } = vi.hoisted(() => ({
+const { viewsOpen, postMessage, chatUpdate } = vi.hoisted(() => ({
   viewsOpen: vi.fn().mockResolvedValue({ ok: true, view: { id: 'V0PROFILE1' } }),
   postMessage: vi.fn().mockResolvedValue({ ok: true }),
+  chatUpdate: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock('@slack/web-api', () => ({
   WebClient: class FakeWebClient {
     views = { open: viewsOpen };
-    chat = { postMessage };
+    chat = { postMessage, update: chatUpdate };
     auth = { test: vi.fn().mockResolvedValue({ ok: true, user_id: 'U0BMBEJTBMJ' }) };
   },
 }));
@@ -381,5 +382,116 @@ describe('bouton « Envoyer » — l’ACK ne doit pas attendre l’email', () =
     releaseSend?.();
     spy.mockRestore();
     resetRecruitmentDependencies();
+  });
+});
+
+/* -------------------------------------------------------------------------- *
+ * Le clic irréversible — une seule fois, et la carte le montre
+ * -------------------------------------------------------------------------- */
+
+describe('bouton « Envoyer » — un seul email, et une carte neutralisée', () => {
+  /**
+   * ⚠️ LE SEUL DÉFAUT DE CE DÉPÔT DONT LA CONSÉQUENCE SOIT EXTERNE ET IRRÉVERSIBLE.
+   *
+   * `handleInterviewSend` n'avait aucune garde d'idempotence — alors que le tool en a une
+   * (`schedule-candidate-interview.ts`, `runGuard`) et le workflow d'onboarding aussi
+   * (`onboardingRunId`). Deux clics = deux invitations chez le candidat.
+   *
+   * Et `SlackAdapter.sendBlocks` rend son `ts` avec, en commentaire, « le seul moyen de
+   * neutraliser un bouton après son premier clic » — capacité décrite, jamais câblée. La
+   * carte restait donc entièrement cliquable, y compris APRÈS « Annuler ».
+   *
+   * Deux garanties distinctes, et il faut les deux :
+   *  • la garde de prise empêche le second envoi (correction) ;
+   *  • la mise à jour de la carte empêche le second CLIC (prévention, et surtout : elle
+   *    rend l'état visible — sans elle, la personne ne sait pas si son clic a porté, ce qui
+   *    est précisément ce qui la fait recliquer).
+   */
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    process.env.SLACK_SIGNING_SECRET = SECRET;
+    // ⚠️ La garde de prise est un état de MODULE : sans remise à zéro, le premier test
+    // consommerait la carte et les suivants verraient leur clic ignoré. C'est exactement le
+    // piège déjà documenté dans ce dépôt à propos des compteurs de rationnement partagés
+    // entre tests.
+    const { resetSettledCards } = await import('../../../src/api/slack-interactions.route');
+    resetSettledCards();
+  });
+
+  const cardTs = '1700000000.000900';
+
+  const clickBody = (actionId: string) => {
+    const confirm = JSON.stringify({
+      to: 'candidat@exemple.com',
+      candidateName: 'Test Candidat',
+      startsAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+      requesterUserId: NEWCOMER,
+    });
+    return formEncoded({
+      type: 'block_actions',
+      user: { id: NEWCOMER, name: 'alice' },
+      channel: { id: 'C0MOCKCHAN' },
+      message: { ts: cardTs },
+      actions: [
+        { action_id: actionId, value: actionId === 'send_interview_email' ? confirm : 'cancel' },
+      ],
+    });
+  };
+
+  it('n’envoie QU’UNE FOIS malgré deux clics sur la même carte', async () => {
+    const { resetRecruitmentDependencies } =
+      await import('../../../src/api/slack-interactions.route');
+    resetRecruitmentDependencies();
+
+    const sendEmail = vi.fn().mockResolvedValue(undefined);
+    const factory =
+      await import('../../../src/features/notification/infrastructure/providers/email-provider.factory');
+    const spy = vi.spyOn(factory, 'createEmailProvider').mockReturnValue({ sendEmail } as never);
+
+    await callRoute(clickBody('send_interview_email'));
+    await callRoute(clickBody('send_interview_email'));
+
+    // Le travail part en tâche de fond : on laisse les microtâches se vider.
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+
+    spy.mockRestore();
+    resetRecruitmentDependencies();
+  });
+
+  it('NEUTRALISE la carte après l’envoi — plus aucun bouton', async () => {
+    const { resetRecruitmentDependencies } =
+      await import('../../../src/api/slack-interactions.route');
+    resetRecruitmentDependencies();
+
+    const factory =
+      await import('../../../src/features/notification/infrastructure/providers/email-provider.factory');
+    const spy = vi
+      .spyOn(factory, 'createEmailProvider')
+      .mockReturnValue({ sendEmail: vi.fn().mockResolvedValue(undefined) } as never);
+
+    await callRoute(clickBody('send_interview_email'));
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(chatUpdate).toHaveBeenCalled();
+    const call = chatUpdate.mock.calls[0]?.[0] as { ts?: string; blocks?: unknown[] };
+    expect(call?.ts).toBe(cardTs);
+    // La carte réécrite ne porte PLUS de bloc `actions` : c'est ce qui rend le second clic
+    // impossible, et non seulement inopérant.
+    expect(JSON.stringify(call?.blocks ?? [])).not.toContain('"actions"');
+
+    spy.mockRestore();
+    resetRecruitmentDependencies();
+  });
+
+  it('NEUTRALISE aussi la carte sur « Annuler » — sinon « Envoyer » reste cliquable', async () => {
+    await callRoute(clickBody('cancel_interview_email'));
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(chatUpdate).toHaveBeenCalled();
+    const call = chatUpdate.mock.calls[0]?.[0] as { ts?: string; blocks?: unknown[] };
+    expect(call?.ts).toBe(cardTs);
+    expect(JSON.stringify(call?.blocks ?? [])).not.toContain('"actions"');
   });
 });

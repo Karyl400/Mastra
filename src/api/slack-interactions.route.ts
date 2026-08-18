@@ -44,6 +44,8 @@ import {
   INTERVIEW_NOT_YOURS_REPLY,
   INTERVIEW_SEND_FAILED_REPLY,
   decodeInterviewConfirm,
+  buildSettledCardBlocks,
+  confirmFacts,
 } from '../features/recruitment/infrastructure/handlers/interview-confirm';
 import { parseInterviewSchedule } from '../features/recruitment/domain/value-objects/interview-schedule';
 import { buildInterviewEmail } from '../features/recruitment/domain/services/interview-email';
@@ -186,19 +188,40 @@ async function handleBlockActions(payload: SlackInteractionPayload): Promise<Res
   // besoin d'un `trigger_id`. Les placer après ferait échouer l'envoi sur une garde qui ne
   // les concerne pas.
   if (actions.some((a) => a.action_id === CANCEL_INTERVIEW_ACTION_ID)) {
-    // Même régime que l'envoi ci-dessous, et pour la même raison : `replyInThread` est un
-    // appel réseau à Slack. Awaité, il portait l'ACK à 5,3 s (mesuré) — au-delà des 3 secondes
+    // ⚠️ La prise se fait ICI, avant l'ACK, et pas dans la tâche de fond : c'est une décision
+    // synchrone sans E/S, et la mettre en tâche de fond rouvrirait la fenêtre qu'elle ferme.
+    //
+    // Annuler NEUTRALISE la carte. Sans cela « Envoyer » restait cliquable APRÈS une
+    // annulation — l'annulation n'écrivait qu'une phrase et ne retirait rien.
+    if (!claimCard(payload)) {
+      logger.info('Carte d’entretien déjà tranchée — clic ignoré');
+      return ack();
+    }
+
+    // Même régime que l'envoi ci-dessous, et pour la même raison : ce sont des appels réseau
+    // à Slack. Awaités, ils portaient l'ACK à 5,3 s (mesuré) — au-delà des 3 secondes
     // accordées, alors qu'une annulation n'a strictement rien à faire attendre.
     scheduleBackgroundWork(
-      replyInThread(payload, INTERVIEW_CANCELLED_REPLY).catch((error: unknown) => {
-        logger.error('Réponse d’annulation non postée', { error: String(error) });
-      }),
+      settleCard(payload, INTERVIEW_CANCELLED_REPLY)
+        .then(() => replyInThread(payload, INTERVIEW_CANCELLED_REPLY))
+        .catch((error: unknown) => {
+          logger.error('Réponse d’annulation non postée', { error: String(error) });
+        }),
     );
     return ack();
   }
 
   const sendAction = actions.find((a) => a.action_id === SEND_INTERVIEW_ACTION_ID);
   if (sendAction) {
+    // ⚠️ LA GARANTIE D'UN SEUL ENVOI, et elle est ici — synchrone, avant l'ACK. Un email vers
+    // un candidat est la seule action irréversible et SORTANTE de ce système ; le tool a sa
+    // garde (`runGuard`) et le workflow d'onboarding la sienne (`onboardingRunId`), ce clic
+    // n'en avait aucune.
+    if (!claimCard(payload)) {
+      logger.info('Carte d’entretien déjà tranchée — second clic ignoré');
+      return ack();
+    }
+
     // ⚠️ TÂCHE DE FOND, et surtout PAS `await` — défaut mesuré en production le 2026-08-15 :
     // un clic signé répondait 200 en **22,5 secondes**. L'email partait bien, mais Slack
     // n'accorde que **3 secondes** à une interaction : passé ce délai il affiche une erreur.
@@ -279,16 +302,109 @@ export function resetRecruitmentDependencies(): void {
   cachedEmailProvider = undefined;
 }
 
-/** Répond dans le fil de la carte — jamais à la racine, la carte y serait orpheline. */
+/**
+ * Répond dans le fil de la carte — jamais à la racine, la carte y serait orpheline.
+ *
+ * ⚠️ Cette phrase était FAUSSE jusqu'au 2026-08-18 : la fonction appelait `sendMessage`, qui
+ * n'avait aucun paramètre de fil, et le `thread_ts` du payload — pourtant déclaré dans le
+ * type — n'était lu nulle part. « C'est envoyé à … » atterrissait donc à la racine du canal.
+ *
+ * `thread_ts ?? ts` : si la carte est elle-même dans un fil on y reste ; sinon on OUVRE le
+ * fil sous la carte. Dans les deux cas la confirmation est attachée à ce qu'elle confirme.
+ */
 async function replyInThread(payload: SlackInteractionPayload, text: string): Promise<void> {
   const channel = payload.channel?.id;
   if (!channel) return;
   try {
-    await getSlackInteractionsAdapter().sendMessage(channel, text);
+    const threadTs = payload.message?.thread_ts ?? payload.message?.ts;
+    await getSlackInteractionsAdapter().sendMessage(channel, text, threadTs);
   } catch (error) {
     // Ne jamais propager : Slack rejouerait l'interaction, donc l'email partirait DEUX FOIS.
     // Un accusé perdu est bénin ; un second email à un candidat ne l'est pas.
     logger.error('Réponse de confirmation non postée', { error: String(error) });
+  }
+}
+
+/**
+ * Cartes déjà tranchées — envoyées, annulées ou refusées.
+ *
+ * ⚠️ GARDE EN MÉMOIRE, par instance, et il faut dire ce qu'elle couvre et ce qu'elle ne
+ * couvre pas. Elle couvre le cas RÉEL : la même personne reclique sur la même carte quelques
+ * secondes plus tard, sur l'instance encore chaude. Elle ne couvre pas deux clics
+ * simultanés routés vers deux instances différentes.
+ *
+ * On ne paie PAS un aller-retour Turso pour ce reliquat, et c'est un arbitrage assumé : la
+ * seconde barrière — la carte réécrite sans bouton — retire l'affordance elle-même, donc le
+ * scénario résiduel exige deux clics dans la fenêtre de quelques centaines de millisecondes
+ * qui précède la réécriture. Le magasin partagé existe (`slack_event_dedup`) si ce reliquat
+ * devenait un incident réel ; aujourd'hui il n'en est pas un.
+ */
+const settledCards = new Set<string>();
+
+/** Une carte est identifiée par le message qui la porte. */
+function cardKey(payload: SlackInteractionPayload): string | null {
+  const channel = payload.channel?.id;
+  const ts = payload.message?.ts;
+  return channel && ts ? `${channel}:${ts}` : null;
+}
+
+/**
+ * Prend la carte, ou refuse. Une carte prise ne peut plus rien déclencher.
+ *
+ * Sans clé identifiable (payload sans `message`), on LAISSE PASSER : refuser casserait le
+ * chemin nominal sur un détail de forme, et c'est la neutralisation visuelle qui porte alors
+ * seule la garantie.
+ */
+function claimCard(payload: SlackInteractionPayload): boolean {
+  const key = cardKey(payload);
+  if (!key) return true;
+  if (settledCards.has(key)) return false;
+  settledCards.add(key);
+  return true;
+}
+
+/**
+ * Rend une carte prise — elle redevient cliquable.
+ *
+ * Deux cas, et un seul principe : on ne consomme la carte que si le clic a EU un effet. Un
+ * échec SMTP n'a rien envoyé, donc réessayer est la bonne conduite ; et un clic par un
+ * témoin non autorisé ne doit pas détruire l'invitation du demandeur légitime, sans quoi le
+ * contrôle d'accès deviendrait un déni de service.
+ */
+function releaseCard(payload: SlackInteractionPayload): void {
+  const key = cardKey(payload);
+  if (key) settledCards.delete(key);
+}
+
+/** Réservé aux tests : la garde est un état de module, il doit pouvoir repartir à zéro. */
+export function resetSettledCards(): void {
+  settledCards.clear();
+}
+
+/**
+ * Réécrit la carte sans ses boutons, avec le verdict à la place.
+ *
+ * ⚠️ Ne lève jamais et n'est jamais bloquant : une carte non réécrite est une gêne, alors
+ * qu'une exception ici empêcherait le message de confirmation de partir. La garantie de
+ * non-répétition est portée par `claimCard`, pas par cet appel réseau.
+ */
+async function settleCard(
+  payload: SlackInteractionPayload,
+  verdict: string,
+  facts?: readonly string[],
+): Promise<void> {
+  const channel = payload.channel?.id;
+  const ts = payload.message?.ts;
+  if (!channel || !ts) return;
+  try {
+    await getSlackInteractionsAdapter().updateMessage(
+      channel,
+      ts,
+      verdict,
+      buildSettledCardBlocks({ verdict, facts }),
+    );
+  } catch (error) {
+    logger.error('Carte d’entretien non neutralisée', { error: String(error) });
   }
 }
 
@@ -309,6 +425,7 @@ async function handleInterviewSend(
   const confirm = decodeInterviewConfirm(rawValue);
   if (!confirm) {
     logger.warn('Confirmation d’entretien illisible');
+    await settleCard(payload, INTERVIEW_SEND_FAILED_REPLY);
     await replyInThread(payload, INTERVIEW_SEND_FAILED_REPLY);
     return;
   }
@@ -319,6 +436,11 @@ async function handleInterviewSend(
   const clicker = payload.user?.id ?? '';
   if (clicker !== confirm.requesterUserId) {
     logger.warn('Envoi d’entretien refusé — cliqueur différent du demandeur');
+    // ⚠️ La carte n'est PAS neutralisée ici, et c'est voulu : le demandeur légitime doit
+    // encore pouvoir envoyer. Un témoin qui clique ne doit pas pouvoir détruire l'invitation
+    // de quelqu'un d'autre — ce serait transformer un contrôle d'accès en déni de service.
+    // La prise faite plus haut est donc RENDUE.
+    releaseCard(payload);
     await replyInThread(payload, INTERVIEW_NOT_YOURS_REPLY);
     return;
   }
@@ -327,10 +449,10 @@ async function handleInterviewSend(
   const parsed = parseInterviewSchedule(confirm.startsAt, new Date());
   if (!parsed.ok) {
     logger.warn('Envoi d’entretien refusé — date invalide au clic', { reason: parsed.reason });
-    await replyInThread(
-      payload,
-      "Cette date n'est plus valide — rien n'est parti. Redemande-moi l'invitation.",
-    );
+    const expired = "Cette date n'est plus valide — rien n'est parti. Redemande-moi l'invitation.";
+    // Neutralisée : cette carte ne pourra plus jamais rien envoyer, sa date est périmée.
+    await settleCard(payload, expired);
+    await replyInThread(payload, expired);
     return;
   }
 
@@ -348,6 +470,10 @@ async function handleInterviewSend(
     // ⚠️ On ne prétend JAMAIS avoir envoyé. Troisième occurrence de cette discipline dans ce
     // dépôt, après `emailSent: false` sous `status: 'success'` et `status = Sent` avant le try.
     logger.error('Email d’entretien NON envoyé', { error: String(error) });
+    // ⚠️ On REND la prise : rien n'est parti, donc réessayer est légitime — et c'est même la
+    // seule chose à faire. Neutraliser la carte ici obligerait à tout redemander au modèle,
+    // soit un aller-retour LLM complet pour une panne SMTP de trente secondes.
+    releaseCard(payload);
     await replyInThread(payload, INTERVIEW_SEND_FAILED_REPLY);
     return;
   }
@@ -364,7 +490,11 @@ async function handleInterviewSend(
     hasLocation: Boolean(confirm.location),
   });
 
-  await replyInThread(payload, INTERVIEW_SENT_REPLY(confirm.to, parsed.schedule.humanReadable));
+  const sent = INTERVIEW_SENT_REPLY(confirm.to, parsed.schedule.humanReadable);
+  // La carte porte désormais le verdict, à l'endroit exact où l'on a cliqué : c'est ce qui
+  // évite le second clic bien plus sûrement qu'un message posté à côté.
+  await settleCard(payload, sent, confirmFacts(confirm, parsed.schedule.humanReadable));
+  await replyInThread(payload, sent);
 }
 
 /**
