@@ -23,7 +23,6 @@ import { zodToJsonSchema } from '@mastra/schema-compat/zod-to-json';
 import { makeGenerateDocument } from '../../../src/features/document/application/tools/generate-document';
 import { makeFindEmployeeByEmail } from '../../../src/features/employee/application/tools/find-employee-by-email';
 import { makeGetEmployeeProfile } from '../../../src/features/employee/application/tools/get-employee-profile';
-import { makeDiscoverSlackWorkspace } from '../../../src/features/notification/application/tools/discover-slack-workspace';
 import { makeGetNotificationHistory } from '../../../src/features/notification/application/tools/get-notification-history';
 import { makeScheduleReminder } from '../../../src/features/notification/application/tools/schedule-reminder';
 import { makeSendNotification } from '../../../src/features/notification/application/tools/send-notification';
@@ -70,7 +69,6 @@ const tools: Array<[name: string, tool: { id?: string; inputSchema?: unknown }]>
   ['generateDocument', makeGenerateDocument(stub)],
   ['findEmployeeByEmail', makeFindEmployeeByEmail(stub)],
   ['getEmployeeProfile', makeGetEmployeeProfile(stub, stub)],
-  ['discoverSlackWorkspace', makeDiscoverSlackWorkspace(stub)],
   ['getNotificationHistory', makeGetNotificationHistory(stub)],
   ['scheduleReminder', makeScheduleReminder(stub)],
   ['sendNotification', makeSendNotification(stub, stub, stub, stub, stub)],

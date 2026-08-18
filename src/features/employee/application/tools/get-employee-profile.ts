@@ -7,6 +7,7 @@ import type { OnboardingProgress } from '../../../onboarding/domain/entities/onb
 import { uuidSchema, emailSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { canReadPersonRecord } from '../../../../shared/slack-request-context';
+import { ONBOARDING_TOTAL_STEPS } from '../../../onboarding/domain/services/onboarding-plan';
 
 /**
  * Consigne rendue au modèle quand l'identifiant ne désigne personne.
@@ -216,8 +217,20 @@ function project(employee: Employee, progress: OnboardingProgress | null) {
     progress: progress
       ? {
           status: progress.status,
-          currentStep: progress.currentStep,
-          totalSteps: progress.totalSteps,
+          // ⚠️ BORNÉ par le parcours qui existe AUJOURD'HUI. Constaté en production le
+          // 2026-08-17 : le bot répondait « en cours (étape 1 sur 5) ». La ligne de suivi
+          // datait d'avant le 2026-08-14, quand le parcours comptait cinq tâches ; celles-ci
+          // ont été supprimées — aucun mécanisme ne pouvait les faire avancer — et
+          // `ONBOARDING_TOTAL_STEPS` vaut 1 depuis. Mais le workflow, rendu IDEMPOTENT le
+          // 2026-08-17, réutilise la ligne existante sans la corriger : le compteur périmé
+          // survit et le bot annonce quatre étapes qui n'existent plus.
+          //
+          // C'est exactement le défaut que le retrait du suivi de tâches disait supprimer —
+          // « un suivi qui ne bouge jamais est un suivi qui ment » — réintroduit par la
+          // donnée plutôt que par le code. On corrige donc À LA LECTURE : le code sait ce
+          // que vaut le parcours, la ligne ancienne non.
+          currentStep: Math.min(progress.currentStep, ONBOARDING_TOTAL_STEPS),
+          totalSteps: ONBOARDING_TOTAL_STEPS,
         }
       : null,
     // Le `hint` n'est payé que dans le cas dégradé : quand le suivi existe,

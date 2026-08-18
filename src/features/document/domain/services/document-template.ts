@@ -1,6 +1,7 @@
 import { DocumentType } from '../../../../shared/types';
 import { sanitizeDocumentText } from '../../../../shared/security/agent-output';
 import { formatFrenchDay } from '../../../../shared/french-date';
+import { fullName } from '../../../../shared/name-matching';
 import type { DocumentRenderInput } from '../ports/document-renderer';
 
 /**
@@ -226,9 +227,10 @@ export function parseContentBlocks(content: string): DocumentBlock[] {
   return blocks;
 }
 
-function fullName(input: DocumentRenderInput): string {
+/** Le nom de la personne concernée par le document. Voir `shared/name-matching.ts`. */
+function recipientName(input: DocumentRenderInput): string {
   const { firstName, lastName } = input.employee ?? {};
-  return [firstName, lastName].filter(Boolean).join(' ').trim();
+  return fullName(firstName, lastName);
 }
 
 function titleOf(input: DocumentRenderInput): string {
@@ -253,7 +255,7 @@ function buildContract(input: DocumentRenderInput): DocumentBlock[] {
       // l'entreprise se lit comme un champ qu'on a oublié de remplir, pas comme un champ
       // qu'on a cessé de demander.
       rows: [
-        ['Employé', fullName(input)],
+        ['Employé', recipientName(input)],
         ['Email', employee.email ?? ''],
         ...(employee.department ? [['Département', employee.department] as const] : []),
         ['Poste', employee.position ?? ''],
@@ -289,7 +291,7 @@ function buildWelcomeLetter(input: DocumentRenderInput): DocumentBlock[] {
     // quotidien » et « Ta façon de travailler ». Un salarié qui reçoit les deux voit deux
     // expéditeurs. L'exception reste `interview-email.ts`, qui vouvoie un candidat EXTERNE —
     // un candidat n'est pas un collègue.
-    { kind: 'paragraph', text: `Bonjour ${fullName(input)},` },
+    { kind: 'paragraph', text: `Bonjour ${recipientName(input)},` },
     {
       kind: 'paragraph',
       // Le département n'est cité que s'il est connu. « département N/A » dans une lettre de
@@ -324,7 +326,7 @@ function buildCertificate(input: DocumentRenderInput): DocumentBlock[] {
     { kind: 'heading', text: titleOf(input), level: 1 },
     {
       kind: 'paragraph',
-      text: `${fullName(input)} a complété son onboarding chez Kisso Industries.`,
+      text: `${recipientName(input)} a complété son onboarding chez Kisso Industries.`,
     },
     ...bodyBlocks(input),
   ];

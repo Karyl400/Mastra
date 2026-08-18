@@ -96,3 +96,36 @@ export function matchesName(
     candidateTokens.some((candidate) => candidate.startsWith(wanted)),
   );
 }
+
+/**
+ * « Prénom Nom », proprement — ou une chaîne vide si l'on ne sait rien.
+ *
+ * ## Pourquoi une fonction pour trois mots
+ *
+ * Relevé le 2026-08-18 : le nom complet était construit à CINQ endroits, avec QUATRE
+ * comportements différents. Ce n'est plus une duplication théorique, elle a déjà divergé :
+ *
+ *   `[a, b].filter(Boolean).join(' ').trim()`   → correct (document-template, handler)
+ *   `` `${a ?? ''} ${b ?? ''}`.trim() ``        → **DOUBLE ESPACE** si le prénom manque
+ *   `` `${a} ${b}`.trim() ``                    → imprime « undefined » si un champ est nul
+ *   `… || '(sans nom)'`                         → repli propre à un seul appelant
+ *
+ * La deuxième forme vivait dans `find-expertise.ts`, dont le résultat est lu par un humain
+ * (« Awa TRAORE — Backend Developer ») : un double espace y est visible.
+ *
+ * Ce fichier est le bon endroit — son en-tête dit déjà qu'il existe pour que le rapprochement
+ * de noms soit « le même code des deux côtés ».
+ *
+ * ⚠️ Pas de repli « (sans nom) » ici : c'est une décision d'AFFICHAGE, et elle appartient à
+ * l'appelant. `find-person-by-name` en a besoin pour lever une ambiguïté ; un document signé
+ * ne doit surtout pas imprimer ça.
+ */
+export function fullName(
+  firstName: string | null | undefined,
+  lastName: string | null | undefined,
+): string {
+  return [firstName, lastName]
+    .map((part) => part?.trim() ?? '')
+    .filter(Boolean)
+    .join(' ');
+}

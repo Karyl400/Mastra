@@ -37,7 +37,7 @@ import type { Notification } from '../../domain/entities/notification';
 import { uuidSchema, emailSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { canReadPersonRecord } from '../../../../shared/slack-request-context';
-import type { NotificationChannel, NotificationStatus } from '../../../../shared/types';
+import { NotificationStatus, type NotificationChannel } from '../../../../shared/types';
 
 /**
  * Consigne rendue quand le demandeur n'a pas le droit de lire l'historique de cette personne.
@@ -69,7 +69,12 @@ const SUBJECT_MAX_CHARS = 80;
  */
 export interface NotificationSummary {
   readonly channel: NotificationChannel;
-  readonly status: NotificationStatus;
+  /**
+   * ⚠️ PAS `NotificationStatus` : `scheduled` y est traduit — voir `honestStatus`. Le type
+   * brut ferait croire qu'on rend l'énumération telle quelle, ce qui était précisément le
+   * défaut.
+   */
+  readonly status: string;
   readonly subject: string;
   /**
    * Date la plus significative : envoyée si elle l'a été, sinon prévue, sinon créée.
@@ -91,12 +96,29 @@ function dateOf(n: Notification): string {
   return n.sentAt ?? n.scheduledAt ?? n.createdAt;
 }
 
+/**
+ * Traduction du statut brut vers ce que le modèle doit en comprendre.
+ *
+ * ⚠️ **`scheduled` MENT dès qu'il ressort d'ici, et c'est un défaut relevé le 2026-08-18.**
+ * `scheduleReminder` prend soin de neutraliser l'illusion dans son propre résultat
+ * (`willBeSentAutomatically: false`, et sa description dit « enregistre », jamais
+ * « planifie »). Mais ce contre-poids ne survit pas au tour suivant : cet outil réexposait
+ * `status: 'scheduled'` BRUT, et le modèle relisait alors une promesse tenue.
+ *
+ * Il n'existe dans ce système ni cron, ni poller, ni file de reprise : `findPending()` n'a
+ * aucun site d'appel. Un rappel « planifié » ne partira JAMAIS tout seul. Le statut le dit
+ * désormais lui-même, à l'endroit où il est relu.
+ */
+function honestStatus(status: NotificationStatus): string {
+  return status === NotificationStatus.Scheduled ? 'enregistré, aucun envoi automatique' : status;
+}
+
 function toSummary(n: Notification): NotificationSummary {
   const subject =
     n.subject.length > SUBJECT_MAX_CHARS
       ? `${n.subject.slice(0, SUBJECT_MAX_CHARS)}...`
       : n.subject;
-  return { channel: n.channel, status: n.status, subject, at: dateOf(n) };
+  return { channel: n.channel, status: honestStatus(n.status), subject, at: dateOf(n) };
 }
 
 /**

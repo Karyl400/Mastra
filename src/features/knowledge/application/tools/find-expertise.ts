@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import type { DirectoryRepository } from '../../../directory/domain/ports/directory.repository';
 import type { EmployeeRepository } from '../../../employee/domain/ports/employee.repository';
-import { matchesName } from '../../../../shared/name-matching';
+import { fullName, matchesName } from '../../../../shared/name-matching';
 import { logger } from '../../../../shared/logger';
 
 /**
@@ -74,6 +74,26 @@ const MAX_LABEL_CHARS = 44;
 const NO_MATCH_HINT =
   'Personne ne le mentionne dans son poste déclaré. Dis-le, et n’invente aucun nom.';
 
+/**
+ * ⚠️ Les deux consignes ci-dessous existent parce que « personne ne correspond » et « je n'ai
+ * pas pu chercher » n'ont RIEN à voir, et que cet outil les confondait. Une absence est
+ * invérifiable pour qui la reçoit : c'est le type de réponse qu'il faut le plus se garder de
+ * rendre à tort.
+ */
+const DIRECTORY_DOWN_HINT =
+  'Tu n’as pas pu consulter l’annuaire : ne conclus PAS que personne ne fait ça. Dis que la ' +
+  'recherche a échoué et propose de réessayer.';
+
+const PARTIAL_SEARCH_HINT =
+  'Une des deux sources était indisponible : la recherche est incomplète. Dis que tu n’as ' +
+  'trouvé personne DANS CE QUE TU AS PU CONSULTER, sans en faire une certitude.';
+
+/** Ce qu'une source rend : son résultat ET si elle a pu répondre. */
+interface SourceResult {
+  readonly available: boolean;
+  readonly experts: Expert[];
+}
+
 export interface FindExpertiseDeps {
   readonly directoryRepo: DirectoryRepository;
   readonly employeeRepo: Pick<EmployeeRepository, 'findAll'>;
@@ -101,10 +121,34 @@ export function makeFindExpertise(deps: FindExpertiseDeps) {
 
       // L'annuaire d'abord : son `title` est tenu par la personne elle-même dans Slack, donc
       // plus à jour que `employees.position`, saisi une fois à la création du dossier.
-      const experts = dedupe([...fromDirectory, ...fromEmployees]);
+      const experts = dedupe([...fromDirectory.experts, ...fromEmployees.experts]);
 
       if (experts.length === 0) {
-        return { found: false, reason: 'no_match', hint: NO_MATCH_HINT };
+        // ⚠️ « PERSONNE NE CORRESPOND » ET « JE N'AI PAS PU CHERCHER » NE SONT PAS LA MÊME
+        // CHOSE, et c'était le seul échec réellement silencieux du lot d'outils. Les deux
+        // `catch` rendaient `[]` : une panne d'annuaire devenait « personne ne sait faire
+        // ça », que l'agent restituait comme un FAIT — indiscernable d'un vrai `no_match`.
+        //
+        // Tous les autres outils du dépôt nomment leur cause dans `reason` ; celui-ci ne le
+        // faisait pas, et c'est précisément le genre de réponse qu'on ne peut pas contredire :
+        // l'absence est invérifiable pour qui la reçoit.
+        const bothDown = !fromDirectory.available && !fromEmployees.available;
+        if (bothDown) {
+          return {
+            found: false,
+            reason: 'directory_unavailable',
+            hint: DIRECTORY_DOWN_HINT,
+          };
+        }
+
+        // Une seule source en panne : on a cherché pour de bon, mais pas partout. On le dit,
+        // sans transformer une recherche partielle en absence certaine.
+        const partial = !fromDirectory.available || !fromEmployees.available;
+        return {
+          found: false,
+          reason: partial ? 'partial_search' : 'no_match',
+          hint: partial ? PARTIAL_SEARCH_HINT : NO_MATCH_HINT,
+        };
       }
 
       return {
@@ -120,35 +164,41 @@ export function makeFindExpertise(deps: FindExpertiseDeps) {
  * ⚠️ Ne LÈVE jamais — discipline commune à tous les résolveurs du dépôt. Une source en panne
  * doit dégrader la recall, pas faire échouer la question : l'autre source répond peut-être.
  */
-async function matchDirectory(deps: FindExpertiseDeps, skill: string): Promise<Expert[]> {
+async function matchDirectory(deps: FindExpertiseDeps, skill: string): Promise<SourceResult> {
   try {
     const members = await deps.directoryRepo.listAll();
-    return members
-      .filter((member) => !member.isBot && !member.isDeleted && member.title)
-      .filter((member) => matchesName(skill, [member.title]))
-      .map((member) => {
-        const name = displayNameOf(member.realName, member.displayName);
-        return { key: normalizeKey(name), label: `${name} — ${member.title}` };
-      });
+    return {
+      available: true,
+      experts: members
+        .filter((member) => !member.isBot && !member.isDeleted && member.title)
+        .filter((member) => matchesName(skill, [member.title]))
+        .map((member) => {
+          const name = displayNameOf(member.realName, member.displayName);
+          return { key: normalizeKey(name), label: `${name} — ${member.title}` };
+        }),
+    };
   } catch (error) {
     logger.warn('findExpertise: annuaire indisponible', { error: String(error) });
-    return [];
+    return { available: false, experts: [] };
   }
 }
 
-async function matchEmployees(deps: FindExpertiseDeps, skill: string): Promise<Expert[]> {
+async function matchEmployees(deps: FindExpertiseDeps, skill: string): Promise<SourceResult> {
   try {
     const employees = await deps.employeeRepo.findAll();
-    return employees
-      .filter((employee) => employee.position)
-      .filter((employee) => matchesName(skill, [employee.position]))
-      .map((employee) => {
-        const name = `${employee.firstName ?? ''} ${employee.lastName ?? ''}`.trim();
-        return { key: normalizeKey(name), label: `${name} — ${employee.position}` };
-      });
+    return {
+      available: true,
+      experts: employees
+        .filter((employee) => employee.position)
+        .filter((employee) => matchesName(skill, [employee.position]))
+        .map((employee) => ({
+          key: normalizeKey(fullName(employee.firstName, employee.lastName)),
+          label: `${fullName(employee.firstName, employee.lastName)} — ${employee.position}`,
+        })),
+    };
   } catch (error) {
     logger.warn('findExpertise: dossiers indisponibles', { error: String(error) });
-    return [];
+    return { available: false, experts: [] };
   }
 }
 

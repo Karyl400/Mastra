@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 
+import { ONBOARDING_TOTAL_STEPS } from '../../../src/features/onboarding/domain/services/onboarding-plan';
 import { makeGetEmployeeProfile } from '../../../src/features/employee/application/tools/get-employee-profile';
 import { buildSlackRequestContext } from '../../../src/shared/slack-request-context';
 
@@ -166,5 +167,43 @@ describe('getEmployeeProfile — résolution par email (une étape en moins)', (
     expect(result.reason).toBe('not_authorized');
     expect(findById).not.toHaveBeenCalled();
     expect(findByEmail).not.toHaveBeenCalled();
+  });
+});
+
+/* -------------------------------------------------------------------------- *
+ * Un suivi qui ment, réintroduit par la DONNÉE
+ * -------------------------------------------------------------------------- */
+
+describe('getEmployeeProfile — le compteur d’étapes ne peut plus être périmé', () => {
+  /**
+   * ⚠️ CONSTATÉ EN PRODUCTION LE 2026-08-17 : le bot répondait « Statut d'onboarding : en
+   * cours (étape 1 sur 5) ».
+   *
+   * La ligne `onboarding_progress` datait d'avant le 2026-08-14, quand le parcours comptait
+   * cinq tâches. Celles-ci ont été supprimées — aucun mécanisme, ni humain ni automate, ne
+   * pouvait en faire avancer une seule — et `ONBOARDING_TOTAL_STEPS` vaut 1 depuis. Mais le
+   * workflow, rendu IDEMPOTENT le 2026-08-17, réutilise la ligne existante sans la corriger :
+   * le compteur périmé survit et le bot annonce quatre étapes qui n'existent plus.
+   *
+   * C'est exactement le défaut que le retrait du suivi de tâches disait supprimer — « un
+   * suivi qui ne bouge jamais est un suivi qui ment » — réintroduit par la donnée plutôt que
+   * par le code. Le code sait ce que vaut le parcours ; une ligne écrite il y a quatre jours
+   * ne le sait pas.
+   */
+  it('borne un `totalSteps` hérité de l’ancien parcours', async () => {
+    const stale = { status: 'in_progress', currentStep: 1, totalSteps: 5 };
+    const tool = makeGetEmployeeProfile(
+      { findById: vi.fn().mockResolvedValue(employeeRow) } as never,
+      { findByEmployee: vi.fn().mockResolvedValue(stale) } as never,
+    );
+
+    const result = (await tool.execute!({ employeeId: employeeRow.id } as never, {} as never)) as {
+      progress: { totalSteps: number; currentStep: number };
+    };
+
+    expect(result.progress.totalSteps).toBe(ONBOARDING_TOTAL_STEPS);
+    expect(result.progress.totalSteps).not.toBe(5);
+    // L'étape courante est bornée avec : « étape 3 sur 1 » serait pire que le défaut d'origine.
+    expect(result.progress.currentStep).toBeLessThanOrEqual(ONBOARDING_TOTAL_STEPS);
   });
 });

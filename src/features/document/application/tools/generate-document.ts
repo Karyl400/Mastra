@@ -24,6 +24,7 @@ import type {
 import { createDocument } from '../../domain/entities/document';
 import { DEFAULT_TITLES } from '../../domain/services/document-template';
 import { uuidSchema } from '../../../../shared/validation';
+import { fullName } from '../../../../shared/name-matching';
 import {
   sanitizeDocumentSource,
   sanitizeDocumentText,
@@ -599,6 +600,13 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // Livraison — aucune exception ne sort de ce bloc
       // ---------------------------------------------------------------------
       let delivery: DeliveryVerdict = 'none';
+      // ⚠️ `delivery: 'none'` sort SANS `hint` quand `deliverTo: 'none'` a été demandé, et
+      // c'est délibéré — j'ai essayé l'inverse le 2026-08-18 et le test de budget l'a refusé,
+      // à raison. Le `hint` n'est PAYÉ que dans les cas DÉGRADÉS (règle documentée dans
+      // `CLAUDE.md`) ; or ce cas-ci n'en est pas un : le modèle a lui-même demandé qu'on ne
+      // livre pas, et `delivery: 'none'` est la réponse exacte à sa demande. Une consigne y
+      // aurait coûté 54 tokens — de 39 à 93, soit au-delà du plafond de 60 — pour expliquer
+      // au modèle ce qu'il vient de décider.
       let reason: HintKey | undefined = failure;
 
       if (rendered && effectiveDeliverTo !== 'none') {
@@ -734,7 +742,7 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         documentId: generated.id,
         format: producedFormat,
         delivery,
-        recipient: `${employee.firstName} ${employee.lastName}`.trim(),
+        recipient: fullName(employee.firstName, employee.lastName),
         ...(rendered ? { filename: rendered.filename } : {}),
         ...(reason ? { reason, hint: HINTS[reason] } : {}),
       };

@@ -135,7 +135,13 @@ describe('getNotificationHistory — budget et honnêteté du tool-result', () =
     const result = await run();
 
     expect(result.notifications[0]!.at).toBe('2026-09-01T08:00:00.000Z');
-    expect(result.notifications[0]!.status).toBe(NotificationStatus.Scheduled);
+    // ⚠️ Le statut n'est plus rendu BRUT, et c'est le correctif du 2026-08-18.
+    // `scheduleReminder` neutralise soigneusement l'illusion dans son propre résultat
+    // (`willBeSentAutomatically: false`), mais ce contre-poids ne survivait pas au tour
+    // suivant : cet outil réexposait « scheduled », que le modèle relisait comme une promesse
+    // tenue. Il n'existe ni cron ni poller dans ce système — rien ne partira seul.
+    expect(result.notifications[0]!.status).toBe('enregistré, aucun envoi automatique');
+    expect(result.notifications[0]!.status).not.toBe(NotificationStatus.Scheduled);
   });
 
   it("n'expose plus de paramètre `limit` au modèle (coût de schéma inutile)", () => {

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { EmployeeRepository } from '../../domain/ports/employee.repository';
 import type { DirectoryRepository } from '../../../directory/domain/ports/directory.repository';
 import { logger } from '../../../../shared/logger';
+import { fullName } from '../../../../shared/name-matching';
 
 /**
  * Résout une personne par son NOM.
@@ -186,7 +187,9 @@ export function makeFindPersonByName(repo: EmployeeRepository, directory?: Direc
  * être RÉCITÉE à un humain pour qu'il désigne la bonne personne.
  */
 function label(firstName: string | null, lastName: string | null, role: string | null): string {
-  const name = [firstName, lastName].filter(Boolean).join(' ').trim() || '(sans nom)';
+  // Le repli « (sans nom) » reste ICI : c'est une décision d'affichage propre à la levée
+  // d'ambiguïté, et un document signé ne doit surtout pas l'imprimer.
+  const name = fullName(firstName, lastName) || '(sans nom)';
   return role ? `${name} — ${role}` : name;
 }
 

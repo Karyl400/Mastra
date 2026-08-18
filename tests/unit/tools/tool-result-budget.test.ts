@@ -28,6 +28,7 @@ import { InMemoryEmployeeRepository } from '../../../src/features/employee/infra
 import { InMemoryOnboardingRepository } from '../../../src/features/onboarding/infrastructure/repositories/in-memory-onboarding.repository';
 import type { Employee } from '../../../src/features/employee/domain/entities/employee';
 import type { OnboardingProgress } from '../../../src/features/onboarding/domain/entities/onboarding-progress';
+import { ONBOARDING_TOTAL_STEPS } from '../../../src/features/onboarding/domain/services/onboarding-plan';
 import {
   EmployeeStatus,
   OnboardingStatus,
@@ -104,10 +105,20 @@ describe('getEmployeeProfile — budget du tool-result', () => {
       {} as never,
     )) as ProfileResult;
 
+    // ⚠️ La FIXTURE porte `currentStep: 3, totalSteps: 8`, et le résultat ne les recopie plus.
+    // C'est voulu depuis le 2026-08-18 : le compteur est borné par le parcours qui existe
+    // AUJOURD'HUI (`ONBOARDING_TOTAL_STEPS`). Constaté en production la veille — « en cours
+    // (étape 1 sur 5) » — sur une ligne écrite avant le retrait des cinq tâches, que le
+    // workflow devenu idempotent réutilise sans la corriger.
+    //
+    // Ce que ce test vérifie reste sa raison d'être : la FORME de la projection, trois champs
+    // et pas un de plus. Les valeurs, elles, viennent désormais du code plutôt que d'une
+    // ligne périmée.
+    expect(Object.keys(result.progress!).sort()).toEqual(['currentStep', 'status', 'totalSteps']);
     expect(result.progress).toEqual({
       status: OnboardingStatus.InProgress,
-      currentStep: 3,
-      totalSteps: 8,
+      currentStep: ONBOARDING_TOTAL_STEPS,
+      totalSteps: ONBOARDING_TOTAL_STEPS,
     });
   });
 

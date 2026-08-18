@@ -259,12 +259,16 @@ const scheduleReminder = makeScheduleReminder(notificationRepo, employeeRepo);
 // supprime une étape entière (mesuré : 3 étapes / 4 424 tokens → 2). Voir la factory.
 const getNotificationHistory = makeGetNotificationHistory(notificationRepo, employeeRepo);
 
-// `discoverSlackWorkspace` a été retiré : il n'est mentionné dans AUCUNE instruction de
-// l'agent (vérifié par grep), et son schéma était le poste de coût le plus lourd après
-// `createEmployee`. Même raisonnement que pour `notificationAgent`, appliqué ici par
-// cohérence. L'invitation Slack du parcours d'onboarding ne passe pas par ce tool mais par
-// `deps.slackProvider` dans l'étape `inviteToSlack` de `employeeOnboardingWorkflow`.
-// Le tool reste câblé et testé isolément — seule son exposition à cet agent est retirée.
+// `discoverSlackWorkspace` a été SUPPRIMÉ le 2026-08-18. Il avait d'abord été retiré des
+// agents (schéma coûteux, mentionné dans aucune instruction), et ce commentaire affirmait
+// alors qu'il « reste câblé et testé isolément » : c'était faux. Il n'était câblé à AUCUN
+// agent ni à aucun autre appelant — il n'était que TESTÉ, ce qui n'est pas la même chose et
+// donne l'illusion d'un code vivant.
+//
+// Ce qui a emporté la décision n'est pas qu'il soit mort, c'est ce qu'il portait : une action
+// `inviteToChannel` sans la moindre garde d'autorisation, dans un fichier qu'un futur
+// recâblage aurait pu rebrancher sans relire. L'invitation Slack du parcours d'onboarding, la
+// vraie, passe par `deps.slackProvider` dans l'étape `inviteToSlack` du workflow.
 // `createEmployee` a été retiré le 2026-08-11, après la campagne de tests en
 // production. Exposer une allowlist fermée (`department`, `position`) à un LLM ne
 // protège pas l'intégrité des données : le modèle substitue une valeur valide
