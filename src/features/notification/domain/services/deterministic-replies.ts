@@ -103,6 +103,21 @@ export interface DeterministicReply {
    * longtemps que nécessaire.
    */
   readonly remembersTurn?: boolean;
+  /**
+   * Le geste que ce court-circuit accomplit, quand `reply` vaut `null`.
+   *
+   * ⚠️ AJOUTÉ le 2026-08-18, et ce n'est pas cosmétique. La table était consultée par
+   * `handleMessage`… qui RÉ-ÉVALUAIT ensuite les trois prédicats agissants à la main, dans
+   * ses propres `if`. Deux conséquences : chaque message payait deux fois ces analyses, et
+   * surtout un neuvième court-circuit ajouté ici serait resté MUET tant que personne n'aurait
+   * pensé à écrire son `if` là-bas — exactement la divergence que cette table existe pour
+   * interdire, réintroduite à mi-chemin de sa propre correction.
+   *
+   * Le handler exécute désormais le geste désigné par ce champ. Ce qui reste chez lui, c'est
+   * l'EXÉCUTION — il est le seul à avoir les dépôts et le client Slack ; ce qui vit ici, c'est
+   * la DÉCISION.
+   */
+  readonly action?: 'erasure' | 'pin_fact' | 'profile_form';
   /** Champs de journal propres à ce cas. Voir les mises en garde, cas par cas. */
   readonly logFields?: (input: DeterministicReplyInput) => Record<string, unknown>;
 }
@@ -169,6 +184,7 @@ export const DETERMINISTIC_REPLIES: readonly DeterministicReply[] = [
     name: 'erasure_request',
     matches: ({ text }) => requestsErasure(text),
     reply: null,
+    action: 'erasure',
   },
   {
     // Mémoriser un fait ne consomme aucun token, et quelqu'un qui a épuisé son quota doit
@@ -177,6 +193,7 @@ export const DETERMINISTIC_REPLIES: readonly DeterministicReply[] = [
     name: 'pin_fact',
     matches: ({ text }) => extractPinnedFact(text) !== null,
     reply: null,
+    action: 'pin_fact',
   },
   {
     // Remplir son propre dossier n'est pas un privilège : un invité rétrogradé en `readonly`
@@ -184,6 +201,7 @@ export const DETERMINISTIC_REPLIES: readonly DeterministicReply[] = [
     name: 'profile_form_request',
     matches: ({ text }) => requestsProfileForm(text),
     reply: null,
+    action: 'profile_form',
   },
 ];
 
@@ -224,4 +242,14 @@ export function replyFor(entry: DeterministicReply, input: DeterministicReplyInp
   if (entry.reply === null) return null;
   if (!entry.variants) return entry.reply;
   return pickVariant(entry.variants, input.messageTs);
+}
+
+/**
+ * Le premier court-circuit AGISSANT qui s'applique, s'il y en a un.
+ *
+ * Pendant du `findStaticReply` ci-dessus : c'est ce qui permet au handler de ne plus
+ * ré-évaluer les prédicats qu'il vient de faire évaluer par la table.
+ */
+export function findActingReply(input: DeterministicReplyInput): DeterministicReply | undefined {
+  return DETERMINISTIC_REPLIES.find((entry) => entry.action !== undefined && entry.matches(input));
 }

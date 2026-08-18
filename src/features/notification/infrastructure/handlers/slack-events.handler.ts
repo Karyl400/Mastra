@@ -41,6 +41,7 @@ import { DEFAULT_AGENT_ID, routeToAgent } from '../../domain/services/agent-rout
 import {
   FILE_ATTACHMENT_REPLY,
   FILE_SHARE_SUBTYPE,
+  findActingReply,
   findStaticReply,
   isAnsweredWithoutModel,
   replyFor,
@@ -78,11 +79,10 @@ import {
   WORKSPACE_TOKEN_RULE,
   readRuleLimit,
 } from '../../domain/services/rate-limit-policy';
-import { ERASURE_FAILED_REPLY, erasureDoneReply, requestsErasure } from '../../../../shared/forget';
+import { ERASURE_FAILED_REPLY, erasureDoneReply } from '../../../../shared/forget';
 import {
   PROFILE_FORM_CHANNEL_REDIRECT,
   PROFILE_FORM_INVITE,
-  requestsProfileForm,
 } from '../../../../shared/profile-request';
 import {
   MAX_PINNED_FACTS,
@@ -451,6 +451,29 @@ const RATE_LIMIT_REPLIES: Readonly<Record<string, string>> = {
     'elle est relevable — c’est un réglage de déploiement.',
   burst: 'Tu m’écris plus vite que je ne sais répondre. Laisse-moi une minute et reformule.',
 };
+
+/**
+ * Ce qu'un message porte, une fois ses gardes franchies.
+ *
+ * ⚠️ Construit UNE FOIS par `buildMessageContext` et passé tel quel. Avant le 2026-08-18,
+ * `channel`, `threadTs`, `user` et `text` étaient retransmis un par un dans une quinzaine de
+ * signatures — chaque nouvelle étape en rajoutait un.
+ */
+interface MessageContext {
+  readonly event: SlackMessageEvent;
+  readonly user?: string;
+  readonly channel: string;
+  readonly text: string;
+  readonly threadTs?: string;
+  readonly isDirectMessage: boolean;
+  readonly conversationId: string;
+  /**
+   * ⚠️ Volontairement NON attendue : la résolution de l'identité se recouvre avec la lecture
+   * de la mémoire au lieu de s'y ajouter. Elle ne rejette jamais.
+   */
+  readonly requesterIdentity: Promise<RequesterIdentity>;
+  readonly history: ConversationTurn[];
+}
 
 export class SlackEventsHandler {
   private slack: WebClient;
@@ -1607,441 +1630,287 @@ export class SlackEventsHandler {
     }
   }
 
-  async handleMessage(event: SlackMessageEvent): Promise<void> {
-    const { user, channel } = event;
+  // ─────────────────────────────────────────────────────────────────────────
+  // EFFACEMENT DEMANDÉ — un geste RÉEL, jamais une narration
+  // ─────────────────────────────────────────────────────────────────────────
+  //
+  // « oublie ce que je t'ai dit », « supprime tout ce que tu sais de moi » : jusqu'ici ces
+  // messages partaient au modèle, qui n'a AUCUN outil d'effacement et ne pouvait donc que
+  // le raconter. C'est le défaut central de ce dépôt — « il parle exactement de la même
+  // façon quand il a fait le travail et quand il l'a inventé » — appliqué à la seule
+  // demande à laquelle une narration ne peut PAS se substituer.
+  //
+  // ⚠️ La réconciliation FAIT/NARRATION n'aurait rien rattrapé : elle guette une formule
+  // d'accompli sans `toolCall`, or il n'existait aucun tool à appeler, donc aucune
+  // contradiction à constater. Le seul correctif possible était de rendre le geste réel.
+  //
+  // Placé APRÈS la détresse et AVANT la frontière d'autorisation, délibérément : effacer
+  // ses propres données n'est pas un privilège qu'on accorde au niveau `full`, c'est un
+  // droit. Le même raisonnement que pour la détresse — on ne fait pas passer une politique
+  // d'accès devant une demande qui ne porte que sur soi.
+  private async runErasure(ctx: {
+    text: string;
+    channel: string;
+    threadTs?: string;
+    user?: string;
+    conversationId: string;
+    isDirectMessage: boolean;
+  }): Promise<void> {
+    const { channel, threadTs, user, conversationId, isDirectMessage } = ctx;
+    // En DM, `deriveConversationId` retombe sur le canal `D…` : la conversation EST
+    // l'espace privé d'une seule personne, donc tout y est à elle, tours `assistant`
+    // compris. Dans un fil de canal, plusieurs humains parlent — effacer le fil entier
+    // parce que l'un d'eux le demande supprimerait les messages des autres.
+    const scope = isDirectMessage ? { conversationId } : { conversationId, slackUserId: user };
 
-    // Garde défensive : `handleMessage` peut être appelé directement.
-    if (event.bot_id || event.subtype === 'bot_message') {
-      logger.debug('Ignoring bot message', { botId: event.bot_id });
-      return;
-    }
+    const repo = this.getConversationRepo();
 
-    if (!channel) {
-      logger.warn('Slack event without channel, skipping', { user });
-      return;
-    }
-
-    // La promesse est déjà résolue sur ce chemin (`processEvent` l'a attendue), donc gratuit.
-    const botUserId = await this.getBotUserId();
-    const text = this.cleanText(event.text, botUserId);
-
-    const { isDirectMessage, threadTs } = resolveThreadTarget(event, channel);
-
-    // Clé du fil. En DM `threadTs` est `undefined` par conception (voir plus haut), donc
-    // la conversation EST le canal ; en canal, c'est le thread.
-    const conversationId = deriveConversationId({ channel, threadTs });
-
-    // Lancée SANS `await` : la résolution de l'identité se recouvre avec la lecture de la
-    // mémoire au lieu de s'y ajouter. Elle ne rejette jamais (cf. `resolveRequesterIdentity`).
-    const requesterIdentity = this.resolveRequesterIdentity(user);
-
-    // ⚠️ L'historique est chargé AVANT le marqueur de progression, et c'est nécessaire :
-    // un fil de canal non engagé est abandonné juste en dessous, et poster « Je regarde
-    // ça… » pour l'effacer aussitôt laisserait un message orphelin dans le fil. Le surcoût
-    // (une lecture Turso) est négligeable devant les 2 à 17 s d'un run.
-    const history = await this.loadHistory(conversationId);
-
-    if (this.shouldAbandonThreadReply(event, isDirectMessage, history, botUserId)) {
-      logger.info('Ignoring a channel thread reply: the bot has never spoken in this thread', {
+    // Hors DM sans auteur identifié, la portée serait INDÉTERMINÉE — et une portée
+    // indéterminée sur une suppression, c'est la suppression du fil entier. On préfère
+    // échouer bruyamment : c'est irréversible, et personne ne l'a demandé.
+    if (!repo || (!isDirectMessage && !user)) {
+      logger.warn('Erasure requested but the scope could not be established', {
         channel,
-        threadTs,
-        historyTurns: history.length,
+        hasRepo: Boolean(repo),
+        isDirectMessage,
       });
-      return;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // SALUTATION NUE — réponse déterministe, aucun appel LLM
-    // ─────────────────────────────────────────────────────────────────────────
-    //
-    // Mesuré en production le 2026-08-12 : « Bonjour » (7 caractères) a déclenché
-    // `["findEmployeeByEmail","getEmployeeProfile","updateOnboardingStatus","getTaskList"]`
-    // en 5 étapes et **13 376 tokens** — 13 % du budget Groq quotidien — dont une
-    // tentative d'ÉCRITURE non demandée sur le dossier de la personne.
-    //
-    // Placé APRÈS la garde de fil (on ne répond pas dans un fil où le bot n'a jamais
-    // parlé) et AVANT le marqueur de progression : la réponse est instantanée, donc
-    // « Je regarde ça, un instant… » n'a aucun sens ici.
-    //
-    // Les deux tours sont mémorisés comme n'importe quel échange : sans cela, un fil
-    // ouvert par une salutation ne serait jamais « engagé » et le message suivant, sans
-    // mention, serait abandonné par la garde ci-dessus.
-    // ─────────────────────────────────────────────────────────────────────────
-    // COURT-CIRCUITS À RÉPONSE FIGÉE — salutation, pièce jointe, forme, détresse
-    // ─────────────────────────────────────────────────────────────────────────
-    //
-    // Les cinq premiers des huit court-circuits partagent exactement la même forme : un
-    // prédicat, un texte écrit en dur, zéro token. Ils sont déclarés dans
-    // `domain/services/deterministic-replies.ts` — voir son en-tête pour la raison, qui
-    // n'est pas cosmétique : `isAnsweredWithoutModel` doit en être le miroir exact, et deux
-    // listes tenues à la main divergent au premier ajout, en silence.
-    //
-    // Les trois derniers AGISSENT (effacer, épingler, publier un formulaire) : leur
-    // exécution reste ci-dessous, seul leur prédicat vit dans la table.
-    // `messageTs` ne sert qu'à choisir la FORMULATION : la même personne voit des tournures
-    // différentes d'un message à l'autre, et un message rejoué donne exactement la même
-    // réponse. Voir `shared/reply-variants.ts` — la répétition littérale est ce qui fait
-    // « machine », et la corriger ici coûte zéro token.
-    const shortCircuitInput = {
-      text,
-      subtype: event.subtype,
-      isDirectMessage,
-      messageTs: event.ts,
-    };
-    const staticReply = findStaticReply(shortCircuitInput);
-    const staticText = staticReply ? replyFor(staticReply, shortCircuitInput) : null;
-
-    if (staticReply && staticText) {
-      logger.info(`Court-circuit deterministe (${staticReply.name}) — aucun appel de modele`, {
-        channel,
-        ...(staticReply.logFields?.(shortCircuitInput) ?? {}),
-      });
-
       await this.slack.chat.postMessage({
         channel,
-        text: staticText,
+        text: ERASURE_FAILED_REPLY,
         ...(threadTs ? { thread_ts: threadTs } : {}),
       });
-
-      // Seule la salutation entre en mémoire : sans elle, un fil ouvert par « bonjour » ne
-      // serait jamais « engagé » et `shouldAbandonThreadReply` écarterait le message
-      // SUIVANT. Voir `remembersTurn` dans la table.
-      if (staticReply.remembersTurn) {
-        await this.rememberTurn({
-          conversationId,
-          role: 'user',
-          content: text,
-          agentId: DEFAULT_AGENT_ID,
-          slackUserId: user ?? null,
-        });
-        await this.rememberTurn({
-          conversationId,
-          role: 'assistant',
-          content: staticText,
-          agentId: DEFAULT_AGENT_ID,
-          slackUserId: null,
-        });
-      }
       return;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // EFFACEMENT DEMANDÉ — un geste RÉEL, jamais une narration
-    // ─────────────────────────────────────────────────────────────────────────
-    //
-    // « oublie ce que je t'ai dit », « supprime tout ce que tu sais de moi » : jusqu'ici ces
-    // messages partaient au modèle, qui n'a AUCUN outil d'effacement et ne pouvait donc que
-    // le raconter. C'est le défaut central de ce dépôt — « il parle exactement de la même
-    // façon quand il a fait le travail et quand il l'a inventé » — appliqué à la seule
-    // demande à laquelle une narration ne peut PAS se substituer.
-    //
-    // ⚠️ La réconciliation FAIT/NARRATION n'aurait rien rattrapé : elle guette une formule
-    // d'accompli sans `toolCall`, or il n'existait aucun tool à appeler, donc aucune
-    // contradiction à constater. Le seul correctif possible était de rendre le geste réel.
-    //
-    // Placé APRÈS la détresse et AVANT la frontière d'autorisation, délibérément : effacer
-    // ses propres données n'est pas un privilège qu'on accorde au niveau `full`, c'est un
-    // droit. Le même raisonnement que pour la détresse — on ne fait pas passer une politique
-    // d'accès devant une demande qui ne porte que sur soi.
-    if (requestsErasure(text)) {
-      // En DM, `deriveConversationId` retombe sur le canal `D…` : la conversation EST
-      // l'espace privé d'une seule personne, donc tout y est à elle, tours `assistant`
-      // compris. Dans un fil de canal, plusieurs humains parlent — effacer le fil entier
-      // parce que l'un d'eux le demande supprimerait les messages des autres.
-      const scope = isDirectMessage ? { conversationId } : { conversationId, slackUserId: user };
+    try {
+      const removed = await repo.forget(scope);
 
-      const repo = this.getConversationRepo();
-
-      // Hors DM sans auteur identifié, la portée serait INDÉTERMINÉE — et une portée
-      // indéterminée sur une suppression, c'est la suppression du fil entier. On préfère
-      // échouer bruyamment : c'est irréversible, et personne ne l'a demandé.
-      if (!repo || (!isDirectMessage && !user)) {
-        logger.warn('Erasure requested but the scope could not be established', {
-          channel,
-          hasRepo: Boolean(repo),
-          isDirectMessage,
-        });
-        await this.slack.chat.postMessage({
-          channel,
-          text: ERASURE_FAILED_REPLY,
-          ...(threadTs ? { thread_ts: threadTs } : {}),
-        });
-        return;
-      }
-
-      try {
-        const removed = await repo.forget(scope);
-
-        // ⚠️ La mémoire LONGUE part avec, et c'est non négociable : elle survit au TTL de
-        // 60 minutes par construction. L'oublier ici ferait qu'une personne ayant demandé
-        // l'effacement verrait le bot continuer à citer ce qu'elle lui avait dit de
-        // retenir — c'est-à-dire le pire cas possible pour ce chemin.
-        //
-        // L'effacement porte sur le DEMANDEUR, jamais sur la conversation : les faits sont
-        // indexés par `slack_user_id`. En DM les deux coïncident ; en canal, on n'efface
-        // que les siens, comme pour les tours.
-        //
-        // Isolé dans son propre `try` : un échec ici ne doit pas faire annoncer un échec
-        // total alors que les tours, eux, sont bien partis. On le journalise et on continue
-        // — la réponse rendue reste vraie sur ce qu'elle affirme.
-        let removedFacts = 0;
-        if (user) {
-          try {
-            removedFacts = (await this.getPinnedFactRepo()?.forget(user)) ?? 0;
-          } catch (error) {
-            logger.error('Pinned facts could not be erased', { error, channel });
-          }
-        }
-
-        // Le COMPTE, jamais le contenu : c'est une trace d'exécution, pas une copie de ce
-        // qu'on vient précisément de supprimer.
-        logger.info('Erasure request honoured — answered without any LLM call', {
-          channel,
-          isDirectMessage,
-          removed,
-          removedFacts,
-        });
-        await this.slack.chat.postMessage({
-          channel,
-          text: erasureDoneReply(removed + removedFacts),
-          ...(threadTs ? { thread_ts: threadTs } : {}),
-        });
-      } catch (error) {
-        // ⚠️ Ne JAMAIS retomber sur `erasureDoneReply` ici. Toute la valeur du correctif
-        // tient dans le fait que la réponse dit ce qui s'est réellement passé ; annoncer un
-        // effacement qui n'a pas eu lieu serait pire que l'absence de fonctionnalité, parce
-        // que la personne cesserait de le demander.
-        logger.error('Erasure request failed', { error, channel });
-        await this.slack.chat.postMessage({
-          channel,
-          text: ERASURE_FAILED_REPLY,
-          ...(threadTs ? { thread_ts: threadTs } : {}),
-        });
-      }
-      return;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // MÉMORISATION EXPLICITE — réponse déterministe, aucun appel LLM
-    // ─────────────────────────────────────────────────────────────────────────
-    //
-    // `TODO.md` du 2026-08-13 : « souviens-toi que… » n'ÉPINGLAIT rien. Le tour était traité
-    // comme les autres, donc soumis au TTL de 60 minutes et évincible par `selectWindow` —
-    // et le modèle promettait pourtant de s'en souvenir. Le défaut central de ce dépôt,
-    // appliqué à la mémoire.
-    //
-    // Placé APRÈS l'effacement : si un message contenait les deux intentions, détruire prime
-    // sur retenir. Placé AVANT la frontière d'autorisation, comme les deux précédents —
-    // corriger ce que le bot sait de soi n'est pas un privilège de niveau `full`.
-    const factToPin = extractPinnedFact(text);
-    if (factToPin) {
-      // Sans auteur identifié, la mémoire longue n'a pas de clé : elle est indexée par
-      // `slack_user_id`, pas par conversation. On le dit plutôt que d'écrire une ligne
-      // orpheline que personne ne relira jamais.
-      const repo = user ? this.getPinnedFactRepo() : null;
-
-      if (!repo) {
-        logger.warn('Pin requested but no long-term memory is available', {
-          channel,
-          hasUser: Boolean(user),
-        });
-        await this.slack.chat.postMessage({
-          channel,
-          text: PIN_FAILED_REPLY,
-          ...(threadTs ? { thread_ts: threadTs } : {}),
-        });
-        return;
-      }
-
-      try {
-        await repo.pin(
-          {
-            id: crypto.randomUUID(),
-            slackUserId: user!,
-            // Le texte est déjà passé par `cleanText`. Il sera RÉÉMIS au modèle à chaque
-            // tour, dans le message `system` — même exigence que pour les tours de
-            // conversation : on ne persiste jamais du brut.
-            fact: factToPin,
-            createdAt: new Date(),
-          },
-          MAX_PINNED_FACTS,
-        );
-
-        // La LONGUEUR, jamais le contenu : c'est une donnée personnelle que la personne
-        // vient de confier, elle n'a rien à faire dans un journal.
-        logger.info('Fact pinned — answered without any LLM call', {
-          channel,
-          factLength: factToPin.length,
-        });
-
-        await this.slack.chat.postMessage({
-          channel,
-          text: pinnedFactReply(factToPin),
-          ...(threadTs ? { thread_ts: threadTs } : {}),
-        });
-      } catch (error) {
-        // ⚠️ Ne JAMAIS retomber sur `pinnedFactReply` ici. Promettre de se souvenir sans
-        // avoir pu écrire serait exactement le défaut qu'on corrige, sous une autre forme.
-        logger.error('Pin request failed', { error, channel });
-        await this.slack.chat.postMessage({
-          channel,
-          text: PIN_FAILED_REPLY,
-          ...(threadTs ? { thread_ts: threadTs } : {}),
-        });
-      }
-      return;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // DEMANDE DU FORMULAIRE DE PROFIL — réponse déterministe, aucun appel LLM
-    // ─────────────────────────────────────────────────────────────────────────
-    //
-    // Le défaut : `buildWelcomeBlocks` était le SEUL émetteur du bouton, et son seul
-    // appelant `handleTeamJoin`. Un salarié DÉJÀ PRÉSENT n'avait donc aucun chemin vers le
-    // formulaire — `team_join` ne se déclenche que sur une ARRIVÉE. Mesuré sur la Turso le
-    // 2026-08-14 : `employees` = 2 lignes, `slack_directory` = 4 personnes vivantes de plus,
-    // toutes non rattachées.
-    //
-    // ⚠️ La suite de ce commentaire affirmait que « `team_join` ne figure même pas dans les
-    // abonnements de l'app Slack, si bien que les arrivants non plus ». C'est FAUX : vérifié
-    // dans la console le 2026-08-15, l'événement EST abonné et `handleTeamJoin` s'exécute.
-    // Les cinq personnes sans dossier étaient déjà là AVANT l'installation du bot — un retard
-    // de rattrapage, pas un chemin manquant. Ce court-circuit sert donc le rattrapage, aux
-    // côtés de `npm run profile:invite`, et non les futurs arrivants.
-    //
-    // Cela reste la cause du guide « générique » (aucun dossier à personnaliser) et de
-    // l'échec de `getEmployeeProfile` sur la plupart des gens.
-    //
-    // Placé APRÈS l'effacement et AVANT la frontière d'autorisation : remplir son propre
-    // dossier n'est pas un privilège de niveau `full`. Un invité rétrogradé en `readonly`
-    // doit pouvoir se déclarer — c'est même le seul geste qui puisse le faire sortir de
-    // cet état.
-    if (requestsProfileForm(text)) {
-      // ⚠️ DM UNIQUEMENT, et c'est une décision de SÉCURITÉ, pas d'ergonomie.
+      // ⚠️ La mémoire LONGUE part avec, et c'est non négociable : elle survit au TTL de
+      // 60 minutes par construction. L'oublier ici ferait qu'une personne ayant demandé
+      // l'effacement verrait le bot continuer à citer ce qu'elle lui avait dit de
+      // retenir — c'est-à-dire le pire cas possible pour ce chemin.
       //
-      // Le pré-remplissage voyage dans le `value` du bouton, figé à la publication. Dans un
-      // canal, n'importe quel témoin peut cliquer : il ouvrirait une modale portant les
-      // données de QUELQU'UN D'AUTRE et sa soumission écrirait le dossier de cette
-      // personne. Le DM d'accueil n'a jamais eu ce problème — il est privé par nature.
-      if (!isDirectMessage) {
-        logger.info('Profile form requested in a channel — redirected to DM, no LLM call', {
-          channel,
-        });
-        await this.slack.chat.postMessage({
-          channel,
-          text: PROFILE_FORM_CHANNEL_REDIRECT,
-          ...(threadTs ? { thread_ts: threadTs } : {}),
-        });
-        return;
+      // L'effacement porte sur le DEMANDEUR, jamais sur la conversation : les faits sont
+      // indexés par `slack_user_id`. En DM les deux coïncident ; en canal, on n'efface
+      // que les siens, comme pour les tours.
+      //
+      // Isolé dans son propre `try` : un échec ici ne doit pas faire annoncer un échec
+      // total alors que les tours, eux, sont bien partis. On le journalise et on continue
+      // — la réponse rendue reste vraie sur ce qu'elle affirme.
+      let removedFacts = 0;
+      if (user) {
+        try {
+          removedFacts = (await this.getPinnedFactRepo()?.forget(user)) ?? 0;
+        } catch (error) {
+          logger.error('Pinned facts could not be erased', { error, channel });
+        }
       }
 
-      // Pré-remplissage depuis l'ANNUAIRE, jamais par `users.info` : une lecture Turso
-      // contre un aller-retour Slack, pour une information que l'annuaire tient déjà. Son
-      // absence n'empêche rien — la modale collectera les quatre champs à la main.
-      const known = user ? await this.getDirectoryRepo()?.findBySlackUserId(user) : null;
-
-      await this.chatProvider.sendBlocks(
+      // Le COMPTE, jamais le contenu : c'est une trace d'exécution, pas une copie de ce
+      // qu'on vient précisément de supprimer.
+      logger.info('Erasure request honoured — answered without any LLM call', {
         channel,
-        PROFILE_FORM_INVITE,
-        buildProfileInviteBlocks({
-          slackUserId: user ?? '',
-          firstName: known?.firstName ?? null,
-          lastName: known?.lastName ?? null,
-          email: known?.email ?? null,
-          // Pas de `joinedAt` hors du flux d'arrivée : `startDateFromJoin` retombe alors sur
-          // l'instant courant. C'est la seule date honnête ici — l'arrivée réelle de
-          // quelqu'un déjà présent depuis des mois n'est connue de personne.
-        }),
-      );
-
-      logger.info('Profile form posted — answered without any LLM call', {
-        channel,
-        prefilled: Boolean(known),
+        isDirectMessage,
+        removed,
+        removedFacts,
       });
-      return;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // FRONTIÈRE D'AUTORISATION — l'identité franchit enfin la frontière
-    // ─────────────────────────────────────────────────────────────────────────
-    // Jusqu'ici `event.user` servait au journal et à l'anti-boucle, puis était jeté : une
-    // chaîne `U…` opaque dont le système ne pouvait pas dire si elle désignait la responsable
-    // RH ou un invité mono-canal. Tous les outils à effet de bord étaient donc atteignables
-    // par n'importe qui — y compris un invité externe, qui pouvait faire partir un email
-    // depuis le Gmail de l'entreprise, SPF/DKIM parfaitement alignés.
-    //
-    // ⚠️ Par défaut le mode est OBSERVATION (`AUTHZ_ENFORCE` absent) : la décision est
-    // calculée et journalisée, rien n'est refusé. C'est délibéré — une politique mal
-    // configurée bloquerait des gens légitimes, et le symptôme (« le bot ne sait plus rien
-    // faire ») ne désignerait pas sa cause. On lit les logs, PUIS on active.
-    const accessLevel = await this.evaluateAccess(user);
-
-    if (accessLevel === 'denied') {
-      logger.warn('Slack message refused by the authorization policy', { user, channel });
-      void writeAuditLog({
-        action: 'AUTHZ_DENIED',
-        actorId: user ?? 'unknown',
-        status: 'denied',
-        details: { channel, isDirectMessage },
-      });
-      // Muet sur la règle touchée, exactement comme `NEUTRAL_REFUSAL` : nommer ce qui a porté
-      // renseignerait un attaquant sur la sonde qui a fonctionné.
       await this.slack.chat.postMessage({
         channel,
-        text: "Je ne peux pas traiter cette demande. Rapproche-toi d'une personne de l'équipe.",
+        text: erasureDoneReply(removed + removedFacts),
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+      });
+    } catch (error) {
+      // ⚠️ Ne JAMAIS retomber sur `erasureDoneReply` ici. Toute la valeur du correctif
+      // tient dans le fait que la réponse dit ce qui s'est réellement passé ; annoncer un
+      // effacement qui n'a pas eu lieu serait pire que l'absence de fonctionnalité, parce
+      // que la personne cesserait de le demander.
+      logger.error('Erasure request failed', { error, channel });
+      await this.slack.chat.postMessage({
+        channel,
+        text: ERASURE_FAILED_REPLY,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+      });
+    }
+  }
+
+  private async runPinFact(ctx: {
+    text: string;
+    channel: string;
+    threadTs?: string;
+    user?: string;
+  }): Promise<void> {
+    const { text, channel, threadTs, user } = ctx;
+    const factToPin = extractPinnedFact(text);
+    if (!factToPin) return;
+    // Sans auteur identifié, la mémoire longue n'a pas de clé : elle est indexée par
+    // `slack_user_id`, pas par conversation. On le dit plutôt que d'écrire une ligne
+    // orpheline que personne ne relira jamais.
+    const repo = user ? this.getPinnedFactRepo() : null;
+
+    if (!repo) {
+      logger.warn('Pin requested but no long-term memory is available', {
+        channel,
+        hasUser: Boolean(user),
+      });
+      await this.slack.chat.postMessage({
+        channel,
+        text: PIN_FAILED_REPLY,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
       });
       return;
     }
 
-    // Le canal `D…` est appris ICI et NULLE PART AILLEURS : `conversations.list({types:'im'})`
-    // répond `missing_scope` faute du scope `im:read`. Slack nous le livre gratuitement dans
-    // `event.channel`, et une fois perdu il l'est définitivement — d'où l'écriture
-    // conditionnelle côté repository, qui n'écrase jamais une valeur déjà connue.
-    if (isDirectMessage && user) {
-      void this.getDirectoryRepo()
-        ?.rememberDmChannel(user, channel)
-        .catch((error) => logger.debug('Could not record the DM channel', { user, error }));
+    try {
+      await repo.pin(
+        {
+          id: crypto.randomUUID(),
+          slackUserId: user!,
+          // Le texte est déjà passé par `cleanText`. Il sera RÉÉMIS au modèle à chaque
+          // tour, dans le message `system` — même exigence que pour les tours de
+          // conversation : on ne persiste jamais du brut.
+          fact: factToPin,
+          createdAt: new Date(),
+        },
+        MAX_PINNED_FACTS,
+      );
+
+      // La LONGUEUR, jamais le contenu : c'est une donnée personnelle que la personne
+      // vient de confier, elle n'a rien à faire dans un journal.
+      logger.info('Fact pinned — answered without any LLM call', {
+        channel,
+        factLength: factToPin.length,
+      });
+
+      await this.slack.chat.postMessage({
+        channel,
+        text: pinnedFactReply(factToPin),
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+      });
+    } catch (error) {
+      // ⚠️ Ne JAMAIS retomber sur `pinnedFactReply` ici. Promettre de se souvenir sans
+      // avoir pu écrire serait exactement le défaut qu'on corrige, sous une autre forme.
+      logger.error('Pin request failed', { error, channel });
+      await this.slack.chat.postMessage({
+        channel,
+        text: PIN_FAILED_REPLY,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+      });
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DEMANDE DU FORMULAIRE DE PROFIL — réponse déterministe, aucun appel LLM
+  // ─────────────────────────────────────────────────────────────────────────
+  //
+  // Le défaut : `buildWelcomeBlocks` était le SEUL émetteur du bouton, et son seul
+  // appelant `handleTeamJoin`. Un salarié DÉJÀ PRÉSENT n'avait donc aucun chemin vers le
+  // formulaire — `team_join` ne se déclenche que sur une ARRIVÉE. Mesuré sur la Turso le
+  // 2026-08-14 : `employees` = 2 lignes, `slack_directory` = 4 personnes vivantes de plus,
+  // toutes non rattachées.
+  //
+  // ⚠️ La suite de ce commentaire affirmait que « `team_join` ne figure même pas dans les
+  // abonnements de l'app Slack, si bien que les arrivants non plus ». C'est FAUX : vérifié
+  // dans la console le 2026-08-15, l'événement EST abonné et `handleTeamJoin` s'exécute.
+  // Les cinq personnes sans dossier étaient déjà là AVANT l'installation du bot — un retard
+  // de rattrapage, pas un chemin manquant. Ce court-circuit sert donc le rattrapage, aux
+  // côtés de `npm run profile:invite`, et non les futurs arrivants.
+  //
+  // Cela reste la cause du guide « générique » (aucun dossier à personnaliser) et de
+  // l'échec de `getEmployeeProfile` sur la plupart des gens.
+  //
+  // Placé APRÈS l'effacement et AVANT la frontière d'autorisation : remplir son propre
+  // dossier n'est pas un privilège de niveau `full`. Un invité rétrogradé en `readonly`
+  // doit pouvoir se déclarer — c'est même le seul geste qui puisse le faire sortir de
+  // cet état.
+  private async runProfileForm(ctx: {
+    channel: string;
+    threadTs?: string;
+    user?: string;
+    isDirectMessage: boolean;
+  }): Promise<void> {
+    const { channel, threadTs, user, isDirectMessage } = ctx;
+    // ⚠️ DM UNIQUEMENT, et c'est une décision de SÉCURITÉ, pas d'ergonomie.
+    //
+    // Le pré-remplissage voyage dans le `value` du bouton, figé à la publication. Dans un
+    // canal, n'importe quel témoin peut cliquer : il ouvrirait une modale portant les
+    // données de QUELQU'UN D'AUTRE et sa soumission écrirait le dossier de cette
+    // personne. Le DM d'accueil n'a jamais eu ce problème — il est privé par nature.
+    if (!isDirectMessage) {
+      logger.info('Profile form requested in a channel — redirected to DM, no LLM call', {
+        channel,
+      });
+      await this.slack.chat.postMessage({
+        channel,
+        text: PROFILE_FORM_CHANNEL_REDIRECT,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+      });
+      return;
     }
 
-    // ⚠️ Le TEXTE n'est PAS journalisé, et c'est le même raisonnement que pour `audit_logs`
-    // vingt lignes plus bas : le DM au bot est le canal privilégié pour parler d'un salaire,
-    // d'un arrêt maladie ou d'un litige. Le recopier en clair en niveau `info` l'expose à tout
-    // ce qui lit les logs — plateforme comprise. `maskPii` ne rattrapait rien ici : `text`
-    // n'est pas dans `PII_KEYS`.
-    //
-    // Ce qu'on garde est ce qui sert au diagnostic : qui, où, et la TAILLE — c'est elle qui
-    // distingue un message vide d'un pavé, sans en révéler le contenu.
-    logger.info('Processing Slack message', { user, channel, textLength: text.length });
+    // Pré-remplissage depuis l'ANNUAIRE, jamais par `users.info` : une lecture Turso
+    // contre un aller-retour Slack, pour une information que l'annuaire tient déjà. Son
+    // absence n'empêche rien — la modale collectera les quatre champs à la main.
+    const known = user ? await this.getDirectoryRepo()?.findBySlackUserId(user) : null;
 
-    void writeAuditLog({
-      action: 'SLACK_MESSAGE',
-      actorId: user ?? 'unknown',
-      resourceType: 'SlackChannel',
-      resourceId: channel,
-      // Le TEXTE n'est jamais enregistré : le DM au bot est le canal privilégié pour parler
-      // d'un salaire ou d'un litige, et une table consultable n'expire pas comme un log.
-      details: { accessLevel: accessLevel ?? 'not_evaluated', isDirectMessage },
+    await this.chatProvider.sendBlocks(
+      channel,
+      PROFILE_FORM_INVITE,
+      buildProfileInviteBlocks({
+        slackUserId: user ?? '',
+        firstName: known?.firstName ?? null,
+        lastName: known?.lastName ?? null,
+        email: known?.email ?? null,
+        // Pas de `joinedAt` hors du flux d'arrivée : `startDateFromJoin` retombe alors sur
+        // l'instant courant. C'est la seule date honnête ici — l'arrivée réelle de
+        // quelqu'un déjà présent depuis des mois n'est connue de personne.
+      }),
+    );
+
+    logger.info('Profile form posted — answered without any LLM call', {
+      channel,
+      prefilled: Boolean(known),
     });
+  }
 
-    // ⚠️ LE DÉBIT DU BUDGET MODÈLE A LIEU ICI, et pas à l'ACK.
-    //
-    // Tout ce qui précède peut encore renoncer sans rien coûter : un fil abandonné, une
-    // salutation, une pièce jointe, une demande d'effacement… Ces chemins ne doivent pas
-    // entamer un quota qui se compte à la JOURNÉE (≈ 19 messages tous canaux confondus).
-    // `accept()` n'a fait que RÉSERVER — vérifier que le message passerait — parce qu'à
-    // l'ACK on ignore encore s'il sera abandonné : l'historique n'est pas lu.
-    //
-    // Placé AVANT `startProgress` à dessein : le marqueur est le premier écrit Slack, et
-    // poster « Je regarde ça… » pour le remplacer aussitôt par un refus de quota serait la
-    // pire des séquences.
-    await this.chargeModelBudget(user);
-
-    // Marqueur de progression posté IMMÉDIATEMENT, avant tout appel LLM. Un run prend 2 à
-    // 17 s (jusqu'à ~21 s quand le back-off du dernier maillon se déclenche), pendant
-    // lesquelles le bot paraissait totalement muet. `startProgress` ne bloque pas : il rend
-    // la main sans attendre l'aller-retour Slack, et la réponse finale REMPLACE le marqueur
-    // — un seul message dans le fil, jamais deux.
-    const progress = await startProgress(this.slack, { channel, threadTs });
+  /**
+   * Le pipeline LLM : router, encadrer, générer, assainir, publier.
+   *
+   * ⚠️ Extrait de `handleMessage` le 2026-08-18. C'est sa SECONDE responsabilité — la
+   * première étant l'ordonnancement des gardes et des court-circuits, qui n'appellent aucun
+   * modèle. Les deux se lisaient d'affilée dans 670 lignes, et rien ne signalait qu'on passait
+   * de l'une à l'autre.
+   *
+   * ⚠️ Ce qui reste chez l'appelant, et qui ne doit PAS descendre ici : `chargeModelBudget`
+   * et `startProgress`. Leur position relative est justifiée par un incident — le marqueur est
+   * le premier écrit Slack, et poster « Je regarde ça… » pour le remplacer aussitôt par un
+   * refus de quota serait la pire des séquences. Un découpage qui les emporterait rendrait cet
+   * ordre invisible.
+   */
+  private async runAgentPipeline(ctx: {
+    event: SlackMessageEvent;
+    text: string;
+    channel: string;
+    threadTs?: string;
+    user?: string;
+    conversationId: string;
+    isDirectMessage: boolean;
+    history: ConversationTurn[];
+    requesterIdentity: Promise<RequesterIdentity>;
+    accessLevel: SlackAccessLevel | undefined;
+    progress: Awaited<ReturnType<typeof startProgress>>;
+  }): Promise<void> {
+    const {
+      event,
+      text,
+      channel,
+      threadTs,
+      user,
+      conversationId,
+      history,
+      requesterIdentity,
+      accessLevel,
+      progress,
+    } = ctx;
 
     // Phase courante du traitement. Le catch générique ci-dessous couvrait cinq points
     // d'échec très différents — chaîne LLM épuisée, exception d'outil, `SecurityBlockError`
@@ -2295,6 +2164,317 @@ export class SlackEventsHandler {
       // exception par une autre effacerait la cause d'origine.
       await progress.fail(userFacingFailure(error));
     }
+  }
+
+  /**
+   * La frontière d'autorisation : évalue, refuse, journalise l'audit.
+   *
+   * Rend `'denied'` quand elle a déjà répondu à la personne — l'appelant n'a plus qu'à
+   * s'arrêter. Sinon rend le niveau, que le pipeline transmet aux tools par le
+   * `requestContext`.
+   *
+   * ⚠️ Elle vient APRÈS les huit court-circuits, et cette position est un choix : détresse,
+   * effacement, épinglage et demande de formulaire sont des DROITS, pas des privilèges de
+   * niveau `full`. Quelqu'un qui va mal ne doit pas se heurter à une politique d'accès.
+   */
+  private async enforceAuthorization(ctx: {
+    user?: string;
+    channel: string;
+    threadTs?: string;
+    isDirectMessage: boolean;
+  }): Promise<SlackAccessLevel | undefined | 'denied'> {
+    const { user, channel, threadTs, isDirectMessage } = ctx;
+    const accessLevel = await this.evaluateAccess(user);
+
+    if (accessLevel !== 'denied') return accessLevel;
+
+    logger.warn('Slack message refused by the authorization policy', { user, channel });
+    void writeAuditLog({
+      action: 'AUTHZ_DENIED',
+      actorId: user ?? 'unknown',
+      status: 'denied',
+      details: { channel, isDirectMessage },
+    });
+    // Muet sur la règle touchée, exactement comme `NEUTRAL_REFUSAL` : nommer ce qui a porté
+    // renseignerait un attaquant sur la sonde qui a fonctionné.
+    await this.slack.chat.postMessage({
+      channel,
+      text: "Je ne peux pas traiter cette demande. Rapproche-toi d'une personne de l'équipe.",
+      ...(threadTs ? { thread_ts: threadTs } : {}),
+    });
+    return 'denied';
+  }
+
+  /**
+   * Tout ce qu'il faut savoir sur un message avant de décider quoi en faire.
+   *
+   * Rend `null` quand il n'y a rien à faire — message du bot, canal absent, ou fil de canal
+   * où le bot n'a jamais parlé. L'appelant s'arrête, sans avoir à savoir pourquoi.
+   *
+   * ⚠️ L'ORDRE des trois dernières lignes est justifié par un incident et ne doit pas être
+   * réarrangé : l'historique est lu AVANT que le marqueur de progression n'existe, parce
+   * qu'un fil non engagé est abandonné ici même — poster « Je regarde ça… » pour l'effacer
+   * aussitôt laisserait un message orphelin dans le fil.
+   */
+  private async buildMessageContext(event: SlackMessageEvent): Promise<MessageContext | null> {
+    const { user, channel } = event;
+
+    // Garde défensive : `handleMessage` peut être appelé directement.
+    if (event.bot_id || event.subtype === 'bot_message') {
+      logger.debug('Ignoring bot message', { botId: event.bot_id });
+      return null;
+    }
+
+    if (!channel) {
+      logger.warn('Slack event without channel, skipping', { user });
+      return null;
+    }
+
+    // La promesse est déjà résolue sur ce chemin (`processEvent` l'a attendue), donc gratuit.
+    const botUserId = await this.getBotUserId();
+    const text = this.cleanText(event.text, botUserId);
+
+    const { isDirectMessage, threadTs } = resolveThreadTarget(event, channel);
+
+    // Clé du fil. En DM `threadTs` est `undefined` par conception (voir plus haut), donc
+    // la conversation EST le canal ; en canal, c'est le thread.
+    const conversationId = deriveConversationId({ channel, threadTs });
+
+    // Lancée SANS `await` : la résolution de l'identité se recouvre avec la lecture de la
+    // mémoire au lieu de s'y ajouter. Elle ne rejette jamais (cf. `resolveRequesterIdentity`).
+    const requesterIdentity = this.resolveRequesterIdentity(user);
+
+    const history = await this.loadHistory(conversationId);
+
+    if (this.shouldAbandonThreadReply(event, isDirectMessage, history, botUserId)) {
+      logger.info('Ignoring a channel thread reply: the bot has never spoken in this thread', {
+        channel,
+        threadTs,
+        historyTurns: history.length,
+      });
+      return null;
+    }
+
+    return {
+      event,
+      user,
+      channel,
+      text,
+      threadTs,
+      isDirectMessage,
+      conversationId,
+      requesterIdentity,
+      history,
+    };
+  }
+
+  async handleMessage(event: SlackMessageEvent): Promise<void> {
+    const context = await this.buildMessageContext(event);
+    if (!context) return;
+
+    const {
+      user,
+      channel,
+      text,
+      threadTs,
+      isDirectMessage,
+      conversationId,
+      requesterIdentity,
+      history,
+    } = context;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SALUTATION NUE — réponse déterministe, aucun appel LLM
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // Mesuré en production le 2026-08-12 : « Bonjour » (7 caractères) a déclenché
+    // `["findEmployeeByEmail","getEmployeeProfile","updateOnboardingStatus","getTaskList"]`
+    // en 5 étapes et **13 376 tokens** — 13 % du budget Groq quotidien — dont une
+    // tentative d'ÉCRITURE non demandée sur le dossier de la personne.
+    //
+    // Placé APRÈS la garde de fil (on ne répond pas dans un fil où le bot n'a jamais
+    // parlé) et AVANT le marqueur de progression : la réponse est instantanée, donc
+    // « Je regarde ça, un instant… » n'a aucun sens ici.
+    //
+    // Les deux tours sont mémorisés comme n'importe quel échange : sans cela, un fil
+    // ouvert par une salutation ne serait jamais « engagé » et le message suivant, sans
+    // mention, serait abandonné par la garde ci-dessus.
+    // ─────────────────────────────────────────────────────────────────────────
+    // COURT-CIRCUITS À RÉPONSE FIGÉE — salutation, pièce jointe, forme, détresse
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // Les cinq premiers des huit court-circuits partagent exactement la même forme : un
+    // prédicat, un texte écrit en dur, zéro token. Ils sont déclarés dans
+    // `domain/services/deterministic-replies.ts` — voir son en-tête pour la raison, qui
+    // n'est pas cosmétique : `isAnsweredWithoutModel` doit en être le miroir exact, et deux
+    // listes tenues à la main divergent au premier ajout, en silence.
+    //
+    // Les trois derniers AGISSENT (effacer, épingler, publier un formulaire) : leur
+    // exécution reste ci-dessous, seul leur prédicat vit dans la table.
+    // `messageTs` ne sert qu'à choisir la FORMULATION : la même personne voit des tournures
+    // différentes d'un message à l'autre, et un message rejoué donne exactement la même
+    // réponse. Voir `shared/reply-variants.ts` — la répétition littérale est ce qui fait
+    // « machine », et la corriger ici coûte zéro token.
+    const shortCircuitInput = {
+      text,
+      subtype: event.subtype,
+      isDirectMessage,
+      messageTs: event.ts,
+    };
+    const staticReply = findStaticReply(shortCircuitInput);
+    const staticText = staticReply ? replyFor(staticReply, shortCircuitInput) : null;
+
+    if (staticReply && staticText) {
+      logger.info(`Court-circuit deterministe (${staticReply.name}) — aucun appel de modele`, {
+        channel,
+        ...(staticReply.logFields?.(shortCircuitInput) ?? {}),
+      });
+
+      await this.slack.chat.postMessage({
+        channel,
+        text: staticText,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+      });
+
+      // Seule la salutation entre en mémoire : sans elle, un fil ouvert par « bonjour » ne
+      // serait jamais « engagé » et `shouldAbandonThreadReply` écarterait le message
+      // SUIVANT. Voir `remembersTurn` dans la table.
+      if (staticReply.remembersTurn) {
+        await this.rememberTurn({
+          conversationId,
+          role: 'user',
+          content: text,
+          agentId: DEFAULT_AGENT_ID,
+          slackUserId: user ?? null,
+        });
+        await this.rememberTurn({
+          conversationId,
+          role: 'assistant',
+          content: staticText,
+          agentId: DEFAULT_AGENT_ID,
+          slackUserId: null,
+        });
+      }
+      return;
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // COURT-CIRCUITS QUI AGISSENT — effacer, épingler, publier le formulaire
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // ⚠️ Le prédicat vient de la TABLE, il n'est plus réécrit ici. Jusqu'au 2026-08-18 ces
+    // trois cas étaient déclarés dans `deterministic-replies.ts` ET ré-évalués à la main
+    // juste en dessous : chaque message payait deux fois ces analyses, et un neuvième
+    // court-circuit ajouté à la table serait resté MUET tant que personne n'aurait écrit son
+    // `if` ici — exactement la divergence que la table existe pour interdire, réintroduite à
+    // mi-chemin de sa propre correction.
+    //
+    // L'ORDRE reste celui de la table, et il est justifié cas par cas là-bas : effacer prime
+    // sur retenir, et les trois passent AVANT la frontière d'autorisation — effacer ses
+    // données, corriger ce que le bot sait de soi et remplir son propre dossier sont des
+    // droits, pas des privilèges de niveau `full`.
+    const acting = findActingReply(shortCircuitInput);
+
+    if (acting) {
+      switch (acting.action) {
+        case 'erasure':
+          return this.runErasure({
+            text,
+            channel,
+            threadTs,
+            user,
+            conversationId,
+            isDirectMessage,
+          });
+        case 'pin_fact':
+          return this.runPinFact({ text, channel, threadTs, user });
+        case 'profile_form':
+          return this.runProfileForm({ channel, threadTs, user, isDirectMessage });
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // FRONTIÈRE D'AUTORISATION — l'identité franchit enfin la frontière
+    // ─────────────────────────────────────────────────────────────────────────
+    // Jusqu'ici `event.user` servait au journal et à l'anti-boucle, puis était jeté : une
+    // chaîne `U…` opaque dont le système ne pouvait pas dire si elle désignait la responsable
+    // RH ou un invité mono-canal. Tous les outils à effet de bord étaient donc atteignables
+    // par n'importe qui — y compris un invité externe, qui pouvait faire partir un email
+    // depuis le Gmail de l'entreprise, SPF/DKIM parfaitement alignés.
+    //
+    // ⚠️ Par défaut le mode est OBSERVATION (`AUTHZ_ENFORCE` absent) : la décision est
+    // calculée et journalisée, rien n'est refusé. C'est délibéré — une politique mal
+    // configurée bloquerait des gens légitimes, et le symptôme (« le bot ne sait plus rien
+    // faire ») ne désignerait pas sa cause. On lit les logs, PUIS on active.
+    const accessLevel = await this.enforceAuthorization({
+      user,
+      channel,
+      threadTs,
+      isDirectMessage,
+    });
+    if (accessLevel === 'denied') return;
+
+    // Le canal `D…` est appris ICI et NULLE PART AILLEURS : `conversations.list({types:'im'})`
+    // répond `missing_scope` faute du scope `im:read`. Slack nous le livre gratuitement dans
+    // `event.channel`, et une fois perdu il l'est définitivement — d'où l'écriture
+    // conditionnelle côté repository, qui n'écrase jamais une valeur déjà connue.
+    if (isDirectMessage && user) {
+      void this.getDirectoryRepo()
+        ?.rememberDmChannel(user, channel)
+        .catch((error) => logger.debug('Could not record the DM channel', { user, error }));
+    }
+
+    // ⚠️ Le TEXTE n'est PAS journalisé, et c'est le même raisonnement que pour `audit_logs`
+    // vingt lignes plus bas : le DM au bot est le canal privilégié pour parler d'un salaire,
+    // d'un arrêt maladie ou d'un litige. Le recopier en clair en niveau `info` l'expose à tout
+    // ce qui lit les logs — plateforme comprise. `maskPii` ne rattrapait rien ici : `text`
+    // n'est pas dans `PII_KEYS`.
+    //
+    // Ce qu'on garde est ce qui sert au diagnostic : qui, où, et la TAILLE — c'est elle qui
+    // distingue un message vide d'un pavé, sans en révéler le contenu.
+    logger.info('Processing Slack message', { user, channel, textLength: text.length });
+
+    void writeAuditLog({
+      action: 'SLACK_MESSAGE',
+      actorId: user ?? 'unknown',
+      resourceType: 'SlackChannel',
+      resourceId: channel,
+      // Le TEXTE n'est jamais enregistré : le DM au bot est le canal privilégié pour parler
+      // d'un salaire ou d'un litige, et une table consultable n'expire pas comme un log.
+      details: { accessLevel: accessLevel ?? 'not_evaluated', isDirectMessage },
+    });
+
+    // ⚠️ LE DÉBIT DU BUDGET MODÈLE A LIEU ICI, et pas à l'ACK.
+    //
+    // Tout ce qui précède peut encore renoncer sans rien coûter : un fil abandonné, une
+    // salutation, une pièce jointe, une demande d'effacement… Ces chemins ne doivent pas
+    // entamer un quota qui se compte à la JOURNÉE (≈ 19 messages tous canaux confondus).
+    // `accept()` n'a fait que RÉSERVER — vérifier que le message passerait — parce qu'à
+    // l'ACK on ignore encore s'il sera abandonné : l'historique n'est pas lu.
+    //
+    // Placé AVANT `startProgress` à dessein : le marqueur est le premier écrit Slack, et
+    // poster « Je regarde ça… » pour le remplacer aussitôt par un refus de quota serait la
+    // pire des séquences.
+    await this.chargeModelBudget(user);
+
+    // Marqueur de progression posté IMMÉDIATEMENT, avant tout appel LLM. Un run prend 2 à
+    // 17 s (jusqu'à ~21 s quand le back-off du dernier maillon se déclenche), pendant
+    // lesquelles le bot paraissait totalement muet. `startProgress` ne bloque pas : il rend
+    // la main sans attendre l'aller-retour Slack, et la réponse finale REMPLACE le marqueur
+    // — un seul message dans le fil, jamais deux.
+    const progress = await startProgress(this.slack, { channel, threadTs });
+    await this.runAgentPipeline({
+      event,
+      text,
+      channel,
+      threadTs,
+      user,
+      conversationId,
+      isDirectMessage,
+      history,
+      requesterIdentity,
+      accessLevel,
+      progress,
+    });
   }
 
   /**
