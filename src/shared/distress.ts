@@ -160,8 +160,13 @@ export function detectsDistress(text: string | undefined | null): boolean {
 export const DISTRESS_REPLY =
   "Je suis un outil d'onboarding, je ne suis pas la bonne personne pour ça — mais je ne vais " +
   'pas te laisser sans réponse.\n\n' +
-  "Si c'est urgent : **0800 0787 746** (SURPIN, gratuit, 24h/24, partout au Nigeria), ou le " +
-  '**112** si la vie de quelqu’un est en jeu maintenant.\n' +
+  // ⚠️ `*gras*` et NON `**gras**` : Slack utilise mrkdwn, pas le markdown GitHub. Constaté en
+  // production le 2026-08-18, sur ce message-ci — les doubles astérisques s'affichaient
+  // littéralement autour du numéro d'urgence. Ce texte est posté DIRECTEMENT par le handler,
+  // il ne passe pas par `sanitizeAgentOutput`, qui est ce qui convertit le markdown des
+  // réponses de modèle. Les textes écrits en dur doivent donc être écrits en mrkdwn.
+  "Si c'est urgent : *0800 0787 746* (SURPIN, gratuit, 24h/24, partout au Nigeria), ou le " +
+  '*112* si la vie de quelqu’un est en jeu maintenant.\n' +
   "Pour une situation au travail — harcèlement, conflit, souffrance — parles-en à l'équipe RH " +
   "de Kisso ou à la médecine du travail. Tu peux aussi en parler à quelqu'un en qui tu as " +
   'confiance dans le workspace.\n\n' +

@@ -95,3 +95,28 @@ describe('les variantes ne cassent aucune garantie existante', () => {
     }
   });
 });
+
+describe('les textes écrits en dur sont du mrkdwn Slack, pas du markdown GitHub', () => {
+  /**
+   * ⚠️ DÉFAUT CONSTATÉ EN PRODUCTION LE 2026-08-18, sur le message de DÉTRESSE — le pire
+   * endroit possible. Le numéro d'urgence s'affichait entouré de doubles astérisques :
+   * `**0800 0787 746**`. Slack utilise mrkdwn (`*gras*`), pas le markdown GitHub
+   * (`**gras**`).
+   *
+   * La cause est structurelle et vaut pour TOUS les textes en dur : `sanitizeAgentOutput`
+   * convertit le markdown en mrkdwn, mais il n'a qu'un seul site d'appel — `response.text`,
+   * la réponse d'un MODÈLE. Les réponses déterministes sont postées directement par le
+   * handler et ne passent par aucun filtre. Ce qui est écrit ici part tel quel.
+   */
+  const hardCoded = [
+    ...DETERMINISTIC_REPLIES.flatMap((entry) => [entry.reply, ...(entry.variants ?? [])]),
+  ].filter((text): text is string => typeof text === 'string');
+
+  it.each(hardCoded)('« %s » n’emploie pas de gras GitHub', (text) => {
+    expect(text).not.toContain('**');
+  });
+
+  it('vérifie bien quelque chose — la liste n’est pas vide', () => {
+    expect(hardCoded.length).toBeGreaterThan(5);
+  });
+});
