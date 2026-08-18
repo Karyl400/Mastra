@@ -28,16 +28,19 @@
  * c'est que leur prédicat est le même des deux côtés — le seul point où la divergence
  * coûtait quelque chose.
  */
-import { GREETING_REPLY, isBareGreeting } from '../../../../shared/greeting';
+import { GREETING_REPLIES, GREETING_REPLY, isBareGreeting } from '../../../../shared/greeting';
 import { DISTRESS_REPLY, detectsDistress } from '../../../../shared/distress';
 import { requestsErasure } from '../../../../shared/forget';
 import { extractPinnedFact } from '../../../../shared/pin-fact';
 import { requestsProfileForm } from '../../../../shared/profile-request';
 import {
+  CONTENT_FREE_REPLIES,
   CONTENT_FREE_REPLY,
+  TOO_LONG_REPLIES,
   TOO_LONG_REPLY,
   hasNoTextualContent,
 } from '../../../../shared/message-shape';
+import { pickVariant } from '../../../../shared/reply-variants';
 import { MAX_USER_INPUT_LENGTH } from '../../../../shared/security/llm-guardrail';
 
 /** Sous-type Slack d'un message portant une pièce jointe. */
@@ -61,6 +64,11 @@ export interface DeterministicReplyInput {
   readonly text: string;
   /** `subtype` de l'événement Slack, seul critère non textuel de la table. */
   readonly subtype?: string;
+  /**
+   * Horodatage du message Slack. Sert UNIQUEMENT de graine au choix de formulation — jamais
+   * à une décision. Absent hors Slack : la variante canonique est alors rendue.
+   */
+  readonly messageTs?: string;
   /** Sert au seul journal de la détresse — jamais à la décision. */
   readonly isDirectMessage?: boolean;
 }
@@ -72,8 +80,19 @@ export interface DeterministicReply {
   /**
    * Texte figé, ou `null` quand le court-circuit AGIT et que le handler doit s'en charger
    * (effacement, épinglage, publication du formulaire).
+   *
+   * ⚠️ C'est la formulation CANONIQUE — celle que citent les tests et la documentation. Quand
+   * `variants` existe, c'est `replyFor()` qui choisit ce qui part réellement.
    */
   readonly reply: string | null;
+  /**
+   * Formulations interchangeables, la canonique en tête. Voir `shared/reply-variants.ts` :
+   * la répétition littérale est ce qui fait « machine », et la corriger ici coûte zéro token.
+   *
+   * ⚠️ La DÉTRESSE n'en a délibérément pas : chaque phrase y est pesée, et varier n'y
+   * apporterait qu'un risque.
+   */
+  readonly variants?: readonly string[];
   /**
    * Le tour entre-t-il en mémoire conversationnelle ?
    *
@@ -99,6 +118,7 @@ export const DETERMINISTIC_REPLIES: readonly DeterministicReply[] = [
     name: 'bare_greeting',
     matches: ({ text }) => isBareGreeting(text),
     reply: GREETING_REPLY,
+    variants: GREETING_REPLIES,
     remembersTurn: true,
   },
   {
@@ -114,6 +134,7 @@ export const DETERMINISTIC_REPLIES: readonly DeterministicReply[] = [
     name: 'no_textual_content',
     matches: ({ text }) => hasNoTextualContent(text),
     reply: CONTENT_FREE_REPLY,
+    variants: CONTENT_FREE_REPLIES,
   },
   {
     // La borne EXISTE déjà dans `wrapUserInput`, mais elle y lève une `SecurityBlockError`
@@ -123,6 +144,7 @@ export const DETERMINISTIC_REPLIES: readonly DeterministicReply[] = [
     name: 'over_length',
     matches: ({ text }) => text.length > MAX_USER_INPUT_LENGTH,
     reply: TOO_LONG_REPLY,
+    variants: TOO_LONG_REPLIES,
     // ⚠️ La longueur, JAMAIS le texte : c'est un DM, et ce chemin est précisément celui des
     // copier-coller de documents internes.
     logFields: ({ text }) => ({ textLength: text.length }),
@@ -188,4 +210,18 @@ export function isAnsweredWithoutModel(input: DeterministicReplyInput): boolean 
  */
 export function findStaticReply(input: DeterministicReplyInput): DeterministicReply | undefined {
   return DETERMINISTIC_REPLIES.find((entry) => entry.reply !== null && entry.matches(input));
+}
+
+/**
+ * Le texte réellement posté pour ce court-circuit.
+ *
+ * Déterministe : la graine est l'horodatage du message, donc la même personne voit des
+ * formulations différentes d'un message à l'autre, et un message rejoué donne exactement la
+ * même réponse. Voir `shared/reply-variants.ts` pour le pourquoi complet — en résumé : un
+ * test ne peut pas verrouiller une réponse aléatoire, et un diagnostic ne peut pas la rejouer.
+ */
+export function replyFor(entry: DeterministicReply, input: DeterministicReplyInput): string | null {
+  if (entry.reply === null) return null;
+  if (!entry.variants) return entry.reply;
+  return pickVariant(entry.variants, input.messageTs);
 }

@@ -27,10 +27,14 @@ import {
   type SlackTeamJoinEvent,
   type SlackEventsHandlerOptions,
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
-import { GREETING_REPLY } from '../../../src/shared/greeting';
+import { GREETING_REPLIES } from '../../../src/shared/greeting';
 import { DISTRESS_REPLY } from '../../../src/shared/distress';
 import { ERASURE_FAILED_REPLY } from '../../../src/shared/forget';
-import { CONTENT_FREE_REPLY, TOO_LONG_REPLY } from '../../../src/shared/message-shape';
+import {
+  CONTENT_FREE_REPLIES,
+  TOO_LONG_REPLIES,
+  TOO_LONG_REPLY,
+} from '../../../src/shared/message-shape';
 import { wrapAgentInput, MAX_USER_INPUT_LENGTH } from '../../../src/shared/security/llm-guardrail';
 import { NEUTRAL_REFUSAL } from '../../../src/shared/security/agent-output';
 import {
@@ -2355,9 +2359,14 @@ describe('SlackEventsHandler — salutation nue', () => {
 
     // La garantie qui compte : zéro étape LLM, donc zéro tool, donc aucune écriture.
     expect(generate).not.toHaveBeenCalled();
-    expect(slack.chat.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: GREETING_REPLY }),
-    );
+    // ⚠️ APPARTENANCE et non égalité : la formulation varie avec l'horodatage du message
+    // (voir `shared/reply-variants.ts`). Verrouiller une chaîne exacte reviendrait à
+    // interdire la variation, qui est justement le correctif — mais l'ensemble des
+    // formulations, lui, reste fermé et vérifiable.
+    const posted = (slack.chat.postMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      text: string;
+    };
+    expect(GREETING_REPLIES).toContain(posted.text);
   });
 
   it('une demande qui COMMENCE par une salutation atteint bien le modèle', async () => {
@@ -2420,9 +2429,10 @@ describe('SlackEventsHandler — court-circuits sans appel LLM', () => {
     await handler.handleEvent(envelope(dm({ text: '🎉🎉', ts: nextTs() }), 'EvEMOJI1'));
 
     expect(generate).not.toHaveBeenCalled();
-    expect(slack.chat.postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: CONTENT_FREE_REPLY }),
-    );
+    const posted = (slack.chat.postMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as {
+      text: string;
+    };
+    expect(CONTENT_FREE_REPLIES).toContain(posted.text);
   });
 
   it('répond à un message TROP LONG en nommant la longueur, pas en refusant', async () => {

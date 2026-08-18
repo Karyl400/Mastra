@@ -43,6 +43,7 @@ import {
   FILE_SHARE_SUBTYPE,
   findStaticReply,
   isAnsweredWithoutModel,
+  replyFor,
 } from '../../domain/services/deterministic-replies';
 import { deriveConversationId } from '../../../conversation/domain/value-objects/conversation-id';
 import {
@@ -1677,17 +1678,28 @@ export class SlackEventsHandler {
     //
     // Les trois derniers AGISSENT (effacer, épingler, publier un formulaire) : leur
     // exécution reste ci-dessous, seul leur prédicat vit dans la table.
-    const staticReply = findStaticReply({ text, subtype: event.subtype, isDirectMessage });
+    // `messageTs` ne sert qu'à choisir la FORMULATION : la même personne voit des tournures
+    // différentes d'un message à l'autre, et un message rejoué donne exactement la même
+    // réponse. Voir `shared/reply-variants.ts` — la répétition littérale est ce qui fait
+    // « machine », et la corriger ici coûte zéro token.
+    const shortCircuitInput = {
+      text,
+      subtype: event.subtype,
+      isDirectMessage,
+      messageTs: event.ts,
+    };
+    const staticReply = findStaticReply(shortCircuitInput);
+    const staticText = staticReply ? replyFor(staticReply, shortCircuitInput) : null;
 
-    if (staticReply?.reply) {
+    if (staticReply && staticText) {
       logger.info(`Court-circuit deterministe (${staticReply.name}) — aucun appel de modele`, {
         channel,
-        ...(staticReply.logFields?.({ text, subtype: event.subtype, isDirectMessage }) ?? {}),
+        ...(staticReply.logFields?.(shortCircuitInput) ?? {}),
       });
 
       await this.slack.chat.postMessage({
         channel,
-        text: staticReply.reply,
+        text: staticText,
         ...(threadTs ? { thread_ts: threadTs } : {}),
       });
 
@@ -1705,7 +1717,7 @@ export class SlackEventsHandler {
         await this.rememberTurn({
           conversationId,
           role: 'assistant',
-          content: staticReply.reply,
+          content: staticText,
           agentId: DEFAULT_AGENT_ID,
           slackUserId: null,
         });

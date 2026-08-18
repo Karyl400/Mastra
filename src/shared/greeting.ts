@@ -156,9 +156,25 @@ export const ANNOUNCED_CAPABILITIES: ReadonlyArray<{
  * Volontairement sans question ouverte finale : la personne va enchaîner de toute façon,
  * et chaque tour supplémentaire coûte un vrai appel LLM.
  */
-export const GREETING_REPLY = `Bonjour. Dis-moi ce dont tu as besoin : ${ANNOUNCED_CAPABILITIES.slice(
-  0,
-  -1,
-)
+const CAPABILITY_LIST = `${ANNOUNCED_CAPABILITIES.slice(0, -1)
   .map((c) => c.text)
-  .join(', ')}, ou ${ANNOUNCED_CAPABILITIES[ANNOUNCED_CAPABILITIES.length - 1]!.text}.`;
+  .join(', ')}, ou ${ANNOUNCED_CAPABILITIES[ANNOUNCED_CAPABILITIES.length - 1]!.text}`;
+
+export const GREETING_REPLY = `Bonjour. Dis-moi ce dont tu as besoin : ${CAPABILITY_LIST}.`;
+
+/**
+ * Les formulations possibles. La première EST `GREETING_REPLY` — c'est la canonique, celle que
+ * les tests et la documentation citent, et celle rendue hors Slack.
+ *
+ * ⚠️ Toutes annoncent la MÊME liste de capacités, dérivée d'`ANNOUNCED_CAPABILITIES` : une
+ * variante qui en oublierait une, ou en inventerait une, rouvrirait exactement le défaut que
+ * cette table vient de fermer. Ce qui varie est l'ATTAQUE de la phrase, rien d'autre.
+ *
+ * Pourquoi c'est ici que ça compte le plus : la salutation est, de très loin, la réponse la
+ * plus répétée du produit — et la répétition littérale est ce qui fait « machine ».
+ */
+export const GREETING_REPLIES: readonly string[] = [
+  GREETING_REPLY,
+  `Bonjour. Je peux ${CAPABILITY_LIST}. Qu'est-ce qu'il te faut ?`,
+  `Salut. Dis-moi ce que tu cherches : ${CAPABILITY_LIST}.`,
+];
