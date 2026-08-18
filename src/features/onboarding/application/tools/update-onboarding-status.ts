@@ -4,6 +4,7 @@ import type { OnboardingRepository } from '../../domain/ports/onboarding.reposit
 import { uuidSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { OnboardingStatus } from '../../../../shared/types';
+import { canPerformSideEffects } from '../../../../shared/slack-request-context';
 
 /**
  * Met à jour l'avancement du parcours d'intégration.
@@ -64,6 +65,41 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
       currentStep: z.number().int().min(0).optional().describe('Étape actuelle'),
     }),
     execute: async (data, _ctx) => {
+      // ─────────────────────────────────────────────────────────────────────
+      // FRONTIÈRE D'AUTORISATION — avant toute lecture, avant toute écriture
+      // ─────────────────────────────────────────────────────────────────────
+      // Ajoutée le 2026-08-18. Cet outil était, avec `scheduleReminder`, le SEUL écrivain
+      // exposé à un agent qui ne regardait pas qui demande — alors que `sendNotification`,
+      // son voisin de gravité, avait sa garde depuis le 2026-08-13.
+      //
+      // Ce que l'absence permettait : `employeeId` est produit par le MODÈLE à partir d'un
+      // texte Slack arbitraire, et un statut `Completed` pose `completedAt` (voir plus bas).
+      // Un invité mono-canal pouvait donc déclarer terminé le parcours d'intégration de
+      // quelqu'un d'autre — et la complétion du profil est le SEUL suivi que ce produit
+      // sache réellement observer depuis le retrait du suivi de tâches.
+      //
+      // ⚠️ L'ABSENCE de niveau vaut autorisation, exactement comme dans
+      // `send-notification.ts:117` : hors Slack (workflow, playground, test, route `/api/*`
+      // déjà derrière un jeton) il n'y a pas de demandeur à évaluer.
+      //
+      // ⚠️ Le refus tombe AVANT `findByEmployee` : lire d'abord et filtrer ensuite ferait de
+      // ce tool un oracle d'existence, journaliserait une consultation qui n'aurait pas dû
+      // avoir lieu, et fuirait par la latence. Un test vérifie que le dépôt n'est jamais
+      // touché.
+      if (!canPerformSideEffects(_ctx?.requestContext)) {
+        logger.warn('updateOnboardingStatus refusé : le demandeur n’a pas le niveau requis', {
+          employeeId: data.employeeId,
+        });
+        // On INSTRUIT plutôt que de lever — même raison que `sendNotification` : une
+        // exception remonterait au modèle comme une panne, qu'il raconterait ou
+        // réessaierait, soit deux allers-retours gâchés.
+        return {
+          updated: false as const,
+          reason: 'not_authorized' as const,
+          hint: "Cette action est réservée aux membres de l'organisation. Dis-le simplement, ne réessaie pas.",
+        };
+      }
+
       logger.info('Mise à jour statut onboarding', {
         employeeId: data.employeeId,
         status: data.status,

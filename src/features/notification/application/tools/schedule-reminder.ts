@@ -38,6 +38,7 @@ import { uuidSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { NotificationChannel, NotificationStatus, RecipientType } from '../../../../shared/types';
 import { NotFoundError, ValidationError } from '../../../../shared/errors';
+import { canPerformSideEffects } from '../../../../shared/slack-request-context';
 
 /** Mêmes canaux que `sendNotification` : ce sont les seuls qu'on saurait acheminer. */
 const TRANSPORTED_CHANNELS = ['email', 'slack'] as const;
@@ -74,6 +75,36 @@ export function makeScheduleReminder(
       recipientType: z.enum(RECIPIENT_TYPES).default('employee'),
     }),
     execute: async (data, _ctx) => {
+      // ─────────────────────────────────────────────────────────────────────
+      // FRONTIÈRE D'AUTORISATION — avant toute résolution, avant toute écriture
+      // ─────────────────────────────────────────────────────────────────────
+      // Ajoutée le 2026-08-18. Cet outil était, avec `updateOnboardingStatus`, le SEUL
+      // écrivain exposé à un agent qui ne regardait pas qui demande — alors que son jumeau
+      // `sendNotification` a sa garde depuis le 2026-08-13, et que les deux écrivent dans
+      // la MÊME table.
+      //
+      // Ce que l'absence permettait : écrire un `subject` et un `body` de 5 000 caractères
+      // dans `notifications`, sur le `recipientId` d'un TIERS. Ces lignes ressortent ensuite
+      // par `getNotificationHistory` — c'est donc une écriture arbitraire dans l'historique
+      // de quelqu'un d'autre, relue plus tard comme un fait.
+      //
+      // ⚠️ L'ABSENCE de niveau vaut autorisation, comme dans `send-notification.ts:117` :
+      // hors Slack il n'y a pas de demandeur à évaluer.
+      //
+      // ⚠️ Le refus tombe AVANT la résolution du destinataire : sans cela, « destinataire
+      // inconnu » et « non autorisé » deviendraient deux verdicts distinguables, donc un
+      // oracle d'annuaire — le défaut déjà fermé sur `getEmployeeProfile`.
+      if (!canPerformSideEffects(_ctx?.requestContext)) {
+        logger.warn('scheduleReminder refusé : le demandeur n’a pas le niveau requis', {
+          recipientId: data.recipientId,
+        });
+        return {
+          stored: false as const,
+          reason: 'not_authorized' as const,
+          hint: "Cette action est réservée aux membres de l'organisation. Dis-le simplement, ne réessaie pas.",
+        };
+      }
+
       const channel = data.channel ?? 'email';
       const recipientType = (data.recipientType ?? 'employee') as RecipientType;
 
