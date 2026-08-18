@@ -22,6 +22,9 @@ import {
 import {
   UNSUPPORTED_CLAIM_NOTICE,
   detectUnsupportedCompletionClaim,
+  detectUnsupportedDeliveryPromise,
+  onlyNonDeliveringTools,
+  PROMISED_DELIVERY_NOTICE,
   hasActingToolCall,
   readToolCallNames,
 } from '../../domain/services/claim-reconciliation';
@@ -2076,6 +2079,35 @@ export class SlackEventsHandler {
         });
       }
 
+      // ── LA PROMESSE D'AVENIR — le symétrique, ajouté le 2026-08-18 ──────────
+      //
+      // Ici l'accompli est VRAI et la suite est fausse : « Le rappel a été enregistré. Il
+      // sera envoyé à Karyl par email le 20 août à 09 h 00. » `scheduleReminder` a bel et
+      // bien tourné, donc le détecteur ci-dessus se tait par conception — la contradiction
+      // n'est pas entre la phrase et la TRACE, elle est entre la phrase et le CÂBLAGE : il
+      // n'existe ni cron ni poller, et `findPending()` n'a aucun site d'appel.
+      //
+      // ⚠️ La consigne de prompt a été essayée D'ABORD et mesurée en échec le même jour : la
+      // réponse suivante en production a gagné une date et une heure d'envoi précises. Une
+      // consigne est probable, le code est garanti.
+      //
+      // Les deux notes sont MUTUELLEMENT EXCLUSIVES : `onlyNonDeliveringTools` exige au moins
+      // une action, `hasActingToolCall` exige qu'il n'y en ait aucune. Deux démentis accolés
+      // à la même réponse se contrediraient l'un l'autre.
+      const deliveryPromise =
+        toolCalls !== null && onlyNonDeliveringTools(toolCalls)
+          ? detectUnsupportedDeliveryPromise(safeOutput.text)
+          : null;
+
+      if (deliveryPromise) {
+        logger.error('Agent promised an automatic delivery that nothing performs', {
+          agentId,
+          channel,
+          conversationId,
+          claim: deliveryPromise,
+        });
+      }
+
       // Mémorisé APRÈS assainissement : sans cela, l'unique filet anti-marqueurs serait
       // contourné et un `kisso_XXXX` capté une fois se rejouerait à chaque tour suivant.
       //
@@ -2097,7 +2129,9 @@ export class SlackEventsHandler {
       // déjà son canal, il a été construit avec. Un paramètre ignoré que les appelants
       // remplissent quand même est une fausse indication sur ce que la fonction fait.
       await progress.resolve(
-        unsupportedClaim ? safeOutput.text + UNSUPPORTED_CLAIM_NOTICE : safeOutput.text,
+        safeOutput.text +
+          (unsupportedClaim ? UNSUPPORTED_CLAIM_NOTICE : '') +
+          (deliveryPromise ? PROMISED_DELIVERY_NOTICE : ''),
       );
 
       // Ce que le log ne disait pas et qu'il fallait deviner : combien d'étapes le run a
@@ -2116,6 +2150,7 @@ export class SlackEventsHandler {
         inputTokens,
         toolCalls,
         unsupportedClaim,
+        deliveryPromise,
       });
 
       // ────────────────────────────────────────────────────────────────────────

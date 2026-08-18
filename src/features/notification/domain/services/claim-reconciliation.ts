@@ -191,3 +191,132 @@ export function readToolCallNames(response: unknown): string[] | null {
  * et différent de `ts` ; sinon `thread_ts` == `ts` == la racine du message courant, pas un
  * vrai thread existant).
  */
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * LA PROMESSE D'AVENIR — le symétrique de tout ce qui précède
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Tout ce module guette l'ACCOMPLI non appuyé par un outil. Il est aveugle à la faute
+ * inverse, mesurée en production le 2026-08-18 :
+ *
+ *     « Le rappel a été enregistré. **Il sera envoyé à Karyl par email le 20 août 2026
+ *       à 09 h 00**, avec le sujet … »
+ *
+ * L'accompli y est VRAI — `scheduleReminder` a bel et bien tourné, la ligne existe. C'est la
+ * suite qui est fausse : il n'existe ni cron ni poller dans ce système, et `findPending()`
+ * n'a aucun site d'appel. Rien ne partira, jamais. `detectUnsupportedCompletionClaim` se tait
+ * par conception, puisqu'un outil a tourné — la contradiction n'est pas entre la phrase et la
+ * trace, elle est entre la phrase et le CÂBLAGE.
+ *
+ * ⚠️ **La consigne de prompt a été essayée d'abord, et mesurée en échec le même jour.**
+ * « Un rappel est seulement ENREGISTRÉ : aucun automate ne l'enverra, dis-le sans détour » a
+ * été ajoutée au `notificationAgent` puis déployée ; la réponse suivante en production a été
+ * PIRE qu'avant — elle a gagné une date et une heure d'envoi précises. Le mot `scheduledAt`
+ * du tool-result pèse plus lourd qu'une ligne d'instruction, et c'est la règle que ce dépôt
+ * connaît déjà : « le mot que lit le modèle est celui qu'il répétera ». Une consigne est
+ * PROBABLE ; le code est GARANTI. Même issue que le champ `coverage`, ignoré deux fois.
+ */
+
+/**
+ * Outils qui écrivent une intention SANS jamais la transporter.
+ *
+ * ⚠️ Liste volontairement MINUSCULE, et son critère est vérifiable : y figure un outil dont
+ * le résultat porte `willBeSentAutomatically: false`. Y ajouter un outil qui livre vraiment
+ * ferait démentir des réponses justes — le pire défaut possible pour un garde-fou d'honnêteté.
+ */
+const NON_DELIVERING_TOOL_NAMES: ReadonlySet<string> = new Set(['scheduleReminder']);
+
+/**
+ * Toutes les actions du tour sont-elles des enregistrements sans transport ?
+ *
+ * ⚠️ Faux dès qu'un outil INCONNU a tourné, exactement comme `hasActingToolCall` : l'inconnu
+ * ne doit jamais produire une accusation. Et faux sur `[]`, où c'est l'autre détecteur qui
+ * parle — sans cela les deux notes s'accoleraient à la même réponse.
+ */
+export function onlyNonDeliveringTools(toolCalls: readonly string[]): boolean {
+  const acting = toolCalls.filter((name) => !READ_ONLY_TOOL_NAMES.has(name));
+  return acting.length > 0 && acting.every((name) => NON_DELIVERING_TOOL_NAMES.has(name));
+}
+
+/**
+ * Formules d'ENVOI À VENIR. Liste FERMÉE, même discipline que `ACCOMPLISHMENT_CLAIMS` : on
+ * cherche une CONTRADICTION avec le câblage, jamais une invraisemblance.
+ *
+ * Volontairement ABSENTS :
+ *  - « je peux l'envoyer », « veux-tu que je l'envoie » — une OFFRE n'est pas une promesse,
+ *    et c'est le même critère qui a toujours épargné « je peux t'envoyer… » à l'autre
+ *    détecteur ;
+ *  - le passé (« a été envoyé ») — c'est le domaine de `ACCOMPLISHMENT_CLAIMS`, et le
+ *    couvrir ici accolerait deux notes à la même phrase.
+ */
+/** Pronoms enclitiques français, dans l'ordre où ils s'empilent : « je **le lui** enverrai ». */
+const ENCLITIC = "(?:(?:le|la|lui|les|leur|vous) |t')";
+
+/** Verbes d'envoi au futur de la première personne. */
+const SEND_VERBS_FUTURE = 'enverrai|transmettrai|expedierai|adresserai';
+
+const FUTURE_DELIVERY_CLAIMS: ReadonlyArray<{ label: string; pattern: RegExp }> = [
+  {
+    label: 'sera envoyé',
+    pattern:
+      /\b(?:sera|seront) (?:bien |automatiquement )?(?:envoye|transmis|expedie|adresse|delivre)/,
+  },
+  { label: 'partira', pattern: /\b(?:partira|partiront)\b/ },
+  {
+    label: "je l'enverrai",
+    // ⚠️ Les pronoms sont RÉPÉTABLES : « je **le lui** enverrai » en empile deux, et un seul
+    // groupe optionnel laissait passer la phrase la plus naturelle des trois. Attrapé par le
+    // test avant tout déploiement — c'est le même défaut de bord que `\b` en ASCII, sous une
+    // autre forme : un motif qui échoue en silence sur la moitié des tournures.
+    // ⚠️ DEUX groupes optionnels INDÉPENDANTS, jamais un quantificateur imbriqué
+    // (`(?:… ?){0,2}`) : ce dernier était borné à deux, donc inoffensif, mais il déclenchait
+    // `security/detect-unsafe-regex` — et ce dépôt a ramené son lint à ZÉRO warning le
+    // 2026-08-18. Une exception ajoutée ici rendrait la règle inaudible ailleurs.
+    //
+    // Composé à partir d'une constante plutôt qu'écrit à plat : la même alternation répétée
+    // deux fois portait la complexité du littéral à 23 pour un plafond de 20, et une liste
+    // recopiée diverge de toute façon à la première modification. Même idiome que
+    // `matchesKeyword` — la source est INTERNE, jamais un texte d'utilisateur (la règle
+    // `detect-non-literal-regexp` ne s'en émeut d'ailleurs pas : les deux fragments sont des
+    // constantes de ce module, pas des paramètres).
+    // Mesuré : 0,02 ms sur 8 000 pronoms empilés.
+    pattern: new RegExp(`\\bje ${ENCLITIC}?${ENCLITIC}?(?:${SEND_VERBS_FUTURE})\\b`),
+  },
+  { label: 'recevra', pattern: /\b(?:recevra|recevront)\b/ },
+];
+
+/**
+ * Ce qui DÉSAMORCE une promesse : un envoi conditionné à un geste humain est VRAI.
+ *
+ * C'est exactement le contrat de la carte de recrutement — « il ne partira qu'après ton clic
+ * sur Envoyer » — et y accoler une note de démenti transformerait ce garde-fou en défaut. La
+ * fenêtre est le message entier : la condition est souvent posée dans une autre phrase que la
+ * promesse.
+ */
+const HUMAN_GATED_PATTERN =
+  /\b(?:apres|qu'apres|une fois) (?:ton |votre |le |la )?(?:clic|validation|confirmation)|\bne part(?:ira)? qu'apres\b|\bclic sur\b/;
+
+/**
+ * Note ACCOLÉE quand la réponse promet un envoi que rien n'exécutera.
+ *
+ * ⚠️ Contrat DIFFÉRENT de `UNSUPPORTED_CLAIM_NOTICE`, et la différence est le fond du
+ * correctif : là-bas rien n'a été exécuté, ici l'enregistrement a bel et bien eu lieu. Écrire
+ * « aucune action n'a été exécutée » serait faux et détruirait la seule partie vraie du
+ * message. On dément la SUITE, pas le FAIT.
+ *
+ * En mrkdwn Slack (`_italique_`), jamais en markdown GitHub : les textes en dur ne passent
+ * par aucun filtre — `sanitizeAgentOutput` n'a qu'un seul site d'appel, `response.text`.
+ */
+export const PROMISED_DELIVERY_NOTICE =
+  "\n\n_Note : c'est enregistré, mais aucun automate ne l'enverra — il n'y en a aucun dans ce système. Reviens me le demander le moment venu._";
+
+/**
+ * Étiquette de la promesse d'envoi trouvée, ou `null`. Fonction PURE : c'est l'appelant qui
+ * la confronte à la trace d'exécution, exactement comme pour l'accompli.
+ */
+export function detectUnsupportedDeliveryPromise(text: string): string | null {
+  const normalized = normalizeForClaims(text);
+  if (HUMAN_GATED_PATTERN.test(normalized)) return null;
+  return FUTURE_DELIVERY_CLAIMS.find((claim) => claim.pattern.test(normalized))?.label ?? null;
+}
