@@ -14,7 +14,12 @@
  * « Salut, tu peux me retrouver le profil de … ? » serait bien pire que le défaut corrigé.
  */
 import { describe, it, expect } from 'vitest';
-import { isBareGreeting, GREETING_REPLY } from '../../../src/shared/greeting';
+import {
+  isBareGreeting,
+  GREETING_REPLY,
+  ANNOUNCED_CAPABILITIES,
+} from '../../../src/shared/greeting';
+import { AGENT_TOOLS } from '../../../src/shared/agent-capabilities';
 
 describe('isBareGreeting — salutations nues', () => {
   it.each([
@@ -76,5 +81,29 @@ describe('GREETING_REPLY', () => {
 
   it('reste court — il est posté à chaque salutation, sans appel LLM', () => {
     expect(GREETING_REPLY.length).toBeLessThan(200);
+  });
+
+  /**
+   * ⚠️ LE TEST QUI MANQUAIT, et son absence a coûté une promesse creuse pendant quatre jours.
+   *
+   * La salutation proposait « préparer un questionnaire » alors que la feature avait été
+   * SUPPRIMÉE du dépôt le 2026-08-14 — agent retiré du registre, outils supprimés. Le tout
+   * premier message que lit un utilisateur promettait donc une capacité inexistante, et rien
+   * ne pouvait le signaler : le texte était un littéral, sans lien avec le câblage.
+   *
+   * Chaque capacité annoncée porte désormais le nom de l'outil qui la rend vraie, et c'est
+   * ce lien qu'on vérifie ici. Retirer un outil d'un agent fait maintenant rougir ce test.
+   */
+  it('n’annonce QUE des capacités réellement câblées sur un agent', () => {
+    const wired = new Set(Object.values(AGENT_TOOLS).flat());
+
+    for (const capability of ANNOUNCED_CAPABILITIES) {
+      expect(wired.has(capability.tool), `« ${capability.text} » → ${capability.tool}`).toBe(true);
+      expect(GREETING_REPLY).toContain(capability.text);
+    }
+  });
+
+  it('ne propose plus le questionnaire — la feature n’existe plus', () => {
+    expect(GREETING_REPLY.toLowerCase()).not.toContain('questionnaire');
   });
 });

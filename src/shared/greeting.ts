@@ -121,6 +121,31 @@ export function isBareGreeting(text: string | undefined | null): boolean {
 }
 
 /**
+ * Ce que la salutation ANNONCE, et l'outil qui le sert réellement.
+ *
+ * ⚠️ **Cette table existe à cause d'un défaut trouvé le 2026-08-18 : la salutation proposait
+ * « préparer un questionnaire ».** La feature `questionnaire` a été supprimée du dépôt le
+ * 2026-08-14 — agent retiré du registre, outils supprimés, tables laissées en production.
+ * Le tout PREMIER message que lit un utilisateur promettait donc une capacité qui n'existe
+ * plus, et personne ne l'avait vu : ce texte est un littéral, rien ne le reliait au câblage.
+ *
+ * Chaque entrée porte donc le nom de l'outil qui la rend vraie, et un test vérifie que cet
+ * outil est bien câblé sur un agent (`shared/agent-capabilities.ts`). Le jour où un outil
+ * disparaît, c'est un test qui rougit — plus une promesse creuse qui survit des semaines.
+ * C'est la même discipline que la frontière négative des agents : ne jamais rédiger à la
+ * main ce que le câblage peut prouver.
+ */
+export const ANNOUNCED_CAPABILITIES: ReadonlyArray<{
+  readonly text: string;
+  readonly tool: string;
+}> = [
+  { text: "retrouver le profil de quelqu'un", tool: 'getEmployeeProfile' },
+  { text: 'préparer un document', tool: 'generateDocument' },
+  { text: 'envoyer un message', tool: 'sendNotification' },
+  { text: "résumer ce qui s'est dit dans un canal", tool: 'getChannelHistory' },
+];
+
+/**
  * Réponse rendue à une salutation nue.
  *
  * Elle ORIENTE au lieu de saluer en retour : quelqu'un qui écrit « bonjour » à un bot
@@ -131,6 +156,9 @@ export function isBareGreeting(text: string | undefined | null): boolean {
  * Volontairement sans question ouverte finale : la personne va enchaîner de toute façon,
  * et chaque tour supplémentaire coûte un vrai appel LLM.
  */
-export const GREETING_REPLY =
-  'Bonjour. Dis-moi ce dont tu as besoin : retrouver un profil, générer un document, ' +
-  'préparer un questionnaire ou envoyer une notification.';
+export const GREETING_REPLY = `Bonjour. Dis-moi ce dont tu as besoin : ${ANNOUNCED_CAPABILITIES.slice(
+  0,
+  -1,
+)
+  .map((c) => c.text)
+  .join(', ')}, ou ${ANNOUNCED_CAPABILITIES[ANNOUNCED_CAPABILITIES.length - 1]!.text}.`;

@@ -142,14 +142,33 @@ export function detectsDistress(text: string | undefined | null): boolean {
  *  3. **Elle rompt le registre « collègue, ton neutre » du bloc STYLE**, et c'est le but :
  *     ce registre est précisément ce qui rendait la réponse inadaptée.
  *
- * ⚠️ Le numéro cité est le **3114**, numéro national français de prévention du suicide,
- * gratuit et ouvert 24h/24. Il est écrit en dur plutôt que configuré : une valeur
- * configurable est une valeur qui peut être vide, et ce message-ci ne doit jamais l'être.
+ * ⚠️ **LE NUMÉRO A ÉTÉ CORRIGÉ LE 2026-08-18, et c'était un défaut de JOIGNABILITÉ, pas de
+ * ton.** Ce message citait le **3114**, numéro national **français**. Les salariés de Kisso
+ * sont au **Nigeria** (confirmé par le propriétaire ; le fuseau par défaut du produit,
+ * `Africa/Lagos`, le laissait déjà entendre). Le numéro le plus important de tout ce dépôt
+ * ne joignait donc personne — et il était présenté comme joignable.
+ *
+ * C'est la même famille de défaut que tout ce que ce dépôt traque, appliquée au pire endroit
+ * possible : une ressource annoncée qui n'existe pas pour son destinataire.
+ *
+ * Les numéros retenus, vérifiés le 2026-08-18 auprès de *LifeLine International*, fédération
+ * internationale dont **SURPIN** est le membre nigérian
+ * (`lifeline-international.com/member/nigeria-surpin/`) :
+ *   • **0800 0787 746** — SURPIN, gratuit, 24 h/24, présent dans les 36 États et le FCT ;
+ *   • **112** — urgences nationales, quand la vie est en jeu à l'instant même.
+ *
+ * ⚠️ **Ne JAMAIS écrire ici un numéro non vérifié.** Un numéro faux dans ce message est pire
+ * que l'absence de numéro : il consomme le seul geste que la personne aura peut-être la force
+ * de faire. En cas de doute sur une ligne, on retire la ligne, on ne l'approxime pas.
+ *
+ * Ils restent écrits en dur plutôt que configurés : une valeur configurable est une valeur
+ * qui peut être vide, et ce message-ci ne doit jamais l'être.
  */
 export const DISTRESS_REPLY =
   "Je suis un outil d'onboarding, je ne suis pas la bonne personne pour ça — mais je ne vais " +
   'pas te laisser sans réponse.\n\n' +
-  "Si c'est urgent, le 3114 est joignable gratuitement 24h/24 (prévention du suicide, France).\n" +
+  "Si c'est urgent : **0800 0787 746** (SURPIN, gratuit, 24h/24, partout au Nigeria), ou le " +
+  '**112** si la vie de quelqu’un est en jeu maintenant.\n' +
   "Pour une situation au travail — harcèlement, conflit, souffrance — parles-en à l'équipe RH " +
   "de Kisso ou à la médecine du travail. Tu peux aussi en parler à quelqu'un en qui tu as " +
   'confiance dans le workspace.\n\n' +

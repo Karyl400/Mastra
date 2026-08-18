@@ -76,8 +76,20 @@ describe('DISTRESS_REPLY', () => {
     // `NEUTRAL_REFUSAL` a été réécrit pour ne renvoyer vers personne, à raison pour un refus
     // de sécurité. Cette décision avait supprimé le dernier endroit du système qui
     // mentionnait un être humain. Ici, ne renvoyer vers personne serait une faute.
-    expect(DISTRESS_REPLY).toContain('3114');
     expect(DISTRESS_REPLY).toContain('RH');
+  });
+
+  it('cite une ligne joignable DEPUIS LE NIGERIA, où sont les salariés', () => {
+    // ⚠️ Ce test a remplacé un `toContain('3114')` qui verrouillait un numéro FRANÇAIS dans
+    // un produit dont les utilisateurs sont au Nigeria. Il ne joignait personne, et il était
+    // présenté comme joignable — le pire endroit du dépôt pour ce genre de défaut.
+    //
+    // SURPIN, membre nigérian de LifeLine International, ligne gratuite 24h/24 ; et le 112,
+    // urgences nationales. Vérifiés le 2026-08-18.
+    expect(DISTRESS_REPLY).toContain('0800 0787 746');
+    expect(DISTRESS_REPLY).toContain('112');
+    // Et surtout : plus aucune trace du numéro qui ne servait à rien ici.
+    expect(DISTRESS_REPLY).not.toContain('3114');
   });
 
   it('ne diagnostique rien et ne promet aucune transmission', () => {
