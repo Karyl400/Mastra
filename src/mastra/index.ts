@@ -59,6 +59,7 @@ import { slackInteractionsRoute } from '../api/slack-interactions.route';
 import { createApiAuthConfig } from '../shared/security/api-auth';
 import { createCallerErrorMiddleware } from '../shared/security/caller-error-mapping';
 import { createRequestContextGuard } from '../shared/security/request-context-guard';
+import { createSecurityHeadersMiddleware } from '../shared/security/http-headers';
 import { createAgentApiGuard } from '../shared/security/agent-api-guard';
 import { logger } from '../shared/logger';
 
@@ -504,6 +505,12 @@ export const mastra = new Mastra({
     // Monté sur `/api/*` UNIQUEMENT : `/slack/events` gère ses propres codes et le rejeu
     // de Slack en dépend. Une vraie panne serveur reste un 500 (voir le module).
     middleware: [
+      // Les en-têtes de sécurité, sur TOUTE réponse — d'où le joker nu et non `/api/*` : la
+      // racine et `/agents` rendent du `text/html`, et c'est cette surface-là qui justifie
+      // `x-frame-options`. Relevé de l'extérieur le 2026-08-18 : seul le HSTS de Vercel était
+      // présent. En PREMIER pour que les en-têtes couvrent aussi les refus des gardes qui
+      // suivent.
+      { path: '*', handler: createSecurityHeadersMiddleware() },
       // ⚠️ EN PREMIER, et l'ordre porte la sécurité : ce garde doit refuser AVANT que
       // quoi que ce soit ne lise le contexte. Mastra fusionne `body.requestContext` dans le
       // contexte serveur et n'écarte que `RESERVED_CONTEXT_KEYS` (`mastra__*`,
@@ -550,6 +557,22 @@ export const mastra = new Mastra({
     // pilotait les agents (envoi d'email, création d'employés, publication Slack).
     // `/slack/events` reste exempt via son `requiresAuth: false` (vérifié dans le source
     // de @mastra/server) et s'authentifie par signature HMAC Slack.
+    // ⚠️ SANS CETTE LIGNE, le serveur RENVOIE l'origine demandée avec
+    // `access-control-allow-credentials: true` — vérifié en production le 2026-08-18 :
+    // `Origin: https://evil.example.com` ressortait tel quel dans `access-control-allow-origin`.
+    //
+    // Honnêteté sur la portée : aucun scénario d'exploitation n'a été trouvé aujourd'hui.
+    // L'authentification est un jeton PORTEUR, qu'un navigateur n'attache jamais tout seul ;
+    // une page tierce ne gagne donc rien qu'elle ne puisse déjà faire depuis son propre
+    // serveur. Ce qu'on ferme est le jour où un cookie apparaîtrait — la combinaison
+    // origine reflétée + `credentials: true` est précisément celle qui rend ce jour-là
+    // catastrophique, et elle serait alors invisible parce que déjà en place.
+    //
+    // Liste VIDE et non `false` : `false` désactiverait le middleware CORS et laisserait
+    // l'absence d'en-tête dépendre de l'implémentation. Une liste vide ne matche aucune
+    // origine, donc aucun `access-control-allow-origin` n'est émis — et le produit n'a
+    // aucun client navigateur d'aucune origine, ce qui rend le refus total exact.
+    cors: { origin: [], credentials: false },
     auth: createApiAuthConfig({
       onMisconfigured: (message) => logger.error(message),
     }),

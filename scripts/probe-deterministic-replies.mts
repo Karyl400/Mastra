@@ -35,9 +35,9 @@
  *   npx tsx --env-file=.env scripts/probe-deterministic-replies.mts [url] [--channel D…]
  */
 import { createHmac } from 'node:crypto';
-import { GREETING_REPLY } from '../src/shared/greeting';
+import { GREETING_REPLIES } from '../src/shared/greeting';
 import { DISTRESS_REPLY } from '../src/shared/distress';
-import { CONTENT_FREE_REPLY, TOO_LONG_REPLY } from '../src/shared/message-shape';
+import { CONTENT_FREE_REPLIES, TOO_LONG_REPLIES } from '../src/shared/message-shape';
 import { FILE_ATTACHMENT_REPLY } from '../src/features/notification/infrastructure/handlers/slack-events.handler';
 import { MAX_USER_INPUT_LENGTH } from '../src/shared/security/llm-guardrail';
 
@@ -59,28 +59,41 @@ interface Probe {
   readonly name: string;
   readonly text: string;
   readonly subtype?: string;
-  readonly expected: string;
+  /**
+   * ⚠️ Une LISTE, et c'est un correctif du 2026-08-18 trouvé par cette sonde elle-même.
+   *
+   * Les réponses en dur ont gagné des VARIANTES le même jour (`shared/reply-variants.ts`) :
+   * la formulation postée est choisie par empreinte du `ts` du message. Cette sonde forge un
+   * `ts` neuf à chaque exécution — donc la comparaison à la seule forme CANONIQUE échouait
+   * une fois sur N, au hasard du hash. Elle a rougi en production sur « trop long » alors que
+   * le produit était juste.
+   *
+   * Un instrument de vérification instable est pire qu'un instrument absent : il apprend à
+   * ignorer ses propres alertes. On accepte donc toute variante DÉCLARÉE — importée depuis la
+   * source, jamais recopiée, sans quoi la copie divergerait à la première réécriture.
+   */
+  readonly expected: readonly string[];
 }
 
 const PROBES: readonly Probe[] = [
-  { name: 'salutation nue', text: 'bonjour', expected: GREETING_REPLY },
-  { name: 'sans contenu textuel', text: '🎉🎉', expected: CONTENT_FREE_REPLY },
+  { name: 'salutation nue', text: 'bonjour', expected: GREETING_REPLIES },
+  { name: 'sans contenu textuel', text: '🎉🎉', expected: CONTENT_FREE_REPLIES },
   {
     name: 'trop long',
     // Un seul caractère au-delà de la borne : on sonde la DÉCISION, pas un ordre de grandeur.
     text: 'a'.repeat(MAX_USER_INPUT_LENGTH + 1),
-    expected: TOO_LONG_REPLY,
+    expected: TOO_LONG_REPLIES,
   },
   {
     name: 'détresse',
     text: "je t'écris parce que je ne vais pas bien",
-    expected: DISTRESS_REPLY,
+    expected: [DISTRESS_REPLY],
   },
   {
     name: 'pièce jointe',
     text: '',
     subtype: 'file_share',
-    expected: FILE_ATTACHMENT_REPLY,
+    expected: [FILE_ATTACHMENT_REPLY],
   },
 ];
 
@@ -162,11 +175,15 @@ const posted = await botMessagesSince(startedAt);
 
 let failures = 0;
 for (const probe of PROBES) {
-  const found = posted.some((text) => text.trim() === probe.expected.trim());
+  const found = posted.some((text) =>
+    probe.expected.some((variant) => text.trim() === variant.trim()),
+  );
   console.log(`${found ? '✅' : '❌'} ${probe.name}`);
   if (!found) {
     failures += 1;
-    console.log(`   attendu : ${probe.expected.slice(0, 90)}…`);
+    console.log(
+      `   attendu, l'une de ${probe.expected.length} variante(s) : ${probe.expected[0]!.slice(0, 80)}…`,
+    );
   }
 }
 

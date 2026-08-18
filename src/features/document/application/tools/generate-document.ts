@@ -282,14 +282,38 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
     inputSchema: z.object({
       employeeId: uuidSchema.describe('UUID annuaire'),
       type: z.nativeEnum(DocumentType),
-      title: z.string().min(1).max(200),
+      title: z.string().min(1).max(200).describe('rédige-le, ne le demande pas'),
       // ⚠️ Borne HAUTE ajoutée le 2026-08-13. `title`/`subject` étaient bornés à 200 sur la
       // ligne voisine, ce champ ne l'était pas — asymétrie relevée par l'audit, et c'est le
       // champ VOLUMINEUX. Rien en aval ne tronque : ni les assainisseurs de document ni les
       // adaptateurs d'envoi. Un contenu non borné est persisté, relu, et repart dans la
       // fenêtre du modèle, sur un système dont la contrainte dominante EST le budget de
       // tokens.
-      content: z.string().min(1).max(20000),
+      // ⚠️ LA DÉROGATION DE RÉDACTION, et elle a mis sept jours à arriver ici.
+      //
+      // Le bilan de la série C (2026-08-11 : 7 messages, 0 email, 0 rappel, 0 document) a
+      // établi que les outils POSAIENT les questions au lieu de faire le travail, et que le
+      // correctif devait vivre dans le `.describe()` du champ — PAR CHAMP, jamais dans le
+      // prompt, où il contredirait frontalement `AGENT_ANTI_INVENTION_BLOCK` (« n'invente
+      // jamais une donnée absente : demande-la ») et reviendrait à tirer à pile ou face à
+      // chaque tour. La ligne de partage : un email ou un UUID se RETROUVENT, une prose se
+      // PRODUIT.
+      //
+      // `sendNotification.body` l'a reçue le jour même. Ces deux champs-ci, non — et la
+      // doctrine de l'époque citait `generateDocument` comme « le seul outil de la campagne
+      // qui ait abouti », donc le modèle à copier : c'est cette formulation qui a masqué
+      // l'oubli pendant sept jours.
+      //
+      // Constaté en production le 2026-08-18 sur « Génère-moi le guide d'accueil en PDF » :
+      // « Quel texte doit contenir le guide d'accueil ? Fournis-moi le contenu… ». Un
+      // aller-retour entier perdu — poste de coût DOMINANT, ≈ 1 500 tokens sur un budget
+      // journalier de 100 000 — pour un produit qui demandait à un arrivant de rédiger
+      // lui-même son guide d'accueil.
+      //
+      // ⚠️ Ne PAS l'étendre à `employeeId` : un identifiant se retrouve. L'y poser
+      // inviterait à en inventer un, ce qui est exactement le bug de destinataire du
+      // 2026-08-14 — dix documents enregistrés sous le mauvais UUID.
+      content: z.string().min(1).max(20000).describe('rédige-le, ne le demande pas'),
       // `pdf` par défaut, et non plus `txt`. L'attente produit est un PDF ; un défaut
       // `txt` obligeait le modèle à deviner qu'il fallait demander autre chose, et
       // produisait donc des documents que personne n'avait demandés dans ce format.
