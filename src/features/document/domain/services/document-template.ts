@@ -1,5 +1,6 @@
 import { DocumentType } from '../../../../shared/types';
 import { sanitizeDocumentText } from '../../../../shared/security/agent-output';
+import { formatFrenchDay } from '../../../../shared/french-date';
 import type { DocumentRenderInput } from '../ports/document-renderer';
 
 /**
@@ -267,22 +268,39 @@ function buildWelcomeLetter(input: DocumentRenderInput): DocumentBlock[] {
   // Extrait de la phrase : un ternaire dans un littéral déjà interpolé se relit mal, et c'est
   // exactement la ligne qu'il faut pouvoir vérifier d'un coup d'œil.
   const departmentClause = employee.department ? `, département ${employee.department},` : '';
+
+  // ⚠️ Le POSTE suit désormais la même règle que le département, et il ne la suivait pas :
+  // `employee.position ?? 'N/A'` produisait « en tant que N/A » dans une lettre signée de
+  // l'entreprise et adressée à un arrivant — exactement ce que le commentaire d'à côté
+  // condamnait, deux lignes plus bas. `welcome-email.ts` avait déjà corrigé ce défaut :
+  // un champ absent fait disparaître sa phrase, jamais apparaître un « N/A ».
+  const positionClause = employee.position ? ` en tant que ${employee.position}` : '';
+
+  // ⚠️ La date était imprimée BRUTE : « ta date de début est le 2026-09-01T00:00:00.000Z ».
+  // Troisième écriture d'un formatage de date dans ce dépôt, et la seule fausse — d'où
+  // `shared/french-date.ts`, qui la rend une bonne fois.
+  const startDay = formatFrenchDay(employee.startDate);
+
   return [
     { kind: 'heading', text: COMPANY, level: 1 },
     { kind: 'heading', text: titleOf(input), level: 2 },
-    { kind: 'paragraph', text: `Cher(e) ${fullName(input)},` },
+    // ⚠️ TUTOIEMENT, comme partout ailleurs. Cette lettre vouvoyait (« Cher(e) », « Votre
+    // date ») alors que le guide produit par le MÊME bot, pour la MÊME personne, dit « Ton
+    // quotidien » et « Ta façon de travailler ». Un salarié qui reçoit les deux voit deux
+    // expéditeurs. L'exception reste `interview-email.ts`, qui vouvoie un candidat EXTERNE —
+    // un candidat n'est pas un collègue.
+    { kind: 'paragraph', text: `Bonjour ${fullName(input)},` },
     {
       kind: 'paragraph',
       // Le département n'est cité que s'il est connu. « département N/A » dans une lettre de
       // bienvenue est pire qu'un silence : c'est un aveu de trou, adressé à l'arrivant.
-      text:
-        `Nous avons le plaisir de vous accueillir au sein de Kisso Industries` +
-        `${departmentClause} en tant que ${employee.position ?? 'N/A'}.`,
+      text: `Ravis de t'accueillir chez Kisso Industries${departmentClause}${positionClause}.`,
     },
-    {
-      kind: 'paragraph',
-      text: `Votre date de début est le ${employee.startDate ?? 'à confirmer'}.`,
-    },
+    // La phrase entière disparaît quand la date est inconnue — plutôt qu'un « à confirmer »
+    // qui promet une confirmation que personne n'enverra.
+    ...(startDay
+      ? [{ kind: 'paragraph' as const, text: `Ton premier jour est le ${startDay}.` }]
+      : []),
     // ⚠️ Le bloc « Prochaines étapes » a été RETIRÉ le 2026-08-14, et ce n'est pas une
     // simplification : il MENTAIT. Ses quatre puces étaient écrites en dur, donc
     // identiques pour tout le monde, et deux d'entre elles renvoyaient à des choses qui

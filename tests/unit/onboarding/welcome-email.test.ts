@@ -46,7 +46,10 @@ describe('buildWelcomeEmail — la réalité de la personne', () => {
       startDate: '2026-09-01T00:00:00.000Z',
     });
 
-    expect(mail.subject).toBe('Bienvenue chez Kisso Industries, Awa !');
+    // Sans exclamation : le bloc STYLE l'interdit au modèle depuis qu'on a mesuré que « les
+    // exclamations arrivaient précisément dans les phrases où l'agent ne faisait rien ». Un
+    // gabarit n'a pas de raison d'y échapper.
+    expect(mail.subject).toBe('Bienvenue chez Kisso Industries, Awa');
     expect(mail.body).toContain('Backend Developer');
     expect(mail.body).toContain('Engineering');
     // « 2026-09-01T00:00:00.000Z » ne dit rien à un arrivant ; « mardi 1 septembre 2026 » si.

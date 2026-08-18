@@ -55,35 +55,48 @@ export interface WelcomeEmail {
   readonly body: string;
 }
 
+import { formatFrenchDay } from '../../../../shared/french-date';
+
 const COMPANY = 'Kisso Industries';
 
 export function buildWelcomeEmail(input: WelcomeEmailInput): WelcomeEmail {
   const firstName = input.firstName.trim();
 
-  const facts: string[] = [];
-  if (input.position?.trim())
-    facts.push(`<li>Poste : <strong>${esc(input.position.trim())}</strong></li>`);
+  // ⚠️ DES PHRASES, plus des puces étiquetées. Le bloc disait « Ce que nous avons
+  // enregistré : » suivi de « Poste : … », « Équipe : … », « Premier jour : … » — du langage
+  // de guichet, et surtout la forme même que le bloc STYLE interdit aux agents (« sans liste
+  // numérotée », « pas de plan »). Le gabarit faisait donc ce qu'on refuse au modèle, dans le
+  // PREMIER message que l'entreprise adresse à quelqu'un.
+  //
+  // Chaque fragment reste adossé à une donnée vérifiée, et un champ absent fait disparaître
+  // sa mention — c'est la règle du module et elle ne bouge pas.
+  const known: string[] = [];
+  if (input.position?.trim()) known.push(`comme <strong>${esc(input.position.trim())}</strong>`);
   if (input.department?.trim())
-    facts.push(`<li>Équipe : <strong>${esc(input.department.trim())}</strong></li>`);
+    known.push(`dans l'équipe <strong>${esc(input.department.trim())}</strong>`);
 
-  const day = formatDay(input.startDate);
-  if (day) facts.push(`<li>Premier jour : <strong>${esc(day)}</strong></li>`);
+  const day = formatFrenchDay(input.startDate);
+
+  const parts: string[] = [`<p>Bonjour ${esc(firstName)},</p>`];
+
+  // La phrase d'accueil absorbe ce qu'on sait du poste et de l'équipe plutôt que de le
+  // reléguer dans une liste : c'est la même information, dite comme un humain la dirait.
+  const welcome =
+    known.length > 0
+      ? `Ravis de t'accueillir chez ${COMPANY} ${known.join(' ')}.`
+      : `Ravis de t'accueillir chez ${COMPANY}.`;
+  parts.push(`<p>${welcome}</p>`);
+
+  if (day) parts.push(`<p>On t'attend le <strong>${esc(day)}</strong>.</p>`);
 
   const channels = (input.channels ?? []).map((c) => c.trim()).filter(Boolean);
   if (channels.length > 0) {
     const rendered = channels.map((c) => `<strong>#${esc(c)}</strong>`).join(', ');
-    facts.push(`<li>Canaux Slack : ${rendered}</li>`);
+    parts.push(`<p>Tu as déjà ta place dans ${rendered}.</p>`);
   }
 
-  const parts: string[] = [
-    `<p>Bonjour ${esc(firstName)},</p>`,
-    `<p>Nous sommes ravis de t'accueillir chez ${COMPANY}.</p>`,
-  ];
-
-  // Le bloc de faits n'est émis que s'il en contient : une liste vide se lit comme une
-  // section manquante, et c'est exactement ce qu'on veut éviter.
-  if (facts.length > 0) {
-    parts.push(`<p>Ce que nous avons enregistré :</p><ul>${facts.join('')}</ul>`);
+  // La proposition de correction n'a de sens que si l'on vient d'affirmer quelque chose.
+  if (known.length > 0 || day || channels.length > 0) {
     parts.push(
       `<p>Si quelque chose est inexact, dis-le nous — c'est plus simple à corriger maintenant.</p>`,
     );
@@ -97,35 +110,12 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): WelcomeEmail {
   );
 
   return {
-    subject: `Bienvenue chez ${COMPANY}, ${firstName} !`,
+    // Sans point d'exclamation : le bloc STYLE l'interdit au modèle depuis qu'on a mesuré que
+    // « les exclamations arrivaient précisément dans les phrases où l'agent ne faisait rien ».
+    // Un gabarit n'a pas de raison d'y échapper.
+    subject: `Bienvenue chez ${COMPANY}, ${firstName}`,
     body: parts.join(''),
   };
-}
-
-/**
- * « lundi 1 septembre 2026 », ou `null`.
- *
- * ⚠️ Rend `null` plutôt qu'une chaîne brute quand la date est illisible : afficher
- * `2026-09-01T00:00:00.000Z` à un arrivant est pire que de ne rien afficher, et une date
- * inventée serait pire encore. Le champ disparaît, la phrase avec.
- */
-function formatDay(startDate: string | null | undefined): string | null {
-  if (!startDate?.trim()) return null;
-  const at = new Date(startDate);
-  if (Number.isNaN(at.getTime())) return null;
-
-  try {
-    return new Intl.DateTimeFormat('fr-FR', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-      timeZone: 'UTC',
-    }).format(at);
-  } catch {
-    // ICU absent : la date ISO tronquée au jour reste lisible, contrairement à l'horodatage.
-    return at.toISOString().slice(0, 10);
-  }
 }
 
 /**
