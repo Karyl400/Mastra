@@ -116,6 +116,38 @@ async function fixOutput() {
   //      `VercelDeployer` sait poser l'option (`new VercelDeployer({ maxDuration: 60 })`)
   //      mais src/mastra/index.ts n'est pas modifié ici : le patch reste local à ce script.
   const FUNCTION_MAX_DURATION_SECONDS = 60;
+
+  // 2 bis. Patch: MÉMOIRE — et ce n'est pas une question de mémoire, c'est une question de CPU.
+  //
+  //   ⚠️ LE DÉFAUT LE PLUS COÛTEUX DU PRODUIT, mesuré le 2026-08-18. Un POST **rejeté
+  //   immédiatement** sur `/slack/events` — signature absente, donc zéro travail : pas de base,
+  //   pas de Slack, pas de modèle, pas une ligne de logique métier — mettait **4,9 s puis
+  //   4,8 s**. C'est le coût du DÉMARRAGE À FROID seul, c'est-à-dire du chargement du module :
+  //   le graphe Mastra entier (4 agents, 12 outils, leurs schémas Zod, `docx`, `pdfmake`) est
+  //   construit à l'import.
+  //
+  //   Or Slack accorde **3 secondes** à une interaction, et un `trigger_id` expire dans le même
+  //   délai. Le budget était donc épuisé AVANT que le code ne commence. Conséquences observées
+  //   en production, toutes expliquées par cette seule cause :
+  //     • « Compléter mon profil » et « Parlons de toi » : la modale ne s'ouvre jamais
+  //       (`trigger_id` périmé) ;
+  //     • « Envoyer » et « Annuler » : Slack affiche une erreur à la personne ALORS QUE le
+  //       travail aboutit — vérifié, la carte porte bien « Annulé — aucun email n'est parti ».
+  //       C'est la pire combinaison, celle que ce dépôt traque partout : l'écart entre le FAIT
+  //       et ce qu'en perçoit l'utilisateur ;
+  //     • les rejeux `retryNum` de Slack sur `/slack/events`, qui ont rendu nécessaire la table
+  //       de déduplication partagée.
+  //
+  //   Sur Vercel, la part de CPU allouée est PROPORTIONNELLE à la mémoire : c'est le seul
+  //   levier qui agisse sur un temps de chargement de modules, et il ne demande aucun
+  //   refactor. Le trafic est de ≈ 19 messages par jour, donc presque chaque clic tombe sur une
+  //   instance froide — l'exception est le cas nominal.
+  //
+  //   ⚠️ Ce n'est PAS une solution complète, et il ne faut pas le présenter comme telle : elle
+  //   réduit le temps de chargement, elle ne le supprime pas. La vraie correction est
+  //   architecturale — ne rien mettre d'irrattrapable sur le chemin des 3 secondes (un bouton
+  //   qui n'ouvre pas de modale n'a pas de `trigger_id` à faire expirer).
+  const FUNCTION_MEMORY_MB = 3009;
   const vcConfigPath = join(funcDir, '.vc-config.json');
   if (existsSync(vcConfigPath)) {
     const vcConfig = JSON.parse(await readFile(vcConfigPath, 'utf8'));
@@ -132,6 +164,14 @@ async function fixOutput() {
       patched = true;
       console.log(
         `✅ Patch appliqué : maxDuration=${FUNCTION_MAX_DURATION_SECONDS}s dans .vc-config.json (traitement Slack via waitUntil)`
+      );
+    }
+
+    if (vcConfig.memory !== FUNCTION_MEMORY_MB) {
+      vcConfig.memory = FUNCTION_MEMORY_MB;
+      patched = true;
+      console.log(
+        `✅ Patch appliqué : memory=${FUNCTION_MEMORY_MB} Mo dans .vc-config.json (le CPU y est proportionnel — démarrage à froid mesuré à 4,9 s)`
       );
     }
 
