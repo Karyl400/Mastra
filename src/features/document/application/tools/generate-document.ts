@@ -306,40 +306,12 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // Le titre est une feuille : rien à y traduire, on l'assainit à fond. Le corps
       // conserve son balisage markdown, que `buildDocumentOutline` traduit ensuite en
       // titres, puces et paragraphes ; le retirer ici aplatirait le document.
-      const safeTitle = sanitizeDocumentText(data.title);
-      const safeContent = sanitizeDocumentSource(data.content);
-
-      const markers = [...new Set([...safeTitle.redacted, ...safeContent.redacted])];
-      const hosts = [...new Set([...safeTitle.strippedUrls, ...safeContent.strippedUrls])];
-
-      if (markers.length > 0) {
-        // `error`, comme dans le handler Slack : un marqueur interne dans un DOCUMENT
-        // signifie que le modèle a écrit son propre garde-fou dans un livrable
-        // téléchargeable. C'est la ligne qui manquait pour détecter une exfiltration
-        // par document — il n'en existait aucune.
-        logger.error('Document content carried internal markers — markers removed', {
-          employeeId: data.employeeId,
-          type: data.type,
-          markers,
-        });
-      }
-
-      if (hosts.length > 0) {
-        // Seuls les HÔTES : le chemin d'un lien fabriqué embarque un identifiant réel
-        // (celui du 2026-08-11 portait le vrai `Document.id`).
-        logger.error('Document content carried fabricated links — links removed', {
-          employeeId: data.employeeId,
-          type: data.type,
-          hosts,
-        });
-      }
-
-      // Le titre assaini peut être VIDE (un titre qui n'était qu'un emoji, ou qu'un lien
-      // fabriqué). On retombe alors sur le titre par défaut du type — le même que celui
-      // que le gabarit aurait choisi — plutôt que d'enregistrer une chaîne vide et de
-      // livrer un fichier nommé `document.pdf`.
-      const title = safeTitle.text.length > 0 ? safeTitle.text : DEFAULT_TITLES[data.type];
-      const content = safeContent.text;
+      const { title, content } = sanitizeDocumentInput({
+        title: data.title,
+        content: data.content,
+        type: data.type,
+        employeeId: data.employeeId,
+      });
 
       logger.info('Génération document', {
         employeeId: data.employeeId,
@@ -381,48 +353,14 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // repasse — on retombe alors exactement sur le comportement d'avant, jamais pire.
       // Un store partagé coûterait une E/S Turso (Tokyo) sur un chemin déjà tendu côté ACK.
       const slackCtx = readSlackContext(ctx?.requestContext);
-      // Même clé que `deriveConversationId` : en DM `threadTs` est absent par conception,
-      // donc le canal EST la conversation.
-      let conversationKey: string | undefined;
-      if (slackCtx) {
-        conversationKey = slackCtx.threadTs
-          ? `${slackCtx.channel}:${slackCtx.threadTs}`
-          : slackCtx.channel;
-      }
-
-      // ---------------------------------------------------------------------
-      // `none` est NEUTRALISÉ dans une conversation Slack — correctif du 2026-08-12
-      // ---------------------------------------------------------------------
-      //
-      // Mesuré en production : sur « Génère un guide en PDF **et donne-le moi pour que je
-      // puisse le télécharger** », le modèle a choisi `deliverTo: 'none'`, puis a annoncé
-      // à l'utilisateur que le document « n'est pas livré automatiquement cette fois » —
-      // en ayant la demande explicite sous les yeux.
-      //
-      // La valeur n'est pas retirée du schéma : elle est LÉGITIME hors Slack (workflow,
-      // playground, appel direct), où il n'y a personne à qui livrer. Mais à l'intérieur
-      // d'une conversation Slack, un document que personne ne reçoit n'est jamais ce qui
-      // a été demandé — c'est une porte de sortie offerte au modèle, pas une intention
-      // d'utilisateur. On livre donc dans le fil d'où vient la demande.
-      const effectiveDeliverTo =
-        data.deliverTo === 'none' && slackCtx ? ('slack' as const) : data.deliverTo;
-
-      if (effectiveDeliverTo !== data.deliverTo) {
-        logger.info('deliverTo=none ignoré dans une conversation Slack — livraison dans le fil', {
-          employeeId: data.employeeId,
-          type: data.type,
-        });
-      }
-
-      // Hors Slack, `buildRunKey` rend `undefined` et la garde est INACTIVE : le
-      // playground, les workflows et les tests ne sont bornés par aucune conversation.
-      const dedupKey = buildRunKey(conversationKey, 'generateDocument', [
-        data.employeeId,
-        data.type,
+      const { effectiveDeliverTo, dedupKey } = resolveDeliveryIntent({
+        slackCtx,
+        deliverTo: data.deliverTo,
+        employeeId: data.employeeId,
+        type: data.type,
+        format: data.format,
         title,
-        data.format,
-        effectiveDeliverTo,
-      ]);
+      });
 
       const previous = dedupKey
         ? runGuard.get<{ result: Record<string, unknown>; eventTs?: string }>(dedupKey)
@@ -544,136 +482,31 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // ---------------------------------------------------------------------
       // Rendu
       // ---------------------------------------------------------------------
-      //
-      // Repli sur PDF quand le format demandé n'a pas de renderer : l'utilisateur reçoit
-      // un fichier réel plutôt que rien, et le résultat NOMME le format effectivement
-      // produit — le modèle peut donc dire la vérité (« je te l'ai fait en PDF »). Un
-      // échec sec sur une valeur que le schéma n'expose même plus serait un piège pour
-      // les seuls appelants hors LLM.
-      const renderer =
-        renderers.find((candidate) => candidate.format === data.format) ??
-        renderers.find((candidate) => candidate.format === DocumentFormat.Pdf);
-
-      let rendered: RenderedDocument | undefined;
-      let failure: HintKey | undefined;
-
-      if (!renderer) {
-        // Câblage incomplet : on enregistre quand même, on ne perd pas le texte produit.
-        logger.error('Aucun renderer disponible — document enregistré sans fichier', {
-          format: data.format,
-        });
-        failure = 'not_rendered';
-      } else {
-        try {
-          rendered = await renderer.render({
-            type: data.type,
-            title,
-            content,
-            interview: await readInterview(interviewRepo, channelRepo, data.employeeId),
-            employee: {
-              firstName: employee.firstName,
-              lastName: employee.lastName,
-              email: employee.email,
-              // `?? undefined` : le gabarit distingue « absent » de « vide ». Un `null` qui
-              // traverserait finirait imprimé tel quel dans un PDF signé de l'entreprise.
-              department: employee.department ?? undefined,
-              position: employee.position,
-              startDate: employee.startDate,
-            },
-          });
-        } catch (error: unknown) {
-          logger.error('Rendu du document échoué — enregistrement sans fichier', {
-            format: renderer.format,
-            error: errorMessage(error),
-          });
-          failure = 'not_rendered';
-        }
-      }
-
-      // Le format ENREGISTRÉ est celui réellement produit, jamais celui demandé : sinon
-      // la base annoncerait un `csv` là où un PDF a été livré.
-      const producedFormat = rendered ? (renderer?.format ?? data.format) : data.format;
+      const { rendered, producedFormat, failure } = await renderDocument({
+        renderers,
+        type: data.type,
+        format: data.format,
+        title,
+        content,
+        employee,
+        interview: await readInterview(interviewRepo, channelRepo, data.employeeId),
+      });
 
       // ---------------------------------------------------------------------
       // Livraison — aucune exception ne sort de ce bloc
       // ---------------------------------------------------------------------
-      let delivery: DeliveryVerdict = 'none';
-      // ⚠️ `delivery: 'none'` sort SANS `hint` quand `deliverTo: 'none'` a été demandé, et
-      // c'est délibéré — j'ai essayé l'inverse le 2026-08-18 et le test de budget l'a refusé,
-      // à raison. Le `hint` n'est PAYÉ que dans les cas DÉGRADÉS (règle documentée dans
-      // `CLAUDE.md`) ; or ce cas-ci n'en est pas un : le modèle a lui-même demandé qu'on ne
-      // livre pas, et `delivery: 'none'` est la réponse exacte à sa demande. Une consigne y
-      // aurait coûté 54 tokens — de 39 à 93, soit au-delà du plafond de 60 — pour expliquer
-      // au modèle ce qu'il vient de décider.
-      let reason: HintKey | undefined = failure;
-
-      if (rendered && effectiveDeliverTo !== 'none') {
-        const slackContext = effectiveDeliverTo === 'slack' ? slackCtx : undefined;
-
-        if (effectiveDeliverTo === 'slack' && !slackContext) {
-          // Cas NORMAL, pas une panne : playground Mastra, route HTTP, workflow, test.
-          // Il n'y a pas de canal à qui livrer — on le dit, on n'échoue pas.
-          logger.info('Pas de contexte Slack — document enregistré sans livraison', {
-            employeeId: data.employeeId,
-          });
-          reason = 'no_slack_context';
-        } else if (effectiveDeliverTo === 'slack' && slackContext) {
-          try {
-            const { permalink } = await uploadToSlack(fileUpload, slackContext, rendered, title);
-            delivery = 'slack';
-            reason = undefined;
-            // Le permalink est journalisé, JAMAIS retourné au modèle : le fichier est
-            // déjà dans le fil, et remettre une URL dans le contexte rouvrirait la
-            // porte par laquelle le faux lien de téléchargement est passé.
-            logger.info('Document livré dans Slack', {
-              channel: slackContext.channel,
-              filename: rendered.filename,
-              hasPermalink: Boolean(permalink),
-            });
-          } catch (error: unknown) {
-            const missingScope = isMissingScope(error);
-            logger.error('Livraison Slack échouée', {
-              channel: slackContext.channel,
-              missingScope,
-              error: errorMessage(error),
-            });
-
-            // Repli email sur TOUT échec de livraison Slack.
-            //
-            // Il ne se déclenchait que sur `missing_scope` — or les logs de production du
-            // 2026-08-11 prouvent que le scope `files:write` EST accordé
-            // (`{"filename":"guide-….pdf","hasPermalink":true}`). La condition était donc
-            // devenue du CODE MORT : `not_in_channel`, un 5xx Slack ou un réseau coupé
-            // donnaient `delivery: 'failed'` sec, sans qu'aucun repli ne soit tenté, alors
-            // qu'un fichier réel était prêt et qu'une adresse d'annuaire était connue.
-            //
-            // L'argument d'origine — « ne pas écrire à quelqu'un qui n'a rien demandé » —
-            // ne tient pas ici : le destinataire est l'employé concerné par le document,
-            // qui vient précisément d'être demandé, et l'alternative n'est pas « ne rien
-            // envoyer » mais « perdre le document ». Le verdict reste honnête : `email`
-            // seulement si l'envoi a réussi, et `reason` nomme toujours la cause première
-            // quand `missing_scope` est en jeu — c'est la seule qui appelle un geste humain.
-            const fallback = await deliverByEmail(emailProvider, employee.email, title, rendered);
-
-            if (fallback.ok) {
-              delivery = 'email';
-              reason = undefined;
-            } else {
-              delivery = 'failed';
-              reason = missingScope ? 'missing_scope' : fallback.reason;
-            }
-          }
-        } else {
-          const sent = await deliverByEmail(emailProvider, employee.email, title, rendered);
-          if (sent.ok) {
-            delivery = 'email';
-            reason = undefined;
-          } else {
-            delivery = 'failed';
-            reason = sent.reason;
-          }
-        }
-      }
+      const delivered = await deliver({
+        intent: effectiveDeliverTo,
+        rendered,
+        slackCtx,
+        fileUpload,
+        emailProvider,
+        employeeEmail: employee.email,
+        employeeId: data.employeeId,
+        title,
+        failure,
+      });
+      const { delivery, reason } = delivered;
 
       // ---------------------------------------------------------------------
       // Enregistrement — TOUJOURS, quel que soit le sort de la livraison
@@ -760,6 +593,364 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       return result;
     },
   });
+}
+
+/**
+ * Où le document doit aller, et sous quelle clé de déduplication.
+ *
+ * ⚠️ **`none` est NEUTRALISÉ dans une conversation Slack**, et ce n'est pas une commodité.
+ * Mesuré en production le 2026-08-12 : sur « Génère un guide en PDF ET DONNE-LE MOI pour que
+ * je puisse le télécharger », le modèle a choisi `deliverTo: 'none'`, puis a annoncé à
+ * l'utilisateur que le document « n'est pas livré automatiquement cette fois » — la demande
+ * explicite sous les yeux.
+ *
+ * La valeur reste dans le schéma : elle est LÉGITIME hors Slack (workflow, playground, appel
+ * direct), où il n'y a personne à qui livrer. Mais dans une conversation, un document que
+ * personne ne reçoit n'est jamais ce qui a été demandé — c'est une porte de sortie offerte au
+ * modèle, pas une intention d'utilisateur.
+ */
+function resolveDeliveryIntent(params: {
+  slackCtx: { channel: string; threadTs?: string } | undefined;
+  deliverTo: DeliveryIntent;
+  employeeId: string;
+  type: DocumentType;
+  format: DocumentFormat;
+  title: string;
+}): { effectiveDeliverTo: DeliveryIntent; dedupKey: string | undefined } {
+  const { slackCtx, title } = params;
+  const data = params;
+  // Même clé que `deriveConversationId` : en DM `threadTs` est absent par conception,
+  // donc le canal EST la conversation.
+  let conversationKey: string | undefined;
+  if (slackCtx) {
+    conversationKey = slackCtx.threadTs
+      ? `${slackCtx.channel}:${slackCtx.threadTs}`
+      : slackCtx.channel;
+  }
+
+  // ---------------------------------------------------------------------
+  // `none` est NEUTRALISÉ dans une conversation Slack — correctif du 2026-08-12
+  // ---------------------------------------------------------------------
+  //
+  // Mesuré en production : sur « Génère un guide en PDF **et donne-le moi pour que je
+  // puisse le télécharger** », le modèle a choisi `deliverTo: 'none'`, puis a annoncé
+  // à l'utilisateur que le document « n'est pas livré automatiquement cette fois » —
+  // en ayant la demande explicite sous les yeux.
+  //
+  // La valeur n'est pas retirée du schéma : elle est LÉGITIME hors Slack (workflow,
+  // playground, appel direct), où il n'y a personne à qui livrer. Mais à l'intérieur
+  // d'une conversation Slack, un document que personne ne reçoit n'est jamais ce qui
+  // a été demandé — c'est une porte de sortie offerte au modèle, pas une intention
+  // d'utilisateur. On livre donc dans le fil d'où vient la demande.
+  const effectiveDeliverTo =
+    data.deliverTo === 'none' && slackCtx ? ('slack' as const) : data.deliverTo;
+
+  if (effectiveDeliverTo !== data.deliverTo) {
+    logger.info('deliverTo=none ignoré dans une conversation Slack — livraison dans le fil', {
+      employeeId: data.employeeId,
+      type: data.type,
+    });
+  }
+
+  // Hors Slack, `buildRunKey` rend `undefined` et la garde est INACTIVE : le
+  // playground, les workflows et les tests ne sont bornés par aucune conversation.
+  const dedupKey = buildRunKey(conversationKey, 'generateDocument', [
+    data.employeeId,
+    data.type,
+    title,
+    data.format,
+    effectiveDeliverTo,
+  ]);
+
+  return { effectiveDeliverTo, dedupKey };
+}
+
+/**
+ * Assainit le titre et le corps AVANT tout usage, et journalise ce qui a été retiré.
+ *
+ * ⚠️ Le titre est une feuille : rien à y traduire, on l'assainit à fond. Le corps CONSERVE
+ * son balisage markdown, que `buildDocumentOutline` traduit ensuite en titres, puces et
+ * paragraphes — le retirer ici aplatirait le document.
+ *
+ * ⚠️ Les deux `logger.error` restent DANS cette fonction, sur le chemin nominal : ce sont les
+ * seules détections d'exfiltration par document du dépôt. Un marqueur interne dans un
+ * livrable téléchargeable signifie que le modèle a écrit son propre garde-fou dans un fichier
+ * qui sort de l'entreprise ; il n'existait aucune ligne pour le voir avant le 2026-08-11.
+ */
+function sanitizeDocumentInput(input: {
+  title: string;
+  content: string;
+  type: DocumentType;
+  employeeId: string;
+}): { title: string; content: string } {
+  const data = input;
+  const safeTitle = sanitizeDocumentText(data.title);
+  const safeContent = sanitizeDocumentSource(data.content);
+
+  const markers = [...new Set([...safeTitle.redacted, ...safeContent.redacted])];
+  const hosts = [...new Set([...safeTitle.strippedUrls, ...safeContent.strippedUrls])];
+
+  if (markers.length > 0) {
+    // `error`, comme dans le handler Slack : un marqueur interne dans un DOCUMENT
+    // signifie que le modèle a écrit son propre garde-fou dans un livrable
+    // téléchargeable. C'est la ligne qui manquait pour détecter une exfiltration
+    // par document — il n'en existait aucune.
+    logger.error('Document content carried internal markers — markers removed', {
+      employeeId: data.employeeId,
+      type: data.type,
+      markers,
+    });
+  }
+
+  if (hosts.length > 0) {
+    // Seuls les HÔTES : le chemin d'un lien fabriqué embarque un identifiant réel
+    // (celui du 2026-08-11 portait le vrai `Document.id`).
+    logger.error('Document content carried fabricated links — links removed', {
+      employeeId: data.employeeId,
+      type: data.type,
+      hosts,
+    });
+  }
+
+  // Le titre assaini peut être VIDE (un titre qui n'était qu'un emoji, ou qu'un lien
+  // fabriqué). On retombe alors sur le titre par défaut du type — le même que celui
+  // que le gabarit aurait choisi — plutôt que d'enregistrer une chaîne vide et de
+  // livrer un fichier nommé `document.pdf`.
+  const title = safeTitle.text.length > 0 ? safeTitle.text : DEFAULT_TITLES[data.type];
+  const content = safeContent.text;
+
+  return { title, content };
+}
+
+/**
+ * Produit le fichier — ou dit pourquoi il n'a pas pu.
+ *
+ * ⚠️ **Ne LÈVE jamais.** Le texte du document est déjà écrit à ce stade et sera enregistré
+ * quoi qu'il arrive : un échec de rendu ne doit pas le perdre. Le verdict porte l'échec sous
+ * `failure`, l'appelant décide.
+ *
+ * ⚠️ Le repli sur PDF n'est PAS atteignable par le chemin Zod — le schéma n'expose que `pdf`
+ * et `docx`, qui ont tous deux un renderer. Il existe pour les appelants hors LLM (workflow,
+ * appel direct), à qui un échec sec sur une valeur que le schéma n'expose plus serait un
+ * piège. Et le format RENDU est celui réellement produit, jamais celui demandé : sinon la
+ * base annoncerait un `csv` là où un PDF a été livré.
+ */
+async function renderDocument(params: {
+  renderers: readonly DocumentRenderer[];
+  type: DocumentType;
+  format: DocumentFormat;
+  title: string;
+  content: string;
+  employee: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    department?: string | null;
+    position?: string;
+    startDate?: string;
+  };
+  interview: Awaited<ReturnType<typeof readInterview>>;
+}): Promise<{
+  rendered: RenderedDocument | undefined;
+  producedFormat: DocumentFormat;
+  failure: HintKey | undefined;
+}> {
+  const { renderers, type, format, title, content, employee, interview } = params;
+
+  // ---------------------------------------------------------------------
+  // Rendu
+  // ---------------------------------------------------------------------
+  //
+  // Repli sur PDF quand le format demandé n'a pas de renderer : l'utilisateur reçoit
+  // un fichier réel plutôt que rien, et le résultat NOMME le format effectivement
+  // produit — le modèle peut donc dire la vérité (« je te l'ai fait en PDF »). Un
+  // échec sec sur une valeur que le schéma n'expose même plus serait un piège pour
+  // les seuls appelants hors LLM.
+  const renderer =
+    renderers.find((candidate) => candidate.format === format) ??
+    renderers.find((candidate) => candidate.format === DocumentFormat.Pdf);
+
+  let rendered: RenderedDocument | undefined;
+  let failure: HintKey | undefined;
+
+  if (!renderer) {
+    // Câblage incomplet : on enregistre quand même, on ne perd pas le texte produit.
+    logger.error('Aucun renderer disponible — document enregistré sans fichier', {
+      format: format,
+    });
+    failure = 'not_rendered';
+  } else {
+    try {
+      rendered = await renderer.render({
+        type: type,
+        title,
+        content,
+        interview,
+        employee: {
+          firstName: employee.firstName,
+          lastName: employee.lastName,
+          email: employee.email,
+          // `?? undefined` : le gabarit distingue « absent » de « vide ». Un `null` qui
+          // traverserait finirait imprimé tel quel dans un PDF signé de l'entreprise.
+          department: employee.department ?? undefined,
+          position: employee.position,
+          startDate: employee.startDate,
+        },
+      });
+    } catch (error: unknown) {
+      logger.error('Rendu du document échoué — enregistrement sans fichier', {
+        format: renderer.format,
+        error: errorMessage(error),
+      });
+      failure = 'not_rendered';
+    }
+  }
+
+  // Le format ENREGISTRÉ est celui réellement produit, jamais celui demandé : sinon
+  // la base annoncerait un `csv` là où un PDF a été livré.
+  const producedFormat = rendered ? (renderer?.format ?? format) : format;
+
+  return { rendered, producedFormat, failure };
+}
+
+/**
+ * Où le document doit aller. Volontairement plus étroit que `DeliveryVerdict` : c'est une
+ * INTENTION, elle ne peut pas valoir `failed`.
+ */
+type DeliveryIntent = 'slack' | 'email' | 'none';
+
+/** Le couple rendu par toutes les étapes de livraison : où c'est parti, et pourquoi sinon. */
+interface DeliveryOutcome {
+  delivery: DeliveryVerdict;
+  reason: HintKey | undefined;
+}
+
+/** Traduit le résultat d'un envoi email en verdict de livraison. */
+function toVerdict(sent: { ok: true } | { ok: false; reason: HintKey }): DeliveryOutcome {
+  return sent.ok
+    ? { delivery: 'email', reason: undefined }
+    : { delivery: 'failed', reason: sent.reason };
+}
+
+/**
+ * Livraison Slack, avec son repli email.
+ *
+ * ⚠️ **Le repli se déclenche sur TOUT échec Slack**, et c'est un correctif à ne pas
+ * re-restreindre. Il ne portait que sur `missing_scope` — or les logs de production du
+ * 2026-08-11 prouvent que le scope `files:write` EST accordé
+ * (`{"filename":"guide-….pdf","hasPermalink":true}`). La condition était donc devenue du CODE
+ * MORT : `not_in_channel`, un 5xx Slack ou un réseau coupé donnaient `delivery: 'failed'` sec,
+ * sans qu'aucun repli ne soit tenté, alors qu'un fichier réel était prêt et qu'une adresse
+ * d'annuaire était connue.
+ *
+ * L'argument d'origine — « ne pas écrire à quelqu'un qui n'a rien demandé » — ne tient pas
+ * ici : le destinataire est l'employé concerné par le document, qui vient précisément d'être
+ * demandé, et l'alternative n'est pas « ne rien envoyer » mais « perdre le document ».
+ *
+ * Le verdict reste honnête : `email` seulement si l'envoi a réussi, et `reason` nomme toujours
+ * `missing_scope` quand il est en jeu — c'est la seule cause qui appelle un geste humain.
+ */
+async function deliverToSlack(params: {
+  slackCtx: { channel: string; threadTs?: string };
+  fileUpload: FileUploadProvider | undefined;
+  emailProvider: EmailProvider | undefined;
+  employeeEmail: string | null | undefined;
+  title: string;
+  rendered: RenderedDocument;
+}): Promise<DeliveryOutcome> {
+  const { slackCtx, fileUpload, emailProvider, employeeEmail, title, rendered } = params;
+
+  try {
+    const { permalink } = await uploadToSlack(fileUpload, slackCtx, rendered, title);
+    // Le permalink est journalisé, JAMAIS retourné au modèle : le fichier est déjà dans le
+    // fil, et remettre une URL dans le contexte rouvrirait la porte par laquelle le faux lien
+    // de téléchargement est passé.
+    logger.info('Document livré dans Slack', {
+      channel: slackCtx.channel,
+      filename: rendered.filename,
+      hasPermalink: Boolean(permalink),
+    });
+    return { delivery: 'slack', reason: undefined };
+  } catch (error: unknown) {
+    const missingScope = isMissingScope(error);
+    logger.error('Livraison Slack échouée', {
+      channel: slackCtx.channel,
+      missingScope,
+      error: errorMessage(error),
+    });
+
+    const fallback = toVerdict(
+      await deliverByEmail(emailProvider, employeeEmail ?? undefined, title, rendered),
+    );
+    if (fallback.delivery === 'email') return fallback;
+    return { delivery: 'failed', reason: missingScope ? 'missing_scope' : fallback.reason };
+  }
+}
+
+/**
+ * La LIVRAISON, et rien d'autre : Slack, email, ou le repli de l'un vers l'autre.
+ *
+ * ⚠️ Extraite le 2026-08-18. C'était le nœud de complexité de `execute` — trois branches, un
+ * `try/catch`, un repli, et deux variables mutables (`delivery`, `reason`) qui traversaient
+ * tout le reste de la fonction. Rendre un couple `{ delivery, reason }` les supprime et rend
+ * le repli testable seul.
+ *
+ * ⚠️ **AUCUNE exception ne sort d'ici**, et c'est le contrat : le document est déjà rendu à ce
+ * stade, et une livraison ratée ne doit jamais empêcher son enregistrement. Le verdict porte
+ * l'échec, il ne le lève pas.
+ */
+async function deliver(params: {
+  intent: DeliveryIntent;
+  rendered: RenderedDocument | undefined;
+  slackCtx: { channel: string; threadTs?: string } | undefined;
+  fileUpload: FileUploadProvider | undefined;
+  emailProvider: EmailProvider | undefined;
+  employeeEmail: string | null | undefined;
+  employeeId: string;
+  title: string;
+  failure: HintKey | undefined;
+}): Promise<DeliveryOutcome> {
+  const {
+    intent: effectiveDeliverTo,
+    rendered,
+    slackCtx,
+    fileUpload,
+    emailProvider,
+    employeeEmail,
+    employeeId,
+    title,
+    failure,
+  } = params;
+
+  const delivery: DeliveryVerdict = 'none';
+  const reason: HintKey | undefined = failure;
+
+  if (!rendered || effectiveDeliverTo === 'none') return { delivery, reason };
+
+  // Email demandé explicitement : un seul chemin, sans repli — il n'y a rien vers quoi se
+  // replier.
+  if (effectiveDeliverTo === 'email') {
+    return toVerdict(
+      await deliverByEmail(emailProvider, employeeEmail ?? undefined, title, rendered),
+    );
+  }
+
+  // Slack demandé, mais sans canal : cas NORMAL, pas une panne — playground Mastra, route
+  // HTTP, workflow, test. Il n'y a personne à qui livrer, on le dit, on n'échoue pas.
+  if (!slackCtx) {
+    logger.info('Pas de contexte Slack — document enregistré sans livraison', { employeeId });
+    return { delivery: 'none', reason: 'no_slack_context' };
+  }
+
+  return await deliverToSlack({
+    slackCtx,
+    fileUpload,
+    emailProvider,
+    employeeEmail,
+    title,
+    rendered,
+  });
+  return { delivery, reason };
 }
 
 /** Livraison Slack. Lève — l'appelant décide du repli. */
