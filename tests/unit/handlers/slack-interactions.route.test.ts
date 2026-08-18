@@ -495,3 +495,57 @@ describe('bouton « Envoyer » — un seul email, et une carte neutralisée', ()
     expect(JSON.stringify(call?.blocks ?? [])).not.toContain('"actions"');
   });
 });
+
+/* -------------------------------------------------------------------------- *
+ * Le formulaire échoue : la personne doit l'apprendre
+ * -------------------------------------------------------------------------- */
+
+describe('« Compléter mon profil » — un échec ne doit plus être muet', () => {
+  /**
+   * ⚠️ Le verdict existait, il n'atteignait personne.
+   *
+   * `onboarding-outcome.ts` distingue `completed` / `degraded` / `failed` précisément pour
+   * que « réussi » cesse de couvrir « rien n'est parti ». Mais sur `failed` comme sur
+   * `degraded`, l'appelant écrivait une ligne `logger.error` et rendait la main : la personne
+   * qui venait de valider sa modale ne recevait RIEN, et ne pouvait pas distinguer un succès
+   * d'une panne.
+   *
+   * C'est le mode d'échec que tout ce dépôt combat, arrêté un cran trop tôt. Le correctif du
+   * 2026-08-17 avait traité la CAUSE (conflits `ConflictError` / `UNIQUE`) et pas le chemin
+   * d'erreur : toute autre panne — Turso indisponible, workflow absent du registre —
+   * reproduisait le même silence.
+   */
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.SLACK_SIGNING_SECRET = SECRET;
+  });
+
+  /** Contexte dont le registre Mastra ne connaît PAS le workflow. */
+  const contextWithoutWorkflow = (rawBody: string): SlackInteractionsContext => {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = computeSlackSignature(SECRET, timestamp, rawBody);
+    const headers: Record<string, string> = {
+      'x-slack-request-timestamp': timestamp,
+      'x-slack-signature': signature,
+    };
+    return {
+      req: { text: async () => rawBody, header: (n: string) => headers[n.toLowerCase()] },
+      get: () => ({ getWorkflow: () => undefined }) as unknown as Mastra,
+    };
+  };
+
+  it('envoie un message quand le dossier n’a PAS pu être créé', async () => {
+    const body = formEncoded(viewSubmissionPayload());
+
+    const res = await handleSlackInteractionRequest(contextWithoutWorkflow(body));
+    expect(res.status).toBe(200);
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Le point du test : quelque chose est POSTÉ à la personne. Le contenu exact appartient
+    // au domaine (`onboarding-replies.ts`) ; ce qui se vérifie ici, c'est le câblage.
+    expect(postMessage).toHaveBeenCalled();
+    const texts = postMessage.mock.calls.map((c) => (c[0] as { text?: string }).text ?? '');
+    expect(texts.join(' ')).toContain("Je n'ai pas réussi à enregistrer ton dossier");
+  });
+});

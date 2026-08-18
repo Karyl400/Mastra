@@ -47,6 +47,12 @@ import {
   buildSettledCardBlocks,
   confirmFacts,
 } from '../features/recruitment/infrastructure/handlers/interview-confirm';
+import {
+  MODAL_FAILED_REPLY,
+  PROFILE_SUBMISSION_FAILED_REPLY,
+  describeMissingSteps,
+  profileSubmissionDegradedReply,
+} from '../features/onboarding/domain/services/onboarding-replies';
 import { parseInterviewSchedule } from '../features/recruitment/domain/value-objects/interview-schedule';
 import { buildInterviewEmail } from '../features/recruitment/domain/services/interview-email';
 import { createEmailProvider } from '../features/notification/infrastructure/providers/email-provider.factory';
@@ -201,7 +207,8 @@ async function handleBlockActions(payload: SlackInteractionPayload): Promise<Res
     // Même régime que l'envoi ci-dessous, et pour la même raison : ce sont des appels réseau
     // à Slack. Awaités, ils portaient l'ACK à 5,3 s (mesuré) — au-delà des 3 secondes
     // accordées, alors qu'une annulation n'a strictement rien à faire attendre.
-    scheduleBackgroundWork(
+    scheduleInteractionWork(
+      'interview_cancel',
       settleCard(payload, INTERVIEW_CANCELLED_REPLY)
         .then(() => replyInThread(payload, INTERVIEW_CANCELLED_REPLY))
         .catch((error: unknown) => {
@@ -235,7 +242,8 @@ async function handleBlockActions(payload: SlackInteractionPayload): Promise<Res
     // échec : rien n'est perdu à répondre tout de suite. C'est le régime déjà retenu pour
     // `view_submission`, énoncé en tête de ce fichier ; l'envoi d'entretien était resté sur le
     // chemin synchrone alors qu'il fait un SMTP complet PUIS un appel Slack.
-    scheduleBackgroundWork(
+    scheduleInteractionWork(
+      'interview_send',
       handleInterviewSend(payload, sendAction.value).catch((error: unknown) => {
         logger.error('Envoi d’entretien en tâche de fond échoué', { error: String(error) });
       }),
@@ -262,7 +270,13 @@ async function handleBlockActions(payload: SlackInteractionPayload): Promise<Res
         channelsOffered: prefill.channels.length,
       });
     } catch (error) {
+      // ⚠️ Sans ce message, le symptôme est « le bouton ne fait rien » — indiagnosticable
+      // côté utilisateur, et indiscernable d'une Request URL mal configurée.
       logger.error('Unable to open the interview modal', { error, userId: prefill.slackUserId });
+      scheduleInteractionWork(
+        'interview_modal_failed',
+        tellNewcomer(prefill.slackUserId, MODAL_FAILED_REPLY),
+      );
     }
     return ack();
   }
@@ -274,8 +288,12 @@ async function handleBlockActions(payload: SlackInteractionPayload): Promise<Res
     logger.info('Profile modal opened', { userId: prefill.slackUserId });
   } catch (error) {
     // Ne jamais propager : Slack rejouerait, et le trigger_id serait de toute
-    // façon expiré au second essai.
+    // façon expiré au second essai. Mais on le DIT — voir la branche entretien ci-dessus.
     logger.error('Unable to open the profile modal', { error, userId: prefill.slackUserId });
+    scheduleInteractionWork(
+      'profile_modal_failed',
+      tellNewcomer(prefill.slackUserId, MODAL_FAILED_REPLY),
+    );
   }
 
   return ack();
@@ -300,6 +318,27 @@ function getEmailProvider(): EmailProvider {
 /** Réinitialise le singleton (tests). */
 export function resetRecruitmentDependencies(): void {
   cachedEmailProvider = undefined;
+}
+
+/**
+ * Programme un travail de fond ET signale s'il ne survivra pas au gel de la fonction.
+ *
+ * ⚠️ `scheduleBackgroundWork` rend `'vercel-wait-until' | 'detached'`. La route Events
+ * exploite ce verdict depuis l'origine (« Slack background work is detached on Vercel ») ;
+ * cette route-ci l'IGNORAIT à ses quatre sites d'appel. Or c'est ici que vivent l'envoi de
+ * l'email d'entretien, le workflow d'onboarding complet et l'enregistrement de l'entretien :
+ * si `waitUntil` venait à disparaître, ces trois-là seraient tués en vol **sans une seule
+ * ligne de journal**, après avoir répondu 200 à l'utilisateur.
+ *
+ * `label` nomme le travail perdu — sans lui, la ligne d'alerte ne dirait pas lequel.
+ */
+function scheduleInteractionWork(label: string, work: Promise<unknown>): void {
+  const mechanism = scheduleBackgroundWork(work);
+  if (mechanism === 'detached' && process.env.VERCEL) {
+    logger.error('Travail d’interactivité détaché sur Vercel — waitUntil indisponible', {
+      work: label,
+    });
+  }
 }
 
 /**
@@ -498,6 +537,28 @@ async function handleInterviewSend(
 }
 
 /**
+ * Écrit à la personne qui vient de valider la modale.
+ *
+ * ⚠️ Le canal est son DM, jamais le canal d'origine : la soumission d'un profil est privée
+ * par nature, et `slackUserId` EST une clé de conversation directe valide pour
+ * `chat.postMessage`.
+ *
+ * Ne lève jamais : ce message accompagne un verdict, il ne doit pas pouvoir en produire un
+ * second. Un échec ici est journalisé et rien de plus.
+ */
+async function tellNewcomer(slackUserId: string | undefined, text: string): Promise<void> {
+  if (!slackUserId) {
+    logger.warn('Verdict d’onboarding non transmis — aucun utilisateur Slack identifié');
+    return;
+  }
+  try {
+    await getSlackInteractionsAdapter().sendMessage(slackUserId, text);
+  } catch (error) {
+    logger.error('Verdict d’onboarding non transmis', { error: String(error) });
+  }
+}
+
+/**
  * Identifiant de run dérivé de l'email.
  *
  * Deux soumissions du même profil produisent le même `runId`, donc le même run
@@ -545,6 +606,7 @@ async function runOnboarding(
 
   if (!workflow) {
     logger.error('Workflow employeeOnboardingWorkflow introuvable dans le registre Mastra');
+    await tellNewcomer(slackUserId, PROFILE_SUBMISSION_FAILED_REPLY);
     return;
   }
 
@@ -574,6 +636,9 @@ async function runOnboarding(
       outcome: OnboardingOutcome.Failed,
       error: result.error,
     });
+    // ⚠️ Il n'y a PAS de dossier ici : c'est le seul cas où l'on demande de recommencer. La
+    // soumission est idempotente, une seconde tentative ne créera pas de doublon.
+    await tellNewcomer(slackUserId, PROFILE_SUBMISSION_FAILED_REPLY);
     return;
   }
 
@@ -592,6 +657,18 @@ async function runOnboarding(
       emailSent: result.result?.emailSent,
       slackInvited: result.result?.slackInvited,
     });
+
+    // ⚠️ Le dossier EXISTE : on ne demande pas de recommencer, on NOMME ce qui manque. Sans
+    // ce message, l'arrivant recevait l'invitation à l'entretien exactement comme en cas de
+    // succès et ignorait qu'un email de bienvenue aurait dû lui parvenir.
+    //
+    // La liste vient du verdict réel, jamais devinée : annoncer un email non parti alors
+    // qu'il l'est serait le mensonge inverse de celui qu'on corrige. Une liste vide — étapes
+    // dégradées non traduisibles — n'envoie rien plutôt qu'un message creux.
+    const missing = describeMissingSteps(degradedSteps);
+    if (missing.length > 0) {
+      await tellNewcomer(slackUserId, profileSubmissionDegradedReply(missing));
+    }
   } else {
     logger.info('Onboarding workflow completed', {
       email: profile.email,
@@ -617,9 +694,14 @@ async function runOnboarding(
 /**
  * Propose l'entretien, une fois le dossier RÉELLEMENT créé.
  *
- * ⚠️ Appelé uniquement après un `outcome` non dégradé, et jamais après un `failed` : proposer
- * « parlons de toi » à quelqu'un dont la création vient d'échouer supposerait un succès que
- * personne n'a vérifié — la faute exacte du `emailSent: false` sous `status: 'success'`.
+ * ⚠️ Appelé sur `completed` ET sur `degraded` — voir la justification à son site d'appel —
+ * mais JAMAIS après un `failed`, qui sort plus haut par `return` : proposer « parlons de toi »
+ * à quelqu'un dont la création vient d'échouer supposerait un succès que personne n'a
+ * vérifié, la faute exacte du `emailSent: false` sous `status: 'success'`.
+ *
+ * ⚠️ La phrase qui figurait ici — « appelé uniquement après un `outcome` NON DÉGRADÉ » —
+ * était FAUSSE, et contredisait le commentaire de son propre site d'appel à cinq lignes
+ * d'écart.
  *
  * Ne LÈVE jamais. Un entretien manqué est une gêne ; une exception ici remonterait dans la
  * tâche de fond du workflow d'onboarding et masquerait son propre verdict.
@@ -705,7 +787,7 @@ function handleViewSubmission(payload: SlackInteractionPayload, mastra: Mastra):
       logger.error('Background onboarding failed', { error, email: parsed.data.email });
     },
   );
-  scheduleBackgroundWork(work);
+  scheduleInteractionWork('profile_submission', work);
 
   return ack();
 }
@@ -879,6 +961,13 @@ function handleInterviewSubmission(payload: SlackInteractionPayload): Response {
     logger.warn('Interview submission rejected', {
       fields: Object.keys(parsed.error.flatten().fieldErrors),
     });
+    // ⚠️ On le DIT. La modale se fermait exactement comme sur un succès : la personne croyait
+    // ses réponses enregistrées alors que rien ne l'était. Le vocabulaire d'échec existait
+    // déjà et n'était utilisé que pour la panne de base.
+    scheduleInteractionWork(
+      'interview_submission_rejected',
+      tellNewcomer(payload.user?.id, INTERVIEW_FAILED_REPLY),
+    );
     return ack();
   }
 
@@ -888,6 +977,13 @@ function handleInterviewSubmission(payload: SlackInteractionPayload): Response {
     logger.error('Interview submission without an employee id', {
       hasUser: Boolean(prefill.slackUserId),
     });
+    // Cas réel et non théorique : un bouton posté avant un changement de format rend
+    // `employeeId: ''`. La personne clique sur une invitation d'hier et sa modale se ferme
+    // dans le vide — elle doit savoir que rien n'a été gardé.
+    scheduleInteractionWork(
+      'interview_submission_no_employee',
+      tellNewcomer(prefill.slackUserId || payload.user?.id, INTERVIEW_FAILED_REPLY),
+    );
     return ack();
   }
 
@@ -898,7 +994,7 @@ function handleInterviewSubmission(payload: SlackInteractionPayload): Response {
       logger.error('Background interview handling failed', { error });
     },
   );
-  scheduleBackgroundWork(work);
+  scheduleInteractionWork('interview_submission', work);
 
   return ack();
 }
