@@ -62,7 +62,8 @@ export const PROFILE_STEP_ORDER: readonly ProfileStep[] = [
 export const PROFILE_QUESTIONS: Readonly<Record<ProfileStep, string>> = {
   firstName: 'Commençons par le plus simple : quel est ton *prénom* ?',
   lastName: 'Et ton *nom de famille* ?',
-  email: 'Quelle est ton *adresse email professionnelle* ?',
+  email:
+    'Quelle est ton *adresse email* ? Celle de l’entreprise si tu l’as déjà, sinon ton adresse personnelle — ça marche aussi.',
   position: 'Dernière chose : *l’intitulé de ton poste* ? Par exemple « Backend Developer ».',
 };
 
@@ -225,7 +226,8 @@ export function nextProfileStep(answers: ProfileAnswers): ProfileStep | null {
 export function profileRetryReply(step: ProfileStep): string {
   if (step === 'email') {
     return (
-      'Il me faut une adresse email complète, du genre `prenom.nom@kisso.com`. ' +
+      'Il me faut une adresse complète, du genre `prenom.nom@kisso.com` ou ' +
+      '`prenom.nom@gmail.com` — une adresse personnelle convient très bien.' +
       `\n\n${PROFILE_QUESTIONS.email}`
     );
   }

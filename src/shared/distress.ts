@@ -167,7 +167,15 @@ export const DISTRESS_REPLY =
   // réponses de modèle. Les textes écrits en dur doivent donc être écrits en mrkdwn.
   "Si c'est urgent : *0800 0787 746* (SURPIN, gratuit, 24h/24, partout au Nigeria), ou le " +
   '*112* si la vie de quelqu’un est en jeu maintenant.\n' +
-  "Pour une situation au travail — harcèlement, conflit, souffrance — parles-en à l'équipe RH " +
-  "de Kisso ou à la médecine du travail. Tu peux aussi en parler à quelqu'un en qui tu as " +
-  'confiance dans le workspace.\n\n' +
+  // ⚠️ « ou à la médecine du travail » a été RETIRÉ le 2026-08-19. C'est une institution
+  // FRANÇAISE : elle n'a aucun guichet identifiable pour quelqu'un à Lagos. On avait corrigé
+  // le 3114 — numéro français — et laissé l'institution française dans la phrase suivante, au
+  // seul endroit du produit où orienter vers une ressource inexistante coûte quelque chose.
+  //
+  // ⚠️ ET ON NE LA REMPLACE PAR RIEN. Nommer un dispositif qu'on n'a pas vérifié serait
+  // refaire la même faute, en croyant la corriger. Ce qui reste est vrai : les RH existent, et
+  // « quelqu'un en qui tu as confiance » couvre le cas — réel — où le problème EST aux RH,
+  // sans obliger la personne à le dire.
+  'Pour une situation au travail — harcèlement, conflit, souffrance — tu peux en parler à ' +
+  "l'équipe RH de Kisso, ou à quelqu'un en qui tu as confiance dans le workspace.\n\n" +
   "Je n'ai pas transmis ce message : il reste entre nous.";

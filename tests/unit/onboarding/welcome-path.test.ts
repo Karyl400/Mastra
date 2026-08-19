@@ -142,7 +142,13 @@ describe('le message d’accueil', () => {
     // refermait pour aller la chercher.
     const text = JSON.stringify(buildWelcomeBlocks(prefill));
 
-    expect(text).toContain('email professionnelle');
+    // ⚠️ « email professionnelle » a été RETIRÉ le 2026-08-19. Le guide affirmait « prépare
+    // trois choses, TU LES AS DÉJÀ » alors qu'il n'existe aucun provisioning de compte dans
+    // ce système : une arrivante sans adresse d'entreprise se heurtait ensuite à une relance
+    // sans issue. Ce qui compte n'est pas le mot, c'est que le guide et la question
+    // conversationnelle disent la MÊME chose — donc qu'une adresse personnelle convient.
+    expect(text).toContain('adresse email');
+    expect(text).toMatch(/personnelle/i);
     expect(text).toContain('poste');
   });
 
@@ -337,7 +343,8 @@ describe('les DEUX chemins vers le formulaire suivent le MÊME parcours', () => 
   it.each(paths)('« %s » DIT ce qui sera demandé', (_name, blocks) => {
     const json = JSON.stringify(blocks);
 
-    expect(json).toContain('email professionnelle');
+    expect(json).toContain('adresse email');
+    expect(json).toMatch(/personnelle/i);
     expect(json).toContain('poste');
   });
 

@@ -2482,7 +2482,26 @@ export class SlackEventsHandler {
       // Seule la salutation entre en mémoire : sans elle, un fil ouvert par « bonjour » ne
       // serait jamais « engagé » et `shouldAbandonThreadReply` écarterait le message
       // SUIVANT. Voir `remembersTurn` dans la table.
-      if (staticReply.remembersTurn) {
+      //
+      // ⚠️ SAUF QUAND UNE QUESTION D'ACCUEIL ATTEND — correctif du 2026-08-19, second volet.
+      //
+      // Le premier volet a fait céder le pas aux court-circuits AGISSANTS ; le groupe
+      // STATIQUE, qui tourne AVANT `maybeAdvanceOnboarding`, n'avait pas été traité. L'état
+      // des deux machines EST le dernier tour `assistant` du fil : mémoriser ici l'écrase
+      // définitivement, et la question en attente devient invisible.
+      //
+      // Deux dégâts d'un seul geste, et le second est le pire : le tour `user` — « Salut » —
+      // serait apparié par `collectProfileAnswers` à la question en attente, donc enregistré
+      // comme PRÉNOM, puis imprimé dans un document au nom de la personne. C'est la faute
+      // exacte déjà corrigée pour l'entretien (« oublie ce que je t'ai dit » devenu une
+      // description de métier), par l'autre porte.
+      //
+      // ⚠️ ON NE TOUCHE PAS À L'ORDRE, et surtout pas pour la DÉTRESSE. L'asymétrie commande :
+      // un faux positif donne un numéro d'aide à quelqu'un qui parlait de son métier — gênant ;
+      // un faux négatif enregistre « je ne vais pas bien » comme un nom de famille et n'aide
+      // personne — dangereux. La réponse figée est servie ; c'est la MÉMOIRE qu'on retient,
+      // pour que le fil reste exactement où il était.
+      if (staticReply.remembersTurn && !hasPendingOnboardingQuestion(history)) {
         await this.rememberTurn({
           conversationId,
           role: 'user',
@@ -3585,6 +3604,19 @@ export {
  * ici la rend éprouvable sans construire un handler entier (ce qui, dans ce dépôt, exige de
  * neutraliser quatre dépendances qui touchent la base).
  */
+/**
+ * Une question du parcours d'accueil attend-elle une réponse dans ce fil ?
+ *
+ * ⚠️ Dérivé des DEUX machines à états, jamais d'une liste recopiée : ajouter une question à
+ * `profile-chat` ou à `interview-chat` suffit à la couvrir ici. Une troisième copie des
+ * marqueurs serait la configuration où ce dépôt a déjà payé — deux bords corrects, aucun
+ * câblage entre les deux.
+ */
+export function hasPendingOnboardingQuestion(history: readonly ConversationTurn[]): boolean {
+  const last = lastAssistantText(history);
+  return pendingProfileStep(last) !== null || pendingInterviewStep(last) !== null;
+}
+
 export function lastAssistantText(history: readonly ConversationTurn[]): string | undefined {
   for (let i = history.length - 1; i >= 0; i -= 1) {
     const turn = history[i]!;

@@ -596,7 +596,7 @@ describe('SlackEventsHandler — handleTeamJoin (DM de bienvenue)', () => {
     expect(JSON.stringify(blocks)).toContain('profile_done');
     // Le message DIT désormais ce qui sera demandé : l'ancien annonçait « il me manque une
     // information » sans laquelle, donc la personne ouvrait la modale pour la découvrir.
-    expect(JSON.stringify(blocks)).toMatch(/email professionnelle/);
+    expect(JSON.stringify(blocks)).toMatch(/adresse email/);
   });
 
   it('greets the newcomer by first name', async () => {

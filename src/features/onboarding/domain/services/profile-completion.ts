@@ -84,7 +84,7 @@ const NEXT_STEP =
 const FIELD_LABELS: Readonly<Record<keyof ProfileSnapshot, string>> = {
   firstName: 'ton prénom',
   lastName: 'ton nom',
-  email: 'ton adresse email professionnelle',
+  email: 'ton adresse email',
   position: 'l’intitulé de ton poste',
 };
 

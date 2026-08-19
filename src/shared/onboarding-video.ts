@@ -112,9 +112,9 @@ export function videoLine(): string {
 export function writtenGuide(): string {
   const step = onboardingVideoUrl() ? 2 : 1;
   return (
-    `\n\n*${step}.* Prépare trois choses, tu les as déjà :\n` +
+    `\n\n*${step}.* Prépare trois choses :\n` +
     '  • ton nom et ton prénom\n' +
-    '  • ton adresse email professionnelle\n' +
+    '  • ton adresse email — celle de l’entreprise ou ta personnelle\n' +
     '  • l’intitulé de ton poste\n\n' +
     `*${step + 1}.* Reviens ici et clique sur « C’est fait » — ou écris-moi simplement « j’ai fini ».`
   );

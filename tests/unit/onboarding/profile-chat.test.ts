@@ -174,3 +174,46 @@ describe('les textes postés en dur sont du mrkdwn Slack', () => {
     expect(text).not.toContain('**');
   });
 });
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * L'IMPASSE DE L'EMAIL — le seul blocage dur du parcours (2026-08-19)
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Relevé en lisant le parcours avec les yeux d'une arrivante : la question demandait « ton
+ * adresse email *professionnelle* », le guide affirmait « prépare trois choses, TU LES AS
+ * DÉJÀ » — et il n'existe AUCUN provisioning de compte dans ce système. Une personne qui
+ * répondait honnêtement « je n'en ai pas encore » recevait la même relance, indéfiniment :
+ * `captureProfileAnswer` rejette, `profileRetryReply` repose la question, et le mot « passe »
+ * qui existe pour l'entretien n'existe pas ici.
+ *
+ * Il n'y avait aucune sortie. La personne abandonnait, en concluant que c'était sa faute.
+ *
+ * Décision du propriétaire : une adresse personnelle convient. Le correctif est donc de le
+ * DIRE — la validation, elle, acceptait déjà n'importe quelle adresse bien formée.
+ */
+describe('l’adresse email — une adresse personnelle est explicitement acceptée', () => {
+  it('accepte une adresse personnelle comme une adresse d’entreprise', () => {
+    expect(captureProfileAnswer('email', 'karylsoumaila1@gmail.com')).toBe(
+      'karylsoumaila1@gmail.com',
+    );
+    expect(captureProfileAnswer('email', 'karyl@kisso.com')).toBe('karyl@kisso.com');
+    // ⚠️ On ne pose PAS de liste blanche de domaines. `.env` porte
+    // `SLACK_ORG_EMAIL_DOMAINS=kissohq.com,design.kisso.xyz` : restreindre à `gmail.com` et
+    // `kisso.com` rejetterait les domaines réels de l'entreprise et créerait une SECONDE
+    // impasse à la place de celle qu'on ferme.
+    expect(captureProfileAnswer('email', 'pamela@kissohq.com')).toBe('pamela@kissohq.com');
+    expect(captureProfileAnswer('email', 'nazer@design.kisso.xyz')).toBe('nazer@design.kisso.xyz');
+  });
+
+  it('la QUESTION dit qu’une adresse personnelle convient', () => {
+    // C'est tout le correctif : la personne ne pouvait pas deviner qu'un gmail passait.
+    expect(PROFILE_QUESTIONS.email).toMatch(/personnelle/i);
+  });
+
+  it('la RELANCE le redit — c’est elle qu’on lit quand on est bloqué', () => {
+    const retry = profileRetryReply('email');
+    expect(retry).toMatch(/personnelle/i);
+    expect(retry).toContain('@');
+  });
+});
