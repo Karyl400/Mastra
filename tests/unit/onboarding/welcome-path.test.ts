@@ -204,6 +204,22 @@ describe('l’entretien conversationnel — l’état est le dernier tour du bot
       expect(captureInterviewAnswer(noise), noise).toBeNull();
   });
 
+  it('REFUSE une phrase qui parle d’autre chose que de la question', () => {
+    // ⚠️ Relevé en production le 2026-08-19 : « je n'ai pas fini », écrit juste après « ce
+    // que tu fais au quotidien ? », a été enregistré comme la description du métier de
+    // quelqu'un. Ce champ est imprimé dans le guide d'accueil, sous « Ton quotidien », dans
+    // un document qui porte le nom de la personne. Même famille que le refus de « ok ».
+    for (const noise of ["je n'ai pas fini", "c'est fait", "j'ai terminé", 'je n’ai pas fini']) {
+      expect(captureInterviewAnswer(noise), noise).toBeNull();
+    }
+  });
+
+  it('n’écarte PAS une vraie réponse qui contient un de ces mots', () => {
+    // La garde porte sur l'OUVERTURE de la phrase, pas sur la présence d'un mot : « je fais
+    // du support et je termine les tickets » est une réponse parfaitement valide.
+    expect(captureInterviewAnswer('je fais du support et je termine les tickets')).not.toBeNull();
+  });
+
   it('accepte une phrase, et la borne', () => {
     expect(captureInterviewAnswer('je code le backend')).toBe('je code le backend');
     expect(captureInterviewAnswer('a'.repeat(500))!.length).toBe(280);

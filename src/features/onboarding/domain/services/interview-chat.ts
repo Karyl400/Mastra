@@ -108,7 +108,33 @@ export const MAX_INTERVIEW_ANSWER_CHARS = 280;
 export function captureInterviewAnswer(text: string | undefined): string | null {
   const trimmed = (text ?? '').trim().replace(/\s+/g, ' ');
   if (trimmed.length < 4) return null;
+  if (isNotAnAnswer(trimmed)) return null;
   return trimmed.slice(0, MAX_INTERVIEW_ANSWER_CHARS);
+}
+
+/**
+ * Phrases qui ne répondent PAS à la question, tout en étant assez longues pour passer la
+ * borne de quatre caractères.
+ *
+ * ⚠️ Relevé en production le 2026-08-19, sur le chemin réel : « je n'ai pas fini », écrit
+ * juste après « ce que tu fais au quotidien ? », a été enregistré comme la description du
+ * métier de quelqu'un. Ce champ est imprimé dans le guide d'accueil, sous « Ton quotidien »,
+ * dans un document qui porte le nom de la personne.
+ *
+ * C'est la même famille que le refus de « ok » et « 👍 » : ce qui compte n'est pas la
+ * longueur mais le fait que la phrase parle d'AUTRE CHOSE que de la question posée. La liste
+ * est FERMÉE et minuscule — la garde qui compte reste la relance, pas l'exhaustivité.
+ */
+function isNotAnAnswer(text: string): boolean {
+  const normalized = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}+/gu, '')
+    .replace(/[’´`]/g, "'");
+
+  return /^(?:c'est|cest|j'ai|jai|je n'ai|je nai)\b.{0,24}\b(?:fait|fini|termine|bon)\b/.test(
+    normalized,
+  );
 }
 
 /** Ce qu'on répond quand la réponse est trop courte pour vouloir dire quelque chose. */
