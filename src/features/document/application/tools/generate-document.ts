@@ -429,7 +429,20 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // ⚠️ Ne PAS l'étendre à `employeeId` : un identifiant se retrouve. L'y poser
       // inviterait à en inventer un, ce qui est exactement le bug de destinataire du
       // 2026-08-14 — dix documents enregistrés sous le mauvais UUID.
-      content: z.string().min(1).max(20000).describe('rédige-le, ne le demande pas'),
+      content: z
+        .string()
+        .min(1)
+        .max(20000)
+        // ⚠️ RENFORCÉ le 2026-08-19 après une SECONDE mesure en production. « rédige-le, ne le
+        // demande pas » — cinq mots, posés le 2026-08-18 — n'a pas tenu : sur « Génère-moi le
+        // guide d'accueil en PDF », le modèle a répondu « Peux-tu me fournir le contenu ? ».
+        // Cinq mots ne pèsent pas face à `AGENT_ANTI_INVENTION_BLOCK` (« n'invente jamais une
+        // donnée absente : demande-la »), qui est dans le PROMPT et s'applique à tout.
+        // La phrase nomme donc la ligne de partage plutôt que de l'énoncer : une prose se
+        // PRODUIT, un email ou un UUID se RETROUVENT.
+        .describe(
+          'Le texte du document, que TU rédiges toi-même. Ne le demande JAMAIS à la personne : le rédiger EST le travail attendu ici.',
+        ),
       // `pdf` par défaut, et non plus `txt`. L'attente produit est un PDF ; un défaut
       // `txt` obligeait le modèle à deviner qu'il fallait demander autre chose, et
       // produisait donc des documents que personne n'avait demandés dans ce format.

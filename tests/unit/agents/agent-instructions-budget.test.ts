@@ -337,7 +337,7 @@ describe('onboardingOrchestrator — promesses de documents', () => {
    * CONTENU d'un document — le plafond est relevé d'exactement ce qu'a coûté cette
    * phrase, et l'agent reste sous son FLOOR (mesure dans le rapport de lot).
    */
-  const PLAFOND_CHARS = 260;
+  const PLAFOND_CHARS = 280;
 
   async function documentsBlock() {
     const instructions = await instructionsOf(makeOnboardingOrchestrator as never);
@@ -370,17 +370,39 @@ describe('onboardingOrchestrator — promesses de documents', () => {
     expect(await documentsBlock()).toMatch(/n'invente jamais de lien/i);
   });
 
-  it('interdit markdown et emoji dans le CONTENU du document', async () => {
-    // `sanitizeAgentOutput` ne s'applique qu'à `response.text` : les arguments de tool
-    // n'y passent jamais. Vérifié en décodant la CMap de vrais PDF : les emojis sortent
-    // en glyphe `.notdef` (carrés) — Roboto est la seule police du VFS — et le markdown
-    // s'imprime littéralement (`**`, `#`, `---`, `|`).
+  it('demande au modèle de RÉDIGER le contenu, et ne parle plus de markdown', async () => {
+    // ⚠️ CE TEST A ÉTÉ INVERSÉ le 2026-08-19, et il faut dire pourquoi plutôt que de le
+    // supprimer. Il exigeait « ni markdown ni emoji » dans le bloc. Deux mesures ont retourné
+    // la décision :
+    //
+    //  1. **La consigne était REDONDANTE avec le code.** `document-template.ts` TRADUIT le
+    //     markdown (`#` → titre, `- ` → puce), élimine `**gras**` et retire les emojis. Le
+    //     motif d'origine — « les emojis sortent en glyphe .notdef, le markdown s'imprime
+    //     littéralement » — décrivait l'état d'AVANT ce traducteur. On payait donc des tokens
+    //     à chaque aller-retour pour une contrainte que le rendu applique de toute façon.
+    //  2. **Elle a FUITÉ vers l'utilisateur.** Production, 2026-08-19, « Génère-moi le guide
+    //     d'accueil en PDF » → « Peux-tu me fournir le contenu (sans markdown ni emoji) ? ».
+    //     Une contrainte de rendu interne remontée telle quelle à un humain — dans la phrase
+    //     même par laquelle le modèle refusait de faire le travail.
+    //
+    // La place ainsi libérée porte la consigne qui manquait, et c'est le SECOND volet du même
+    // relevé : le `.describe()` de `content` disait « rédige-le, ne le demande pas » depuis le
+    // 2026-08-18 et le modèle a redemandé — cinq mots ne pèsent pas face à
+    // `AGENT_ANTI_INVENTION_BLOCK`, qui est dans le prompt.
     const bloc = await documentsBlock();
 
-    expect(bloc).toMatch(/markdown/i);
-    expect(bloc).toMatch(/emoji/i);
+    expect(bloc).toMatch(/rédige/i);
+    expect(bloc).toMatch(/ne le demande jamais/i);
+    // La contrainte de rendu ne remonte plus dans une phrase adressée à un humain.
+    expect(bloc).not.toMatch(/markdown/i);
   });
 
+  // ⚠️ Relevé de 260 à 280 le 2026-08-19. L'échange est explicite et il faut pouvoir le
+  // vérifier : « Dans `content` : ni markdown ni emoji. » (39 caractères, redondant avec le
+  // rendu et qui a fui vers un humain) sort ; « Rédige `content` TOI-MÊME, ne le demande
+  // jamais. » (47) entre. Net +8 caractères, soit ≈ 2 tokens par aller-retour, contre un
+  // aller-retour ENTIER — ≈ 1 500 tokens — perdu à chaque fois que le modèle réclame le texte.
+  // Le reste de l'écart tient au plafond, qui n'avait plus de marge : il en retrouve un peu.
   it('ne coûte pas plus cher que le plafond mesuré', async () => {
     const bloc = await documentsBlock();
     const tokens = Math.round(bloc.length / CHARS_PER_TOKEN);

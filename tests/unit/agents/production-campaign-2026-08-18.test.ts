@@ -112,12 +112,27 @@ describe('P3 — generateDocument DEMANDAIT à l’humain d’écrire son propre
     shape: Record<string, { description?: string }>;
   };
 
+  /**
+   * ⚠️ Ces deux assertions portaient sur la CHAÎNE LITTÉRALE « rédige-le, ne le demande pas »
+   * jusqu'au 2026-08-19. Elles verrouillaient donc une formulation, pas une propriété — et
+   * cette formulation a été MESURÉE EN ÉCHEC une seconde fois le 2026-08-19, sur la même
+   * phrase qu'en août 18 : « Peux-tu me fournir le contenu ? ». Cinq mots ne pèsent pas face à
+   * `AGENT_ANTI_INVENTION_BLOCK` (« n'invente jamais une donnée absente : demande-la »), qui
+   * vit dans le PROMPT et s'applique à tout.
+   *
+   * Le test vérifie désormais les deux moitiés de la dérogation, quelle qu'en soit la
+   * rédaction : le champ dit que le modèle RÉDIGE, et qu'il ne DEMANDE JAMAIS.
+   */
   it('dit au modèle de RÉDIGER le contenu, pas de le réclamer', () => {
-    expect(schema.shape.content?.description ?? '').toMatch(/rédige-le, ne le demande pas/i);
+    const d = schema.shape.content?.description ?? '';
+    expect(d).toMatch(/rédige/i);
+    expect(d).toMatch(/ne le demande (jamais|pas)/i);
   });
 
   it('dit la même chose du titre', () => {
-    expect(schema.shape.title?.description ?? '').toMatch(/rédige-le, ne le demande pas/i);
+    const d = schema.shape.title?.description ?? '';
+    expect(d).toMatch(/rédige/i);
+    expect(d).toMatch(/ne le demande (jamais|pas)/i);
   });
 
   it('n’a pas touché aux champs qui doivent RESTER des questions', () => {

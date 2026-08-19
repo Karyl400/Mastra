@@ -39,6 +39,22 @@ import {
  * `https://kisso.internal/docs/<uuid>/download`), et l'obligation de lire le champ
  * `delivery` plutôt que de supposer.
  *
+ * ⚠️ « Dans `content` : ni markdown ni emoji » a été RETIRÉ le 2026-08-19, et remplacé par
+ * « rédige `content` toi-même ». Deux raisons, toutes deux mesurées :
+ *   1. la consigne était REDONDANTE avec le code — `document-template.ts` TRADUIT le markdown
+ *      (`#` → titre, `- ` → puce), élimine `**gras**` et retire les emojis. On payait des
+ *      tokens à chaque aller-retour pour une contrainte que le rendu applique de toute façon ;
+ *   2. elle a FUITÉ vers l'utilisateur. Constaté en production le 2026-08-19 sur « Génère-moi
+ *      le guide d'accueil en PDF » : « Peux-tu me fournir le contenu (sans markdown ni
+ *      emoji) ? » — une contrainte de rendu interne, remontée telle quelle à un humain, dans
+ *      une phrase qui refusait déjà de faire le travail.
+ *
+ * ⚠️ Et c'est le second volet du même relevé : le `.describe()` de `content` disait « rédige-le,
+ * ne le demande pas » depuis le 2026-08-18, et le modèle a redemandé. Cinq mots ne pèsent pas
+ * face à `AGENT_ANTI_INVENTION_BLOCK` (« n'invente jamais une donnée absente : demande-la »),
+ * qui est dans le PROMPT. La consigne existe désormais des deux côtés — champ ET bloc — et son
+ * effet sera remesuré. Si elle échoue encore, le correctif suivant est du CODE, pas du texte.
+ *
  * ⚠️ « Cite toujours le `recipient` » a été ajouté le 2026-08-14 (≈ 6 tokens). Le relevé de
  * production montre les DIX documents de la base enregistrés sous l'UUID de Karyl, dont un
  * intitulé « Bienvenue Awa » — dont l'email est donc parti à l'adresse de Karyl. La cause
@@ -65,7 +81,7 @@ ${agentToolBoundary(tools)}
 
 CRÉATION D'EMPLOYÉ : tu ne peux PAS créer d'employé. L'enregistrement part du DM « Compléter mon profil », reçu quand la personne rejoint Slack — dis-le, n'invente jamais une création réussie.
 
-DOCUMENTS : generateDocument crée et livre le fichier (pdf/docx) — deliverTo : slack (ce fil) ou email. Dans \`content\` : ni markdown ni emoji. Nomme le \`recipient\`. Si \`delivery\` n'est ni slack ni email : prêt mais NON livré, dis-le. N'invente jamais de lien.
+DOCUMENTS : generateDocument crée et livre le fichier (pdf/docx) — deliverTo : slack (ce fil) ou email. Rédige \`content\` TOI-MÊME, ne le demande jamais. Nomme le \`recipient\`. Si \`delivery\` n'est ni slack ni email : prêt mais NON livré, dis-le. N'invente jamais de lien.
 
 ${AGENT_STYLE_BLOCK}
 

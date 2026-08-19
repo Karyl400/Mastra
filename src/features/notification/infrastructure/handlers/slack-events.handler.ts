@@ -1966,12 +1966,19 @@ export class SlackEventsHandler {
     isDirectMessage: boolean;
   }): Promise<void> {
     const { channel, threadTs, user, isDirectMessage } = ctx;
-    // ⚠️ DM UNIQUEMENT, et c'est une décision de SÉCURITÉ, pas d'ergonomie.
+    // ⚠️ DM UNIQUEMENT — et il faut RÉÉNONCER la raison, parce que l'ancienne a disparu avec
+    // les boutons.
     //
-    // Le pré-remplissage voyage dans le `value` du bouton, figé à la publication. Dans un
-    // canal, n'importe quel témoin peut cliquer : il ouvrirait une modale portant les
-    // données de QUELQU'UN D'AUTRE et sa soumission écrirait le dossier de cette
-    // personne. Le DM d'accueil n'a jamais eu ce problème — il est privé par nature.
+    // Jusqu'au 2026-08-19, le motif était le pré-remplissage : il voyageait dans le `value` du
+    // bouton, donc en canal un témoin qui cliquait ouvrait une modale portant les données de
+    // QUELQU'UN D'AUTRE, et sa soumission écrivait le dossier de cette personne. Ce vecteur
+    // n'existe plus — il n'y a ni bouton, ni `value`, ni pré-remplissage.
+    //
+    // La restriction est CONSERVÉE pour une autre raison, qui vaut seule : ce qui suit est un
+    // ÉCHANGE (`profile-chat.ts`) dont chaque réponse est le nom, l'adresse et le poste de la
+    // personne. Le conduire en canal les publierait devant témoins. Une restriction dont on
+    // garde l'effet sans réénoncer la cause est exactement ce que ce dépôt appelle un
+    // commentaire qui ment — la cause est ci-dessus, elle est neuve, et elle est vérifiable.
     if (!isDirectMessage) {
       logger.info('Profile form requested in a channel — redirected to DM, no LLM call', {
         channel,
@@ -1984,11 +1991,10 @@ export class SlackEventsHandler {
       return;
     }
 
-    // Pré-remplissage depuis l'ANNUAIRE, jamais par `users.info` : une lecture Turso
-    // contre un aller-retour Slack, pour une information que l'annuaire tient déjà. Son
-    // absence n'empêche rien — la modale collectera les quatre champs à la main.
-    const known = user ? await this.getDirectoryRepo()?.findBySlackUserId(user) : null;
-
+    // ⚠️ La lecture d'annuaire qui vivait ici a été SUPPRIMÉE le 2026-08-19. Elle servait au
+    // pré-remplissage du bouton ; celui-ci retiré, elle ne nourrissait plus qu'un champ de log
+    // `prefilled` qui valait `true` alors que rien n'était pré-rempli. Un aller-retour Turso
+    // (≈ 250 ms) payé sur un chemin qui se veut à zéro E/S, pour produire une ligne fausse.
     await this.chatProvider.sendBlocks(
       channel,
       PROFILE_FORM_INVITE,
@@ -2000,10 +2006,7 @@ export class SlackEventsHandler {
       buildProfileInviteBlocks(),
     );
 
-    logger.info('Profile form posted — answered without any LLM call', {
-      channel,
-      prefilled: Boolean(known),
-    });
+    logger.info('Profile form posted — answered without any LLM call', { channel });
   }
 
   /**
