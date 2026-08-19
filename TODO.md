@@ -1,5 +1,86 @@
 # TODO.md — Kisso Onboarding
 
+## [0] REVUE GÉNÉRALE DU CONSEIL — 2026-08-19 (soir). Six lots livrés.
+
+Plan complet : `docs/plans/2026-08-19-conseil-revue-generale.md`. Livré et vert (1 801 tests) :
+la cause racine du lien annuaire↔dossier, les deux détecteurs désarmés, les trois blocages
+humains, six promesses sans mécanisme, deux états qui mentaient, `findExpertise`, et
+l'hermétisation des tests (un run sur trois était rouge).
+
+### Décisions qui appartiennent au propriétaire
+
+- [ ] ⚠️ **Le consentement sur `dailyWork`.** L'en-tête de `find-expertise.ts` disait que
+      brancher l'entretien sur la recherche d'expertise « se demande avant de se coder ». Ça a
+      été codé le 2026-08-19 sans que la question soit tranchée : ce qu'une personne écrit dans
+      un questionnaire d'accueil devient sa fiche consultable par ses collègues. La moitié la
+      moins chère est faite — **la question le DIT désormais**. Reste à décider si l'annonce
+      suffit, ou s'il faut un consentement explicite.
+- [ ] **L'invitation aux canaux**, qui conditionne le retrait de la machinerie de modale.
+      ⚠️ **Le blocage écrit plus bas est SURESTIMÉ** : `slack-events.route.ts:216` câble
+      `welcomeChannels` depuis `ONBOARDING_WELCOME_CHANNELS`, **posée dans `.env`** — les
+      nouveaux arrivants SONT invités au `team_join`. Ce qui disparaîtrait est le CHOIX des
+      canaux par la personne, et seulement pour les gens déjà présents.
+- [ ] **Un cron Vercel quotidien, sans aucun appel de modèle.** Il fermerait d'un coup : la
+      liaison annuaire↔dossier pour les personnes déjà présentes (`directorySync.run()`, la
+      fonction est exportée et jamais invoquée), les DÉPARTS (`deleted: true` n'est annoncé par
+      aucun événement abonné), et les rappels `status: 'scheduled'` que rien ne reprend.
+      **Coût en tokens : ZÉRO**, et il en REND — il permet de supprimer les deux consignes qui
+      excusent la pièce manquante (`notification-agent.ts:31`, `schedule-reminder.ts:63`,
+      ≈ 25 tokens repayés à chaque aller-retour). ⚠️ Le plan Vercel Hobby limite à 2 crons
+      quotidiens — suffisant, mais non vérifié.
+- [ ] ⚠️ **AVANT de payer le palier Groq, deux gestes qui ne coûtent rien.**
+      1. **Aucun `maxSteps` n'est configuré** : Mastra applique son défaut de **5 étapes**, soit
+         jusqu'à ≈ 7 500 tokens pour UN message sur un budget de ≈ 19 messages/jour. Le
+         plafonner à 3 est sans risque.
+      2. **La mesure la moins chère et la plus décisive du projet n'a jamais été faite** :
+         combien de messages atteignent réellement `agent.generate()` ? L'instrumentation
+         existe (`Court-circuit deterministe (…)` en `info`). À mesure que les court-circuits
+         absorbent le trafic, la part du produit qui passe par un modèle rétrécit — et c'est
+         elle qu'on s'apprête à payer.
+- [ ] **Les 316 lignes de crypto de `llm-guardrail.ts:147-462`** — inchangé, pas touché sans
+      accord explicite. (Le chiffre exact est 316, non 400 : corrigé le 2026-08-19.)
+
+### Défauts recensés par la revue et NON corrigés
+
+- [ ] **Aucun chemin ne corrige un dossier FAUX.** `EmployeeRepository.update()` existe et n'a
+      ZÉRO appelant ; `profile-chat` ne comble que les champs ABSENTS, jamais un champ rempli.
+      Une faute de frappe dans l'email produit un dossier définitivement faux ET orphelin :
+      `knownProfileAnswers` résout par l'email de l'ANNUAIRE, pas par celui saisi, donc la
+      personne recommencera et heurtera la contrainte `UNIQUE(email)`. Seul recours : `sqlite3`.
+      ⚠️ **C'est pourquoi `update()` n'a PAS été supprimé** malgré ses zéro appelant : c'est
+      exactement la primitive dont cette capacité manquante a besoin. Le retirer serait de la
+      rotation déguisée en hygiène.
+- [ ] **Personne ne peut quitter l'entreprise.** `employeeRepo.delete()` (soft) n'est appelé que
+      par un script ; le départ Slack (`deleted: true`) n'est rattrapé que par
+      `directory:sync --apply`, manuel. Le rafraîchissement JIT ne se déclenche que si la
+      personne ÉCRIT au bot — or une personne partie n'écrit plus. Sa ligne reste
+      `isDeleted: false` indéfiniment, avec son niveau d'accès. Fermé par le cron ci-dessus.
+- [ ] **`audit_logs` : écrite à CHAQUE message, lue par PERSONNE, jamais purgée.** Aucun
+      `select().from(auditLogs)` dans tout le dépôt. 14 809 lignes en base locale. C'est la
+      table qui grandit le plus vite et qui rend le moins. (Son `status` ne ment plus, lui :
+      `accepted` depuis le 2026-08-19.)
+- [ ] **Données personnelles sans chemin d'effacement** : `documents` (dont `content` — la base
+      EST le stockage), `notifications` (`subject` + `body`), `slack_directory`,
+      `onboarding_interview`, `audit_logs`. La réponse d'effacement les NOMME désormais toutes,
+      ce qui est honnête mais ne les efface pas.
+- [ ] **Tables mortes non recensées jusqu'ici** : `employee_documents` et
+      `questionnaire_responses` ont **zéro occurrence** dans tout `src/`, pas même un
+      commentaire. Et `onboarding_steps` a un repository COMPLET et mort (`saveStep`,
+      `updateStep`, `findSteps` — aucun appelant).
+- [ ] **Colonnes inertes** : `completion_percentage` (indexée, jamais écrite),
+      `employees.onboarding_status` (indexée, jamais écrite — contredit `onboarding_progress`),
+      `employees.status` figé à `pending` **et projeté au LLM**.
+- [ ] **Aucun registre de migrations.** 18 tables dans `schema.ts`, 2 migrations Drizzle
+      désynchronisées et documentées comme cassées sur base vierge, 11 fichiers DDL appliqués à
+      la main, et rien qui enregistre ce qui a été appliqué où. On ne peut ni construire un
+      environnement neuf, ni vérifier autrement qu'à l'œil que la production suit le schéma.
+- [ ] **`src/shared/` est une quatrième couche que rien ne gouverne** : 7 715 lignes, dont
+      1 301 de prédicats à un seul consommateur. Le test d'architecture ne voit que
+      `features/*/domain|application`. Cohésion, pas cycle — `shared/` n'importe aucune feature.
+- [ ] **`slack-events.handler.ts` concentre 19 des 70 commits `fix` du dépôt** (27 %) pour
+      3 554 lignes. Le découper reste justifié — mais PAS maintenant : 27 commits en 7 jours,
+      le plus fort churn du dépôt. On ne refactorise pas sous un filet qui bouge.
+
 ## [0] APRÈS LE LOT « BOUTONS » DU 2026-08-19 (soir)
 
 Les trois défauts que la section précédente laissait ouverts sont corrigés (libellé de date

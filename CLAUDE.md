@@ -56,13 +56,65 @@
 > `users.info` réseau. Il faut une doublure qui RÉPOND, pas un trou. Idem `accessGuard: null`,
 > qui retire `slackAccessLevel` du `requestContext` que plusieurs tests vérifient.
 >
-> ⚠️ **SEPT depuis le 2026-08-19 au soir** : `auditSink` s'y ajoute. `writeAuditLog` ouvre
-> `data/kisso.db` par défaut, et c'était la dernière dépendance non neutralisable — ≈ 250 ms
-> par message, avec des pointes sous contention. `tests/unit/handlers/` : 49 s → 9-12 s.
+> ⚠️ **HUIT depuis le 2026-08-19 au soir** : `auditSink`, puis `workspaceProvider`. `writeAuditLog` ouvre
+> `data/kisso.db` par défaut — ≈ 250 ms par message, avec des pointes sous contention.
+>
+> ⚠️ **Et ce n'était PAS la dernière, contrairement à ce qui était écrit ici.** La suite est
+> restée rouge un run sur trois, toujours par `Timeout 5000ms`, jamais par une assertion. La
+> huitième est `workspaceProvider` (`slack-events.handler.ts:628`) : `handleMessage` AWAIT
+> l'identité du demandeur AVANT les court-circuits agissants, donc `resolveRequesterIdentity`
+> envoie un `users.info` RÉEL à slack.com avec le jeton de test — 0,7 à 1,7 s par test, le
+> cache étant un LRU par instance.
+> ⚠️ **Une doublure d'annuaire ne suffit PAS à l'empêcher**, et c'est le vrai piège : `:1497`
+> lit `known.realName || firstName+lastName` et **jamais `displayName`**. Une doublure qui ne
+> pose que `displayName` laisse la garde `if (!resolved.displayName)` tirer. Les commentaires
+> qui déclaraient ces fichiers hermétiques étaient faux.
+> Mesuré : les trois fichiers 7,84 s → 45 ms de temps de test ; `tests/unit/handlers/`
+> 49 s → 3,9 s ; trois passes complètes vertes.
 >
 > Ce que la campagne a établi et qui change la doctrine du projet : **la limite qui casse la
 > production n'est PAS le seau Groq par minute mais le quota JOURNALIER (≈ 19 messages/jour)**,
 > et le repli Mistral plafonne en REQUÊTES (4/min). Voir « Pièges connus ».
+
+> **REVUE GÉNÉRALE DU CONSEIL — 2026-08-19 au soir. Six lots livrés, 1 801 tests verts.**
+>
+> Le fil qui les relie : ce dépôt s'est donné une règle — **ne jamais affirmer un état qu'on n'a
+> pas constaté** — et l'a appliquée avec rigueur à ce qu'il construisait. La revue a trouvé que
+> **le parcours conversationnel livré le 2026-08-19 reproduisait six fois cette famille de
+> défaut**, parce que la discipline avait été appliquée aux mécanismes qu'on écrivait, pas à
+> ceux qu'on venait de rendre inatteignables en supprimant les modales.
+>
+> ⚠️ **LA CAUSE RACINE** : `slack_directory.employee_id` n'était écrite par AUCUN chemin de
+> production (seul `linkEmployee` l'écrit, seul `directory-sync.service.ts` l'appelle, seul le
+> script manuel l'invoque). Deux conséquences : l'entretien répondait « Noté » puis « j'y
+> mettrai ce que tu viens de me dire » et **n'enregistrait rien** ; et poser `AUTHZ_ENFORCE`
+> aurait coupé chacun de **son propre** dossier. `submitProfile` relie désormais à la création,
+> AVANT de poser la question, et invalide le cache d'identité (LRU 12 h) — sans quoi le défaut
+> se rejouerait un tour plus tard, base pourtant correcte.
+> ⚠️ Le test de production du 2026-08-19 n'a rien vu : la ligne de la personne qui testait avait
+> été reliée par une exécution passée du script. **La feature marchait pour son testeur.**
+>
+> ⚠️ **DEUX DÉTECTEURS ÉTAIENT DÉSARMÉS.** `READ_ONLY_TOOL_NAMES` gardait `getTaskList` (retiré)
+> et ignorait `findPersonByName` et `findExpertise` (ajoutés le MÊME jour) : un nom inconnu
+> valant ACTEUR, la réconciliation FAIT/NARRATION se taisait sur le chemin le plus fréquent du
+> produit. Le test annoncé dans son en-tête — `tool-classification.test.ts` — **n'existait pas**.
+> Et `title` (poste déclaratif, édité par son porteur) sortait BRUT de `findPersonByName`, câblé
+> sur `notificationAgent` qui porte `sendNotification` : la conjonction lecture-de-tiers +
+> écriture externe qu'`outbound-tool-quarantine.ts` §4.2 interdit.
+>
+> **Trois blocages humains fermés** : la question de l'email professionnel était une impasse sans
+> sortie (une adresse personnelle est désormais explicitement acceptée) ; les court-circuits
+> STATIQUES écrasaient l'état des machines à états (« Salut » devenait un prénom) ; le message de
+> détresse orientait vers « la médecine du travail », institution française.
+>
+> ⚠️ **NOUVEAU GARDE-FOU, et c'est la leçon de méthode du lot** :
+> `tests/unit/quality/claimed-invariants.test.ts` vérifie que toute phrase « verrouillé par `X` »
+> cite un fichier qui existe. Les trois défauts les plus coûteux de la revue avaient été MASQUÉS
+> par un commentaire, et ils partagent une forme — **le commentaire énonce une propriété GLOBALE
+> que rien ne recalcule** (« la seule feature qui… », « verrouillé par… », « délibérément
+> absente »). Ce dépôt DÉRIVE ses listes ; il ne dérivait pas ses énoncés d'invariant.
+>
+> Détail complet et ce qui reste : `docs/plans/2026-08-19-conseil-revue-generale.md`.
 
 Plateforme d'onboarding intelligent (Kisso Industries) : agents Mastra orchestrant
 l'intégration des nouveaux employés (guidelines, canaux Slack, provisioning comptes).
@@ -229,8 +281,14 @@ ROUTAGE s'en sert désormais pour décider si l'agent d'un fil peut servir la de
 divergence casse un test de routage au lieu de fausser un chiffre en silence.
 
 **Règle de dépendance** : `domain` ne dépend de rien ; `application` dépend de `domain` ;
-`infrastructure` implémente les ports du `domain`. Jamais l'inverse. Deux tests garde-fou
-verrouillent cette règle : `tests/unit/quality/architecture.test.ts` et `code-architecture.test.ts`.
+`infrastructure` implémente les ports du `domain`. Jamais l'inverse. **UN** test garde-fou
+verrouille cette règle : `tests/unit/quality/architecture.test.ts`.
+⚠️ Cette ligne annonçait **deux** tests, dont `code-architecture.test.ts` — qui n'a jamais
+existé (corrigé le 2026-08-19). Et le test réel ne couvre que `features/*/domain` et
+`features/*/application` : **`src/shared/` lui est invisible**, alors qu'il pèse 7 715 lignes,
+autant que tout le `domain` des 8 features réunies, et qu'il porte 1 301 lignes de prédicats
+n'ayant qu'un seul consommateur (`deterministic-replies.ts`). Ce n'est pas un cycle — `shared/`
+n'importe aucune feature, c'est vérifié — mais une question de cohésion.
 
 ## Conventions de nommage
 

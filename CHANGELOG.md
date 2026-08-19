@@ -1,5 +1,60 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## 2026-08-19 (soir) — Revue générale du Conseil : six lots
+
+Six lentilles indépendantes sur l'intégralité du projet. Le fil qui relie les trouvailles : ce
+dépôt s'est donné une règle — **ne jamais affirmer un état qu'on n'a pas constaté** — et l'a
+appliquée avec rigueur à ce qu'il construisait. **Le parcours conversationnel livré le matin
+même la reproduisait six fois**, parce que la discipline avait été appliquée aux mécanismes
+qu'on écrivait, pas à ceux qu'on venait de rendre inatteignables en supprimant les modales.
+
+### Lot 0 — La HUITIÈME dépendance de test (`8470d28`)
+
+Un run sur trois était rouge, toujours par `Timeout 5000ms`. La cause écrite dans `CLAUDE.md`
+était périmée : `workspaceProvider` (`slack-events.handler.ts:628`) envoyait un `users.info`
+RÉEL à slack.com. ⚠️ Une doublure d'annuaire ne l'empêchait pas — `:1497` lit
+`known.realName || firstName+lastName` et jamais `displayName`. Trois fichiers 7,84 s → 45 ms.
+
+### Lot 1 — La cause racine (`64f545e`)
+
+`slack_directory.employee_id` n'était écrite par aucun chemin de production. L'entretien
+répondait « Noté » et n'enregistrait rien ; `AUTHZ_ENFORCE` aurait coupé chacun de son propre
+dossier. On relie à la création, AVANT de poser la question, et on invalide le cache d'identité.
+
+### Lot 2 — Deux détecteurs désarmés (`3d383d0`)
+
+`READ_ONLY_TOOL_NAMES` avait dérivé ; le test annoncé dans son en-tête n'existait pas. Et
+`title`, édité par son porteur, sortait brut de `findPersonByName`, câblé à côté de
+`sendNotification`. ⚠️ Deux leçons payées : la troncature n'est pas un assainissement, et on
+assainit les PARTIES, jamais le libellé assemblé.
+
+### Lot 3 — Trois blocages humains (`0b8fcb7`)
+
+L'email professionnel était une impasse sans sortie ; les court-circuits statiques écrasaient
+l'état des machines à états ; le message de détresse orientait vers « la médecine du travail ».
+
+### Lot 4 — Six promesses, deux états (`9ba85a8`)
+
+Canaux jamais proposés, entretien jamais repris, bouton annoncé qui n'existe plus, date
+d'arrivée fabriquée, effacement qui omettait l'entretien, `onboarding_progress` à « 0 sur 1 »,
+audit à `success` avant tout traitement.
+
+### Lot 5 — `findExpertise` (`6f06359`)
+
+Aucun classement (toujours les six mêmes), `truncated` en champ séparé — la forme dont ce dépôt
+avait MESURÉ qu'elle est ignorée — et deux homonymes fusionnés en un.
+
+### Lot 6-7 — Le garde-fou de méthode, et la documentation
+
+`tests/unit/quality/claimed-invariants.test.ts` : toute phrase « verrouillé par `X` » doit citer
+un fichier qui existe. Les trois défauts les plus coûteux de la revue avaient été masqués par un
+commentaire, et ils partagent une forme — **le commentaire énonce une propriété GLOBALE que rien
+ne recalcule**. Ce dépôt dérive ses listes ; il ne dérivait pas ses énoncés d'invariant.
+
+⚠️ `EmployeeRepository.update` n'a PAS été supprimé malgré ses zéro appelant : la revue a établi
+qu'aucun chemin ne corrige un dossier faux, et c'est exactement la primitive que cette capacité
+manquante réclame.
+
 ## [Unreleased] - 2026-08-19 (soir) — les boutons, mesurés puis corrigés à la racine
 
 ### Le diagnostic, en trois mesures
