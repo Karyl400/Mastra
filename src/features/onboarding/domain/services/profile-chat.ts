@@ -248,5 +248,11 @@ export function profileChatIntroMissing(missing: readonly string[]): string {
 
 /** Ce qu'on dit quand l'enregistrement échoue — jamais « c'est enregistré ». */
 export const PROFILE_CHAT_SAVE_FAILED =
+  // ⚠️ « j'ai fini », et pas « c'est fait » — corrigé le 2026-08-19. Les deux sont RECONNUES
+  // (on n'a jamais intérêt à cesser de comprendre quelqu'un), mais le produit en ENSEIGNAIT
+  // deux pour un même geste : « j'ai fini » dans le guide d'accueil et dans la reprise
+  // d'entretien, « c'est fait » ici. Aucune n'était cassée ; un produit qui apprend deux
+  // formules pour un même geste se lit simplement comme deux produits.
+  // Verrouillé par `tests/unit/quality/taught-phrases.test.ts`.
   'Je n’ai pas réussi à enregistrer ton dossier. Ce n’est pas de ton fait — redis-moi ' +
-  '« c’est fait » dans un instant et je réessaie.';
+  '« j’ai fini » dans un instant et je réessaie.';

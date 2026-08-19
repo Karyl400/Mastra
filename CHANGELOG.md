@@ -1,5 +1,37 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## 2026-08-19 (nuit, fin) — Ce qu'un produit apprend à taper doit être reconnu
+
+**Nouveau garde-fou dérivé : `tests/unit/quality/taught-phrases.test.ts`.** Il EXTRAIT des
+textes réels toute phrase que le produit apprend à taper (« écris-moi *« … »* ») et vérifie
+qu'un prédicat la reconnaît. Ce dépôt a déjà payé cette faute : le guide d'accueil disait « ou
+écris-moi simplement "j'ai fini" » alors qu'aucun prédicat ne reconnaissait cette phrase, et la
+personne qui suivait l'instruction écrite voyait son message partir chez un agent qui n'avait
+aucune idée de ce qu'elle venait d'accomplir.
+
+C'est la promesse creuse sous sa forme la plus vicieuse : le texte est vrai quand il est écrit
+et devient faux quand le prédicat change, sans que rien ne rougisse — les deux bords restant
+corrects séparément. Comme `agentToolBoundary` et `agent-capabilities.ts`, la liste est
+DÉRIVÉE, jamais recopiée.
+
+Trois pièges d'écriture qu'il a fallu traverser, et chacun a d'abord fait passer le test au
+vert sur un défaut réel :
+- les guillemets sont IMBRIQUÉS (« Réponds : « Dis-moi « oui » ou « non ». » ») — on capture la
+  paire la plus INTERNE, `[^«»]` excluant les deux délimiteurs ;
+- les chaînes sont CONCATÉNÉES sur plusieurs lignes, donc le verbe et la phrase vivent sur deux
+  lignes différentes : une analyse ligne à ligne manquait `PROFILE_CHAT_SAVE_FAILED`,
+  c'est-à-dire précisément le défaut cherché ;
+- un commentaire documente souvent l'INVERSE de ce que le code fait — les lignes de commentaire
+  sont retirées avant analyse.
+
+**Le défaut qu'il a trouvé** : le produit enseignait DEUX formules pour un même geste —
+« j'ai fini » dans le guide d'accueil et dans la reprise d'entretien, « c'est fait » dans
+l'échec d'enregistrement. Aucune n'était cassée ; un produit qui apprend deux formules pour un
+même geste se lit simplement comme deux produits. Les deux restent RECONNUES — on n'a jamais
+intérêt à cesser de comprendre quelqu'un — ce qui est verrouillé, c'est ce qu'on ENSEIGNE.
+
+---
+
 ## 2026-08-19 (nuit, suite) — Trois dettes fermées, et deux défauts trouvés en les fermant
 
 ### Le destinataire d'un document est nommé PAR LE CODE
