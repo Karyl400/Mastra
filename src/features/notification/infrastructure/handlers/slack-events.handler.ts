@@ -99,6 +99,7 @@ import {
   INTERVIEW_SKIPPED_REPLY,
   INTERVIEW_TOO_SHORT_REPLY,
   captureInterviewAnswer,
+  isQuestionToBot,
   pendingInterviewStep,
   skipsInterview,
   type InterviewStep,
@@ -2916,6 +2917,13 @@ export class SlackEventsHandler {
     // je t'ai dit » deviendrait le prénom de la personne.
     if (findActingReply({ text: input.text, isDirectMessage: true })) return false;
 
+    // ⚠️ UNE QUESTION POSÉE AU BOT N'EST PAS UNE RÉPONSE — trouvé EN PRODUCTION le 2026-08-19.
+    // Le clic sur « C'est fait » arme la machine ; « qui s'occupe du support technique ? » était
+    // ensuite capturé comme la description du métier de la personne — champ IMPRIMÉ dans un
+    // document à son nom et restitué à ses collègues par `findExpertise`. Le critère est
+    // GRAMMATICAL, jamais une liste de mots : voir `isQuestionToBot`.
+    if (isQuestionToBot(input.text)) return false;
+
     await this.runProfileStep({ ...input, step });
     return true;
   }
@@ -3281,6 +3289,13 @@ export class SlackEventsHandler {
     // prioritaire sur répondre à une question d'accueil » — le code disait l'inverse. Ce
     // n'est donc pas un arbitrage nouveau, c'est l'application de celui qui était écrit.
     if (findActingReply({ text: input.text, isDirectMessage: true })) return false;
+
+    // ⚠️ UNE QUESTION POSÉE AU BOT N'EST PAS UNE RÉPONSE — trouvé EN PRODUCTION le 2026-08-19.
+    // Le clic sur « C'est fait » arme la machine ; « qui s'occupe du support technique ? » était
+    // ensuite capturé comme la description du métier de la personne — champ IMPRIMÉ dans un
+    // document à son nom et restitué à ses collègues par `findExpertise`. Le critère est
+    // GRAMMATICAL, jamais une liste de mots : voir `isQuestionToBot`.
+    if (isQuestionToBot(input.text)) return false;
 
     await this.runInterviewStep({ ...input, step });
     return true;

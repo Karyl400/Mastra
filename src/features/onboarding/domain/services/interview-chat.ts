@@ -183,3 +183,63 @@ export function skipsInterview(text: string | undefined): boolean {
 export const INTERVIEW_SKIPPED_REPLY =
   'Pas de souci, on laisse ça de côté. Si tu changes d’avis, écris-moi « j’ai fini » et on ' +
   'repart de là.';
+
+/**
+ * Ce texte est-il une QUESTION adressée au bot, plutôt qu'une description de son propre métier ?
+ *
+ * ## Le défaut que ceci ferme
+ *
+ * Trouvé EN PRODUCTION le 2026-08-19. Le clic sur « C'est fait » pose la première question
+ * d'entretien et ARME la machine à états. Le message suivant — « qui s'occupe du support
+ * technique ? », une vraie question adressée au bot — était capturé comme la réponse à « ce que
+ * tu fais au quotidien ».
+ *
+ * ⚠️ Ce champ est IMPRIMÉ dans un document au nom de la personne, sous « Ton quotidien », et
+ * restitué à ses collègues par `findExpertise`. Sa propre question devenait sa fiche publique.
+ *
+ * Même famille que « oublie ce que je t'ai dit » enregistré comme un métier, corrigé le matin
+ * même par une autre porte. `captureInterviewAnswer` accepte presque n'importe quel texte PAR
+ * CONCEPTION — on demande à quelqu'un de décrire son travail avec ses mots — et le correctif du
+ * matin n'a fait céder le pas qu'aux court-circuits.
+ *
+ * ## Pourquoi un critère GRAMMATICAL, et pas une liste de mots
+ *
+ * ⚠️ `ESCAPE_INTENTS` du routage a été essayé puis ÉCARTÉ : « je fais de la *recherche* » est
+ * une réponse d'entretien parfaitement valide, et `recherche` y est un terme d'échappement. Une
+ * liste de mots-clés casserait des réponses justes.
+ *
+ * Le signal qui sépare vraiment les deux cas est la PERSONNE GRAMMATICALE : on décrit son propre
+ * métier à la première personne, on interroge sur autrui sans elle. Le point d'interrogation
+ * seul ne suffit donc pas — « je préfère l'écrit, ça te va ? » reste une réponse.
+ *
+ * ⚠️ `\p{L}` avec le drapeau `u`, jamais `\b` : ce dépôt a payé trois fois ce piège, `\b`
+ * raisonnant en ASCII et ne matchant jamais une frontière après un caractère accentué.
+ */
+const FIRST_PERSON = /(?<!\p{L})(?:je|j[’']|mon|ma|mes|moi)(?!\p{L})/u;
+
+/** Mots par lesquels s'ouvre une question portant sur quelqu'un ou quelque chose d'AUTRE. */
+const INTERROGATIVE_OPENERS =
+  /^(?:qui|quel(?:le)?s?|quoi|comment|pourquoi|quand|ou|où|combien|est-ce|a qui|à qui|quelqu)/u;
+
+export function isQuestionToBot(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+
+  const normalized = trimmed
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}+/gu, '');
+
+  // ⚠️ L'OUVERTURE INTERROGATIVE PRIME SUR LA PERSONNE, et l'ordre est le fond du prédicat.
+  // « à qui je demande pour un badge ? » contient « je » et reste une question adressée au
+  // bot : la première personne y désigne le demandeur, pas le sujet décrit. Ce cas a été
+  // trouvé en écrivant le test, pas après — c'est ce qui a imposé les deux passes.
+  if (INTERROGATIVE_OPENERS.test(normalized)) return true;
+
+  // Hors ouverture interrogative, la première personne tranche : on décrit son propre métier
+  // avec elle. « je fais quoi au juste ? du support niveau 2 » reste donc une réponse — c'est
+  // une hésitation, pas une question posée au bot.
+  if (FIRST_PERSON.test(trimmed.toLowerCase())) return false;
+
+  return trimmed.endsWith('?');
+}
