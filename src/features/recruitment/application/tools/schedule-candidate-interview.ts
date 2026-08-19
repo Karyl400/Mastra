@@ -18,13 +18,17 @@ import { deriveConversationId } from '../../../conversation/domain/value-objects
  * Ce que ce tool fait, et surtout ce qu'il ne fait pas
  * ════════════════════════════════════════════════════════════════════════════
  *
- * Il valide, rend l'email depuis un GABARIT (`domain/services/interview-email.ts`), et poste
- * une carte de confirmation dans le fil. **L'envoi a lieu au clic**, dans
- * `slack-interactions.route.ts`, hors de portée du modèle.
+ * Il valide, rend l'email depuis un GABARIT (`domain/services/interview-email.ts`),
+ * ENREGISTRE la préparation dans `pending_interview_email`, puis pose une QUESTION dans le fil.
+ * **L'envoi a lieu au « oui »**, dans `handleMessage`, hors de portée du modèle.
+ *
+ * ⚠️ C'était un BOUTON jusqu'au 2026-08-19. La séparation n'a pas changé, seul son support :
+ * un clic ne réussit que si la fonction Vercel est chaude, et à ≈ 19 messages par jour le cas
+ * froid EST le cas nominal (5 229 ms à froid mesurées, 3 000 ms accordées par Slack).
  *
  * Cette séparation n'est pas une commodité d'implémentation, c'est la garantie centrale : le
  * modèle ne peut pas déclencher un envoi vers l'extérieur, quoi qu'on lui écrive. Le pire cas
- * d'une injection réussie est une carte de confirmation affichée à un humain, qui la lit.
+ * d'une injection réussie est un email affiché à un humain, qui le lit.
  *
  * ⚠️ **Le verdict ne dit JAMAIS « envoyé ».** Il rend `status: 'awaiting_confirmation'`, et le
  * bloc d'instructions de l'agent lui interdit d'annoncer un envoi. C'est la troisième
@@ -78,7 +82,7 @@ const REFUSALS = {
 } as const;
 
 /**
- * UNE carte par message de l'utilisateur.
+ * UNE invitation par message de l'utilisateur.
  *
  * ⚠️ Défaut OBSERVÉ en production le 2026-08-14, au deuxième test réel : sur « Prépare un
  * entretien pour contact.kisso.test@gmail.com le 25 août », **DEUX cartes** ont été postées à
@@ -97,11 +101,16 @@ const REFUSALS = {
  * Contrepartie assumée : « invite A et B pour lundi » ne prépare que la première, et le
  * verdict le DIT (`already_prepared`) pour que le modèle puisse l'annoncer au lieu de le
  * taire. C'est le bon compromis ici — rien ne part sans clic, donc le coût d'une carte
- * manquante est un message de plus, là où le coût d'une carte fantôme est une convocation que
+ * manquante est un message de plus, là où le coût d'une invitation fantôme est une convocation que
  * personne n'a demandée sous les yeux d'un humain qui pourrait la valider par réflexe.
+ *
+ * ⚠️ « rien ne part sans clic » se lit désormais « rien ne part sans un « oui » écrit ». La
+ * propriété est la même, et elle est même plus forte : `readsAsYes` est strict par
+ * construction et refuse toute nuance, là où un bouton ne distingue pas un clic délibéré d'un
+ * clic par réflexe.
  */
 const ALREADY_PREPARED_HINT =
-  'Une invitation a déjà été préparée pour ce message. Dis-le, et demande une nouvelle demande pour un second candidat.';
+  'Une invitation a déjà été préparée pour ce message. Dis-le simplement, et invite la personne à te redemander dans un message séparé pour un second candidat.';
 
 export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewDeps) {
   const now = deps.now ?? (() => new Date());
@@ -246,7 +255,15 @@ export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewD
         status: 'awaiting_confirmation',
         recipient: data.candidateEmail,
         whenLabel: parsed.schedule.humanReadable,
-        hint: "L'email est prêt et affiché au-dessus, avec la question. Il ne partira QUE si la personne répond « oui ». N'ajoute rien, ne répète pas l'email, et ne dis jamais qu'il est envoyé.",
+        // ⚠️ Le hint PRESCRIT la phrase, il ne décrit plus la situation — correctif du
+        // 2026-08-19, mesuré en production. Le texte précédent disait « l'email est affiché
+        // au-dessus, n'ajoute rien » et le modèle a répondu « L'email d'entretien est prêt, il
+        // s'affichera pour confirmation » : au FUTUR, alors que la personne l'avait déjà sous
+        // les yeux, et en doublon de la question qui venait d'être posée. Une consigne
+        // NÉGATIVE (« n'ajoute rien ») n'a rien à quoi s'accrocher — `progress.resolve` poste
+        // toujours quelque chose, donc le modèle doit bien écrire une phrase. On lui donne
+        // laquelle.
+        hint: "L'email complet et la question sont DÉJÀ sous les yeux de la personne. Réponds EXACTEMENT : « Dis-moi « oui » ou « non ». » Rien d'autre — ne répète pas l'email, ne le résume pas, et ne dis jamais qu'il est envoyé.",
       };
     },
   });

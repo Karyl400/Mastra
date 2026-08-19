@@ -40,6 +40,7 @@ export const AGENT_TOOLS: Readonly<Record<string, readonly string[]>> = {
     'getEmployeeProfile',
     'updateOnboardingStatus',
     'generateDocument',
+    'findExpertise',
   ],
   notificationAgent: [
     'findEmployeeByEmail',
@@ -48,6 +49,7 @@ export const AGENT_TOOLS: Readonly<Record<string, readonly string[]>> = {
     'scheduleReminder',
     'getNotificationHistory',
     'getEmployeeProfile',
+    'findExpertise',
   ],
   // Aucun outil de SORTIE, et ce n'est pas une convention : `makeKnowledgeAgent` LÈVE au
   // démarrage si on lui en câble un. Lecture agrégée + écriture externe dans la même chaîne

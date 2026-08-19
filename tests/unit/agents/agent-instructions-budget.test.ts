@@ -262,8 +262,14 @@ describe('Frontière négative dérivée du câblage', () => {
     // frontière métier) : ≈ +15 tokens. L'objet du test est « quelques dizaines, pas une
     // centaine » — il n'est pas de figer un chiffre, mais d'empêcher que cette phrase
     // devienne un paragraphe. Un seul run hors-sujet évité rembourse l'ajout pour une semaine.
+    //
+    // Relevé de 70 à 80 le 2026-08-19 : `findExpertise` est exposé à l'orchestrateur, donc son
+    // NOM entre dans la frontière — 70 → 74 tokens mesurés. La croissance est ici la
+    // contrepartie DIRECTE de la capacité ajoutée, et elle est bornée par construction : la
+    // frontière est dérivée de `Object.keys(tools)`, elle ne peut grandir que d'un nom d'outil
+    // à la fois, jamais d'une phrase.
     const tokens = tok(agentToolBoundary(toolsOf(WIRING.onboardingOrchestrator)));
-    expect(tokens, `frontière de ${tokens} tokens`).toBeLessThan(70);
+    expect(tokens, `frontière de ${tokens} tokens`).toBeLessThan(80);
   });
 });
 

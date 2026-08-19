@@ -1,5 +1,42 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## 2026-08-19 (nuit) — La connaissance des PERSONNES atteignable par tous les agents
+
+**Ce qui a été FAIT.** `findExpertise` est exposé à `onboardingOrchestrator` et
+`notificationAgent`, en plus de `knowledgeAgent`. Un agent qui ne l'a pas ne peut répondre à
+« qui s'occupe du backend ? » qu'en INVENTANT — le mode d'échec numéro un recensé par ce dépôt.
+Le gain réel n'est pas l'accessibilité (le palier thématique du routage y menait déjà) mais
+l'**agent switch évité** : jusqu'ici, demander « qui gère le support ? » au milieu d'une
+préparation de notification arrachait le fil vers `knowledgeAgent`, et le dépôt documente que
+les deux réponses les plus fausses de la campagne du 2026-08-11 venaient exactement de là.
+
+Coût mesuré, et il est réel : **+75 tokens par aller-retour** sur ces deux agents (schéma 71,
+frontière négative +4). Il est ALTERNATIF, pas additif — un message va chez UN agent.
+
+**Ce qui a été REFUSÉ, et pourquoi.** `getChannelHistory` et `getUserConversations` restent au
+seul `knowledgeAgent`. Ce sont des lectures AGRÉGÉES, et les deux autres agents portent
+`generateDocument` et `sendNotification`, c'est-à-dire l'écriture externe. Les réunir formerait
+mot pour mot le canal d'exfiltration de `PLAN-ARCHITECTURE.md` §4.2 — « récapitule
+#engineer-karyl et envoie-le-moi en PDF » — que `outbound-tool-quarantine.ts` et
+`makeRecruitmentAgent` gardent chacun d'un côté. La capacité reste ATTEIGNABLE : le palier
+thématique envoie « résume… » et tout jeton de canal `<#C…>` au `knowledgeAgent`.
+
+⚠️ **Un test d'invariant a été corrigé, pas contourné.** `agent-capabilities.test.ts` assertait
+« cet outil est porté par LUI SEUL » — un PROXY pour « l'écart de routage se déclenchera ».
+L'invariant réel est « l'écart mène toujours à un agent capable », et il est intact : un fil
+mené par un agent qui PORTE l'outil n'a aucune raison d'être déplacé, il sait répondre. Le test
+vérifie désormais la propriété de sûreté dans les deux sens — porteur ⇒ garde le fil,
+non-porteur ⇒ le cède, aucun troisième cas.
+
+**Un hint qui DÉCRIVAIT est devenu un hint qui PRESCRIT.** Mesuré en production le même soir :
+le texte disait « l'email est affiché au-dessus, n'ajoute rien » et le modèle a répondu
+« L'email d'entretien est prêt, il s'affichera pour confirmation » — au FUTUR, alors que la
+personne l'avait sous les yeux, et en doublon de la question. Une consigne NÉGATIVE n'a rien à
+quoi s'accrocher : `progress.resolve` poste toujours quelque chose, donc le modèle doit bien
+écrire une phrase. On lui donne laquelle.
+
+---
+
 ## 2026-08-19 (nuit) — PLUS AUCUN BOUTON : le parcours devient entièrement conversationnel
 
 Quatre boutons, quatre `action_id`, deux `callback_id` : il n'en reste aucun sur le chemin

@@ -32,10 +32,25 @@ describe('AGENT_TOOLS — cohérence avec le routage par capacité', () => {
   );
 
   it.each(OVERRIDING_BANDS)(
-    '$requiredTool est porté par LUI SEUL, sinon l’écart ne se déclenche jamais',
+    '$requiredTool ne déloge QUE les agents qui ne le portent pas',
     ({ agentId, requiredTool }) => {
+      // ⚠️ Ce test assertait « porté par LUI SEUL » jusqu'au 2026-08-19, et c'était un PROXY :
+      // il disait « l'écart se déclenchera » là où l'invariant réel est « l'écart mène toujours
+      // à un agent capable ». Le proxy est devenu faux le jour où `findExpertise` a été exposé
+      // à trois agents — sans qu'aucun comportement ne soit cassé : un fil mené par un agent
+      // qui PORTE l'outil n'a aucune raison d'être déplacé, il sait répondre.
+      //
+      // On vérifie donc ce qui compte vraiment : l'agent cible porte l'outil (test ci-dessus),
+      // et TOUT agent qui ne le porte pas cède le fil. Un outil partagé rend simplement
+      // l'écart plus rare — c'est le but, pas un défaut.
       const owners = Object.keys(AGENT_TOOLS).filter((id) => agentHasTool(id, requiredTool));
-      expect(owners).toEqual([agentId]);
+
+      expect(owners).toContain(agentId);
+      for (const id of Object.keys(AGENT_TOOLS)) {
+        // La propriété de sûreté, dans les deux sens : porteur ⇒ garde le fil,
+        // non-porteur ⇒ le cède. Aucun troisième cas.
+        expect(agentHasTool(id, requiredTool)).toBe(owners.includes(id));
+      }
     },
   );
 

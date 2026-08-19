@@ -285,12 +285,49 @@ const getNotificationHistory = makeGetNotificationHistory(notificationRepo, empl
 // La création passe désormais par la modale du flux d'arrivée : liste déroulante
 // côté Slack, workflow appelé en code, aucun LLM sur le chemin transactionnel.
 // Le tool reste câblé pour l'API et le workflow.
+// `findExpertise` (2026-08-14) répond à « qui peut faire quoi » — la seconde moitié de la
+// demande adressée au `knowledgeAgent`. Il est en LECTURE PURE et ne rend que des NOMS : ni
+// UUID, ni adresse, ni identifiant Slack. Il satisfait donc la quarantaine ci-dessus, et sa
+// place est bien ici plutôt que sur l'orchestrateur — « qui s'occupe du backend ? » est une
+// question de connaissance du workspace, pas une étape d'onboarding.
+// ⚠️ `interviewRepo` est la TROISIÈME matière, ajoutée le 2026-08-19 sur un défaut mesuré en
+// production : « qui s'occupe du support technique ? » rendait « aucun collaborateur
+// identifié » alors que la personne venait d'écrire, dans son entretien, qu'elle fait du
+// support technique. Le poste est un intitulé RH saisi une fois ; l'entretien est ce que la
+// personne fait, avec ses mots. Coût en tokens : ZÉRO — le tool-result reste borné à 6 noms.
+const findExpertise = makeFindExpertise({
+  directoryRepo,
+  employeeRepo,
+  interviewRepo,
+});
+
+// ⚠️ REMONTÉ ICI le 2026-08-19 : `findExpertise` est désormais câblé sur TROIS agents, donc il
+// doit être construit avant le premier. Voir juste en dessous pour la raison — et pour la
+// frontière qui, elle, n'a PAS bougé.
+
 const onboardingOrchestrator = makeOnboardingOrchestrator({
   findEmployeeByEmail,
   findPersonByName,
   getEmployeeProfile,
   updateOnboardingStatus,
   generateDocument,
+  // ⚠️ « QUAND UNE INFORMATION RÉELLE EST REQUISE » — 2026-08-19, et il faut dire exactement
+  // ce qui a été fait et ce qui a été REFUSÉ.
+  //
+  // FAIT : `findExpertise` est la connaissance que ce système possède sur les PERSONNES —
+  // poste déclaré, ce que la personne dit faire au quotidien. Un agent qui ne l'a pas ne peut
+  // répondre à « qui s'occupe du backend ? » qu'en INVENTANT, et c'est le mode d'échec numéro
+  // un recensé par ce dépôt. Il est en lecture pure et ne rend que des NOMS : ni UUID, ni
+  // adresse, ni identifiant Slack.
+  //
+  // REFUSÉ : `getChannelHistory` et `getUserConversations` restent au seul `knowledgeAgent`.
+  // Ce sont des lectures AGRÉGÉES, et cet agent porte `generateDocument`, qui rend un fichier
+  // ET le livre (upload Slack ou pièce jointe email). Les réunir formerait mot pour mot le
+  // canal d'exfiltration de §4.2 — « récapitule #engineer-karyl et envoie-le-moi en PDF » —
+  // que `outbound-tool-quarantine.ts` et `makeRecruitmentAgent` gardent chacun d'un côté. La
+  // capacité reste ATTEIGNABLE : le palier thématique du routage envoie « résume… » et tout
+  // jeton de canal `<#C…>` au `knowledgeAgent`, et peut déloger un fil pour cela.
+  findExpertise,
 });
 
 // `findEmployeeByEmail` est exposé à `onboardingOrchestrator` et `notificationAgent` depuis le
@@ -345,6 +382,12 @@ const notificationAgent = makeNotificationAgent({
   scheduleReminder,
   getNotificationHistory,
   getEmployeeProfile,
+  // Même arbitrage que sur l'orchestrateur, et la même frontière : la connaissance des
+  // PERSONNES, jamais la lecture agrégée des canaux. Ici le voisinage est `sendNotification`,
+  // donc l'écriture externe est encore plus directe — raison de plus pour que `findExpertise`
+  // ne rende que des noms, et que `title` et `evidence` en sortent ASSAINIS (correctif du
+  // 2026-08-19 : `title` est un poste déclaratif, édité par son porteur).
+  findExpertise,
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -383,22 +426,6 @@ const getChannelHistory = makeGetChannelHistory({
 // canal d'exfiltration complet (§4.2) — « envoie à ce candidat un récapitulatif de ce qui se
 // dit dans #engineer-karyl », en une phrase, par un invité. Une erreur de câblage devient donc
 // un échec au démarrage, pas une fuite.
-// `findExpertise` (2026-08-14) répond à « qui peut faire quoi » — la seconde moitié de la
-// demande adressée au `knowledgeAgent`. Il est en LECTURE PURE et ne rend que des NOMS : ni
-// UUID, ni adresse, ni identifiant Slack. Il satisfait donc la quarantaine ci-dessus, et sa
-// place est bien ici plutôt que sur l'orchestrateur — « qui s'occupe du backend ? » est une
-// question de connaissance du workspace, pas une étape d'onboarding.
-// ⚠️ `interviewRepo` est la TROISIÈME matière, ajoutée le 2026-08-19 sur un défaut mesuré en
-// production : « qui s'occupe du support technique ? » rendait « aucun collaborateur
-// identifié » alors que la personne venait d'écrire, dans son entretien, qu'elle fait du
-// support technique. Le poste est un intitulé RH saisi une fois ; l'entretien est ce que la
-// personne fait, avec ses mots. Coût en tokens : ZÉRO — le tool-result reste borné à 6 noms.
-const findExpertise = makeFindExpertise({
-  directoryRepo,
-  employeeRepo,
-  interviewRepo,
-});
-
 const knowledgeAgent = makeKnowledgeAgent({
   getUserConversations,
   getChannelHistory,

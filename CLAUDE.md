@@ -300,6 +300,18 @@ n'importe aucune feature, c'est vérifié — mais une question de cohésion.
   `features/` : le câblage se fait exclusivement dans `src/mastra/index.ts`.
 - **Identifiants Mastra** : `camelCase`, et la clé du registre `agents: {}` doit être
   **identique** à l'`id` de l'agent — c'est ce que `mastra.getAgent(id)` résout.
+  ⚠️ **`findExpertise` est porté par TROIS agents depuis le 2026-08-19** —
+    `onboardingOrchestrator`, `notificationAgent` et `knowledgeAgent`. Un agent qui ne l'a pas
+    ne peut répondre à « qui s'occupe du backend ? » qu'en INVENTANT. Le gain n'est pas
+    l'accessibilité (le palier thématique y menait déjà) mais l'AGENT SWITCH ÉVITÉ : demander
+    « qui gère le support ? » au milieu d'une préparation de notification arrachait le fil, et
+    les deux réponses les plus fausses de la campagne du 2026-08-11 venaient de là. Coût mesuré
+    **+75 tokens par aller-retour**, alternatif et non additif.
+    ⚠️ **`getChannelHistory` et `getUserConversations` restent au SEUL `knowledgeAgent`** : ce
+    sont des lectures AGRÉGÉES, et les deux autres portent `generateDocument` / `sendNotification`.
+    Les réunir formerait le canal d'exfiltration de §4.2 (« récapitule #engineer-karyl et
+    envoie-le-moi en PDF »). C'est la limite exacte de « n'importe quel agent peut interroger la
+    connaissance » : les PERSONNES oui, les CANAUX non.
   - Agents (4 exposés) : `onboardingOrchestrator`, `notificationAgent`, `knowledgeAgent`,
     `recruitmentAgent` (2026-08-14).
     ⚠️ `questionnaireEngine` a été RETIRÉ du registre le 2026-08-14 — voir plus bas.
