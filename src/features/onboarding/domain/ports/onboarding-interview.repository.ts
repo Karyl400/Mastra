@@ -35,6 +35,22 @@ export interface OnboardingInterviewRepository {
   findByEmployee(employeeId: string): Promise<OnboardingInterview | null>;
 
   /**
+   * Tous les entretiens.
+   *
+   * ⚠️ Ajouté le 2026-08-19 pour `findExpertise`, sur un défaut mesuré en production : à
+   * « qui s'occupe du support technique ? », l'outil a répondu « aucun collaborateur n'est
+   * identifié » alors que la personne venait d'écrire, dans son entretien, qu'elle fait du
+   * support technique. La réponse était HONNÊTE — la donnée était ailleurs — mais l'entretien
+   * est le seul endroit où quelqu'un décrit son métier avec ses mots, ce qui est exactement ce
+   * qu'une recherche d'expertise cherche.
+   *
+   * Pas de pagination : la table a UNE ligne par employé, et `employees` en compte deux. Si
+   * elle devait croître, c'est la borne de `findExpertise` (6 résultats) qui protège le
+   * tool-result, pas celle-ci.
+   */
+  listAll(): Promise<OnboardingInterview[]>;
+
+  /**
    * Écrit l'entretien, en ÉCRASANT le précédent s'il existe.
    *
    * `employee_id` est la clé primaire : un employé a un entretien, pas une collection. Une

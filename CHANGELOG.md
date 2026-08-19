@@ -1,5 +1,120 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-19 (soir) — les boutons, mesurés puis corrigés à la racine
+
+### Le diagnostic, en trois mesures
+
+Un clic de bouton SIGNÉ sur `/slack/interactions`, en production :
+
+| Situation | ACK |
+| --- | --- |
+| instance froide | **5 229 ms** |
+| déploiement neuf | **9 173 ms** |
+| instance chaude | 684 ms |
+
+Slack accorde **3 secondes**. Le handler ACK pourtant sans la moindre E/S, et l'import du
+graphe applicatif ne prend que **0,82 s** en local : le reste est le téléchargement et le
+DÉPAQUETAGE de la fonction (264 Mo, 20 447 fichiers). Le budget était épuisé AVANT la première
+instruction — cause unique et suffisante, qu'aucune optimisation du handler ne pouvait
+atteindre. À ≈ 19 messages par jour, presque chaque clic tombe sur une instance froide : le cas
+froid EST le cas nominal.
+
+Vérifié au passage que le levier plateforme était déjà tiré : **Fluid Compute est actif**, la
+mémoire est au maximum (3009 Mo, le CPU y est proportionnel).
+
+### Added — un PORTIER D'ACK sans aucune dépendance
+
+`scripts/slack-ack-function/index.mjs` devient une seconde fonction Vercel
+(`functions/slack-ack.func`, **24 Ko, zéro `node_modules`**) qui sert `/slack/events` et
+`/slack/interactions`. Elle vérifie la signature HMAC, répond, et REJOUE la requête telle
+quelle vers `/internal/slack/…`, où la route applicative la retraite normalement — même
+handler, même vérification de signature sur le corps réexpédié à l'identique.
+
+Elle ne décide rien : elle ne lit aucune base, n'appelle pas Slack, ne connaît aucun
+`action_id`. Toute la logique reste à un seul endroit.
+
+⚠️ `url_verification` est répondu PAR LE PORTIER : Slack attend le `challenge` dans la réponse,
+le réexpédier produirait un 200 vide et l'URL serait refusée.
+
+**Mesuré après déploiement — premier clic sur un déploiement neuf : 1 188 ms**, puis 714 à
+1 775 ms. Les quatre boutons sont sous la limite, vérifiés un par un.
+
+### Added — élagage du bundle par ATTEIGNABILITÉ
+
+`fix-vercel-output.js` calcule à chaque build le graphe des `import`/`require` littéraux depuis
+les modules racines et supprime les paquets qu'aucun chemin n'atteint : **178 paquets, 11 696
+fichiers, 64 Mo**. La fonction applicative passe de 264 à **160 Mo** et de 20 447 à **8 766
+fichiers**.
+
+La liste est CALCULÉE, jamais écrite : une liste se périme au premier changement de dépendance,
+en silence. Seuls les paquets résolus par un nom calculé sont déclarés à la main
+(`pdfmake` via `createRequire`, les bindings `@libsql`) — exactement ceux que
+`verify:bundle --require` nomme déjà.
+
+⚠️ Trois filets, parce que l'analyse statique ne voit pas tout : `verify:bundle` IMPORTE
+réellement `index.mjs`, produit un vrai PDF **et désormais un vrai DOCX** depuis le bundle, et
+un garde-fou refuse tout élagage aberrant (> 75 % des paquets).
+
+Premier essai rouge, et instructif : ignorer les `node_modules` imbriqués faisait supprimer
+`esprima` et `sprintf-js`, qu'un paquet imbriqué résout EN REMONTANT vers la racine.
+
+### Changed — la DERNIÈRE modale du produit disparaît
+
+Le portier garantit l'ACK, mais il ne peut pas sauver une modale : il répond vite parce qu'il ne
+connaît rien du produit, et `views.open` a lieu ensuite, depuis la fonction restée froide.
+Journaux à l'appui : `Unable to open the profile modal … invalid_trigger_id`.
+
+« Compléter mon profil » est donc remplacé par un ÉCHANGE ÉCRIT
+(`onboarding/domain/services/profile-chat.ts`) : quatre questions au plus, une par message,
+**zéro appel de modèle**. L'état se reconstitue du fil — les questions déjà posées sont
+appariées aux réponses données — donc aucune table, aucune lecture de plus sur le chemin des
+3 secondes. Le dossier existant sert de socle : à qui il ne manque que le poste, on ne demande
+que le poste.
+
+`runOnboarding` est extrait dans `onboarding/application/services/` : il y a désormais deux
+appelants (la modale historique et la conversation), et deux écrivains pour un même geste est
+la configuration où ce dépôt a déjà payé.
+
+⚠️ Le traitement de `view_submission` est conservé mais INATTEIGNABLE. Le retirer emporte
+`profile-modal.ts`, `interview-modal.ts` et `applyInterview` — donc l'invitation aux canaux — et
+cela ne se fait pas dans le même commit qu'un parcours neuf. Voir `TODO.md`.
+
+### Fixed — le jour de la semaine était écrit par le MODÈLE
+
+Relevé en production : « Rappel planifié : … à 09 h 00 le **lundi 22 août 2026** ». Le 22 août
+2026 est un **samedi**, et « avant lundi » désignait le 24 ; `scheduled_at` en base le confirme.
+Le libellé était produit par le modèle à côté d'une date qu'il avait lui-même calculée, et rien
+ne confrontait les deux. `recruitmentAgent` ne peut pas commettre cette faute — au même moment
+il a produit « mardi 15 septembre 2026 », exact — parce que son libellé vient d'un gabarit.
+
+`scheduleReminder` rend donc un `scheduledLabel` CALCULÉ. Le formatage vivait en trois
+exemplaires divergents ; il est rassemblé dans `shared/french-datetime.ts`.
+
+Et le mot « planifié » entre dans le détecteur de promesses non tenues : quand le seul outil
+ayant tourné est un enregistreur sans transport, la réponse est requalifiée.
+
+### Fixed — `findExpertise` ignorait ce que les gens disent faire
+
+« Qui s'occupe du support technique ? » rendait « aucun collaborateur identifié » alors que la
+personne venait d'écrire, dans son entretien, qu'elle fait du support technique. `position` est
+un intitulé RH saisi une fois ; l'entretien est le seul endroit où quelqu'un décrit son métier
+avec ses mots. La dépendance est OPTIONNELLE et son absence n'est pas comptée comme une source
+en panne — ce serait transformer une configuration en incident. Coût en tokens : zéro, le
+tool-result reste borné à 6 noms.
+
+### Fixed — la suite de tests faisait de vrais appels réseau
+
+Les fichiers de handler qui n'injectent pas `accessGuard` font construire un `SlackMemberSource`
+qui appelle RÉELLEMENT `users.info` sur slack.com avec le jeton de test : ≈ 3 s par test,
+back-off du client compris. C'est la cause des faux échecs intermittents. Les trois fichiers
+concernés reçoivent une doublure — ⚠️ une doublure qui RÉPOND, pas `null`, qui retirerait
+`slackAccessLevel` du `requestContext` que ces tests vérifient.
+
+Et le journal d'audit devient INJECTABLE (`auditSink`) : `writeAuditLog` ouvre `data/kisso.db`
+par défaut, c'était la dernière dépendance non neutralisable de ces tests. En production, le
+défaut reste `writeAuditLog` — rien ne change. `tests/unit/handlers/` passe de **49 s à 9-12 s**,
+et le rouge intermittent disparaît.
+
 ## [Unreleased] - 2026-08-19 — la vidéo d'accueil, et deux trous sur le chemin du parcours
 
 ### Added — la vidéo tutorielle entre dans le parcours, servie par le CDN

@@ -17,6 +17,7 @@
 import { existsSync } from 'fs';
 import { createRequire } from 'module';
 import { join } from 'path';
+import { pathToFileURL } from 'url';
 import { auditBundle, readPackageJson, resolveFrom } from './vercel-bundle-deps.js';
 
 const root = process.cwd();
@@ -154,6 +155,31 @@ if (!failed) {
     console.error(
       '   C\'est le crash de documentGenerationWorkflow en production. Ne pas déployer ce bundle.'
     );
+    failed = true;
+  }
+}
+
+// Même geste pour l'AUTRE renderer. `document` a deux sorties d'un même modèle logique, et
+// depuis l'élagage par atteignabilité du 2026-08-19 le bundle ne contient plus que ce qu'un
+// chemin d'import atteint : il faut donc EXERCER les deux chaînes, pas seulement celle qui a
+// déjà cassé une fois. Un DOCX est un ZIP — l'en-tête `PK` est la preuve qu'il a été écrit.
+if (!failed) {
+  try {
+    const { Document, Packer, Paragraph } = await import(
+      pathToFileURL(join(bundleNodeModules, 'docx', 'dist', 'index.mjs')).href
+    );
+    const buffer = await Packer.toBuffer(
+      new Document({ sections: [{ children: [new Paragraph('bundle smoke test')] }] })
+    );
+    if (!buffer?.length || buffer.subarray(0, 2).toString() !== 'PK') {
+      throw new Error(`sortie inattendue (${buffer?.length ?? 0} octets)`);
+    }
+    console.log(
+      `✅ Smoke test DOCX depuis le bundle : ${buffer.length} octets générés (en-tête PK valide).`
+    );
+  } catch (error) {
+    console.error(`❌ Smoke test DOCX depuis le bundle en échec : ${error?.message ?? error}`);
+    console.error("   `generateDocument` en format docx crasherait en production. Ne pas déployer.");
     failed = true;
   }
 }

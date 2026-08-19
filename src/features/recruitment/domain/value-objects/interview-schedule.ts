@@ -24,6 +24,12 @@
  * personne.
  *
  * TypeScript pur — ce module traverse la couche `domain`.
+ *
+ * ⚠️ Le FORMATAGE a été extrait dans `shared/french-datetime.ts` le 2026-08-19 : il existait
+ * en trois exemplaires divergents dans ce dépôt, et le seul défaut mesuré en production venait
+ * de celui qui n'existait pas — `scheduleReminder` laissait le modèle écrire le jour de la
+ * semaine, qui s'est révélé faux. Ce qui reste ici, ce sont les BORNES, qui sont propres à un
+ * entretien.
  */
 
 /**
@@ -35,6 +41,8 @@
  * L'offset est de toute façon IMPRIMÉ dans l'email (« (UTC+01:00) »), ce qui rend l'hypothèse
  * vérifiable par son destinataire au lieu d'être implicite.
  */
+import { frenchFullLabel, frenchShortLabel } from '../../../../shared/french-datetime';
+
 export const INTERVIEW_TIMEZONE = process.env.RECRUITMENT_TIMEZONE || 'Africa/Lagos';
 
 /**
@@ -80,53 +88,8 @@ export function parseInterviewSchedule(
     ok: true,
     schedule: {
       at,
-      humanReadable: `${formatFrench(at, { dateStyle: 'full', timeStyle: 'short' })} (${offsetLabel(at)})`,
-      shortLabel: formatShort(at),
+      humanReadable: frenchFullLabel(at, INTERVIEW_TIMEZONE),
+      shortLabel: frenchShortLabel(at, INTERVIEW_TIMEZONE),
     },
   };
-}
-
-/**
- * ⚠️ `Intl` peut manquer d'ICU sur certains runtimes minimaux, et rendrait alors une chaîne
- * anglaise ou lèverait. On retombe sur l'ISO plutôt que d'échouer : une date moins lisible
- * reste vérifiable, une absence de date ne l'est pas.
- */
-function formatFrench(at: Date, options: Intl.DateTimeFormatOptions): string {
-  try {
-    return new Intl.DateTimeFormat('fr-FR', { ...options, timeZone: INTERVIEW_TIMEZONE }).format(
-      at,
-    );
-  } catch {
-    return at.toISOString();
-  }
-}
-
-function formatShort(at: Date): string {
-  try {
-    const parts = new Intl.DateTimeFormat('fr-FR', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: INTERVIEW_TIMEZONE,
-    }).formatToParts(at);
-    const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
-    return `${get('weekday')} ${get('day')} ${get('month')} à ${get('hour')}:${get('minute')}`;
-  } catch {
-    return at.toISOString();
-  }
-}
-
-/** « UTC+01:00 ». Imprimé tel quel : c'est ce qui rend l'heure non ambiguë pour le candidat. */
-function offsetLabel(at: Date): string {
-  try {
-    const parts = new Intl.DateTimeFormat('fr-FR', {
-      timeZone: INTERVIEW_TIMEZONE,
-      timeZoneName: 'longOffset',
-    }).formatToParts(at);
-    return parts.find((part) => part.type === 'timeZoneName')?.value ?? 'UTC';
-  } catch {
-    return 'UTC';
-  }
 }

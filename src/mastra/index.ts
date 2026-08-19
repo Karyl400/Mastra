@@ -54,8 +54,11 @@ import { DocxService } from '../features/document/infrastructure/services/docx.s
 
 import { createEmployeeOnboardingWorkflow } from '../features/onboarding/application/workflows/employee-onboarding';
 
-import { slackEventsRoute } from '../api/slack-events.route';
-import { slackInteractionsRoute } from '../api/slack-interactions.route';
+import { slackEventsRoute, slackEventsWorkRoute } from '../api/slack-events.route';
+import {
+  slackInteractionsRoute,
+  slackInteractionsWorkRoute,
+} from '../api/slack-interactions.route';
 import { createApiAuthConfig } from '../shared/security/api-auth';
 import { createCallerErrorMiddleware } from '../shared/security/caller-error-mapping';
 import { createRequestContextGuard } from '../shared/security/request-context-guard';
@@ -384,7 +387,16 @@ const getChannelHistory = makeGetChannelHistory({
 // UUID, ni adresse, ni identifiant Slack. Il satisfait donc la quarantaine ci-dessus, et sa
 // place est bien ici plutôt que sur l'orchestrateur — « qui s'occupe du backend ? » est une
 // question de connaissance du workspace, pas une étape d'onboarding.
-const findExpertise = makeFindExpertise({ directoryRepo, employeeRepo });
+// ⚠️ `interviewRepo` est la TROISIÈME matière, ajoutée le 2026-08-19 sur un défaut mesuré en
+// production : « qui s'occupe du support technique ? » rendait « aucun collaborateur
+// identifié » alors que la personne venait d'écrire, dans son entretien, qu'elle fait du
+// support technique. Le poste est un intitulé RH saisi une fois ; l'entretien est ce que la
+// personne fait, avec ses mots. Coût en tokens : ZÉRO — le tool-result reste borné à 6 noms.
+const findExpertise = makeFindExpertise({
+  directoryRepo,
+  employeeRepo,
+  interviewRepo,
+});
 
 const knowledgeAgent = makeKnowledgeAgent({
   getUserConversations,
@@ -500,7 +512,21 @@ export const mastra = new Mastra({
   // Une route HTTP n'existe QUE si elle est déclarée ici. Les fichiers de `src/api/`
   // ne sont jamais montés automatiquement par Mastra.
   server: {
-    apiRoutes: [slackEventsRoute, slackInteractionsRoute],
+    // ⚠️ QUATRE routes pour DEUX endpoints. Les deux `…WorkRoute` sont les chemins internes
+    // où le PORTIER D'ACK (`scripts/slack-ack-function/`) rejoue la requête : Slack n'accorde
+    // que 3 secondes, et le démarrage à froid de CETTE fonction a été mesuré à 5,2 s le
+    // 2026-08-19 — le budget était épuisé avant la première instruction. Le portier n'a aucune
+    // dépendance, donc aucun dépaquetage à payer.
+    //
+    // Elles ne sont pas une porte dérobée : même handler, même vérification HMAC sur le corps
+    // réexpédié à l'identique. Le chemin distinct existe pour que le routage Vercel ne renvoie
+    // pas la requête réexpédiée au portier — ce qui serait une boucle.
+    apiRoutes: [
+      slackEventsRoute,
+      slackEventsWorkRoute,
+      slackInteractionsRoute,
+      slackInteractionsWorkRoute,
+    ],
     // Requalifie en 400 les erreurs de validation d'entrée que Mastra renvoie en 500.
     // Monté sur `/api/*` UNIQUEMENT : `/slack/events` gère ses propres codes et le rejeu
     // de Slack en dépend. Une vraie panne serveur reste un 500 (voir le module).

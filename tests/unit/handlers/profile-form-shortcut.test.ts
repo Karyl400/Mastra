@@ -64,6 +64,17 @@ function makeHandler() {
   const handler = new SlackEventsHandler('xoxb-test-token', mastra, {
     slackClient: slack as unknown as WebClient,
     chatProvider: { sendBlocks } as unknown as SlackEventsHandlerOptions['chatProvider'],
+    // ⚠️ SANS CETTE LIGNE, un `users.info` part RÉELLEMENT vers slack.com avec ce jeton de
+    // test : la frontière d'accès construit un `SlackMemberSource` dès qu'on ne lui passe pas
+    // explicitement `null`. Mesuré le 2026-08-19 : ≈ 3 s par test, back-off du client compris,
+    // donc des tests à quelques centaines de millisecondes du délai de 5 s — la suite entière
+    // a échoué deux fois sur neuf exécutions sans qu'aucun comportement ne soit cassé, et ce
+    // rouge ne désignait jamais sa cause. `CLAUDE.md` recense les SIX dépendances à neutraliser.
+    accessGuard: null,
+    // ⚠️ Le journal d'audit ouvre `data/kisso.db` par défaut : c'était la DERNIÈRE dépendance
+    // non neutralisée de ces tests, ≈ 250 ms par message et, sous contention, des pointes qui
+    // franchissent le délai de 5 s de Vitest.
+    auditSink: async () => undefined,
     // Les TROIS dépendances qui touchent la base sont neutralisées — sans quoi le handler
     // construit des dépôts Drizzle et les tests écrivent dans la vraie base (cf. CLAUDE.md).
     conversationRepository: null,

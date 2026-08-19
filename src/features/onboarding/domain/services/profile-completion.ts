@@ -22,6 +22,13 @@
 
 /** Ce qu'il faut avoir en base pour qu'un dossier soit exploitable. */
 import { INTERVIEW_QUESTION_DAILY } from './interview-chat';
+import {
+  PROFILE_CHAT_INTRO_NO_RECORD,
+  PROFILE_QUESTIONS,
+  answersFromRecord,
+  nextProfileStep,
+  profileChatIntroMissing,
+} from './profile-chat';
 
 export interface ProfileSnapshot {
   readonly firstName: string | null | undefined;
@@ -36,8 +43,16 @@ export interface ProfileVerdict {
   readonly missing: readonly string[];
   /** Le texte à poster, en mrkdwn Slack. */
   readonly reply: string;
-  /** Faut-il proposer le formulaire ? Uniquement quand il manque vraiment quelque chose. */
-  readonly offerForm: boolean;
+  /**
+   * Le dossier reste-t-il à compléter ?
+   *
+   * ⚠️ S'appelait `offerForm` jusqu'au 2026-08-19, quand la réponse posait un bouton ouvrant
+   * une modale. Cette modale ne s'ouvrait jamais : un `trigger_id` expire en 3 s et le
+   * démarrage à froid mesuré est de 5,2 s. La complétion se fait désormais EN CONVERSATION,
+   * et `reply` porte déjà la première question — le nom devait suivre, sinon il décrirait un
+   * produit qui n'existe plus.
+   */
+  readonly needsProfileChat: boolean;
 }
 
 /**
@@ -98,11 +113,8 @@ export function verifyProfile(snapshot: ProfileSnapshot | null): ProfileVerdict 
     return {
       complete: false,
       missing: FIELD_ORDER.map((field) => FIELD_LABELS[field]),
-      reply:
-        'Je ne trouve pas encore de dossier à ton nom — il n’a pas dû être enregistré. ' +
-        'Ouvre le formulaire ci-dessous, il est déjà pré-rempli avec ce que Slack sait de toi : ' +
-        'il te reste à confirmer.',
-      offerForm: true,
+      reply: `${PROFILE_CHAT_INTRO_NO_RECORD}\n\n${PROFILE_QUESTIONS.firstName}`,
+      needsProfileChat: true,
     };
   }
 
@@ -111,20 +123,24 @@ export function verifyProfile(snapshot: ProfileSnapshot | null): ProfileVerdict 
   );
 
   if (missing.length === 0) {
-    return { complete: true, missing: [], reply: NEXT_STEP, offerForm: false };
+    return { complete: true, missing: [], reply: NEXT_STEP, needsProfileChat: false };
   }
 
   // ⚠️ On NOMME ce qui manque. « Ton profil est incomplet » est la version inutile de cette
   // phrase : elle informe la personne qu'elle a un problème sans lui dire lequel, ce qui la
   // renvoie au formulaire pour le découvrir. Le coût de nommer est nul, celui de taire est un
   // aller-retour.
-  const list =
-    missing.length === 1 ? missing[0]! : `${missing.slice(0, -1).join(', ')} et ${missing.at(-1)!}`;
+  // ⚠️ LA RÉPONSE CONTIENT DÉJÀ LA PREMIÈRE QUESTION, et c'est indispensable, pas cosmétique :
+  // l'état de la machine à états EST le dernier tour `assistant` du fil. Nommer ce qui manque
+  // sans rien demander laisserait le fil sans question en attente, et le message suivant de la
+  // personne — sa réponse — partirait chez un agent. C'est exactement la faute mesurée le
+  // 2026-08-19 sur la machine jumelle de l'entretien.
+  const step = nextProfileStep(answersFromRecord(snapshot))!;
   return {
     complete: false,
     missing,
-    reply: `J’ai bien un dossier à ton nom, mais il me manque ${list}. Le formulaire ci-dessous garde ce qui est déjà rempli.`,
-    offerForm: true,
+    reply: `${profileChatIntroMissing(missing)}\n\n${PROFILE_QUESTIONS[step]}`,
+    needsProfileChat: true,
   };
 }
 

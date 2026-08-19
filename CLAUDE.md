@@ -53,7 +53,12 @@
 > que la machine travaille, et ce rouge ne désigne jamais sa cause : la suite a échoué deux fois
 > sur neuf exécutions le 2026-08-19, sans qu'aucun comportement ne soit cassé.
 > ⚠️ `directoryRepository: null` est PIRE que l'absence — l'identité retombe sur le même
-> `users.info` réseau. Il faut une doublure qui RÉPOND, pas un trou.
+> `users.info` réseau. Il faut une doublure qui RÉPOND, pas un trou. Idem `accessGuard: null`,
+> qui retire `slackAccessLevel` du `requestContext` que plusieurs tests vérifient.
+>
+> ⚠️ **SEPT depuis le 2026-08-19 au soir** : `auditSink` s'y ajoute. `writeAuditLog` ouvre
+> `data/kisso.db` par défaut, et c'était la dernière dépendance non neutralisable — ≈ 250 ms
+> par message, avec des pointes sous contention. `tests/unit/handlers/` : 49 s → 9-12 s.
 >
 > Ce que la campagne a établi et qui change la doctrine du projet : **la limite qui casse la
 > production n'est PAS le seau Groq par minute mais le quota JOURNALIER (≈ 19 messages/jour)**,
@@ -745,6 +750,56 @@ numéro français, qui ne joignait personne. **Ne jamais y écrire un numéro no
 numéro faux consomme le seul geste que la personne aura peut-être la force de faire.
 
 Setup complet de l'app Slack : `docs/SLACK_BOT_SETUP.md`.
+
+⚠️ **LES BOUTONS SLACK NE POUVAIENT PAS FONCTIONNER, ET LA CAUSE N'ÉTAIT PAS DANS LE CODE
+DU HANDLER — 2026-08-19.** Un clic SIGNÉ sur `/slack/interactions`, mesuré en production :
+**5 229 ms à froid**, 9 173 ms sur un déploiement neuf, 684 ms à chaud. Slack accorde
+**3 secondes**. Le handler ACK pourtant sans la moindre E/S, et l'import du graphe applicatif ne
+prend que **0,82 s** en local : le reste est le téléchargement et le DÉPAQUETAGE de la fonction
+(264 Mo, 20 447 fichiers). À ≈ 19 messages par jour, presque chaque clic tombe sur une instance
+froide — **le cas froid EST le cas nominal**. Fluid Compute était déjà actif et la mémoire déjà
+au maximum (3009 Mo) : ces deux leviers étaient tirés.
+
+**Correctif : un PORTIER D'ACK, seconde fonction Vercel SANS AUCUNE DÉPENDANCE.**
+`scripts/slack-ack-function/index.mjs` (24 Ko, zéro `node_modules`) sert `/slack/events` et
+`/slack/interactions` : il vérifie le HMAC, répond, et REJOUE la requête telle quelle vers
+`/internal/slack/…`, où la route applicative la retraite — même handler, même vérification de
+signature sur le corps réexpédié à l'identique. Il ne décide rien : aucune base, aucun appel
+Slack, aucun `action_id` connu de lui.
+- **Quatre routes pour deux endpoints** dans `server.apiRoutes` : les deux `…WorkRoute` sont les
+  chemins internes. Le chemin distinct existe pour que le routage Vercel ne renvoie pas la
+  requête réexpédiée au portier — ce serait une boucle et un bot muet. Ce n'est PAS une porte
+  dérobée : la frontière de sécurité est inchangée, et tiendrait si le portier disparaissait.
+- ⚠️ `url_verification` est répondu PAR LE PORTIER : Slack attend le `challenge` dans la
+  réponse, le réexpédier produirait un 200 vide et l'URL serait refusée.
+- ⚠️ L'hôte de réexpédition vient de la REQUÊTE (`x-forwarded-host`), jamais d'une variable :
+  sur un déploiement de prévisualisation, une URL de production ferait traiter l'événement par
+  le mauvais code, et le symptôme serait « ça marche ».
+- Mesuré après déploiement : **premier clic sur un déploiement neuf, 1 188 ms**, puis 714 à
+  1 775 ms. Les quatre boutons vérifiés un par un.
+
+⚠️ **UN PORTIER NE SAUVE PAS UNE MODALE, et c'est pour cela qu'il n'en reste AUCUNE.** Il répond
+vite précisément parce qu'il ne connaît rien du produit ; `views.open` a lieu ensuite, dans la
+fonction restée froide, et le `trigger_id` est périmé (`invalid_trigger_id` dans les journaux).
+La complétion de profil est donc devenue un ÉCHANGE ÉCRIT
+(`onboarding/domain/services/profile-chat.ts`), comme l'entretien avant elle : quatre questions
+au plus, une par message, **zéro token**, l'état reconstitué du fil et le dossier existant en
+socle. Le traitement de `view_submission` est conservé mais INATTEIGNABLE — voir `TODO.md`.
+
+**Le bundle est élagué par ATTEIGNABILITÉ à chaque build** (`fix-vercel-output.js`) : le graphe
+des `import`/`require` littéraux est calculé depuis les modules racines, et les paquets
+qu'aucun chemin n'atteint sont supprimés — 178 paquets, 11 696 fichiers, 64 Mo. La fonction
+passe de 264 à 160 Mo, de 20 447 à 8 766 fichiers.
+- La liste est CALCULÉE, jamais écrite : une liste se périme au premier changement de
+  dépendance, en silence. Seuls les paquets résolus par un nom CALCULÉ sont déclarés à la main
+  (`pdfmake` via `createRequire`, bindings `@libsql`) — ceux que `verify:bundle --require` nomme
+  déjà.
+- ⚠️ Trois filets, parce que l'analyse statique ne voit pas tout : `verify:bundle` importe
+  réellement `index.mjs`, produit un vrai PDF **et un vrai DOCX** depuis le bundle, et un
+  garde-fou refuse tout élagage aberrant (> 75 % des paquets).
+- ⚠️ Il faut descendre dans les `node_modules` IMBRIQUÉS : un paquet imbriqué résout ses
+  dépendances en REMONTANT vers la racine. Les ignorer a fait supprimer `esprima` et
+  `sprintf-js` au premier essai — build rouge, correctif immédiat.
 
 **Une route HTTP n'existe que si elle est déclarée dans `server.apiRoutes` de
 `src/mastra/index.ts`** via `registerApiRoute()` (`@mastra/core/server`). Un fichier posé dans

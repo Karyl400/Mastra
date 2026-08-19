@@ -26,6 +26,12 @@ export class DrizzleOnboardingInterviewRepository implements OnboardingInterview
     return row ? toDomain(row) : null;
   }
 
+  async listAll(): Promise<OnboardingInterview[]> {
+    const db = getDb();
+    const rows = await db.select().from(onboardingInterview).all();
+    return rows.map(toDomain);
+  }
+
   /**
    * ⚠️ Le `set` de l'upsert énumère les champs UN À UN, et `createdAt` en est ABSENT.
    *

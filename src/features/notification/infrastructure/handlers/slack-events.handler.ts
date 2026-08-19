@@ -80,6 +80,21 @@ import {
   type ProfileSnapshot,
 } from '../../../onboarding/domain/services/profile-completion';
 import {
+  PROFILE_CHAT_SAVE_FAILED,
+  PROFILE_QUESTIONS,
+  answersFromRecord,
+  captureProfileAnswer,
+  collectProfileAnswers,
+  nextProfileStep,
+  pendingProfileStep,
+  profileRetryReply,
+  type ProfileAnswers,
+  type ProfileStep,
+} from '../../../onboarding/domain/services/profile-chat';
+import { runOnboarding } from '../../../onboarding/application/services/run-onboarding';
+import { startDateFromJoin } from './profile-modal';
+import {
+  INTERVIEW_QUESTION_DAILY,
   INTERVIEW_QUESTION_STYLE,
   INTERVIEW_SKIPPED_REPLY,
   INTERVIEW_TOO_SHORT_REPLY,
@@ -353,6 +368,19 @@ export interface SlackEventsHandlerOptions {
    * pas au gel de la fonction serverless. Injectable pour rendre les tests déterministes.
    */
   pruneProbability?: number;
+
+  /**
+   * Où part le journal d'AUDIT.
+   *
+   * ⚠️ Injectable depuis le 2026-08-19, et pour une raison de TEST, pas de production :
+   * `writeAuditLog` ouvre `data/kisso.db` par défaut. C'était la DERNIÈRE dépendance non
+   * neutralisable des tests de handler — ≈ 250 ms par message, et sous contention (plusieurs
+   * fichiers en parallèle sur le même fichier SQLite) des pointes qui franchissent le délai
+   * de 5 s de Vitest. Des faux rouges qui ne désignent jamais leur cause.
+   *
+   * En production, le défaut reste `writeAuditLog` : rien ne change.
+   */
+  auditSink?: (entry: Parameters<typeof writeAuditLog>[0]) => Promise<unknown>;
 }
 
 /**
@@ -588,10 +616,14 @@ export class SlackEventsHandler {
   /** Conservé pour construire paresseusement la source d'annuaire (apprentissage au fil de l'eau). */
   private readonly botToken: string;
 
+  /** Voir `auditSink` : injectable pour que les tests ne touchent pas `data/kisso.db`. */
+  private readonly audit: (entry: Parameters<typeof writeAuditLog>[0]) => Promise<unknown>;
+
   constructor(botToken: string, mastra: Mastra, options: SlackEventsHandlerOptions = {}) {
     this.botToken = botToken;
     this.slack = options.slackClient ?? new WebClient(botToken);
     this.mastra = mastra;
+    this.audit = options.auditSink ?? writeAuditLog;
     this.chatProvider = options.chatProvider ?? new SlackAdapter(botToken);
     this.workspaceProvider = options.workspaceProvider ?? new SlackWorkspaceService(botToken);
     this.inFlightGraceMs = options.inFlightGraceMs ?? DEFAULT_IN_FLIGHT_GRACE_MS;
@@ -1030,7 +1062,7 @@ export class SlackEventsHandler {
         degraded: decision.degraded,
       });
 
-      void writeAuditLog({
+      void this.audit({
         action: 'RATE_LIMITED',
         actorId: subject,
         status: 'denied',
@@ -2300,7 +2332,7 @@ export class SlackEventsHandler {
     if (accessLevel !== 'denied') return accessLevel;
 
     logger.warn('Slack message refused by the authorization policy', { user, channel });
-    void writeAuditLog({
+    void this.audit({
       action: 'AUTHZ_DENIED',
       actorId: user ?? 'unknown',
       status: 'denied',
@@ -2599,7 +2631,7 @@ export class SlackEventsHandler {
     // distingue un message vide d'un pavé, sans en révéler le contenu.
     logger.info('Processing Slack message', { user, channel, textLength: text.length });
 
-    void writeAuditLog({
+    void this.audit({
       action: 'SLACK_MESSAGE',
       actorId: user ?? 'unknown',
       resourceType: 'SlackChannel',
@@ -2788,7 +2820,190 @@ export class SlackEventsHandler {
     employeeId: string | null | undefined;
   }): Promise<boolean> {
     if (await this.maybeCheckProfileDone(input)) return true;
+    if (await this.maybeRunProfileStep(input)) return true;
     return await this.maybeRunInterviewStep(input);
+  }
+
+  /**
+   * La personne est-elle en train de compléter son dossier, et si oui, faire avancer.
+   *
+   * ⚠️ AVANT l'entretien, et l'ordre n'est pas arbitraire : les deux machines lisent le même
+   * endroit — le dernier tour `assistant` du fil — et un dossier se remplit avant qu'on
+   * demande à quelqu'un comment il aime travailler. Les questions étant des constantes
+   * distinctes, les deux prédicats ne peuvent pas reconnaître le même texte.
+   *
+   * ⚠️ DM UNIQUEMENT, comme tout ce parcours. En canal, le dernier tour `assistant` peut être
+   * une question posée à quelqu'un d'AUTRE, et la réponse d'un témoin s'écrirait dans le
+   * dossier de cette personne — la même asymétrie de sécurité que `profile-request.ts`.
+   */
+  private async maybeRunProfileStep(input: {
+    history: readonly ConversationTurn[];
+    isDirectMessage: boolean;
+    text: string;
+    channel: string;
+    threadTs: string | undefined;
+    conversationId: string;
+    user: string | undefined;
+  }): Promise<boolean> {
+    if (!input.isDirectMessage) return false;
+
+    const step = pendingProfileStep(lastAssistantText(input.history));
+    if (!step) return false;
+
+    // Même arbitrage que pour l'entretien : effacer ses données, épingler un fait ou demander
+    // le formulaire priment sur une question d'accueil en attente. Sans cela, « oublie ce que
+    // je t'ai dit » deviendrait le prénom de la personne.
+    if (findActingReply({ text: input.text, isDirectMessage: true })) return false;
+
+    await this.runProfileStep({ ...input, step });
+    return true;
+  }
+
+  /**
+   * Un pas de la complétion de dossier. ZÉRO appel de modèle.
+   *
+   * Trois issues, et une seule écrit en base :
+   *   • réponse inexploitable → on relance la MÊME question, en nommant ce qui cloche ;
+   *   • champ suivant manquant → on pose la question suivante ;
+   *   • dossier complet → on lance le workflow d'intégration, qui enchaîne sur l'entretien.
+   *
+   * ⚠️ L'état se reconstitue du FIL, jamais d'une table : `collectProfileAnswers` apparie les
+   * questions déjà posées avec les réponses données. Le dossier existant sert de socle — donc
+   * quelqu'un à qui il ne manque que le poste ne se voit demander que le poste.
+   */
+  private async runProfileStep(input: {
+    step: ProfileStep;
+    history: readonly ConversationTurn[];
+    text: string;
+    channel: string;
+    threadTs: string | undefined;
+    conversationId: string;
+    user: string | undefined;
+  }): Promise<void> {
+    const { step, history, text, channel, user } = input;
+
+    const value = captureProfileAnswer(step, text);
+    if (!value) {
+      await this.sayAndRemember(input, profileRetryReply(step));
+      return;
+    }
+
+    const known = await this.knownProfileAnswers(user);
+    const answers = { ...known, ...collectProfileAnswers(history), [step]: value };
+    const next = nextProfileStep(answers);
+
+    if (next) {
+      logger.info(`Dossier en conversation (${step} reçu) — aucun appel de modele`, { channel });
+      await this.sayAndRemember(input, PROFILE_QUESTIONS[next]);
+      return;
+    }
+
+    logger.info('Dossier complet en conversation — lancement du workflow', { channel });
+    await this.submitProfile(input, answers as Required<ProfileAnswers>);
+  }
+
+  /**
+   * Ce que le dossier existant renseigne déjà — le socle de la conversation.
+   *
+   * ⚠️ La résolution passe par l'ANNUAIRE puis par l'email, jamais par le texte du message :
+   * c'est la même règle que pour `slackEmployeeId` dans le `requestContext`. On ne décide pas
+   * d'une écriture sur une valeur que la personne peut écrire elle-même.
+   */
+  private async knownProfileAnswers(user: string | undefined): Promise<ProfileAnswers> {
+    if (!user || !this.profileRepo) return {};
+    try {
+      const member = await this.getDirectoryRepo()?.findBySlackUserId(user);
+      const email = member?.email;
+      if (!email) return {};
+      return answersFromRecord(await this.profileRepo.findByEmail(email));
+    } catch (error) {
+      // Un socle illisible ne casse rien : on redemande tout, ce qui est plus long mais juste.
+      logger.warn('Dossier existant illisible — la conversation repart de zéro', {
+        error: String(error),
+      });
+      return {};
+    }
+  }
+
+  /**
+   * Le dossier est complet : on l'enregistre par le MÊME workflow que la modale.
+   *
+   * ⚠️ `runOnboarding` est partagé (`onboarding/application/services/`) et n'est pas réécrit
+   * ici. Deux écrivains pour un même geste, c'est la configuration où ce dépôt a déjà payé :
+   * deux chemins vers le formulaire de profil avaient divergé en un jour, et celui qu'on
+   * exerçait le moins était le cassé.
+   *
+   * ⚠️ La date de début n'est pas demandée. `startDateFromJoin` retombe sur le jour même —
+   * une question de plus pour une donnée qu'aucun mécanisme n'exploite serait un tour de
+   * dialogue payé pour rien, sur un budget qui se compte à la journée.
+   */
+  private async submitProfile(
+    input: {
+      channel: string;
+      threadTs: string | undefined;
+      conversationId: string;
+      user: string | undefined;
+    },
+    answers: Required<ProfileAnswers>,
+  ): Promise<void> {
+    try {
+      await runOnboarding(
+        {
+          getWorkflow: (key) => this.mastra.getWorkflow(key as never),
+          notify: (text) => this.sayAndRemember(input, text),
+          onRecordReady: () => this.sayAndRemember(input, INTERVIEW_QUESTION_DAILY),
+        },
+        answers,
+        startDateFromJoin(undefined, new Date()),
+      );
+    } catch (error) {
+      logger.error('Enregistrement du dossier en conversation impossible', {
+        error: String(error),
+      });
+      await this.sayAndRemember(input, PROFILE_CHAT_SAVE_FAILED);
+    }
+  }
+
+  /**
+   * Poste un texte ET l'inscrit dans la mémoire du fil.
+   *
+   * ⚠️ LES DEUX SONT INDISSOCIABLES : l'état des deux machines à états EST le dernier tour
+   * `assistant`. Une question posée sans être mémorisée est invisible au tour suivant, donc la
+   * réponse de la personne part chez un agent — la faute exacte mesurée le 2026-08-19, dont le
+   * symptôme trompe puisque la question s'affiche parfaitement.
+   */
+  private async sayAndRemember(
+    input: {
+      channel: string;
+      threadTs: string | undefined;
+      conversationId: string;
+      user: string | undefined;
+      text?: string;
+    },
+    reply: string,
+  ): Promise<void> {
+    await this.slack.chat.postMessage({
+      channel: input.channel,
+      text: reply,
+      ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
+    });
+
+    if (input.text !== undefined) {
+      await this.rememberTurn({
+        conversationId: input.conversationId,
+        role: 'user',
+        content: input.text,
+        agentId: DEFAULT_AGENT_ID,
+        slackUserId: input.user ?? null,
+      });
+    }
+    await this.rememberTurn({
+      conversationId: input.conversationId,
+      role: 'assistant',
+      content: reply,
+      agentId: DEFAULT_AGENT_ID,
+      slackUserId: null,
+    });
   }
 
   /**

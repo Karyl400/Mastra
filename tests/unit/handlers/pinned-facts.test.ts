@@ -69,6 +69,10 @@ function makeHandler(overrides: { pinnedFactRepository?: unknown } = {}) {
       upsert: vi.fn().mockResolvedValue(undefined),
     } as unknown as SlackEventsHandlerOptions['directoryRepository'],
     accessGuard: null,
+    // ⚠️ Le journal d'audit ouvre `data/kisso.db` par défaut : c'était la DERNIÈRE dépendance
+    // non neutralisée de ces tests, ≈ 250 ms par message et, sous contention, des pointes qui
+    // franchissent le délai de 5 s de Vitest.
+    auditSink: async () => undefined,
     conversationRepository: conversation,
     pinnedFactRepository: (overrides.pinnedFactRepository ??
       pinnedFacts) as SlackEventsHandlerOptions['pinnedFactRepository'],

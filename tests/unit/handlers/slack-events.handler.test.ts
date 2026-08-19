@@ -148,6 +148,29 @@ function makeHandler(
   const handler = new SlackEventsHandler('xoxb-test-token', options.mastra ?? mastraMock.mastra, {
     slackClient: slack as unknown as WebClient,
     inFlightGraceMs: options.inFlightGraceMs,
+    // ⚠️ SANS CETTE LIGNE, un `users.info` part RÉELLEMENT vers slack.com avec ce jeton de
+    // test : la frontière d'accès construit un `SlackMemberSource` dès qu'on ne lui passe pas
+    // explicitement `null`. Mesuré le 2026-08-19 : ≈ 3 s par test, back-off du client compris,
+    // donc des tests à quelques centaines de millisecondes du délai de 5 s — la suite entière
+    // a échoué deux fois sur neuf exécutions sans qu'aucun comportement ne soit cassé, et ce
+    // rouge ne désignait jamais sa cause. `CLAUDE.md` recense les SIX dépendances à neutraliser.
+    // ⚠️ Une DOUBLURE, pas `null` : sans dépendance injectée, la frontière construit un
+    // `SlackMemberSource` et un `users.info` part RÉELLEMENT vers slack.com avec ce jeton de
+    // test — ≈ 3 s par test, back-off du client compris, donc des tests à quelques centaines
+    // de millisecondes du délai de 5 s. La suite entière a échoué deux fois sur neuf
+    // exécutions le 2026-08-19 sans qu'aucun comportement ne soit cassé, et ce rouge ne
+    // désignait jamais sa cause.
+    //
+    // `null` ne conviendrait PAS ici : il retirerait `slackAccessLevel` du `requestContext`,
+    // que ce fichier vérifie précisément. La doublure rend le verdict d'observation, celui
+    // que la production rend aujourd'hui (`AUTHZ_ENFORCE` n'est pas posé).
+    accessGuard: {
+      evaluate: async () => ({ effective: 'full' }),
+    } as unknown as SlackEventsHandlerOptions['accessGuard'],
+    // ⚠️ Le journal d'audit ouvre `data/kisso.db` par défaut : c'était la DERNIÈRE dépendance
+    // non neutralisée de ces tests, ≈ 250 ms par message et, sous contention, des pointes qui
+    // franchissent le délai de 5 s de Vitest.
+    auditSink: async () => undefined,
     chatProvider: options.chatProvider as unknown as SlackEventsHandlerOptions['chatProvider'],
     workspaceProvider:
       options.workspaceProvider as unknown as SlackEventsHandlerOptions['workspaceProvider'],

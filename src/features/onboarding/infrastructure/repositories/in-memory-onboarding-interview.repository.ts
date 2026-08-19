@@ -18,6 +18,10 @@ export class InMemoryOnboardingInterviewRepository implements OnboardingIntervie
     return this.rows.get(employeeId) ?? null;
   }
 
+  async listAll(): Promise<OnboardingInterview[]> {
+    return [...this.rows.values()];
+  }
+
   async save(interview: OnboardingInterview): Promise<void> {
     const existing = this.rows.get(interview.employeeId);
     this.rows.set(interview.employeeId, {

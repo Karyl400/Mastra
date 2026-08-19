@@ -12,29 +12,34 @@
  * ⚠️ Le préfixe `/api` est réservé — une route personnalisée qui commence par lui
  * fait échouer le DÉMARRAGE du serveur, ce n'est pas un 404. D'où `/slack/…`.
  *
- * ⚠️ Cette route applique DEUX régimes opposés, et c'est délibéré :
- *   - `block_actions`   → `views.open` SYNCHRONE, aucune E/S avant lui.
- *                         Le `trigger_id` expire en 3 secondes.
- *   - `view_submission` → traitement lourd en TÂCHE DE FOND (lot 4 : le workflow
- *                         fait base + SMTP + Slack, largement au-delà de 3 s).
- * Ne pas « harmoniser » les deux : c'est ce qui casserait la modale.
+ * ⚠️ PLUS AUCUNE MODALE DEPUIS LE 2026-08-19, et c'est une constatation, pas une
+ * préférence. Un `trigger_id` Slack expire 3 secondes après le clic ; mesuré ce jour-là
+ * sur un clic SIGNÉ en production, l'ACK de cette route mettait 5 229 ms à froid et
+ * 9 173 ms sur un déploiement neuf. Le portier d'ACK (`scripts/slack-ack-function/`) a
+ * ramené l'accusé sous la seconde, mais il ne peut pas sauver une modale : il répond vite
+ * précisément parce qu'il ne connaît rien du produit, et la fenêtre s'ouvre ensuite, depuis
+ * la fonction restée froide. Journaux à l'appui : `invalid_trigger_id`.
+ *
+ * Tous les boutons se contentent donc d'ACQUITTER, et le travail part en tâche de fond. Les
+ * deux parcours qui ouvraient une fenêtre sont devenus CONVERSATIONNELS (`profile-chat.ts`,
+ * `interview-chat.ts`).
+ *
+ * ⚠️ Le traitement de `view_submission` est CONSERVÉ mais devenu INATTEIGNABLE : plus aucun
+ * bouton n'ouvre de vue, donc Slack n'en enverra plus. Il est laissé en place le temps d'un
+ * lot dédié — le retirer emporte `profile-modal.ts`, `interview-modal.ts` et
+ * `applyInterview`, c'est-à-dire l'invitation aux canaux, et cela ne se fait pas dans le même
+ * commit qu'un parcours neuf. Voir `TODO.md`.
  */
-import { createHash } from 'node:crypto';
 import { registerApiRoute } from '@mastra/core/server';
 import type { Mastra } from '@mastra/core';
 
 import { SlackAdapter } from '../features/notification/infrastructure/providers/slack.adapter';
-import { COMPLETE_PROFILE_ACTION_ID } from '../features/notification/infrastructure/handlers/slack-events.handler';
-import {
-  PROFILE_DONE_ACTION_ID,
-  buildProfileButtonBlock,
-} from '../features/notification/infrastructure/ui/welcome-blocks';
+import { PROFILE_DONE_ACTION_ID } from '../features/notification/infrastructure/ui/welcome-blocks';
 import { verifyProfile } from '../features/onboarding/domain/services/profile-completion';
 import { INTERVIEW_QUESTION_DAILY } from '../features/onboarding/domain/services/interview-chat';
 import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
 import {
   PROFILE_MODAL_CALLBACK_ID,
-  buildProfileModal,
   decodePrefill,
   errorsByBlockId,
   profileSubmissionSchema,
@@ -55,30 +60,18 @@ import {
   buildSettledCardBlocks,
   confirmFacts,
 } from '../features/recruitment/infrastructure/handlers/interview-confirm';
-import {
-  MODAL_FAILED_REPLY,
-  PROFILE_SUBMISSION_FAILED_REPLY,
-  describeMissingSteps,
-  profileSubmissionDegradedReply,
-} from '../features/onboarding/domain/services/onboarding-replies';
+import { runOnboarding } from '../features/onboarding/application/services/run-onboarding';
 import { parseInterviewSchedule } from '../features/recruitment/domain/value-objects/interview-schedule';
 import { buildInterviewEmail } from '../features/recruitment/domain/services/interview-email';
 import { createEmailProvider } from '../features/notification/infrastructure/providers/email-provider.factory';
 import type { EmailProvider } from '../features/notification/domain/ports/providers';
 import {
   INTERVIEW_MODAL_CALLBACK_ID,
-  START_INTERVIEW_ACTION_ID,
-  buildInterviewModal,
   decodeInterviewPrefill,
   interviewSubmissionSchema,
   readInterviewSubmission,
   type ValidatedInterview,
 } from '../features/notification/infrastructure/handlers/interview-modal';
-import {
-  OnboardingOutcome,
-  describeDegradation,
-  type StepFailure,
-} from '../features/onboarding/domain/value-objects/onboarding-outcome';
 import { DrizzleOnboardingInterviewRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding-interview.repository';
 import { SlackWorkspaceService } from '../features/notification/infrastructure/providers/slack-workspace.service';
 import {
@@ -190,7 +183,6 @@ export function resetSlackInteractionsAdapter(): void {
  * `value` du bouton — donc zéro appel réseau supplémentaire.
  */
 async function handleBlockActions(payload: SlackInteractionPayload): Promise<Response> {
-  const triggerId = payload.trigger_id;
   const actions = payload.actions ?? [];
 
   // ── « C'EST FAIT » — le nouveau point d'entrée du parcours, 2026-08-19 ────
@@ -217,13 +209,8 @@ async function handleBlockActions(payload: SlackInteractionPayload): Promise<Res
     return ack();
   }
 
-  const profileAction = actions.find((a) => a.action_id === COMPLETE_PROFILE_ACTION_ID);
-  const interviewAction = actions.find((a) => a.action_id === START_INTERVIEW_ACTION_ID);
-
   // ── Recrutement : les deux boutons de la carte de confirmation ─────────────
-  // Traités AVANT la garde `trigger_id` : ils n'ouvrent aucune modale, donc ils n'ont pas
-  // besoin d'un `trigger_id`. Les placer après ferait échouer l'envoi sur une garde qui ne
-  // les concerne pas.
+  // Ils n'ouvrent aucune modale, donc rien ne doit les faire dépendre d'un `trigger_id`.
   if (actions.some((a) => a.action_id === CANCEL_INTERVIEW_ACTION_ID)) {
     // ⚠️ La prise se fait ICI, avant l'ACK, et pas dans la tâche de fond : c'est une décision
     // synchrone sans E/S, et la mettre en tâche de fond rouvrirait la fenêtre qu'elle ferme.
@@ -282,51 +269,25 @@ async function handleBlockActions(payload: SlackInteractionPayload): Promise<Res
     return ack();
   }
 
-  if (!profileAction && !interviewAction) return ack();
-
-  if (!triggerId) {
-    logger.warn('block_actions without a trigger_id, cannot open the modal');
-    return ack();
-  }
-
-  // ⚠️ AUCUNE E/S avant `views.open`, dans les DEUX branches : le `trigger_id` expire
-  // 3 secondes après l'interaction. Le pré-remplissage voyage déjà dans le `value` du bouton
-  // — c'est précisément pour cela qu'il y voyage.
-  if (interviewAction) {
-    const prefill = decodeInterviewPrefill(interviewAction.value, payload.user?.id ?? '');
-    try {
-      await getSlackInteractionsAdapter().openModal(triggerId, buildInterviewModal(prefill));
-      logger.info('Interview modal opened', {
-        userId: prefill.slackUserId,
-        channelsOffered: prefill.channels.length,
-      });
-    } catch (error) {
-      // ⚠️ Sans ce message, le symptôme est « le bouton ne fait rien » — indiagnosticable
-      // côté utilisateur, et indiscernable d'une Request URL mal configurée.
-      logger.error('Unable to open the interview modal', { error, userId: prefill.slackUserId });
-      scheduleInteractionWork(
-        'interview_modal_failed',
-        tellNewcomer(prefill.slackUserId, MODAL_FAILED_REPLY),
-      );
-    }
-    return ack();
-  }
-
-  const prefill = decodePrefill(profileAction!.value, payload.user?.id ?? '');
-
-  try {
-    await getSlackInteractionsAdapter().openModal(triggerId, buildProfileModal(prefill));
-    logger.info('Profile modal opened', { userId: prefill.slackUserId });
-  } catch (error) {
-    // Ne jamais propager : Slack rejouerait, et le trigger_id serait de toute
-    // façon expiré au second essai. Mais on le DIT — voir la branche entretien ci-dessus.
-    logger.error('Unable to open the profile modal', { error, userId: prefill.slackUserId });
-    scheduleInteractionWork(
-      'profile_modal_failed',
-      tellNewcomer(prefill.slackUserId, MODAL_FAILED_REPLY),
-    );
-  }
-
+  // ⚠️ PLUS AUCUNE MODALE — 2026-08-19, et c'est une constatation, pas une préférence.
+  //
+  // Les deux boutons qui en ouvraient une (« Compléter mon profil », « Parlons de toi »)
+  // dépendaient d'un `trigger_id` valable 3 secondes. Mesuré ce jour-là sur un clic SIGNÉ en
+  // production : l'ACK mettait 5 229 ms à froid, 9 173 ms sur un déploiement neuf. Le portier
+  // d'ACK (`scripts/slack-ack-function/`) a ramené l'accusé sous la seconde, mais il ne peut
+  // pas sauver une modale : il répond vite parce qu'il ne connaît rien du produit, et
+  // l'ouverture a lieu ensuite, dans la fonction restée froide. Journaux à l'appui :
+  // `Unable to open the profile modal … invalid_trigger_id`.
+  //
+  // Les deux parcours sont désormais CONVERSATIONNELS (`profile-chat.ts`, `interview-chat.ts`)
+  // : zéro token, zéro `trigger_id`, et rien à ouvrir dans les trois secondes.
+  //
+  // ⚠️ `trigger_id` n'est plus lu nulle part ici. Le laisser en garde d'entrée ferait échouer
+  // des boutons qui n'en ont aucun besoin — la faute déjà corrigée pour « Envoyer » et
+  // « Annuler ».
+  logger.debug('block_actions sans action connue', {
+    actions: actions.map((a) => a.action_id),
+  });
   return ack();
 }
 
@@ -620,26 +581,19 @@ async function answerProfileDone(prefill: ProfileModalPrefill): Promise<void> {
     missing: verdict.missing.length,
   });
 
-  if (!verdict.offerForm) {
-    // ⚠️ Le verdict CONTIENT déjà la première question de l'entretien (voir
-    // `profile-completion.ts`). Il faut donc mémoriser CE texte-là, pas la question seule :
-    // `pendingInterviewStep` reconnaît un PRÉFIXE, et le préfixe du message posté est
-    // « Ton dossier est complet… », pas la question. Poster l'un et mémoriser l'autre
-    // rendrait l'état introuvable — la faute exacte corrigée le 2026-08-19.
-    await rememberAsked(prefill.slackUserId, verdict.reply);
-    return;
-  }
-
-  // Le formulaire n'est proposé QU'ICI : plus jamais en porte d'entrée. Et son `value` porte
-  // déjà le pré-remplissage, donc ce second clic n'a aucune E/S à faire avant `views.open`.
-  try {
-    await getSlackInteractionsAdapter().sendBlocks(prefill.slackUserId, verdict.reply, [
-      { type: 'section', text: { type: 'mrkdwn', text: verdict.reply } },
-      buildProfileButtonBlock(prefill),
-    ]);
-  } catch (error) {
-    logger.error('Formulaire non proposé après « C’est fait »', { error: String(error) });
-  }
+  // ⚠️ UN SEUL CHEMIN DEPUIS LE 2026-08-19, et c'est la disparition de la dernière modale du
+  // produit. Le cas incomplet posait ici un bouton « Compléter mon profil » ouvrant une
+  // fenêtre ; elle ne s'ouvrait jamais. Un `trigger_id` expire 3 secondes après le clic, et le
+  // démarrage à froid de la fonction applicative a été mesuré à 5,2 s ce jour-là, sur un clic
+  // signé en production. Le portier d'ACK a ramené l'accusé de réception sous la seconde, mais
+  // il ne peut pas sauver une modale : il répond vite précisément parce qu'il ne connaît rien
+  // du produit, et l'ouverture a lieu ensuite, dans la fonction restée froide. Journaux à
+  // l'appui : `Unable to open the profile modal … invalid_trigger_id`.
+  //
+  // `verdict.reply` porte donc, dans TOUS les cas, la question suivante — celle de l'entretien
+  // quand le dossier est complet, celle du premier champ manquant sinon. Les deux machines à
+  // états lisent le même endroit : le dernier tour `assistant` du fil.
+  await rememberAsked(prefill.slackUserId, verdict.reply);
 }
 
 async function tellNewcomer(slackUserId: string | undefined, text: string): Promise<void> {
@@ -655,138 +609,33 @@ async function tellNewcomer(slackUserId: string | undefined, text: string): Prom
 }
 
 /**
- * Identifiant de run dérivé de l'email.
+ * Lance le workflow d'intégration pour une soumission de MODALE.
  *
- * Deux soumissions du même profil produisent le même `runId`, donc le même run
- * — y compris depuis deux instances serverless concurrentes. C'est ce qui rend
- * l'idempotence indépendante du cache mémoire de `create-employee.ts`, inopérant
- * hors d'un processus unique.
- */
-export function onboardingRunId(email: string): string {
-  const digest = createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
-  return `onboarding-${digest.slice(0, 32)}`;
-}
-
-/**
- * Exécute le workflow d'intégration. Appelé en TÂCHE DE FOND uniquement.
+ * ⚠️ La règle elle-même a été extraite le 2026-08-19 dans
+ * `onboarding/application/services/run-onboarding.ts` : depuis que le dossier peut aussi se
+ * remplir EN CONVERSATION (`profile-chat.ts` — une modale ne s'ouvre pas sur ce déploiement,
+ * mesuré), il y a deux appelants pour un même geste. Ce dépôt a déjà payé cette
+ * configuration : deux chemins vers le formulaire de profil avaient divergé en un jour.
  *
- * ⚠️ `getWorkflow()` prend la CLÉ DU REGISTRE (`src/mastra/index.ts`), pas l'`id`
- * interne du workflow — ce dernier ne se résout que via `getWorkflowById`. Une
- * clé erronée rend `undefined` et lève un `TypeError` **dans la tâche de fond**,
- * donc invisible.
+ * Ne reste ici que ce qui est PROPRE à ce chemin : comment parler à la personne, et le fait
+ * d'enchaîner sur l'entretien.
  */
-async function runOnboarding(
+async function runOnboardingFromModal(
   mastra: Mastra,
   profile: ValidatedProfile,
   startDate: string,
   slackUserId: string | undefined,
 ): Promise<void> {
-  const workflow = mastra.getWorkflow('employeeOnboardingWorkflow' as never) as unknown as {
-    createRun(options?: { runId?: string }): Promise<{
-      start(args: { inputData: unknown }): Promise<{
-        status: string;
-        result?: {
-          // ⚠️ `employeeId` est bien dans `onboardingOutputSchema` — il est déclaré ici parce
-          // que ce type est écrit à la main : `getWorkflow()` rend `unknown` et Mastra ne
-          // publie pas le type de sortie. C'est lui qui relie le dossier créé à l'entretien.
-          employeeId?: string;
-          outcome?: OnboardingOutcome;
-          emailSent?: boolean;
-          slackInvited?: boolean;
-          degradedSteps?: StepFailure[];
-        };
-        error?: unknown;
-      }>;
-    }>;
-  };
-
-  if (!workflow) {
-    logger.error('Workflow employeeOnboardingWorkflow introuvable dans le registre Mastra');
-    await tellNewcomer(slackUserId, PROFILE_SUBMISSION_FAILED_REPLY);
-    return;
-  }
-
-  const run = await workflow.createRun({ runId: onboardingRunId(profile.email) });
-
-  const result = await run.start({
-    inputData: {
-      firstName: profile.firstName,
-      lastName: profile.lastName,
-      email: profile.email,
-      // Plus JAMAIS renseigné : le parcours d'arrivée a cessé de collecter le département
-      // le 2026-08-13, et `employees.department` est nullable depuis la même date.
-      department: null,
-      position: profile.position,
-      // Dérivée de l'instant du `team_join`, jamais saisie : voir `startDateFromJoin`.
-      startDate,
-      // Aucune correspondance département → canal n'existe aujourd'hui : le workflow saute
-      // alors l'invitation Slack, sans échouer. L'arrivant est de toute façon déjà entré
-      // dans les canaux d'accueil, au `team_join`, par un chemin qui ne passe pas ici.
-      slackChannelId: null,
+  await runOnboarding(
+    {
+      getWorkflow: (key) => mastra.getWorkflow(key as never),
+      notify: (text) => tellNewcomer(slackUserId, text),
+      onRecordReady: (employeeId) => offerInterview(employeeId, slackUserId),
     },
-  });
-
-  if (result.status !== 'success') {
-    logger.error('Onboarding workflow failed', {
-      email: profile.email,
-      outcome: OnboardingOutcome.Failed,
-      error: result.error,
-    });
-    // ⚠️ Il n'y a PAS de dossier ici : c'est le seul cas où l'on demande de recommencer. La
-    // soumission est idempotente, une seconde tentative ne créera pas de doublon.
-    await tellNewcomer(slackUserId, PROFILE_SUBMISSION_FAILED_REPLY);
-    return;
-  }
-
-  // ⚠️ `result.status === 'success'` ne signifie QUE « le workflow est allé au
-  // bout ». Le verdict est `result.result.outcome` : les étapes best-effort
-  // (email, invitation Slack, tâches) avalent leur exception et laissent le run
-  // en `success` même quand rien n'est parti. Journaliser le seul `status`
-  // reproduirait exactement le faux « PASS » que ce champ existe pour éliminer.
-  const degradedSteps = result.result?.degradedSteps ?? [];
-
-  if (result.result?.outcome === OnboardingOutcome.Degraded) {
-    logger.error('Onboarding workflow completed in DEGRADED mode', {
-      email: profile.email,
-      outcome: result.result.outcome,
-      degradedSteps: describeDegradation(degradedSteps),
-      emailSent: result.result?.emailSent,
-      slackInvited: result.result?.slackInvited,
-    });
-
-    // ⚠️ Le dossier EXISTE : on ne demande pas de recommencer, on NOMME ce qui manque. Sans
-    // ce message, l'arrivant recevait l'invitation à l'entretien exactement comme en cas de
-    // succès et ignorait qu'un email de bienvenue aurait dû lui parvenir.
-    //
-    // La liste vient du verdict réel, jamais devinée : annoncer un email non parti alors
-    // qu'il l'est serait le mensonge inverse de celui qu'on corrige. Une liste vide — étapes
-    // dégradées non traduisibles — n'envoie rien plutôt qu'un message creux.
-    const missing = describeMissingSteps(degradedSteps);
-    if (missing.length > 0) {
-      await tellNewcomer(slackUserId, profileSubmissionDegradedReply(missing));
-    }
-  } else {
-    logger.info('Onboarding workflow completed', {
-      email: profile.email,
-      outcome: result.result?.outcome,
-      emailSent: result.result?.emailSent,
-      slackInvited: result.result?.slackInvited,
-    });
-  }
-
-  // ⚠️ Proposé sur `completed` ET sur `degraded`, et cette distinction compte.
-  //
-  // `degraded` signifie « l'employé EST créé, une étape best-effort a échoué » — un email de
-  // bienvenue non parti, une invitation Slack manquée. C'est un ABOUTISSEMENT, pas un échec :
-  // le workflow existe précisément pour ne pas perdre la création sur une indisponibilité SMTP
-  // de trente secondes. Refuser l'entretien dans ce cas priverait de ses canaux quelqu'un dont
-  // le dossier est parfaitement valide, et le priverait justement le jour où quelque chose a
-  // déjà mal tourné.
-  //
-  // Le cas `failed`, lui, sort plus haut par `return` : là, il n'y a pas de dossier.
-  await offerInterview(result.result?.employeeId, slackUserId);
+    profile,
+    startDate,
+  );
 }
-
 /**
  * Pose la première question de l'entretien ET la MÉMORISE.
  *
@@ -925,7 +774,7 @@ function handleViewSubmission(payload: SlackInteractionPayload, mastra: Mastra):
   // workflow écrit en base, envoie un email SMTP et appelle Slack, largement
   // au-delà des 3 secondes accordées à cette réponse. Sur Vercel, `waitUntil`
   // empêche le gel de la fonction avant la fin.
-  const work = runOnboarding(mastra, parsed.data, startDate, prefill.slackUserId).catch(
+  const work = runOnboardingFromModal(mastra, parsed.data, startDate, prefill.slackUserId).catch(
     (error: unknown) => {
       logger.error('Background onboarding failed', { error, email: parsed.data.email });
     },
@@ -1187,23 +1036,35 @@ export async function handleSlackInteractionRequest(
   return ack();
 }
 
-export const slackInteractionsRoute = registerApiRoute(SLACK_INTERACTIONS_PATH, {
-  method: 'POST',
-  // OBLIGATOIRE : `server.auth` est actif (src/mastra/index.ts). Sans cette
-  // ligne, chaque requête Slack prend un 401 et Slack finit par désactiver
-  // l'endpoint — sans autre symptôme qu'une modale qui ne s'ouvre jamais.
-  requiresAuth: false,
-  openapi: {
-    summary: 'Slack interactivity webhook',
-    description:
-      'Reçoit les interactions Slack (block_actions, view_submission). ' +
-      'Signature HMAC-SHA256 vérifiée. Ouvre la modale de profil et valide sa soumission.',
-    tags: ['slack'],
-    responses: {
-      200: { description: 'Interaction accusée (corps vide) ou erreurs de validation' },
-      400: { description: 'Payload absent ou illisible' },
-      401: { description: 'Signature Slack invalide, absente ou expirée' },
+/**
+ * Le chemin INTERNE, où le portier d'ACK rejoue la requête. Voir `SLACK_EVENTS_WORK_PATH`
+ * pour le raisonnement complet — en deux mots : la même route, la même vérification de
+ * signature, un chemin distinct pour que le routage Vercel ne boucle pas sur lui-même.
+ */
+export const SLACK_INTERACTIONS_WORK_PATH = '/internal/slack/interactions';
+
+function slackInteractionsRouteAt(path: string) {
+  return registerApiRoute(path, {
+    method: 'POST',
+    // OBLIGATOIRE : `server.auth` est actif (src/mastra/index.ts). Sans cette
+    // ligne, chaque requête Slack prend un 401 et Slack finit par désactiver
+    // l'endpoint — sans autre symptôme qu'une modale qui ne s'ouvre jamais.
+    requiresAuth: false,
+    openapi: {
+      summary: 'Slack interactivity webhook',
+      description:
+        'Reçoit les interactions Slack (block_actions, view_submission). ' +
+        'Signature HMAC-SHA256 vérifiée. Ouvre la modale de profil et valide sa soumission.',
+      tags: ['slack'],
+      responses: {
+        200: { description: 'Interaction accusée (corps vide) ou erreurs de validation' },
+        400: { description: 'Payload absent ou illisible' },
+        401: { description: 'Signature Slack invalide, absente ou expirée' },
+      },
     },
-  },
-  handler: async (c) => handleSlackInteractionRequest(c as unknown as SlackInteractionsContext),
-});
+    handler: async (c) => handleSlackInteractionRequest(c as unknown as SlackInteractionsContext),
+  });
+}
+
+export const slackInteractionsRoute = slackInteractionsRouteAt(SLACK_INTERACTIONS_PATH);
+export const slackInteractionsWorkRoute = slackInteractionsRouteAt(SLACK_INTERACTIONS_WORK_PATH);

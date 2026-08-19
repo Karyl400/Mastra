@@ -183,7 +183,18 @@ describe('Route /slack/interactions', () => {
   });
 
   describe('block_actions', () => {
-    it('opens the modal with the received trigger_id and answers an empty 200', async () => {
+    /**
+     * ⚠️ CES TESTS ASSERTAIENT L'INVERSE JUSQU'AU 2026-08-19 : « ouvre la modale avec le
+     * trigger_id reçu ». Ils verrouillaient un comportement qui ne pouvait PAS fonctionner en
+     * production — un `trigger_id` expire 3 secondes après le clic, et l'ACK de cette route a
+     * été mesuré ce jour-là à 5 229 ms à froid, 9 173 ms sur un déploiement neuf. Le test
+     * passait parce qu'il appelle le handler en mémoire, sans démarrage à froid.
+     *
+     * C'est la troisième fois en deux jours qu'un test de ce dépôt verrouille un défaut. La
+     * leçon est notée dans `CLAUDE.md` : un test qui n'a jamais vu la contrainte réelle ne
+     * prouve rien de la production.
+     */
+    it('n’ouvre PLUS AUCUNE modale, et accuse quand même réception', async () => {
       const res = await callRoute(
         formEncoded(
           blockActionsPayload(
@@ -199,36 +210,7 @@ describe('Route /slack/interactions', () => {
 
       expect(res.status).toBe(200);
       expect(await res.text()).toBe('');
-      expect(viewsOpen).toHaveBeenCalledTimes(1);
-      expect(viewsOpen.mock.calls[0][0].trigger_id).toBe('123456.7890.abcdef');
-    });
-
-    it('prefills the modal from the button value — no extra network call', async () => {
-      // Le trigger_id expire en 3 s : aucune E/S ne doit précéder views.open.
-      await callRoute(
-        formEncoded(
-          blockActionsPayload(
-            encodePrefill({
-              slackUserId: NEWCOMER,
-              email: 'alice@kisso.com',
-              firstName: 'Alice',
-              lastName: 'Martin',
-            }),
-          ),
-        ),
-      );
-
-      const serialized = JSON.stringify(viewsOpen.mock.calls[0][0].view);
-      expect(serialized).toContain('alice@kisso.com');
-      expect(serialized).toContain('Alice');
-    });
-
-    it('still answers 200 when Slack refuses to open the modal', async () => {
-      viewsOpen.mockRejectedValueOnce(new Error('expired_trigger_id'));
-
-      const res = await callRoute(formEncoded(blockActionsPayload(NEWCOMER)));
-
-      expect(res.status).toBe(200);
+      expect(viewsOpen).not.toHaveBeenCalled();
     });
 
     it('ignores a click on another button', async () => {

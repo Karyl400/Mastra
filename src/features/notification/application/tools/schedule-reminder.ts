@@ -39,6 +39,7 @@ import { logger } from '../../../../shared/logger';
 import { NotificationChannel, NotificationStatus, RecipientType } from '../../../../shared/types';
 import { NotFoundError, ValidationError } from '../../../../shared/errors';
 import { canPerformSideEffects } from '../../../../shared/slack-request-context';
+import { DISPLAY_TIMEZONE, frenchFullLabel } from '../../../../shared/french-datetime';
 
 /** Mêmes canaux que `sendNotification` : ce sont les seuls qu'on saurait acheminer. */
 const TRANSPORTED_CHANNELS = ['email', 'slack'] as const;
@@ -166,6 +167,16 @@ export function makeScheduleReminder(
         recipientId: scheduled.recipientId,
         channel: scheduled.channel,
         scheduledAt: scheduled.scheduledAt,
+        // ⚠️ LE JOUR DE LA SEMAINE EST CALCULÉ ICI, et c'est un correctif mesuré en production
+        // le 2026-08-19 : l'agent avait répondu « à 09 h 00 le lundi 22 août 2026 », alors que
+        // le 22 août 2026 est un SAMEDI. Il écrivait le libellé lui-même, à côté d'une date
+        // qu'il avait calculée, et rien ne confrontait les deux. `recruitmentAgent` ne peut pas
+        // commettre cette faute — son libellé vient d'un gabarit — et il a produit au même
+        // moment « mardi 15 septembre 2026 », exact.
+        //
+        // Coût : ≈ 15 tokens de tool-result, indépendants de la date. Ce qu'ils achètent, c'est
+        // qu'une erreur de transcription devienne VISIBLE pour la personne qui relit.
+        scheduledLabel: frenchFullLabel(new Date(when), DISPLAY_TIMEZONE),
         stored: true,
         willBeSentAutomatically: false,
       };

@@ -75,3 +75,36 @@ describe('la note', () => {
     expect(PROMISED_DELIVERY_NOTICE).not.toContain('**');
   });
 });
+
+/**
+ * « RAPPEL PLANIFIÉ » — la promesse relevée en production le 2026-08-19.
+ *
+ * Réponse littérale de `notificationAgent` : « Rappel planifié : … à 09 h 00 le lundi 22 août
+ * 2026 ». `scheduleReminder` rend pourtant `willBeSentAutomatically: false`, sa description dit
+ * « enregistre », et il n'existe dans ce dépôt ni cron, ni poller, ni site d'appel de
+ * `findPending()`. Le mot que lit la personne est « planifié », et il promet un envoi qui
+ * n'aura jamais lieu.
+ *
+ * ⚠️ Le mot n'est pas ambigu ICI : ce détecteur ne parle que lorsque le seul outil ayant tourné
+ * est un enregistreur sans transport.
+ */
+describe('la promesse de PLANIFICATION, mesurée en production', () => {
+  it('reconnaît « Rappel planifié »', () => {
+    expect(detectUnsupportedDeliveryPromise('Rappel planifié : relire le guide.')).not.toBeNull();
+    expect(detectUnsupportedDeliveryPromise('Le rappel est planifié pour lundi.')).not.toBeNull();
+  });
+
+  it('reconnaît la promesse formulée du côté du destinataire', () => {
+    expect(detectUnsupportedDeliveryPromise('Tu recevras un rappel lundi matin.')).not.toBeNull();
+    expect(detectUnsupportedDeliveryPromise('Tu seras prévenu lundi.')).not.toBeNull();
+  });
+
+  it('ÉPARGNE une simple description de l’enregistrement', () => {
+    // Le critère reste la CONTRADICTION avec le câblage, jamais l'invraisemblance : dire ce
+    // qu'on a réellement fait ne doit pas être requalifié.
+    expect(detectUnsupportedDeliveryPromise("C'est noté pour lundi, je te le redirai.")).toBeNull();
+    expect(
+      detectUnsupportedDeliveryPromise('Je l’ai enregistré. Aucun automate ne l’enverra.'),
+    ).toBeNull();
+  });
+});

@@ -264,6 +264,24 @@ const FUTURE_DELIVERY_CLAIMS: ReadonlyArray<{ label: string; pattern: RegExp }> 
   },
   { label: 'partira', pattern: /\b(?:partira|partiront)\b/ },
   {
+    // ⚠️ AJOUTÉ le 2026-08-19 après mesure en production. `notificationAgent` a répondu
+    // « Rappel PLANIFIÉ : … » alors que `scheduleReminder` rend explicitement
+    // `willBeSentAutomatically: false` et que sa description dit « enregistre ». Le mot qui
+    // compte pour la personne est celui-là, et il promettait un envoi qui n'aura jamais lieu :
+    // il n'existe dans ce dépôt ni cron, ni poller, ni site d'appel de `findPending()`.
+    //
+    // Il n'est PAS ambigu ici : ce détecteur ne parle que si le seul outil ayant tourné est un
+    // enregistreur sans transport (`onlyNonDeliveringTools`).
+    label: 'planifié',
+    pattern: /\bplanifiee?s?\b/,
+  },
+  {
+    // Même famille, formulée du côté du destinataire. « Tu recevras un rappel lundi » est la
+    // promesse la plus concrète que ce système ne peut pas tenir.
+    label: 'tu recevras',
+    pattern: /\btu (?:recevras|seras (?:prevenu|notifie))/,
+  },
+  {
     label: "je l'enverrai",
     // ⚠️ Les pronoms sont RÉPÉTABLES : « je **le lui** enverrai » en empile deux, et un seul
     // groupe optionnel laissait passer la phrase la plus naturelle des trois. Attrapé par le

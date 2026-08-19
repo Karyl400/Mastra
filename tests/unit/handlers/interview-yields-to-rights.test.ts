@@ -89,6 +89,10 @@ function makeHandler() {
     // `users.info` réseau. Il faut une doublure qui RÉPOND, pas un trou.
     directoryRepository: directory as unknown as SlackEventsHandlerOptions['directoryRepository'],
     accessGuard: null,
+    // ⚠️ Le journal d'audit ouvre `data/kisso.db` par défaut : c'était la DERNIÈRE dépendance
+    // non neutralisée de ces tests, ≈ 250 ms par message et, sous contention, des pointes qui
+    // franchissent le délai de 5 s de Vitest.
+    auditSink: async () => undefined,
     rateLimiter: null,
     pruneProbability: 0,
   });

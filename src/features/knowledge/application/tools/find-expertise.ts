@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import type { DirectoryRepository } from '../../../directory/domain/ports/directory.repository';
 import type { EmployeeRepository } from '../../../employee/domain/ports/employee.repository';
+import type { OnboardingInterviewRepository } from '../../../onboarding/domain/ports/onboarding-interview.repository';
 import { fullName, matchesName } from '../../../../shared/name-matching';
 import { logger } from '../../../../shared/logger';
 
@@ -97,6 +98,22 @@ interface SourceResult {
 export interface FindExpertiseDeps {
   readonly directoryRepo: DirectoryRepository;
   readonly employeeRepo: Pick<EmployeeRepository, 'findAll'>;
+  /**
+   * L'ENTRETIEN — « ce que tu fais au quotidien », écrit par la personne elle-même.
+   *
+   * ⚠️ Ajouté le 2026-08-19 sur un défaut mesuré en production : à « qui s'occupe du support
+   * technique ? », l'outil a répondu « aucun collaborateur n'est identifié » alors que la
+   * personne venait d'écrire, dans son entretien, qu'elle fait du support technique. La
+   * réponse était HONNÊTE — la donnée était ailleurs — mais c'est le seul endroit du produit
+   * où quelqu'un décrit son métier avec ses mots, donc exactement ce qu'une recherche
+   * d'expertise cherche. `position` est un intitulé RH, saisi une fois ; l'entretien est ce
+   * que la personne fait.
+   *
+   * OPTIONNEL à dessein : sans lui, l'outil se comporte exactement comme avant, et son
+   * absence n'est PAS comptée comme une source en panne — ce serait transformer une
+   * configuration en incident.
+   */
+  readonly interviewRepo?: Pick<OnboardingInterviewRepository, 'listAll'>;
 }
 
 interface Expert {
@@ -109,7 +126,7 @@ export function makeFindExpertise(deps: FindExpertiseDeps) {
   return createTool({
     id: 'findExpertise',
     description:
-      'Retrouve qui, dans l’entreprise, travaille sur un sujet donné, d’après le poste déclaré. Rend des NOMS, jamais d’identifiant ni d’adresse.',
+      'Retrouve qui, dans l’entreprise, travaille sur un sujet donné, d’après le poste déclaré et ce que la personne a dit faire au quotidien. Rend des NOMS, jamais d’identifiant ni d’adresse.',
     inputSchema: z.object({
       skill: z.string().min(2).max(60).describe('Le sujet ou la compétence. Ex. « backend ».'),
     }),
@@ -186,19 +203,51 @@ async function matchDirectory(deps: FindExpertiseDeps, skill: string): Promise<S
 async function matchEmployees(deps: FindExpertiseDeps, skill: string): Promise<SourceResult> {
   try {
     const employees = await deps.employeeRepo.findAll();
-    return {
-      available: true,
-      experts: employees
-        .filter((employee) => employee.position)
-        .filter((employee) => matchesName(skill, [employee.position]))
-        .map((employee) => ({
-          key: normalizeKey(fullName(employee.firstName, employee.lastName)),
-          label: `${fullName(employee.firstName, employee.lastName)} — ${employee.position}`,
-        })),
-    };
+    const dailyWork = await loadDailyWork(deps);
+
+    const experts: Expert[] = [];
+    for (const employee of employees) {
+      const name = fullName(employee.firstName, employee.lastName);
+      // Le POSTE d'abord : c'est l'intitulé officiel, et c'est ce qu'on préfère montrer.
+      // L'entretien ne sert de matière que s'il apporte quelque chose que le poste ne dit pas.
+      const daily = dailyWork.get(employee.id) ?? '';
+      const matchedPosition = Boolean(employee.position) && matchesName(skill, [employee.position]);
+      const matchedDaily = Boolean(daily) && matchesName(skill, [daily]);
+      if (!matchedPosition && !matchedDaily) continue;
+
+      const evidence = matchedPosition ? employee.position : daily;
+      experts.push({ key: normalizeKey(name), label: `${name} — ${evidence}` });
+    }
+
+    return { available: true, experts };
   } catch (error) {
     logger.warn('findExpertise: dossiers indisponibles', { error: String(error) });
     return { available: false, experts: [] };
+  }
+}
+
+/**
+ * Ce que chacun a dit faire au quotidien, par identifiant d'employé.
+ *
+ * ⚠️ Un échec est AVALÉ et rend une table vide : l'entretien est une matière SUPPLÉMENTAIRE.
+ * Le faire remonter en `available: false` transformerait « la table des entretiens est
+ * indisponible » en « la recherche est incomplète », alors que la source principale a
+ * parfaitement répondu — on rendrait la réponse moins sûre qu'elle ne l'est.
+ */
+async function loadDailyWork(deps: FindExpertiseDeps): Promise<Map<string, string>> {
+  if (!deps.interviewRepo) return new Map();
+  try {
+    const interviews = await deps.interviewRepo.listAll();
+    return new Map(
+      interviews
+        .filter((interview) => interview.dailyWork.trim())
+        .map((interview) => [interview.employeeId, interview.dailyWork.trim()]),
+    );
+  } catch (error) {
+    logger.warn('findExpertise: entretiens indisponibles — recherche sur les seuls postes', {
+      error: String(error),
+    });
+    return new Map();
   }
 }
 

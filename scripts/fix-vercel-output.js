@@ -119,6 +119,9 @@ async function fixOutput() {
   // 1 ter. ÉLAGAGE — le vrai levier du démarrage à froid.
   await pruneBundle(funcDir);
 
+  // 1 quater. ÉLAGAGE PAR ATTEIGNABILITÉ — le même levier, mais au niveau des PAQUETS.
+  await pruneUnreachableModules(funcDir);
+
   // 2. Patch: Forcer Node 22 + maxDuration dans .vc-config.json
   //    - runtime  : Mastra core v1.56 exige Node 22.
   //    - maxDuration : le traitement Slack est prolongé après l'ACK via `waitUntil`
@@ -195,6 +198,98 @@ async function fixOutput() {
 
   // 3. Les actifs STATIQUES — la vidéo d'accueil.
   await publishStaticAssets();
+
+  // 4. LE PORTIER D'ACK — la seule chose qui garantisse les 3 secondes de Slack.
+  await buildSlackAckFunction();
+}
+
+/**
+ * Construit `functions/slack-ack.func` et lui route `/slack/events` et `/slack/interactions`.
+ *
+ * ## Le raisonnement, en trois mesures
+ *
+ * Un clic de bouton SIGNÉ sur `/slack/interactions`, en production, le 2026-08-19 :
+ * **5 229 ms à froid**, 684 ms à chaud, et 9 173 ms au premier appel d'un déploiement neuf.
+ * Le handler ACK pourtant sans la moindre E/S, et l'import du graphe applicatif ne prend que
+ * 0,82 s en local : le reste est le DÉPAQUETAGE de la fonction.
+ *
+ * Slack accorde 3 secondes. Le budget était donc épuisé avant la première instruction — cause
+ * unique et suffisante des « boutons qui ne marchent pas », qu'aucune optimisation du handler
+ * ne pouvait atteindre. À ≈ 19 messages par jour, presque chaque clic tombe sur une instance
+ * froide : le cas froid EST le cas nominal.
+ *
+ * L'élagage a ramené la fonction de 264 à 160 Mo, ce qui aide sans garantir : 3 s est un
+ * seuil, pas une moyenne. Le portier, lui, n'a AUCUNE dépendance — pas de `node_modules` du
+ * tout — donc rien à dépaqueter.
+ *
+ * ## Pourquoi le routage doit être touché, et dans cet ordre
+ *
+ * La règle est posée APRÈS `{handle:'filesystem'}` : un chemin qui correspond à un actif
+ * statique doit continuer d'être servi par le CDN. Et AVANT l'attrape-tout, sans quoi tout
+ * continuerait d'aller à la fonction applicative.
+ *
+ * ⚠️ Le portier réexpédie vers `/internal/slack/…`, PAS vers le chemin d'origine : renvoyer
+ * sur `/slack/…` referait matcher cette règle, donc une boucle et un bot muet.
+ */
+async function buildSlackAckFunction() {
+  const sourceFile = join(root, 'scripts', 'slack-ack-function', 'index.mjs');
+  if (!existsSync(sourceFile)) {
+    console.error(`❌ Portier d'ACK introuvable : ${sourceFile}`);
+    process.exit(1);
+  }
+
+  const funcDir = join(target, 'functions', 'slack-ack.func');
+  await rm(funcDir, { recursive: true, force: true });
+  await mkdir(funcDir, { recursive: true });
+  await cp(sourceFile, join(funcDir, 'index.mjs'));
+
+  // `"type": "module"` est OBLIGATOIRE : le lanceur Vercel lit ce manifeste pour décider
+  // comment charger le point d'entrée.
+  await writeFile(
+    join(funcDir, 'package.json'),
+    JSON.stringify({ name: 'slack-ack', type: 'module', private: true }, null, 2),
+    'utf8'
+  );
+
+  // Mémoire au plancher : ce code ne fait qu'un HMAC et un `fetch`. Y mettre 3009 Mo comme la
+  // fonction applicative ne gagnerait rien — le CPU proportionnel sert à charger des modules,
+  // et il n'y en a aucun.
+  await writeFile(
+    join(funcDir, '.vc-config.json'),
+    JSON.stringify(
+      {
+        handler: 'index.mjs',
+        launcherType: 'Nodejs',
+        runtime: 'nodejs22.x',
+        shouldAddHelpers: true,
+        // Le réacheminement est prolongé par `waitUntil` : la fonction doit rester éveillée le
+        // temps que la fonction applicative réponde, démarrage à froid compris.
+        maxDuration: 60,
+        memory: 512,
+      },
+      null,
+      2
+    ),
+    'utf8'
+  );
+
+  const configPath = join(target, 'config.json');
+  const config = existsSync(configPath)
+    ? JSON.parse(await readFile(configPath, 'utf8'))
+    : { version: 3, routes: [] };
+  const routes = Array.isArray(config.routes) ? config.routes : [];
+
+  if (!routes.some((route) => route && route.dest === '/slack-ack')) {
+    const filesystemAt = routes.findIndex((route) => route && route.handle === 'filesystem');
+    routes.splice(filesystemAt + 1, 0, { src: '^/slack/(events|interactions)$', dest: '/slack-ack' });
+    config.routes = routes;
+    await writeFile(configPath, JSON.stringify(config), 'utf8');
+  }
+
+  console.log(
+    "✅ Portier d'ACK : /slack/events et /slack/interactions servis par une fonction SANS " +
+      'dépendance (rejeu vers /internal/slack/…)'
+  );
 }
 
 /**
@@ -414,5 +509,213 @@ async function pruneBundle(funcDir) {
   console.log(
     `✅ Élagage : ${removedFiles} fichiers retirés (${(removedBytes / 1048576).toFixed(1)} Mo) — ` +
       'ni sources TypeScript, ni source maps, ni documentation ne sont chargées à l’exécution'
+  );
+}
+
+/**
+ * Paquets résolus À L'EXÉCUTION par un nom que l'analyse statique ne peut pas voir.
+ *
+ * ⚠️ CETTE LISTE EST LA SEULE PARTIE ÉCRITE À LA MAIN DE L'ÉLAGAGE, et c'est le seul endroit
+ * où une omission casse la production sans casser le build. Elle recouvre exactement la liste
+ * que `verify:bundle --require` nomme déjà, pour la raison qui l'a fait naître : `pdfmake` est
+ * chargé par `createRequire`, donc invisible à toute analyse d'imports — c'est ce qui avait
+ * produit `Cannot find module 'js-md5'` en production avec un build vert.
+ *
+ * Les bindings `@libsql` s'y ajoutent : leur nom est composé à partir de la plateforme.
+ */
+const DYNAMIC_SEEDS = [
+  'pdfmake',
+  'pdfkit',
+  'js-md5',
+  'fontkit',
+  'docx',
+  '@libsql/client',
+  '@libsql/core',
+  '@libsql/linux-x64-gnu',
+  '@libsql/linux-x64-musl',
+];
+
+/**
+ * Proportion de paquets au-delà de laquelle on REFUSE d'élaguer.
+ *
+ * Garde-fou contre un bug de l'analyse elle-même : si le parcours partait de racines vides, il
+ * déclarerait tout inatteignable et viderait le bundle — avec, comme d'habitude ici, un build
+ * parfaitement vert. On préfère un bundle gras à un bundle mort.
+ */
+const MAX_PRUNE_RATIO = 0.75;
+
+/** Toute chaîne littérale passée à `import` / `require` / `from`. */
+const SPEC_PATTERN = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"]([^'"\n]+)['"]/g;
+
+function packageOfSpecifier(spec) {
+  if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:')) return null;
+  const parts = spec.split('/');
+  return spec.startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0];
+}
+
+/**
+ * ÉLAGAGE PAR ATTEIGNABILITÉ — retire les paquets qu'aucun chemin d'import n'atteint.
+ *
+ * ## Pourquoi, et pourquoi c'est LE levier
+ *
+ * Mesuré le 2026-08-19 : un clic de bouton signé sur `/slack/interactions` répondait en
+ * **5,2 s à froid** et **0,7 s à chaud**, alors que le handler ACK sans la moindre E/S.
+ * L'import du graphe entier ne prend que **0,82 s** en local : les ~4,4 s restantes sont le
+ * téléchargement et le DÉPAQUETAGE de la fonction. Slack accorde 3 secondes — le budget était
+ * donc épuisé avant la première instruction, et c'est la cause unique des boutons « qui ne
+ * marchent pas ».
+ *
+ * La mémoire est déjà au maximum (3009 Mo, le CPU y est proportionnel). Restait la TAILLE :
+ * 264 Mo et 20 447 fichiers, dont plus de la moitié qu'aucun `import` n'atteint — la fermeture
+ * `dependencies` recopiée par `ensureTransitiveDependencies` est une SUR-approximation, et le
+ * déployeur Mastra embarque en plus tout le nécessaire de fonctionnalités que ce produit
+ * n'active pas (exporteurs OpenTelemetry, `js-tiktoken`, `date-fns`…).
+ *
+ * ## Pourquoi une analyse et pas une liste
+ *
+ * Une liste de paquets à retirer se périmerait au premier changement de dépendance, en silence
+ * — c'est le mode de panne que ce dépôt traque partout (`agentToolBoundary` est dérivé de
+ * `Object.keys(tools)` pour la même raison). Ici la liste est CALCULÉE à chaque build.
+ *
+ * ## Ce que l'analyse ne peut pas voir, et les trois filets
+ *
+ * Un `require()` à nom calculé est invisible. D'où `DYNAMIC_SEEDS` ci-dessus, et surtout :
+ *   1. `verify:bundle` IMPORTE réellement `index.mjs` — une liaison rompue fait rougir le build ;
+ *   2. il produit un vrai PDF ET un vrai DOCX depuis le bundle — les deux chaînes dynamiques ;
+ *   3. `MAX_PRUNE_RATIO` refuse un élagage aberrant.
+ */
+async function pruneUnreachableModules(funcDir) {
+  const modulesDir = join(funcDir, 'node_modules');
+  if (!existsSync(modulesDir)) return;
+
+  const specsOfDirectory = async (dir) => {
+    const found = new Set();
+    const stack = [dir];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      let entries;
+      try {
+        entries = await readdir(current, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const full = join(current, entry.name);
+        if (entry.isDirectory()) {
+          // ⚠️ ON DESCEND AUSSI DANS LES `node_modules` IMBRIQUÉS, et c'est un correctif :
+          // les ignorer a fait supprimer `esprima` et `sprintf-js` au premier essai. Un paquet
+          // imbriqué (`gray-matter/node_modules/js-yaml`) résout ses propres dépendances EN
+          // REMONTANT vers la racine ; ses imports désignent donc des paquets de premier
+          // niveau, et les sauter revient à les déclarer inatteignables à tort.
+          stack.push(full);
+          continue;
+        }
+        if (entry.name === 'package.json') {
+          try {
+            const pkg = JSON.parse(await readFile(full, 'utf8'));
+            for (const dep of Object.keys(pkg.dependencies ?? {})) found.add(dep);
+          } catch {
+            // Un `package.json` illisible ne doit pas casser le build : le paquet reste, au pire.
+          }
+          continue;
+        }
+        if (!/\.(mjs|cjs|js)$/.test(entry.name)) continue;
+        let text;
+        try {
+          text = await readFile(full, 'utf8');
+        } catch {
+          continue;
+        }
+        for (const match of text.matchAll(SPEC_PATTERN)) {
+          const pkg = packageOfSpecifier(match[1]);
+          if (pkg) found.add(pkg);
+        }
+      }
+    }
+    return found;
+  };
+
+  // Racines : les modules générés à la racine de la fonction (`index.mjs`, `mastra.mjs`, …).
+  const roots = new Set(DYNAMIC_SEEDS);
+  for (const entry of await readdir(funcDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !/\.(mjs|cjs|js)$/.test(entry.name)) continue;
+    const text = await readFile(join(funcDir, entry.name), 'utf8');
+    for (const match of text.matchAll(SPEC_PATTERN)) {
+      const pkg = packageOfSpecifier(match[1]);
+      if (pkg) roots.add(pkg);
+    }
+  }
+
+  const reachable = new Set();
+  const queue = [...roots];
+  while (queue.length > 0) {
+    const pkg = queue.pop();
+    if (reachable.has(pkg)) continue;
+    if (!existsSync(join(modulesDir, pkg))) continue;
+    reachable.add(pkg);
+    for (const dep of await specsOfDirectory(join(modulesDir, pkg))) {
+      if (!reachable.has(dep)) queue.push(dep);
+    }
+  }
+
+  const installed = [];
+  for (const entry of await readdir(modulesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name.startsWith('@')) {
+      for (const scoped of await readdir(join(modulesDir, entry.name))) {
+        installed.push(`${entry.name}/${scoped}`);
+      }
+    } else {
+      installed.push(entry.name);
+    }
+  }
+
+  const dead = installed.filter((pkg) => !reachable.has(pkg));
+  if (dead.length === 0) {
+    console.log('✅ Élagage par atteignabilité : aucun paquet inatteignable.');
+    return;
+  }
+
+  if (dead.length / installed.length > MAX_PRUNE_RATIO) {
+    console.log(
+      `⚠️  Élagage par atteignabilité ABANDONNÉ : ${dead.length}/${installed.length} paquets ` +
+        'déclarés inatteignables, ce qui est aberrant. Le bundle reste complet.'
+    );
+    return;
+  }
+
+  let removedBytes = 0;
+  let removedFiles = 0;
+  for (const pkg of dead) {
+    const dir = join(modulesDir, pkg);
+    const stack = [dir];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      let entries;
+      try {
+        entries = await readdir(current, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const full = join(current, entry.name);
+        if (entry.isDirectory()) stack.push(full);
+        else {
+          removedFiles += 1;
+          try {
+            removedBytes += (await stat(full)).size;
+          } catch {
+            // Une taille illisible ne change rien à la suppression, seulement au compte affiché.
+          }
+        }
+      }
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+
+  console.log(
+    `✅ Élagage par atteignabilité : ${dead.length} paquets retirés ` +
+      `(${removedFiles} fichiers, ${(removedBytes / 1048576).toFixed(0)} Mo) — ` +
+      `${reachable.size} paquets conservés`
   );
 }

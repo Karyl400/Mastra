@@ -255,3 +255,114 @@ describe('findExpertise', () => {
     expect(Math.round(JSON.stringify(out).length / 3.5)).toBeLessThan(120);
   });
 });
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * L'ENTRETIEN EST UNE MATIÈRE DE RECHERCHE — 2026-08-19
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Défaut mesuré en production ce jour-là : à « qui s'occupe du support technique ? », l'outil
+ * a rendu « aucun collaborateur n'est identifié » alors que la personne venait d'écrire, dans
+ * son entretien, qu'elle fait du support technique. La réponse était HONNÊTE — la donnée était
+ * ailleurs — mais l'entretien est le seul endroit du produit où quelqu'un décrit son métier
+ * avec ses mots, ce qui est exactement ce qu'une recherche d'expertise cherche. `position` est
+ * un intitulé RH saisi une fois à la création du dossier.
+ */
+describe('findExpertise — ce que la personne dit faire, pas seulement son intitulé', () => {
+  const KARYL = 'd20df236-5c24-42a5-b205-d0d738d34fb4';
+
+  const employeesOnly = {
+    findAll: async () => [
+      { id: KARYL, firstName: 'Karyl', lastName: 'SOUMAILA', position: 'Developer' },
+    ],
+  } as never;
+
+  const emptyDirectory = {
+    listAll: async () => [],
+  } as never;
+
+  const interviews = {
+    listAll: async () => [
+      {
+        employeeId: KARYL,
+        slackUserId: 'U0BJBDGTJUD',
+        channels: [],
+        dailyWork: 'je fais du support technique et je suis les tickets de bout en bout',
+        workStyle: '',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ],
+  } as never;
+
+  it('retrouve quelqu’un par ce qu’il a écrit dans son entretien', async () => {
+    const tool = makeFindExpertise({
+      directoryRepo: emptyDirectory,
+      employeeRepo: employeesOnly,
+      interviewRepo: interviews,
+    });
+
+    const out = (await tool.execute!({ skill: 'support technique' } as never, {} as never)) as {
+      found: boolean;
+      people: string[];
+    };
+
+    expect(out.found).toBe(true);
+    expect(out.people[0]).toContain('Karyl');
+  });
+
+  it('préfère le POSTE quand c’est lui qui correspond', async () => {
+    // L'intitulé officiel reste ce qu'on montre en premier : l'entretien n'apporte de la
+    // matière que là où le poste n'en donne pas.
+    const tool = makeFindExpertise({
+      directoryRepo: emptyDirectory,
+      employeeRepo: employeesOnly,
+      interviewRepo: interviews,
+    });
+
+    const out = (await tool.execute!({ skill: 'developer' } as never, {} as never)) as {
+      people: string[];
+    };
+
+    expect(out.people[0]).toContain('Developer');
+  });
+
+  it('sans dépôt d’entretiens, se comporte EXACTEMENT comme avant', async () => {
+    // La dépendance est optionnelle : son absence est une configuration, jamais un incident.
+    // La compter comme une source en panne rendrait « recherche incomplète » une réponse
+    // parfaitement complète.
+    const tool = makeFindExpertise({
+      directoryRepo: emptyDirectory,
+      employeeRepo: employeesOnly,
+    });
+
+    const out = (await tool.execute!({ skill: 'support technique' } as never, {} as never)) as {
+      found: boolean;
+      reason: string;
+    };
+
+    expect(out.found).toBe(false);
+    expect(out.reason).toBe('no_match');
+  });
+
+  it('un dépôt d’entretiens EN PANNE ne dégrade pas le verdict', async () => {
+    const broken = {
+      listAll: async () => {
+        throw new Error('no such table: onboarding_interview');
+      },
+    } as never;
+
+    const tool = makeFindExpertise({
+      directoryRepo: emptyDirectory,
+      employeeRepo: employeesOnly,
+      interviewRepo: broken,
+    });
+
+    const out = (await tool.execute!({ skill: 'developer' } as never, {} as never)) as {
+      found: boolean;
+    };
+
+    // La source principale a répondu : le résultat reste un vrai résultat.
+    expect(out.found).toBe(true);
+  });
+});

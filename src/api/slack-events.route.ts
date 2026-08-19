@@ -369,20 +369,41 @@ export async function handleSlackEventRequest(c: SlackRouteContext): Promise<Res
   return c.json({ ok: true });
 }
 
-export const slackEventsRoute = registerApiRoute(SLACK_EVENTS_PATH, {
-  method: 'POST',
-  requiresAuth: false,
-  openapi: {
-    summary: 'Slack Events API webhook',
-    description:
-      'Reçoit les événements Slack (url_verification, app_mention, message.im). ' +
-      'Signature HMAC-SHA256 vérifiée, ACK immédiat, traitement agent en tâche de fond.',
-    tags: ['slack'],
-    responses: {
-      200: { description: 'Événement accusé réception' },
-      400: { description: 'Corps JSON invalide' },
-      401: { description: 'Signature Slack invalide, absente ou expirée' },
+/**
+ * Le chemin INTERNE, où le portier d'ACK rejoue la requête.
+ *
+ * ⚠️ Ce n'est pas une porte dérobée : la route montée ici est EXACTEMENT la même, signature
+ * HMAC comprise, vérifiée sur le corps réexpédié à l'identique. La frontière de sécurité est
+ * donc inchangée, et elle tiendrait même si le portier disparaissait du routage.
+ *
+ * Deux chemins plutôt qu'un seul parce que le routage Vercel se décide sur le CHEMIN : sans
+ * distinction, la règle qui envoie `/slack/events` au portier renverrait aussi la requête
+ * réexpédiée au portier — une boucle, et un bot définitivement muet.
+ *
+ * ⚠️ `/internal` et non `/api/…` : le préfixe `/api` est réservé par `@mastra/server` et une
+ * route personnalisée qui commence par lui fait échouer le DÉMARRAGE du serveur.
+ */
+export const SLACK_EVENTS_WORK_PATH = '/internal/slack/events';
+
+function slackEventsRouteAt(path: string) {
+  return registerApiRoute(path, {
+    method: 'POST',
+    requiresAuth: false,
+    openapi: {
+      summary: 'Slack Events API webhook',
+      description:
+        'Reçoit les événements Slack (url_verification, app_mention, message.im). ' +
+        'Signature HMAC-SHA256 vérifiée, ACK immédiat, traitement agent en tâche de fond.',
+      tags: ['slack'],
+      responses: {
+        200: { description: 'Événement accusé réception' },
+        400: { description: 'Corps JSON invalide' },
+        401: { description: 'Signature Slack invalide, absente ou expirée' },
+      },
     },
-  },
-  handler: async (c) => handleSlackEventRequest(c as unknown as SlackRouteContext),
-});
+    handler: async (c) => handleSlackEventRequest(c as unknown as SlackRouteContext),
+  });
+}
+
+export const slackEventsRoute = slackEventsRouteAt(SLACK_EVENTS_PATH);
+export const slackEventsWorkRoute = slackEventsRouteAt(SLACK_EVENTS_WORK_PATH);

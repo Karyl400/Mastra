@@ -1,12 +1,48 @@
 # TODO.md — Kisso Onboarding
 
+## [0] APRÈS LE LOT « BOUTONS » DU 2026-08-19 (soir)
+
+Les trois défauts que la section précédente laissait ouverts sont corrigés (libellé de date
+calculé, `findExpertise` qui lit les entretiens, hygiène de test). Ce qui reste :
+
+- [ ] **Retirer la machinerie de MODALE, devenue inatteignable.** Plus aucun bouton n'ouvre de
+      vue, donc Slack n'enverra plus jamais de `view_submission`. Restent en place :
+      `profile-modal.ts`, `interview-modal.ts`, `interview-invite.ts`, `applyInterview`,
+      `SlackAdapter.openModal`, et les deux branches `view_submission` de la route.
+      ⚠️ **Le retrait emporte l'INVITATION AUX CANAUX** (`applyInterview` → `inviteToChannels`),
+      qui n'a aujourd'hui aucun autre chemin que la modale — donc aucun chemin réel, puisque la
+      modale ne s'ouvre pas. Deux options à trancher AVANT de supprimer : rendre l'invitation
+      automatique (`ONBOARDING_WELCOME_CHANNELS`, déjà câblé au `team_join`), ou ajouter une
+      troisième question conversationnelle. Ne pas supprimer en silence : ce serait retirer une
+      capacité sans le dire, ce que ce dépôt reproche partout ailleurs.
+
+- [ ] **Le `view_submission` n'est plus testé de bout en bout en production**, puisqu'il est
+      inatteignable. Ses tests unitaires passent toujours et verrouillent donc un chemin mort —
+      exactement le motif qui a fait qu'un test assertait « ouvre la modale » sur un geste
+      impossible. À supprimer avec le reste.
+
+- [ ] **Mesurer un démarrage à froid VRAIMENT froid après l'élagage.** Les mesures du soir
+      (714 à 1 775 ms) portent sur la fonction PORTIER, qui n'a rien à dépaqueter. Le gain réel
+      sur la fonction applicative (264 → 160 Mo) n'a pas été isolé : il se verrait sur le délai
+      entre le clic et la réponse postée, pas sur l'ACK. Sonde : un message signé sur
+      `/slack/events` après 25 min d'inactivité, en chronométrant la publication dans Slack.
+
+- [ ] **`onboarding_interview.channels` n'est plus jamais renseigné.** Le seul écrivain était
+      la modale. Le parcours conversationnel ne collecte pas les canaux (un `multi_static_select`
+      n'a pas d'équivalent écrit simple). La colonne survit avec `[]` — à trancher avec le point
+      ci-dessus.
+
 ## [0] RELEVÉ EN PRODUCTION LE 2026-08-19, PENDANT LE RE-TEST DU PARCOURS
 
 Deux défauts constatés en faisant tourner les quatre agents en production. Aucun n'est corrigé —
 ils sont hors du périmètre demandé, et les corriger à la volée aurait mêlé du travail non
 vérifié à un lot qui l'est.
 
-- [ ] **`notificationAgent` annonce « Rappel PLANIFIÉ » et se trompe de jour.** Réponse
+- [x] ~~**`notificationAgent` annonce « Rappel PLANIFIÉ » et se trompe de jour.**~~ Corrigé le
+      2026-08-19 au soir : `scheduleReminder` rend un `scheduledLabel` CALCULÉ
+      (`shared/french-datetime.ts`, qui rassemble trois formateurs divergents), et « planifié »
+      entre dans le détecteur de promesses non tenues. Constat d'origine conservé ci-dessous
+      parce qu'il documente la classe de défaut : Réponse
       littérale à « planifie un rappel pour Karyl : relire le guide d'accueil avant lundi » :
       « Rappel planifié : … à 09 h 00 le **lundi 22 août 2026** ». Le 22 août 2026 est un
       **samedi**, et « avant lundi » désignait le 24. Vérifié en base : `scheduled_at` vaut bien
@@ -23,14 +59,19 @@ vérifié à un lot qui l'est.
          date, et il a produit « mardi 15 septembre 2026 » — exact. La correction est du même
          ordre : faire rendre la phrase par le code, pas par le modèle.
 
-- [ ] **`findExpertise` ignore `onboarding_interview.daily_work`.** « qui s'occupe du support
+- [x] ~~**`findExpertise` ignore `onboarding_interview.daily_work`.**~~ Corrigé le 2026-08-19
+      au soir : l'entretien est une troisième matière, en dépendance OPTIONNELLE dont l'absence
+      n'est pas comptée comme une panne. Constat d'origine : « qui s'occupe du support
       technique ? » a rendu « aucun collaborateur n'est identifié » alors que la personne venait
       d'écrire, dans l'entretien, qu'elle fait du support technique. La réponse est HONNÊTE — la
       donnée est simplement ailleurs — mais l'entretien est le seul endroit où quelqu'un décrit
       son métier avec ses mots, et c'est précisément ce qu'une recherche d'expertise cherche.
       Correctif à coût nul en tokens : c'est une jointure, pas un aller-retour de plus.
 
-- [ ] **La suite de tests reste à quelques centaines de millisecondes du délai de 5 s.**
+- [x] ~~**La suite de tests reste à quelques centaines de millisecondes du délai de 5 s.**~~
+      Corrigé le 2026-08-19 au soir — la cause n'était pas la lenteur mais un `users.info`
+      RÉELLEMENT envoyé à slack.com depuis des tests unitaires. `tests/unit/handlers/` : 49 s →
+      11 s. Constat d'origine :
       `pinned-facts.test.ts` a été rendu hermétique le 2026-08-19 ; `profile-form-shortcut.test.ts`
       et `slack-events.handler.test.ts` n'injectent toujours pas `accessGuard`, donc un
       `users.info` part réellement vers slack.com avec le jeton de test. Voir l'encadré de

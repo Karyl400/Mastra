@@ -5,6 +5,14 @@ import { describe, it, expect, afterEach } from 'vitest';
 
 import { verifyProfile } from '../../../src/features/onboarding/domain/services/profile-completion';
 import {
+  PROFILE_QUESTIONS,
+  answersFromRecord,
+  captureProfileAnswer,
+  collectProfileAnswers,
+  nextProfileStep,
+  pendingProfileStep,
+} from '../../../src/features/onboarding/domain/services/profile-chat';
+import {
   INTERVIEW_QUESTION_DAILY,
   INTERVIEW_QUESTION_STYLE,
   captureInterviewAnswer,
@@ -163,7 +171,26 @@ describe('« C’est fait » VÉRIFIE, il ne se contente pas de remercier', () =
 
     expect(verdict.complete).toBe(false);
     expect(verdict.reply).toContain('poste');
-    expect(verdict.offerForm).toBe(true);
+    expect(verdict.needsProfileChat).toBe(true);
+  });
+
+  it('POSE la question du champ manquant, et pas seulement son nom', () => {
+    // ⚠️ L'invariant qui fait tenir la seconde machine à états : nommer ce qui manque sans
+    // rien demander laisserait le fil sans question en attente, et la réponse de la personne
+    // partirait chez un agent. C'est la faute exacte mesurée sur la machine jumelle.
+    const verdict = verifyProfile({ ...full, position: '' });
+    expect(verdict.reply).toContain(PROFILE_QUESTIONS.position);
+
+    // Aucun dossier : on commence par le premier champ, pas par le dernier.
+    expect(verifyProfile(null).reply).toContain(PROFILE_QUESTIONS.firstName);
+  });
+
+  it('ne propose PLUS de formulaire à ouvrir — la modale a disparu', () => {
+    // Elle ne s'ouvrait jamais : `trigger_id` valable 3 s, démarrage à froid mesuré à 5,2 s.
+    // Un test le verrouille pour qu'une reformulation ne la réintroduise pas par le texte.
+    for (const verdict of [verifyProfile(null), verifyProfile({ ...full, position: '' })]) {
+      expect(verdict.reply).not.toMatch(/formulaire|ci-dessous|ouvre/i);
+    }
   });
 
   it('énumère lisiblement quand il en manque plusieurs', () => {
@@ -178,11 +205,11 @@ describe('« C’est fait » VÉRIFIE, il ne se contente pas de remercier', () =
     expect(verdict.reply).toContain(' et ');
   });
 
-  it('ne propose PAS le formulaire quand tout est là', () => {
+  it('ne demande rien de plus quand tout est là', () => {
     const verdict = verifyProfile(full);
 
     expect(verdict.complete).toBe(true);
-    expect(verdict.offerForm).toBe(false);
+    expect(verdict.needsProfileChat).toBe(false);
   });
 
   it('enchaîne sur la PREMIÈRE question de l’entretien, mot pour mot', () => {
