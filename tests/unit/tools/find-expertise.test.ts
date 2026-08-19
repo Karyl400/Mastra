@@ -366,3 +366,132 @@ describe('findExpertise — ce que la personne dit faire, pas seulement son inti
     expect(out.found).toBe(true);
   });
 });
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * Le seul FAUX RÉSULTAT SILENCIEUX du lot d'outils — 2026-08-19
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * `experts.slice(0, 6)` sans AUCUN `sort()` : les six retenus étaient ceux dont l'identifiant
+ * technique triait le plus bas — `slack_user_id` pour l'annuaire, un UUID pour les dossiers.
+ * Arbitraire, mais STABLE : ce n'étaient pas six personnes au hasard, c'étaient TOUJOURS LES
+ * SIX MÊMES. Passé un certain effectif, une partie de l'entreprise devenait définitivement
+ * invisible à « qui s'occupe de X ? », sans que rien ne le signale.
+ *
+ * Et `truncated: true` était un CHAMP SÉPARÉ — c'est-à-dire précisément la forme dont ce dépôt
+ * a MESURÉ le 2026-08-14 qu'elle est ignorée par le modèle : sur `getChannelHistory`, un champ
+ * nommé `coverage` a été purement ignoré, le même texte renommé `hint` aussi. La conclusion
+ * écrite alors — « un champ séparé se lit comme une métadonnée, quel que soit son nom » — n'a
+ * jamais été appliquée ici.
+ *
+ * ⚠️ Portée honnête : à six personnes dans le workspace, rien de tout cela ne se voit
+ * aujourd'hui. C'est un défaut LATENT, qui s'ouvre dès SEPT personnes correspondant à un même
+ * terme — immédiat pour « engineering » ou « produit » dans un workspace de 40.
+ */
+describe('findExpertise — l’ordre et la couverture', () => {
+  const many = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      member({
+        slackUserId: `U${String(i).padStart(2, '0')}`,
+        realName: `Personne ${i}`,
+        title: 'Backend Developer',
+      }),
+    );
+
+  it('ANNONCE la coupe dans le contenu, pas dans un champ à côté', async () => {
+    const directoryRepo = await directoryWith(many(12));
+    const tool = makeFindExpertise({ directoryRepo, employeeRepo: noEmployees });
+
+    const out = (await tool.execute!({ skill: 'backend' } as never, {} as never)) as {
+      people: string[];
+      truncated: boolean;
+    };
+
+    expect(out.truncated).toBe(true);
+    // La phrase est DANS la liste que le modèle lit, en tête. Un champ séparé serait sauté.
+    expect(out.people[0]).toMatch(/12/);
+    expect(out.people[0]).not.toMatch(/—/);
+  });
+
+  it('ne dit RIEN quand tout a été montré — on ne paie que ce qui est utile', async () => {
+    const directoryRepo = await directoryWith(many(3));
+    const tool = makeFindExpertise({ directoryRepo, employeeRepo: noEmployees });
+
+    const out = (await tool.execute!({ skill: 'backend' } as never, {} as never)) as {
+      people: string[];
+      truncated: boolean;
+    };
+
+    expect(out.truncated).toBe(false);
+    expect(out.people).toHaveLength(3);
+    expect(out.people[0]).toContain('—');
+  });
+
+  it('classe le POSTE DÉCLARÉ avant un simple indice d’entretien', async () => {
+    // Sans classement, c'est l'ordre des identifiants techniques qui décidait qui survit à la
+    // coupe. Le poste officiel est le signal le plus fort ; l'entretien vient après.
+    const directoryRepo = await directoryWith([]);
+    const employeeRepo = {
+      findAll: vi.fn().mockResolvedValue([
+        { id: 'aaa', firstName: 'Par', lastName: 'Entretien', position: 'Designer' },
+        { id: 'zzz', firstName: 'Par', lastName: 'Poste', position: 'Backend Developer' },
+      ]),
+    } as never;
+    const interviewRepo = {
+      listAll: vi.fn().mockResolvedValue([{ employeeId: 'aaa', dailyWork: 'je fais du backend' }]),
+    } as never;
+
+    const tool = makeFindExpertise({ directoryRepo, employeeRepo, interviewRepo });
+    const out = (await tool.execute!({ skill: 'backend' } as never, {} as never)) as {
+      people: string[];
+    };
+
+    // `aaa` trie avant `zzz` : sans classement, « Par Entretien » passait en premier.
+    expect(out.people[0]).toContain('Par Poste');
+  });
+});
+
+describe('findExpertise — deux personnes, un même nom', () => {
+  it('ne les FUSIONNE plus quand elles viennent de la même source', async () => {
+    // La déduplication portait sur le NOM normalisé. Elle existe pour un vrai besoin — une
+    // personne présente à la fois dans `employees` et dans l'annuaire — mais elle ne savait pas
+    // distinguer « une personne, deux sources » de « deux personnes, un nom ». Le second
+    // homonyme disparaissait sans trace.
+    //
+    // ⚠️ `findPersonByName` traite le même problème CORRECTEMENT : sur ambiguïté il rend
+    // `reason: 'ambiguous'` et aucun identifiant. La règle avait été comprise et appliquée à un
+    // outil, pas à son voisin.
+    const directoryRepo = await directoryWith([
+      member({ slackUserId: 'U1', realName: 'Jean Martin', title: 'Backend Developer' }),
+      member({ slackUserId: 'U2', realName: 'Jean Martin', title: 'Backend Developer' }),
+    ]);
+    const tool = makeFindExpertise({ directoryRepo, employeeRepo: noEmployees });
+
+    const out = (await tool.execute!({ skill: 'backend' } as never, {} as never)) as {
+      people: string[];
+    };
+
+    expect(out.people).toHaveLength(2);
+  });
+
+  it('FUSIONNE toujours la même personne vue par deux sources', async () => {
+    // Le besoin d'origine, qui ne doit pas régresser.
+    const directoryRepo = await directoryWith([
+      member({ slackUserId: 'U1', realName: 'Awa TRAORE', title: 'Backend Developer' }),
+    ]);
+    const employeeRepo = {
+      findAll: vi
+        .fn()
+        .mockResolvedValue([
+          { id: 'e1', firstName: 'Awa', lastName: 'TRAORE', position: 'Backend Developer' },
+        ]),
+    } as never;
+
+    const tool = makeFindExpertise({ directoryRepo, employeeRepo });
+    const out = (await tool.execute!({ skill: 'backend' } as never, {} as never)) as {
+      people: string[];
+    };
+
+    expect(out.people).toHaveLength(1);
+  });
+});

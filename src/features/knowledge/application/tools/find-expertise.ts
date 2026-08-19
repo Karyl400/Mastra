@@ -121,6 +121,23 @@ interface Expert {
   /** Clé de déduplication : le nom normalisé, seule donnée commune aux deux sources. */
   readonly key: string;
   readonly label: string;
+  /**
+   * Force du signal. Le POSTE DÉCLARÉ prime sur un simple indice d'entretien : c'est
+   * l'intitulé officiel, et c'est ce qu'on préfère montrer quand il faut choisir.
+   *
+   * ⚠️ Sans ce champ, `slice(0, 6)` retenait les six dont l'IDENTIFIANT TECHNIQUE triait le
+   * plus bas — `slack_user_id` pour l'annuaire, un UUID pour les dossiers. Arbitraire, mais
+   * STABLE : toujours les six mêmes, donc une partie de l'entreprise définitivement invisible.
+   */
+  readonly score: number;
+  /**
+   * D'où vient cette entrée. La déduplication par NOM est légitime ENTRE sources (une personne
+   * présente à la fois dans `employees` et dans l'annuaire) et fausse À L'INTÉRIEUR d'une même
+   * source, où deux « Jean Martin » sont deux personnes. Sans cette distinction, le second
+   * homonyme disparaissait sans trace — alors que `findPersonByName`, sur le même problème,
+   * refuse de choisir et le dit.
+   */
+  readonly source: 'directory' | 'employees';
 }
 
 export function makeFindExpertise(deps: FindExpertiseDeps) {
@@ -169,10 +186,32 @@ export function makeFindExpertise(deps: FindExpertiseDeps) {
         };
       }
 
+      // ⚠️ TRI STABLE PAR SIGNAL. `Array.prototype.sort` est stable depuis ES2019, donc à
+      // score égal l'ordre d'origine tient — l'annuaire avant les dossiers, ce qui est
+      // délibéré (`title` est tenu par la personne, `position` saisi une fois à la création).
+      const ranked = [...experts].sort((a, b) => b.score - a.score);
+      const shown = ranked.slice(0, MAX_EXPERTS);
+      const truncated = ranked.length > MAX_EXPERTS;
+
       return {
         found: true,
-        people: experts.slice(0, MAX_EXPERTS).map((expert) => truncate(expert.label)),
-        truncated: experts.length > MAX_EXPERTS,
+        // ⚠️ LA COUVERTURE EST DANS LE CONTENU, pas dans un champ à côté — et ce n'est pas une
+        // préférence de forme, c'est une MESURE. Le 2026-08-14, sur `getChannelHistory`, un
+        // champ nommé `coverage` a été purement ignoré par le modèle ; le même texte renommé
+        // `hint` l'a été aussi. Conclusion écrite alors, jamais appliquée ici : « un champ
+        // séparé se lit comme une métadonnée, quel que soit son nom ».
+        //
+        // Sans elle, un modèle à qui l'on montre 6 personnes sur 41 répond « les experts
+        // backend sont A, B, C, D, E, F » — une exhaustivité que rien ne garantit, et qu'un
+        // lecteur ne peut pas contredire. C'est le grief que ce fichier formule lui-même à
+        // propos de `directory_unavailable`, jamais appliqué au cas `truncated`.
+        //
+        // Payée UNIQUEMENT quand tout n'a pas été montré.
+        people: [
+          ...(truncated ? [coverageLine(shown.length, ranked.length)] : []),
+          ...shown.map((expert) => truncate(expert.label)),
+        ],
+        truncated,
       };
     },
   });
@@ -195,6 +234,10 @@ async function matchDirectory(deps: FindExpertiseDeps, skill: string): Promise<S
           return {
             key: normalizeKey(name),
             label: `${safePart(name)} — ${safePart(member.title)}`,
+            // Poste déclaré dans Slack, tenu par la personne elle-même : signal fort.
+            // Un invité externe compte moins — il est rarement l'interlocuteur cherché.
+            score: member.isRestricted || member.isUltraRestricted ? 2 : 3,
+            source: 'directory' as const,
           };
         }),
     };
@@ -220,7 +263,12 @@ async function matchEmployees(deps: FindExpertiseDeps, skill: string): Promise<S
       if (!matchedPosition && !matchedDaily) continue;
 
       const evidence = matchedPosition ? employee.position : daily;
-      experts.push({ key: normalizeKey(name), label: `${safePart(name)} — ${safePart(evidence)}` });
+      experts.push({
+        key: normalizeKey(name),
+        label: `${safePart(name)} — ${safePart(evidence)}`,
+        score: matchedPosition ? 3 : 1,
+        source: 'employees' as const,
+      });
     }
 
     return { available: true, experts };
@@ -260,13 +308,41 @@ async function loadDailyWork(deps: FindExpertiseDeps): Promise<Map<string, strin
  * dossier et pourrait gagner une ligne d'annuaire demain — apparaîtrait deux fois, et deux
  * lignes se lisent comme deux collègues disponibles.
  */
+/**
+ * Déduplication ENTRE sources, jamais À L'INTÉRIEUR d'une source.
+ *
+ * ⚠️ Le prédicat portait sur le seul nom normalisé. Il répondait à un vrai besoin — une
+ * personne présente à la fois dans `employees` et dans l'annuaire — mais il ne savait pas
+ * distinguer « une personne, deux sources » de « DEUX personnes, un même nom ». Deux « Jean
+ * Martin » n'en faisaient qu'un ; le second disparaissait sans trace ni signal, dans un outil
+ * dont toute la valeur est de dire qui existe.
+ *
+ * ⚠️ Contraste instructif : `findPersonByName` traite le même problème CORRECTEMENT — sur
+ * ambiguïté il rend `reason: 'ambiguous'` et AUCUN identifiant, en expliquant que rendre deux
+ * UUID reviendrait à laisser le modèle en choisir un. La règle avait été comprise et appliquée
+ * à un outil, pas à son voisin.
+ *
+ * La clé porte donc l'origine : un doublon n'est écarté que s'il vient de l'AUTRE source.
+ */
 function dedupe(experts: readonly Expert[]): Expert[] {
-  const seen = new Set<string>();
+  const seen = new Map<string, Expert['source']>();
   return experts.filter((expert) => {
-    if (expert.key.length === 0 || seen.has(expert.key)) return false;
-    seen.add(expert.key);
+    if (expert.key.length === 0) return false;
+    const previous = seen.get(expert.key);
+    if (previous !== undefined && previous !== expert.source) return false;
+    seen.set(expert.key, expert.source);
     return true;
   });
+}
+
+/**
+ * La phrase de couverture, placée EN TÊTE de la liste que le modèle lit.
+ *
+ * ⚠️ Sans tiret cadratin : c'est le séparateur des entrées « nom — indice », et le réutiliser
+ * ici ferait lire cette ligne comme une personne de plus. Un test le verrouille.
+ */
+function coverageLine(shown: number, total: number): string {
+  return `(${shown} personnes montrées sur ${total} qui correspondent)`;
 }
 
 /** `realName` d'abord : `displayName` est vide sur une bonne part des lignes réelles. */
