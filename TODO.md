@@ -19,14 +19,44 @@
       cherché que dans un `CREATE INDEX`, avec une frontière de mot. Non-régression vérifiée sur
       deux DDL à index.
 
-### Reste à faire sur ce lot
+### Vérifié EN PRODUCTION, de bout en bout (déploiements du 2026-08-19 au soir)
 
-- [ ] **Déployer, puis retester le parcours complet en production** — c'est la demande
-      explicite, et rien de ce qui précède n'est vérifié côté Slack.
-- [ ] Le `hint` de `scheduleCandidateInterview` dit « affiché au-dessus, avec la question » :
-      à relire dans une vraie réponse d'agent, c'est le seul texte que le modèle reformule.
-- [ ] `recruitmentAgent` exige encore une date ISO 8601 d'un humain (recensé le 2026-08-19,
-      non corrigé) : « le 20 août à 14h » doit suffire.
+- [x] **Parcours email complet** : préparation → question (« Cet envoi est définitif ») →
+      changement de sujet (réponse au nouveau sujet **et** rappel accolé, un seul message) →
+      « non » annule, ligne disparue. Puis, seconde préparation → « oui » → **email réellement
+      envoyé** (`Invitation d'entretien envoyée`, `recipientDomain: gmail.com`, adresse jamais
+      journalisée), ligne consommée. « oui » et « non » coûtent **zéro token**.
+- [x] **Texte d'accueil** rendu intégralement (vidéo, trois choses à préparer, « j'ai fini »).
+- [x] **« j'ai fini »** → dossier vérifié puis passage à l'étape suivante. Zéro token.
+- [x] **Génération de document** : `guide-d-accueil.pdf` réellement livré dans le fil.
+- [x] **Correction de document** : la ligne `49815558…` porte `created_at 20:15:54` et
+      `updated_at 21:13:35` — **même document, aucun cinquième créé**.
+- [x] Les cinq court-circuits statiques, pour zéro token.
+
+### Trois défauts TROUVÉS par ces sondes, et corrigés le soir même
+
+- [x] ~~`revises` attendait un UUID que le modèle ne pouvait PAS avoir~~ — la mémoire ne stocke
+      que du TEXTE, donc l'identifiant du tool-result précédent n'est plus dans la fenêtre au
+      message suivant. Devenu un BOOLÉEN, cible résolue côté serveur.
+- [x] ~~Le modèle RÉCLAMAIT le contenu du document~~ — et faisait fuiter « sans markdown ni
+      emoji », une contrainte de rendu interne, dans la phrase même du refus.
+- [x] ~~Le `hint` de `scheduleCandidateInterview` DÉCRIVAIT au lieu de PRESCRIRE~~ — d'où
+      « L'email est prêt, il s'affichera pour confirmation », au futur, en doublon.
+
+### Reste ouvert
+
+- [ ] **Le modèle ne NOMME pas le `recipient`** sur le document, alors que le bloc DOCUMENTS
+      l'exige (« Nomme le `recipient` »). Constaté sur les deux sondes document du 2026-08-19.
+      C'est la mesure de VISIBILITÉ posée le 2026-08-14 contre l'erreur de destinataire : elle
+      ne se déclenche pas. À traiter comme les deux précédents — si la consigne échoue, le
+      correctif suivant est du code (le tool pourrait poster le nom lui-même).
+- [ ] `recruitmentAgent` exige encore une date ISO 8601 d'un humain : « le 20 août à 14h » doit
+      suffire. Recensé le 2026-08-19, non corrigé — le modèle a su transcrire dans les deux
+      sondes, donc le défaut est latent, pas bloquant.
+- [ ] Les modales (`profile-modal.ts`, `interview-modal.ts`) et le traitement de
+      `view_submission` sont conservés mais **INATTEIGNABLES** : plus aucun code n'ouvre de
+      modale. Même situation que `discoverSlackWorkspace` avant sa suppression — à supprimer ou
+      à documenter comme volontairement mort.
 
 ---
 
