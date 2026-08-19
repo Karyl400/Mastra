@@ -72,6 +72,16 @@ import {
   type SlackAccessLevel,
 } from '../../../../shared/slack-request-context';
 import { SlackAccessGuard } from '../../../directory/application/services/access-guard';
+import type { OnboardingInterviewRepository } from '../../../onboarding/domain/ports/onboarding-interview.repository';
+import {
+  INTERVIEW_QUESTION_STYLE,
+  INTERVIEW_SKIPPED_REPLY,
+  INTERVIEW_TOO_SHORT_REPLY,
+  captureInterviewAnswer,
+  pendingInterviewStep,
+  skipsInterview,
+  type InterviewStep,
+} from '../../../onboarding/domain/services/interview-chat';
 import type { DirectoryRepository } from '../../../directory/domain/ports/directory.repository';
 import type { WelcomeChannelsService } from '../../../directory/application/services/welcome-channels.service';
 import { DrizzleDirectoryRepository } from '../../../directory/infrastructure/repositories/drizzle-directory.repository';
@@ -268,6 +278,21 @@ export interface SlackEventsHandlerOptions {
    * expire en 60 minutes, l'autre ne meurt que sur demande. `null` la DÉSACTIVE.
    */
   pinnedFactRepository?: PinnedFactRepository | null;
+  /**
+   * Dépôt de l'entretien post-profil — OPTIONNEL, et sans repli paresseux.
+   *
+   * ⚠️ Pas de repli paresseux vers Drizzle ici — contrairement à `pinnedFactRepo`, qui en a
+   * un — et c'est délibéré. Un repli ferait que TOUT handler construit sans cette dépendance
+   * toucherait la base depuis les tests unitaires : c'est exactement le piège qui a rendu onze
+   * tests d'`accept()` `rate_limited` le jour où `rate_limit_counters` a existé, et
+   * `CLAUDE.md` recense déjà QUATRE dépendances à neutraliser pour cette raison. On n'en
+   * ajoute pas une cinquième.
+   *
+   * Absent, l'entretien COLLECTE et répond correctement sans persister : la conversation reste
+   * juste, seule la trace manque. C'est la bonne dégradation — l'inverse (échouer faute de
+   * dépôt) casserait un accueil pour un défaut de câblage.
+   */
+  interviewRepository?: OnboardingInterviewRepository | null;
   /**
    * Déduplication PARTAGÉE entre instances. Injectée pour les tests (une seule doublure
    * partagée par deux handlers simule deux instances serverless devant le même store) ;
@@ -509,6 +534,7 @@ export class SlackEventsHandler {
    */
   private conversationRepo: ConversationRepository | null | undefined;
   private pinnedFactRepo: PinnedFactRepository | null | undefined;
+  private readonly interviewRepo: OnboardingInterviewRepository | null | undefined;
   /**
    * Déduplication partagée. `undefined` = pas encore construite, `null` = désactivée : deux
    * états distincts, d'où l'union.
@@ -553,6 +579,7 @@ export class SlackEventsHandler {
     this.inFlightGraceMs = options.inFlightGraceMs ?? DEFAULT_IN_FLIGHT_GRACE_MS;
     this.conversationRepo = options.conversationRepository;
     this.pinnedFactRepo = options.pinnedFactRepository;
+    this.interviewRepo = options.interviewRepository;
     this.dedupRepo = options.dedupRepository;
     this.conversationTokenBudget = options.conversationTokenBudget ?? CONVERSATION_TOKEN_BUDGET;
     this.conversationTtlMs = options.conversationTtlMs ?? CONVERSATION_TTL_MS;
@@ -2415,6 +2442,45 @@ export class SlackEventsHandler {
       return;
     }
     // ─────────────────────────────────────────────────────────────────────────
+    // ENTRETIEN CONVERSATIONNEL — « Parlons de toi », sans modale et sans modèle
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // ⚠️ La modale a été retirée le 2026-08-19 parce qu'elle NE S'OUVRAIT PAS. Un
+    // `trigger_id` expire 3 secondes après le clic, et le démarrage à froid de cette fonction
+    // a été mesuré à 4,9 s le 2026-08-18, jusqu'à 16 s après une longue inactivité — c'est-à-
+    // dire dans le cas d'un ARRIVANT, qui est par définition le premier à écrire de la
+    // journée. Le bouton échouait donc systématiquement, et son échec était invisible : Slack
+    // affiche une erreur générique, rien n'atteint les logs de ce dépôt.
+    //
+    // L'état n'est stocké NULLE PART : il se lit dans le dernier tour `assistant` de
+    // `history`, déjà chargé pour la mémoire conversationnelle. Aucune table, aucune lecture
+    // de plus sur le chemin des 3 secondes — et ZÉRO token, alors qu'un entretien « piloté par
+    // le modèle » coûterait trois allers-retours, soit un sixième du budget quotidien du
+    // workspace pour poser deux questions dont le texte est connu d'avance.
+    //
+    // Placé APRÈS les réponses figées (la détresse et la forme d'un message priment sur tout)
+    // et AVANT les court-circuits qui agissent : effacer ses données reste prioritaire sur
+    // répondre à une question d'accueil.
+    if (
+      await this.maybeRunInterviewStep({
+        history,
+        isDirectMessage,
+        text,
+        channel,
+        threadTs,
+        conversationId,
+        user,
+        // ⚠️ Résolu par le handler AVANT tout appel de modèle, et il ne vient JAMAIS de la
+        // fenêtre du modèle : c'est la même règle que pour `slackEmployeeId` dans le
+        // `requestContext` — on ne décide pas d'une écriture sur une valeur qu'un attaquant
+        // peut écrire.
+        employeeId: (await requesterIdentity).employeeId,
+      })
+    ) {
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // COURT-CIRCUITS QUI AGISSENT — effacer, épingler, publier le formulaire
     // ─────────────────────────────────────────────────────────────────────────
     //
@@ -2654,6 +2720,142 @@ export class SlackEventsHandler {
    * fonctionnel — et surtout pas le rendre muet. C'est notamment le cas tant que la table
    * `conversation_turns` n'a pas été appliquée sur la base de production.
    */
+  /**
+   * L'entretien est-il en cours, et si oui, le faire avancer.
+   *
+   * Rend `true` quand il a répondu — l'appelant s'arrête là. Extraite de `handleMessage` pour
+   * la ramener sous le plafond de complexité (ce dépôt tient son lint à ZÉRO warning), et
+   * l'extraction dit aussi quelque chose de juste : la CONDITION d'entrée dans l'entretien
+   * appartient à l'entretien, pas au tronc commun du handler.
+   *
+   * ⚠️ DM UNIQUEMENT. En canal, le dernier tour `assistant` du fil peut être une question
+   * d'entretien posée à quelqu'un d'AUTRE : la réponse d'un témoin serait alors capturée comme
+   * la sienne. Même asymétrie que `profile-request.ts`, où la restriction au DM est de la
+   * SÉCURITÉ et non de l'ergonomie.
+   */
+  private async maybeRunInterviewStep(input: {
+    history: readonly ConversationTurn[];
+    isDirectMessage: boolean;
+    text: string;
+    channel: string;
+    threadTs: string | undefined;
+    conversationId: string;
+    user: string | undefined;
+    employeeId: string | null | undefined;
+  }): Promise<boolean> {
+    if (!input.isDirectMessage) return false;
+
+    const step = pendingInterviewStep(lastAssistantText(input.history));
+    if (!step) return false;
+
+    await this.runInterviewStep({ ...input, step });
+    return true;
+  }
+
+  /**
+   * Un pas de l'entretien conversationnel. ZÉRO appel de modèle, ZÉRO lecture supplémentaire.
+   *
+   * ⚠️ Les deux tours sont mémorisés comme n'importe quel échange, et c'est OBLIGATOIRE ici :
+   * l'état de la machine EST le dernier tour `assistant`. Ne pas mémoriser la question
+   * suivante ferait perdre le fil au message d'après, en silence.
+   *
+   * ⚠️ L'écriture en base de l'entretien est délibérément ABSENTE de ce chemin : elle vit
+   * dans la route d'interactivité, avec `applyInterview`, qui sait aussi inviter aux canaux.
+   * La dupliquer ici ferait deux écrivains pour une table dont `employee_id` est la clé
+   * primaire — et le second écraserait le premier sans que personne ne l'ait demandé. Ce pas
+   * COLLECTE ; la persistance suit le chemin déjà éprouvé.
+   */
+  private async runInterviewStep(input: {
+    step: InterviewStep;
+    text: string;
+    channel: string;
+    threadTs: string | undefined;
+    conversationId: string;
+    user: string | undefined;
+    employeeId: string | null | undefined;
+  }): Promise<void> {
+    const { step, text, channel, threadTs, conversationId, user } = input;
+
+    // On reconnaît le renoncement AVANT de juger la réponse trop courte : « non » fait quatre
+    // caractères de moins que le seuil, et le traiter comme une réponse ratée relancerait la
+    // question à quelqu'un qui vient de dire non. Insister est le meilleur moyen de faire
+    // abandonner un questionnaire d'accueil pour de bon.
+    const skipped = skipsInterview(text);
+    const reply = interviewReplyFor(step, text, skipped);
+
+    logger.info(`Entretien conversationnel (${step}) — aucun appel de modele`, {
+      channel,
+      skipped,
+    });
+
+    await this.slack.chat.postMessage({
+      channel,
+      text: reply,
+      ...(threadTs ? { thread_ts: threadTs } : {}),
+    });
+
+    await this.rememberTurn({
+      conversationId,
+      role: 'user',
+      content: text,
+      agentId: DEFAULT_AGENT_ID,
+      slackUserId: user ?? null,
+    });
+    await this.rememberTurn({
+      conversationId,
+      role: 'assistant',
+      content: reply,
+      agentId: DEFAULT_AGENT_ID,
+      slackUserId: null,
+    });
+
+    await this.persistInterviewAnswer(input, skipped);
+  }
+
+  /**
+   * Persiste la réponse — au mieux, et JAMAIS au prix de la conversation.
+   *
+   * ⚠️ `save` ÉCRASE (la clé primaire est `employee_id`), donc on relit d'abord pour ne pas
+   * effacer la réponse de l'autre question. C'est le prix d'une table à une ligne par employé,
+   * et il est payé ici plutôt qu'en dupliquant l'état ailleurs.
+   *
+   * ⚠️ Un échec est journalisé et AVALÉ. La personne vient d'obtenir une réponse cohérente ;
+   * lever ici lui ferait voir « une erreur s'est produite » après un échange qui s'est bien
+   * passé, et c'est le contraire de ce qu'on veut apprendre d'un accueil. La trace manque,
+   * l'accueil tient — même arbitrage que la mémoire conversationnelle, qui dégrade en silence.
+   */
+  private async persistInterviewAnswer(
+    input: {
+      step: InterviewStep;
+      text: string;
+      employeeId: string | null | undefined;
+      user: string | undefined;
+    },
+    skipped: boolean,
+  ): Promise<void> {
+    const answer = skipped ? null : captureInterviewAnswer(input.text);
+    if (!answer || !this.interviewRepo || !input.employeeId || !input.user) return;
+
+    try {
+      const existing = await this.interviewRepo.findByEmployee(input.employeeId);
+      const now = new Date();
+      await this.interviewRepo.save({
+        employeeId: input.employeeId,
+        slackUserId: input.user,
+        channels: existing?.channels ?? [],
+        dailyWork: input.step === 'dailyWork' ? answer : (existing?.dailyWork ?? ''),
+        workStyle: input.step === 'workStyle' ? answer : (existing?.workStyle ?? ''),
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      });
+    } catch (error) {
+      logger.error('Réponse d’entretien non persistée — la conversation, elle, a abouti', {
+        error: String(error),
+        step: input.step,
+      });
+    }
+  }
+
   private async loadHistory(conversationId: string): Promise<ConversationTurn[]> {
     const repo = this.getConversationRepo();
     if (!repo) return [];
@@ -2905,3 +3107,53 @@ export {
   buildWelcomeBlocks,
   COMPLETE_PROFILE_ACTION_ID,
 };
+
+/**
+ * Texte du dernier tour `assistant` du fil, ou `undefined`.
+ *
+ * C'est le SUPPORT D'ÉTAT de l'entretien conversationnel : on y reconnaît la question que le
+ * bot vient de poser. Fonction libre et non méthode — elle ne lit pas `this`, et la déclarer
+ * ici la rend éprouvable sans construire un handler entier (ce qui, dans ce dépôt, exige de
+ * neutraliser quatre dépendances qui touchent la base).
+ */
+export function lastAssistantText(history: readonly ConversationTurn[]): string | undefined {
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const turn = history[i]!;
+    if (turn.role === 'assistant') return turn.content;
+  }
+  return undefined;
+}
+
+/**
+ * Ce qu'on répond à un pas d'entretien. PURE, et hors de la classe à dessein : elle ne lit
+ * pas `this`, elle s'éprouve sans construire un handler (ce qui, dans ce dépôt, exige de
+ * neutraliser quatre dépendances qui touchent la base), et l'extraire ramène `runInterviewStep`
+ * sous le plafond de complexité que ce dépôt tient à zéro warning.
+ *
+ * ⚠️ Le renoncement est jugé AVANT la longueur : « non » fait moins que le seuil, et le
+ * traiter comme une réponse ratée relancerait la question à quelqu'un qui vient de dire non.
+ */
+export function interviewReplyFor(step: InterviewStep, text: string, skipped: boolean): string {
+  if (skipped) return INTERVIEW_SKIPPED_REPLY;
+
+  const answer = captureInterviewAnswer(text);
+  if (!answer) return INTERVIEW_TOO_SHORT_REPLY;
+  if (step === 'dailyWork') return INTERVIEW_QUESTION_STYLE;
+  return interviewDoneReply(answer);
+}
+
+/**
+ * Fin de l'entretien.
+ *
+ * ⚠️ Elle ne PROMET rien. Le texte ne dit ni « je t'ai ajouté aux canaux » ni « ton guide
+ * arrive » : ce chemin ne fait ni l'un ni l'autre. C'est la règle la plus constante de ce
+ * dépôt — l'email de bienvenue a perdu « vous recevrez prochainement les accès », et
+ * `scheduleReminder` a cessé de dire « planifié ». Ce qui est vrai ici, c'est qu'on a écouté.
+ */
+export function interviewDoneReply(workStyle: string): string {
+  const echo = workStyle.length > 60 ? `${workStyle.slice(0, 60)}…` : workStyle;
+  return (
+    `Compris — ${echo}. C’est tout ce dont j’avais besoin. Demande-moi ton guide d’accueil ` +
+    'quand tu veux, j’y mettrai ce que tu viens de me dire.'
+  );
+}

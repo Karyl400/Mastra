@@ -564,7 +564,16 @@ describe('SlackEventsHandler — handleTeamJoin (DM de bienvenue)', () => {
     const [channel, fallback, blocks] = deps.sendBlocks.mock.calls[0];
     expect(channel).toBe(NEWCOMER);
     expect(fallback).toMatch(/bienvenue/i);
-    expect(JSON.stringify(blocks)).toMatch(/Compléter mon profil/);
+    // ⚠️ Le bouton d'entrée est « C'est fait » depuis le 2026-08-19, plus « Compléter mon
+    // profil ». Ce n'est pas un changement de libellé : l'ancien ouvrait une MODALE, et un
+    // `trigger_id` Slack expire 3 secondes après le clic alors que le démarrage à froid de la
+    // fonction a été mesuré à 4,9 s — jusqu'à 16 s après une longue inactivité, c'est-à-dire
+    // précisément la situation d'un arrivant. Le bouton était structurellement cassé.
+    expect(JSON.stringify(blocks)).toMatch(/C’est fait/);
+    expect(JSON.stringify(blocks)).toContain('profile_done');
+    // Le message DIT désormais ce qui sera demandé : l'ancien annonçait « il me manque une
+    // information » sans laquelle, donc la personne ouvrait la modale pour la découvrir.
+    expect(JSON.stringify(blocks)).toMatch(/email professionnelle/);
   });
 
   it('greets the newcomer by first name', async () => {

@@ -337,8 +337,7 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
       // champ `coverage` ignoré, champ `hint` ignoré, préface lue mais non relayée. Le
       // `RequestContext` est un canal SERVEUR : le handler accole la note lui-même, le
       // modèle n'est plus sur le chemin. Coût en tokens NUL.
-      const humanCoverage = describeCoverageForHuman(excerpts, shown);
-      if (humanCoverage) writeExcerptCoverage(ctx?.requestContext, humanCoverage);
+      noteCoverageForHuman(ctx?.requestContext, excerpts, shown);
 
       // JOURNALISATION RGPD : qui a lu quoi, quand, et sur quelle base. Jamais le
       // contenu — une trace d'accès qui recopie la donnée devient elle-même la
@@ -377,4 +376,21 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
       };
     },
   });
+}
+
+/**
+ * Écrit la couverture destinée à l'HUMAIN dans le canal serveur, s'il y a lieu.
+ *
+ * Extraite pour une raison prosaïque — elle ramenait `execute` au-dessus du plafond de
+ * complexité, et ce dépôt tient son lint à ZÉRO warning — mais elle a un mérite propre : le
+ * « s'il y a lieu » (rien n'a été tronqué ⇒ rien à dire) vit désormais à UN seul endroit,
+ * partagé avec l'autre tool.
+ */
+function noteCoverageForHuman(
+  requestContext: unknown,
+  excerpts: readonly ConversationExcerpt[],
+  shown: number,
+): void {
+  const coverage = describeCoverageForHuman(excerpts, shown);
+  if (coverage) writeExcerptCoverage(requestContext, coverage);
 }

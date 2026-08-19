@@ -26,6 +26,13 @@ import type { Mastra } from '@mastra/core';
 import { SlackAdapter } from '../features/notification/infrastructure/providers/slack.adapter';
 import { COMPLETE_PROFILE_ACTION_ID } from '../features/notification/infrastructure/handlers/slack-events.handler';
 import {
+  PROFILE_DONE_ACTION_ID,
+  buildProfileButtonBlock,
+} from '../features/notification/infrastructure/ui/welcome-blocks';
+import { verifyProfile } from '../features/onboarding/domain/services/profile-completion';
+import { INTERVIEW_QUESTION_DAILY } from '../features/onboarding/domain/services/interview-chat';
+import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
+import {
   PROFILE_MODAL_CALLBACK_ID,
   buildProfileModal,
   decodePrefill,
@@ -33,6 +40,7 @@ import {
   profileSubmissionSchema,
   readProfileSubmission,
   startDateFromJoin,
+  type ProfileModalPrefill,
   type SlackViewState,
   type ValidatedProfile,
 } from '../features/notification/infrastructure/handlers/profile-modal';
@@ -64,7 +72,6 @@ import {
   decodeInterviewPrefill,
   interviewSubmissionSchema,
   readInterviewSubmission,
-  type InterviewChannelOption,
   type ValidatedInterview,
 } from '../features/notification/infrastructure/handlers/interview-modal';
 import {
@@ -73,13 +80,10 @@ import {
   type StepFailure,
 } from '../features/onboarding/domain/value-objects/onboarding-outcome';
 import { DrizzleOnboardingInterviewRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding-interview.repository';
-import { DrizzleChannelInventoryRepository } from '../features/directory/infrastructure/repositories/drizzle-channel.repository';
 import { SlackWorkspaceService } from '../features/notification/infrastructure/providers/slack-workspace.service';
 import {
-  buildInterviewInviteBlocks,
   interviewDoneReply,
   INTERVIEW_FAILED_REPLY,
-  INTERVIEW_INVITE_TEXT,
 } from '../features/notification/infrastructure/handlers/interview-invite';
 import { scheduleBackgroundWork } from './slack-events.route';
 import { verifySlackSignature } from '../shared/security/slack-signature';
@@ -185,6 +189,30 @@ export function resetSlackInteractionsAdapter(): void {
 async function handleBlockActions(payload: SlackInteractionPayload): Promise<Response> {
   const triggerId = payload.trigger_id;
   const actions = payload.actions ?? [];
+
+  // ── « C'EST FAIT » — le nouveau point d'entrée du parcours, 2026-08-19 ────
+  //
+  // ⚠️ TRAITÉ EN PREMIER, et surtout AVANT la garde `trigger_id` : il n'ouvre aucune modale,
+  // donc il n'en a pas besoin. C'est toute sa raison d'être. Un `trigger_id` expire 3 s après
+  // le clic ; le démarrage à froid de cette fonction a été mesuré à 4,9 s le 2026-08-18, et
+  // jusqu'à 16 s après une longue inactivité — c'est-à-dire le cas d'un ARRIVANT, qui est
+  // par définition le premier à écrire de la journée. Faire dépendre le premier geste de
+  // l'accueil d'un `trigger_id` revenait à le faire échouer systématiquement.
+  //
+  // ACK immédiat, ZÉRO E/S ici : la vérification en base et la réponse partent en tâche de
+  // fond. Au pire la réponse arrive quelques secondes plus tard, ce qui est le comportement
+  // normal d'une conversation — jamais une erreur affichée par Slack.
+  const doneAction = actions.find((a) => a.action_id === PROFILE_DONE_ACTION_ID);
+  if (doneAction) {
+    const prefill = decodePrefill(doneAction.value, payload.user?.id ?? '');
+    scheduleInteractionWork(
+      'profile_done',
+      answerProfileDone(prefill).catch((error: unknown) => {
+        logger.error('Vérification « C’est fait » échouée', { error: String(error) });
+      }),
+    );
+    return ack();
+  }
 
   const profileAction = actions.find((a) => a.action_id === COMPLETE_PROFILE_ACTION_ID);
   const interviewAction = actions.find((a) => a.action_id === START_INTERVIEW_ACTION_ID);
@@ -555,6 +583,57 @@ async function handleInterviewSend(
  * Ne lève jamais : ce message accompagne un verdict, il ne doit pas pouvoir en produire un
  * second. Un échec ici est journalisé et rien de plus.
  */
+/**
+ * Dépôt employé, construit PARESSEUSEMENT — même raison que `interviewRepo` plus bas : ce
+ * module est évalué au chargement, donc sur le chemin de l'ACK. Ouvrir une connexion Turso à
+ * l'import y ajouterait le handshake complet.
+ */
+let cachedEmployeeRepo: DrizzleEmployeeRepository | undefined;
+function employeeRepo(): DrizzleEmployeeRepository {
+  cachedEmployeeRepo ??= new DrizzleEmployeeRepository();
+  return cachedEmployeeRepo;
+}
+
+/**
+ * Répond à « C'est fait » : on REGARDE la base, et on ne dit que ce qu'on y a vu.
+ *
+ * ⚠️ La résolution se fait par EMAIL, la seule clé que Slack nous donne et que `employees`
+ * porte aussi — il n'existe aucune colonne `slack_user_id` dans cette table. Une adresse
+ * absente du profil Slack rend donc `null`, ce qui est traité comme « aucun dossier » : c'est
+ * exact, on n'a effectivement rien pu constater, et la réponse propose le formulaire.
+ *
+ * ⚠️ La note d'échec ne prétend JAMAIS que la vérification a réussi. Une base indisponible
+ * n'est pas un dossier incomplet, et confondre les deux dirait à un arrivant que son dossier
+ * est en défaut alors que c'est le nôtre.
+ */
+async function answerProfileDone(prefill: ProfileModalPrefill): Promise<void> {
+  const email = prefill.email?.trim();
+  const employee = email ? await employeeRepo().findByEmail(email) : null;
+  const verdict = verifyProfile(employee);
+
+  logger.info('« C’est fait » vérifié', {
+    slackUserId: prefill.slackUserId,
+    complete: verdict.complete,
+    missing: verdict.missing.length,
+  });
+
+  if (!verdict.offerForm) {
+    await tellNewcomer(prefill.slackUserId, verdict.reply);
+    return;
+  }
+
+  // Le formulaire n'est proposé QU'ICI : plus jamais en porte d'entrée. Et son `value` porte
+  // déjà le pré-remplissage, donc ce second clic n'a aucune E/S à faire avant `views.open`.
+  try {
+    await getSlackInteractionsAdapter().sendBlocks(prefill.slackUserId, verdict.reply, [
+      { type: 'section', text: { type: 'mrkdwn', text: verdict.reply } },
+      buildProfileButtonBlock(prefill),
+    ]);
+  } catch (error) {
+    logger.error('Formulaire non proposé après « C’est fait »', { error: String(error) });
+  }
+}
+
 async function tellNewcomer(slackUserId: string | undefined, text: string): Promise<void> {
   if (!slackUserId) {
     logger.warn('Verdict d’onboarding non transmis — aucun utilisateur Slack identifié');
@@ -728,26 +807,26 @@ async function offerInterview(
   }
 
   try {
-    // Lu ICI et non au clic : ce chemin est en tâche de fond, sans contrainte de 3 secondes,
-    // alors que `views.open` en a une. C'est ce qui permet au bouton de transporter la liste
-    // et à la modale de s'ouvrir sans aucune E/S.
-    const channels = await offerableChannels();
+    // ⚠️ PLUS DE BOUTON, PLUS DE MODALE — 2026-08-19. On pose simplement la première question.
+    //
+    // Le bouton « Parlons de toi » ouvrait une modale, donc dépendait d'un `trigger_id` qui
+    // expire 3 secondes après le clic. Le démarrage à froid de cette fonction a été mesuré à
+    // 4,9 s le 2026-08-18, et jusqu'à 16 s après une longue inactivité — c'est-à-dire dans la
+    // situation exacte d'un arrivant, qui est par définition le premier à écrire de la
+    // journée. Le bouton ne pouvait pas fonctionner, et son échec était muet : Slack affiche
+    // une erreur générique, rien n'atteint ces logs.
+    //
+    // Un message écrit n'a aucune contrainte de ce type. La suite de l'échange est reconnue
+    // par `pendingInterviewStep`, qui relit le dernier tour du bot — aucun état stocké, aucune
+    // lecture supplémentaire, et ZÉRO token : les deux questions sont des constantes.
+    //
+    // ⚠️ L'inventaire des canaux n'est PLUS lu ici. Il ne servait qu'à remplir le
+    // `multi_static_select` de la modale, et le lire pour rien coûterait une requête Turso à
+    // chaque arrivée. L'invitation aux canaux reste servie par la modale tant qu'elle existe
+    // (`applyInterview`), et par `ONBOARDING_WELCOME_CHANNELS` au `team_join`.
+    await getSlackInteractionsAdapter().sendMessage(slackUserId, INTERVIEW_QUESTION_DAILY);
 
-    if (channels.length === 0) {
-      // L'inventaire est alimenté à la main : une base neuve ou jamais synchronisée n'a
-      // aucun canal. On propose quand même l'entretien — les deux questions libres gardent
-      // tout leur sens — mais on le SIGNALE, parce que c'est le symptôme d'un
-      // `sync-slack-directory --channels --apply` jamais lancé.
-      logger.warn('No offerable channel in the inventory — interview will have no channel field');
-    }
-
-    await getSlackInteractionsAdapter().sendBlocks(
-      slackUserId,
-      INTERVIEW_INVITE_TEXT,
-      buildInterviewInviteBlocks({ employeeId, slackUserId, channels }),
-    );
-
-    logger.info('Interview offered', { employeeId, channelsOffered: channels.length });
+    logger.info('Interview started as a conversation', { employeeId });
   } catch (error) {
     logger.error('Unable to offer the interview', { error, employeeId });
   }
@@ -806,7 +885,6 @@ function handleViewSubmission(payload: SlackInteractionPayload, mastra: Mastra):
  * -------------------------------------------------------------------------- */
 
 let cachedInterviewRepo: DrizzleOnboardingInterviewRepository | undefined;
-let cachedChannelRepo: DrizzleChannelInventoryRepository | undefined;
 let cachedWorkspace: SlackWorkspaceService | undefined;
 
 /**
@@ -822,11 +900,6 @@ function interviewRepo(): DrizzleOnboardingInterviewRepository {
   return cachedInterviewRepo;
 }
 
-function channelRepo(): DrizzleChannelInventoryRepository {
-  cachedChannelRepo ??= new DrizzleChannelInventoryRepository();
-  return cachedChannelRepo;
-}
-
 function workspace(): SlackWorkspaceService {
   cachedWorkspace ??= new SlackWorkspaceService(process.env.SLACK_BOT_TOKEN ?? '');
   return cachedWorkspace;
@@ -835,31 +908,30 @@ function workspace(): SlackWorkspaceService {
 /** Réinitialise les singletons (tests). */
 export function resetInterviewDependencies(): void {
   cachedInterviewRepo = undefined;
-  cachedChannelRepo = undefined;
   cachedWorkspace = undefined;
 }
 
-/**
- * Canaux proposables à l'entretien.
+/*
+ * ⚠️ `offerableChannels()` a été SUPPRIMÉE le 2026-08-19, avec le bouton qui l'appelait.
  *
- * ⚠️ DEUX filtres, et aucun n'est optionnel :
- *  - `!isArchived` — l'inventaire de production compte 32 canaux dont **26 archivés**.
- *    Proposer un canal archivé garantit un échec d'invitation, donc une promesse cassée
- *    dans la réponse rendue à la personne.
- *  - `isMember` — `conversations.invite` échoue si le bot n'est pas lui-même dans le canal.
- *    C'est une condition de FAISABILITÉ, distincte du droit du demandeur.
+ * Elle ne servait qu'à remplir le `multi_static_select` de la modale « Parlons de toi », et
+ * cette modale a été retirée du parcours parce qu'elle NE S'OUVRAIT PAS : un `trigger_id`
+ * expire 3 secondes après le clic, et le démarrage à froid de cette fonction a été mesuré à
+ * 4,9 s — jusqu'à 16 s après une longue inactivité, c'est-à-dire exactement la situation d'un
+ * arrivant. L'entretien est désormais un échange écrit (`interview-chat.ts`).
  *
- * ⚠️ L'inventaire est alimenté À LA MAIN (`scripts/sync-slack-directory.mts --channels
- * --apply`) : aucun événement ne le tient à jour, `member_joined_channel` n'étant pas abonné.
- * Il est donc PÉRIMABLE, et c'est pour cela que l'invitation distingue l'échec du succès au
- * lieu de supposer que la liste dit vrai.
+ * ⚠️ CE QUE CELA COÛTE, et il faut le dire plutôt que de le laisser découvrir : le choix des
+ * canaux ne fait plus partie de l'entretien. L'invitation automatique subsiste au `team_join`
+ * via `ONBOARDING_WELCOME_CHANNELS`, et `handleInterviewSubmission` reste câblé — les boutons
+ * déjà postés dans les DM continuent de fonctionner, leur `value` transportant la liste. Mais
+ * aucun NOUVEAU bouton n'en propose. C'est une capacité en moins, assumée : elle valait moins
+ * qu'un accueil qui échoue à sa première étape.
+ *
+ * Les deux filtres qu'elle portait restent vrais et sont conservés ici pour qui la
+ * réintroduirait : `!isArchived` (26 des 32 canaux de l'inventaire le sont, en proposer un
+ * garantit un échec d'invitation) et `isMember` (`conversations.invite` échoue si le bot n'est
+ * pas lui-même dans le canal — condition de FAISABILITÉ, distincte du droit du demandeur).
  */
-async function offerableChannels(): Promise<InterviewChannelOption[]> {
-  const channels = await channelRepo().listChannels();
-  return channels
-    .filter((channel) => !channel.isArchived && channel.isMember && channel.name.length > 0)
-    .map((channel) => ({ channelId: channel.channelId, name: channel.name }));
-}
 
 /**
  * Invite la personne aux canaux qu'elle a cochés.

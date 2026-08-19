@@ -30,6 +30,7 @@ import { SlackWorkspaceService } from '../features/notification/infrastructure/p
 import { makeWelcomeChannels } from '../features/directory/application/services/welcome-channels.service';
 import { SlackWelcomeChannelSource } from '../features/directory/infrastructure/providers/slack-welcome-channel.adapter';
 import { parseWelcomeChannelNames } from '../features/directory/domain/services/welcome-channel-names';
+import { DrizzleOnboardingInterviewRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding-interview.repository';
 
 /** Chemin public de l'endpoint Slack. À reporter tel quel dans l'app Slack. */
 export const SLACK_EVENTS_PATH = '/slack/events';
@@ -212,6 +213,12 @@ export function getSlackEventsHandler(mastra: Mastra): SlackEventsHandler {
     const botToken = process.env.SLACK_BOT_TOKEN ?? '';
     cachedHandler = new SlackEventsHandler(botToken, mastra, {
       welcomeChannels: buildWelcomeChannels(botToken),
+      // ⚠️ Injecté ICI et nulle part ailleurs : le handler n'a délibérément AUCUN repli
+      // paresseux vers Drizzle pour ce dépôt. Un repli ferait que tout handler construit en
+      // test toucherait la base — le piège qui a rendu onze tests d'`accept()` `rate_limited`
+      // le jour où `rate_limit_counters` a existé. Absent, l'entretien conversationnel
+      // collecte et répond correctement, seule la trace manque.
+      interviewRepository: new DrizzleOnboardingInterviewRepository(),
       // Les options de test l'emportent : un test qui neutralise les canaux doit pouvoir le
       // faire, et l'ordre inverse rendrait l'injection silencieusement inopérante.
       ...handlerOptionsForTests,
