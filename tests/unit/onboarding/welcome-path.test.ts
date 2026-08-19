@@ -154,6 +154,26 @@ describe('l’entretien conversationnel — l’état est le dernier tour du bot
     expect(pendingInterviewStep(INTERVIEW_QUESTION_STYLE)).toBe('workStyle');
   });
 
+  it('reconnaît la question DANS le verdict de « C’est fait »', () => {
+    // ⚠️ LE TEST QUI MANQUAIT, et son absence a laissé passer un défaut jusqu'en production
+    // le 2026-08-19. Les tests d'origine passaient la CONSTANTE au détecteur ; le message
+    // réellement posté, lui, est « Ton dossier est complet… On enchaîne. Dis-moi… ». Avec un
+    // `startsWith`, la reconnaissance échouait sur le chemin NOMINAL — la question
+    // s'affichait parfaitement et la réponse partait chez l'agent, sans aucun signal.
+    //
+    // La leçon est celle que ce dépôt répète : éprouver le texte que le système PRODUIT, pas
+    // celui qu'on croit qu'il produit.
+    const verdict = verifyProfile({
+      firstName: 'Karyl',
+      lastName: 'SOUMAILA',
+      email: 'k@kisso.com',
+      position: 'Dev',
+    }).reply;
+
+    expect(verdict.startsWith(INTERVIEW_QUESTION_DAILY)).toBe(false);
+    expect(pendingInterviewStep(verdict)).toBe('dailyWork');
+  });
+
   it('reconnaît la question MÊME suivie d’une note accolée par le handler', () => {
     // Le handler accole parfois une note (requalification d'un accompli, promesse d'envoi
     // démentie, couverture d'extraits). Une égalité stricte échouerait alors en silence —

@@ -63,16 +63,27 @@ export type InterviewStep = 'dailyWork' | 'workStyle';
 /**
  * Quelle question le bot vient-il de poser ?
  *
- * ⚠️ Comparaison sur un PRÉFIXE normalisé et non sur l'égalité stricte : le handler accole
- * parfois une note à la réponse (requalification d'un accompli, promesse d'envoi démentie,
- * couverture d'extraits), et Slack renvoie le texte tel qu'il l'a rendu. Une égalité stricte
- * échouerait alors en silence — exactement la classe de défaut que ce dépôt traque.
+ * ⚠️ `includes`, et surtout PAS `startsWith` — c'est un défaut mesuré en production le
+ * 2026-08-19, sur le chemin nominal, alors qu'un commentaire affirmait ici même le contraire.
+ * Le message qui pose la première question ne COMMENCE pas par elle : le verdict de
+ * « C'est fait » dit « Ton dossier est complet, je l'ai vérifié. On enchaîne. Dis-moi… ».
+ * Avec `startsWith`, la reconnaissance échouait donc systématiquement, et la réponse de la
+ * personne partait chez l'agent — le tout sans le moindre signal, la question s'affichant
+ * parfaitement.
+ *
+ * Le handler accole par ailleurs des notes en fin de réponse (accompli requalifié, promesse
+ * d'envoi démentie, couverture d'extraits) : le texte peut donc être encadré des deux côtés.
+ * `includes` est le seul critère qui survive aux deux.
+ *
+ * ⚠️ STYLE est testé AVANT DAILY, et l'ordre porte un cas réel : rien n'interdit qu'un futur
+ * texte cite les deux. La question la plus AVANCÉE doit l'emporter, sinon l'entretien
+ * boucherait sur sa première étape.
  */
 export function pendingInterviewStep(lastAssistantText: string | undefined): InterviewStep | null {
   const text = (lastAssistantText ?? '').trim();
   if (!text) return null;
-  if (text.startsWith(INTERVIEW_QUESTION_STYLE.slice(0, 40))) return 'workStyle';
-  if (text.startsWith(INTERVIEW_QUESTION_DAILY.slice(0, 40))) return 'dailyWork';
+  if (text.includes(INTERVIEW_QUESTION_STYLE.slice(0, 40))) return 'workStyle';
+  if (text.includes(INTERVIEW_QUESTION_DAILY.slice(0, 40))) return 'dailyWork';
   return null;
 }
 
