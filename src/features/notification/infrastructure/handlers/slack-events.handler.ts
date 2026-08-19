@@ -1962,10 +1962,12 @@ export class SlackEventsHandler {
   private async runProfileForm(ctx: {
     channel: string;
     threadTs?: string;
-    user?: string;
     isDirectMessage: boolean;
   }): Promise<void> {
-    const { channel, threadTs, user, isDirectMessage } = ctx;
+    // ⚠️ `user` a été retiré de la signature le 2026-08-19, avec la lecture d'annuaire qu'il
+    // alimentait. Le garder « au cas où » aurait laissé croire que ce chemin sait QUI parle,
+    // alors qu'il n'a plus rien à en faire : le texte posté est le même pour tout le monde.
+    const { channel, threadTs, isDirectMessage } = ctx;
     // ⚠️ DM UNIQUEMENT — et il faut RÉÉNONCER la raison, parce que l'ancienne a disparu avec
     // les boutons.
     //
@@ -2802,7 +2804,7 @@ export class SlackEventsHandler {
         case 'pin_fact':
           return this.runPinFact({ text, channel, threadTs, user });
         case 'profile_form':
-          return this.runProfileForm({ channel, threadTs, user, isDirectMessage });
+          return this.runProfileForm({ channel, threadTs, isDirectMessage });
       }
     }
 
