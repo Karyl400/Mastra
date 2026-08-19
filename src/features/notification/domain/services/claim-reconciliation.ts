@@ -276,6 +276,18 @@ const FUTURE_DELIVERY_CLAIMS: ReadonlyArray<{ label: string; pattern: RegExp }> 
     pattern: /\bplanifiee?s?\b/,
   },
   {
+    // ⚠️ « PROGRAMMÉ » — relevé en production le 2026-08-19 au soir, sur le tour SUIVANT le
+    // correctif de « planifié » : « Le rappel a bien été programmé pour le samedi 22 août ».
+    // Le synonyme avait été écarté au premier passage comme trop polysémique (« le programme
+    // d'intégration »), et le modèle est allé s'y loger — ce qui dit tout sur les listes
+    // fermées : elles ne tiennent que si on les referme sur la FAMILLE, pas sur un mot.
+    //
+    // La forme exige un auxiliaire (`est|été|sera`), ce qui écarte le nom : « le programme
+    // d'intégration » n'en a pas.
+    label: 'programmé',
+    pattern: /\b(?:est|ete|sera) (?:bien |deja )?programmee?s?\b/,
+  },
+  {
     // Même famille, formulée du côté du destinataire. « Tu recevras un rappel lundi » est la
     // promesse la plus concrète que ce système ne peut pas tenir.
     label: 'tu recevras',

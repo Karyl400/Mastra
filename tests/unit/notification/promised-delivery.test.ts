@@ -94,6 +94,23 @@ describe('la promesse de PLANIFICATION, mesurée en production', () => {
     expect(detectUnsupportedDeliveryPromise('Le rappel est planifié pour lundi.')).not.toBeNull();
   });
 
+  it('reconnaît « a bien été programmé » — le synonyme où le modèle est allé se loger', () => {
+    // ⚠️ Relevé en production le 2026-08-19 au soir, sur le tour SUIVANT le correctif de
+    // « planifié » : « Le rappel a bien été programmé pour le samedi 22 août ». Le synonyme
+    // avait été écarté au premier passage comme trop polysémique. Une liste fermée ne tient
+    // que si on la referme sur la FAMILLE, pas sur un mot.
+    expect(
+      detectUnsupportedDeliveryPromise('Le rappel a bien été programmé pour samedi.'),
+    ).not.toBeNull();
+    expect(detectUnsupportedDeliveryPromise('Il est programmé pour lundi.')).not.toBeNull();
+  });
+
+  it('ÉPARGNE le NOM « programme » — l’auxiliaire est exigé', () => {
+    expect(
+      detectUnsupportedDeliveryPromise('Le programme d’intégration tient en trois étapes.'),
+    ).toBeNull();
+  });
+
   it('reconnaît la promesse formulée du côté du destinataire', () => {
     expect(detectUnsupportedDeliveryPromise('Tu recevras un rappel lundi matin.')).not.toBeNull();
     expect(detectUnsupportedDeliveryPromise('Tu seras prévenu lundi.')).not.toBeNull();
