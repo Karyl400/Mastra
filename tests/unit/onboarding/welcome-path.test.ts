@@ -9,7 +9,10 @@ import {
   skipsInterview,
 } from '../../../src/features/onboarding/domain/services/interview-chat';
 import { onboardingVideoUrl, videoLine, writtenGuide } from '../../../src/shared/onboarding-video';
-import { buildWelcomeBlocks } from '../../../src/features/notification/infrastructure/ui/welcome-blocks';
+import {
+  buildProfileInviteBlocks,
+  buildWelcomeBlocks,
+} from '../../../src/features/notification/infrastructure/ui/welcome-blocks';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -214,5 +217,79 @@ describe('l’entretien conversationnel — l’état est le dernier tour du bot
       expect(skipsInterview(skip), skip).toBe(true);
     }
     expect(skipsInterview('je code le backend')).toBe(false);
+  });
+});
+
+describe('les DEUX chemins vers le formulaire suivent le MÊME parcours', () => {
+  /**
+   * ⚠️ Défaut corrigé le 2026-08-19, et il avait survécu à la refonte du matin même.
+   *
+   * Il existe deux entrées vers la complétion du profil : le DM d'accueil d'un ARRIVANT
+   * (`buildWelcomeBlocks`, déclenché par l'arrivée dans le workspace) et la demande d'une
+   * personne DÉJÀ PRÉSENTE qui écrit « comment je complète mon profil ? »
+   * (`buildProfileInviteBlocks`). Le relevé du 2026-08-14 explique pourquoi le second
+   * existe : 2 fiches employés pour 6 personnes réelles, les quatre autres étant arrivées
+   * AVANT l'installation du bot — c'est un chemin de RATTRAPAGE, donc le plus utilisé.
+   *
+   * Seul le premier avait été refait. Le second restait sur l'ancien bouton : pas de vidéo,
+   * pas de guide, et surtout aucune vérification — cassé par la même cause que celui qu'on
+   * venait de réparer. C'est la divergence classique de ce dépôt : deux émetteurs pour un
+   * même geste, et celui qu'on exerce le moins est celui qui pourrit.
+   */
+  const paths = [
+    ['arrivant', buildWelcomeBlocks(prefill)],
+    ['déjà présent', buildProfileInviteBlocks(prefill)],
+  ] as const;
+
+  it.each(paths)('« %s » propose « C’est fait », jamais l’ancien bouton', (_name, blocks) => {
+    const json = JSON.stringify(blocks);
+
+    expect(json).toContain('profile_done');
+    expect(json).not.toContain('complete_profile');
+    expect(json).toContain('C’est fait');
+  });
+
+  it.each(paths)('« %s » DIT ce qui sera demandé', (_name, blocks) => {
+    const json = JSON.stringify(blocks);
+
+    expect(json).toContain('email professionnelle');
+    expect(json).toContain('poste');
+  });
+
+  it.each(paths)('« %s » cite la vidéo dès qu’elle existe', (_name) => {
+    process.env.ONBOARDING_VIDEO_URL = 'https://kisso.example/tuto';
+    const blocks =
+      _name === 'arrivant' ? buildWelcomeBlocks(prefill) : buildProfileInviteBlocks(prefill);
+
+    expect(JSON.stringify(blocks)).toContain('https://kisso.example/tuto');
+  });
+
+  it('garde des phrases d’OUVERTURE distinctes', () => {
+    // « Ravi de t'accueillir chez Kisso » adressé à quelqu'un qui est là depuis six mois
+    // sonne faux — c'est toute la raison d'être du second chemin. Seule l'ouverture diffère ;
+    // tout le reste est partagé, sans quoi les deux finiraient par ne plus dire la même chose.
+    const arrivant = JSON.stringify(buildWelcomeBlocks(prefill));
+    const present = JSON.stringify(buildProfileInviteBlocks(prefill));
+
+    expect(arrivant).toContain('accueillir');
+    expect(present).not.toContain('accueillir');
+  });
+});
+
+describe('« Parlons de toi » est NOMMÉ au moment où il commence', () => {
+  it('annonce l’étape, et pose quand même la question', () => {
+    // L'étape a un nom dans le produit depuis l'origine ; la refonte l'avait fait disparaître
+    // en remplaçant le bouton par une simple question. Un parcours dont les étapes n'ont pas
+    // de nom est un parcours dont on ne sait pas où on en est.
+    const reply = verifyProfile({
+      firstName: 'Karyl',
+      lastName: 'SOUMAILA',
+      email: 'k@kisso.com',
+      position: 'Dev',
+    }).reply;
+
+    expect(reply).toContain('Parlons de toi');
+    // ⚠️ Et l'invariant tient toujours : la machine à états doit encore reconnaître l'étape.
+    expect(pendingInterviewStep(reply)).toBe('dailyWork');
   });
 });

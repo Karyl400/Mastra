@@ -11,6 +11,7 @@ import { type ProfileModalPrefill } from './profile-modal';
 // Extraits le 2026-08-17 vers `infrastructure/ui/welcome-blocks.ts` — voir son en-tête.
 // Réexportés en fin de fichier : d'autres modules et des tests les importent depuis ici.
 import {
+  PROFILE_DONE_ACTION_ID,
   buildProfileButtonBlock,
   buildProfileInviteBlocks,
   buildWelcomeBlocks,
@@ -3102,6 +3103,7 @@ export { FOREIGN_TURN_PREFIX, buildContextPreamble, sanitizeDisplayName };
 export { UNSUPPORTED_CLAIM_NOTICE, detectUnsupportedCompletionClaim, readToolCallNames };
 
 export {
+  PROFILE_DONE_ACTION_ID,
   buildProfileButtonBlock,
   buildProfileInviteBlocks,
   buildWelcomeBlocks,

@@ -4,7 +4,7 @@ import type { Mastra } from '@mastra/core';
 
 import {
   SlackEventsHandler,
-  COMPLETE_PROFILE_ACTION_ID,
+  PROFILE_DONE_ACTION_ID,
   type SlackEventsHandlerOptions,
   type SlackMessageEvent,
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
@@ -112,7 +112,17 @@ describe('handleMessage — demande du formulaire de profil en DM', () => {
     const actions = (
       blocks as Array<{ type: string; elements?: Array<{ action_id?: string }> }>
     ).find((b) => b.type === 'actions');
-    expect(actions?.elements?.[0]?.action_id).toBe(COMPLETE_PROFILE_ACTION_ID);
+    // ⚠️ « C'est fait », plus « Compléter mon profil » — 2026-08-19. Ce chemin-ci (une
+    // personne DÉJÀ dans le workspace qui demande son formulaire) était resté sur l'ancien
+    // bouton après la refonte du matin, et ce test verrouillait la divergence : pas de
+    // vidéo, pas de guide écrit, et surtout aucune vérification — cassé par la même cause
+    // que celui qu'on venait de réparer, à savoir un jeton d'ouverture de fenêtre qui expire
+    // en 3 s quand le démarrage à froid en prend 5.
+    //
+    // C'est aussi le chemin le PLUS emprunté : le relevé du 2026-08-14 comptait 2 fiches
+    // employés pour 6 personnes réelles, les quatre autres étant arrivées avant
+    // l'installation du bot. Le rattrapage passe donc par ici, pas par l'arrivée.
+    expect(actions?.elements?.[0]?.action_id).toBe(PROFILE_DONE_ACTION_ID);
   });
 
   it("pré-remplit le bouton depuis l'annuaire, sans aucun appel Slack supplémentaire", async () => {

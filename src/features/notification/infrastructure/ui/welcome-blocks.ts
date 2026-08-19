@@ -171,15 +171,29 @@ export function buildWelcomeBlocks(
 }
 
 /**
- * Le même bouton, hors du flux d'arrivée.
+ * Le MÊME parcours, hors du flux d'arrivée.
  *
- * Texte distinct à dessein : « Ravi de t'accueillir chez Kisso » adressé à quelqu'un qui
- * est là depuis six mois sonne faux, et il s'agit ici de gens DÉJÀ présents — c'est même
- * toute la raison d'être de ce chemin.
+ * ## Ce qui a été corrigé le 2026-08-19
+ *
+ * Ce chemin — celui de quelqu'un DÉJÀ dans le workspace qui demande son formulaire — était
+ * resté sur l'ancien bouton « Compléter mon profil » : pas de vidéo, pas de guide écrit, et
+ * surtout aucune vérification. Deux parcours pour la même tâche, dont un cassé par la même
+ * cause que l'autre (le jeton d'ouverture d'une fenêtre expire en 3 s, le démarrage à froid
+ * en prend 5). C'est exactement la divergence que ce dépôt traque : deux émetteurs pour un
+ * même geste, et celui qu'on exerce le moins est celui qui pourrit.
+ *
+ * Il reçoit donc désormais la vidéo, le guide et « C'est fait », comme l'arrivant.
+ *
+ * ⚠️ Seule la PHRASE D'OUVERTURE reste distincte, et c'est délibéré : « Ravi de t'accueillir
+ * chez Kisso » adressé à quelqu'un qui est là depuis six mois sonne faux. Le reste est
+ * partagé — le dupliquer garantirait qu'un jour les deux ne disent plus la même chose.
  */
 export function buildProfileInviteBlocks(prefill: ProfileModalPrefill): SlackBlock[] {
   return [
-    { type: 'section', text: { type: 'mrkdwn', text: PROFILE_FORM_INVITE } },
-    buildProfileButtonBlock(prefill),
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: PROFILE_FORM_INVITE + videoLine() + writtenGuide() },
+    },
+    buildProfileDoneButtonBlock(prefill),
   ];
 }

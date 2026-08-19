@@ -57,7 +57,9 @@ export interface ProfileVerdict {
  * ni qu'aucun test de cette constante ne rougisse. Le dépôt connaît bien cette classe de
  * défaut : deux bords corrects, aucun câblage entre les deux.
  */
-const NEXT_STEP = `Ton dossier est complet, je l’ai vérifié. On enchaîne. ${INTERVIEW_QUESTION_DAILY}`;
+const NEXT_STEP =
+  `Ton dossier est complet, je l’ai vérifié. *Parlons de toi*, maintenant — deux questions, ` +
+  `pas plus.\n\n${INTERVIEW_QUESTION_DAILY}`;
 
 /**
  * Nom LISIBLE de chaque champ. Le guide écrit dit « ton adresse email professionnelle » ; la

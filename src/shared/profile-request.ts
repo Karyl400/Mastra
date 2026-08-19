@@ -270,8 +270,8 @@ export function requestsProfileForm(text: string | undefined | null): boolean {
  * texte qui ne correspond pas à la situation de son destinataire.
  */
 export const PROFILE_FORM_INVITE =
-  'Voilà le formulaire. Il tient en quatre champs et alimente ton dossier — ' +
-  "c'est lui qui me permet de retrouver ton profil et de préparer tes documents.";
+  'On va compléter ton dossier — c’est lui qui me permet de retrouver ton profil et de ' +
+  'préparer tes documents.';
 
 /**
  * Réponse en CANAL — on n'y poste pas le bouton, et ce n'est pas de l'ergonomie.
