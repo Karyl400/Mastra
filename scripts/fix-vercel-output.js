@@ -56,6 +56,16 @@ const MODULES_TO_COPY = [
   '@isaacs/ttlcache',
 ];
 
+/** Répertoire des actifs servis par le CDN, hors du bundle de la fonction. */
+const staticSource = join(root, 'public');
+
+/**
+ * Actifs dont l'ABSENCE doit casser le build.
+ *
+ * Chacun est référencé par du code qui construit son URL sans jamais vérifier qu'il existe.
+ */
+const REQUIRED_STATIC_ASSETS = ['onboarding/tuto-completion-de-profil.mp4'];
+
 /** Nombre de passes de rattrapage si l'audit trouve encore un trou après la première. */
 const MAX_HEALING_PASSES = 3;
 
@@ -182,6 +192,65 @@ async function fixOutput() {
       await writeFile(vcConfigPath, JSON.stringify(vcConfig, null, 2), 'utf8');
     }
   }
+
+  // 3. Les actifs STATIQUES — la vidéo d'accueil.
+  await publishStaticAssets();
+}
+
+/**
+ * Publie `public/` en actifs statiques Vercel, et ouvre la phase `filesystem` du routage.
+ *
+ * ## Pourquoi pas dans la fonction
+ *
+ * Un fichier posé sous `.vercel/output/static/` est servi par le CDN : il n'entre PAS dans
+ * `index.func`, donc il ne pèse pas sur le dépaquetage du bundle. C'est ce qui rend acceptable
+ * d'héberger 7 Mio de vidéo dans un produit dont le poste de coût numéro un est le démarrage à
+ * froid (4,9 s mesurées le 2026-08-18).
+ *
+ * ## Pourquoi le routage doit être touché
+ *
+ * Le déployeur Mastra écrit `routes: [{ src: '/(.*)', dest: '/' }]` — TOUT part à la fonction,
+ * y compris `/onboarding/….mp4`, qui répondrait alors 404 par la route Hono attrape-tout. La
+ * phase `{ handle: 'filesystem' }` insérée en tête dit : « sers d'abord ce qui existe sur
+ * disque, envoie le reste à la fonction ». Elle ne peut masquer que des chemins réellement
+ * présents dans `static/`, c'est-à-dire ceux de `public/` — aucun ne commence par `/api` ni par
+ * `/slack`.
+ *
+ * ## Pourquoi le build ÉCHOUE sur un actif manquant
+ *
+ * `onboarding-video.ts` DÉDUIT l'URL de la vidéo du domaine de production : plus personne ne
+ * pose de variable d'environnement, donc plus personne ne remarquerait la disparition du
+ * fichier. Sans ce contrôle, la supprimer produirait un lien 404 dans le premier message que
+ * l'entreprise envoie à un arrivant — exactement le mode de panne silencieuse que ce dépôt
+ * traque. Un build rouge est le seul endroit où cela se voit à coup sûr.
+ */
+async function publishStaticAssets() {
+  for (const asset of REQUIRED_STATIC_ASSETS) {
+    if (!existsSync(join(staticSource, asset))) {
+      console.error(
+        `\u274c Actif statique manquant : public/${asset}\n` +
+          "   Il est cité par src/shared/onboarding-video.ts, dont l'URL est déduite du domaine\n" +
+          '   de production : sans le fichier, le message d\u2019accueil pointerait vers un 404.'
+      );
+      process.exit(1);
+    }
+  }
+
+  const staticDir = join(target, 'static');
+  await rm(staticDir, { recursive: true, force: true });
+  await cp(staticSource, staticDir, { recursive: true });
+  console.log(`\u2705 Actifs statiques publiés : public/ \u2192 .vercel/output/static/`);
+
+  const configPath = join(target, 'config.json');
+  if (!existsSync(configPath)) return;
+  const config = JSON.parse(await readFile(configPath, 'utf8'));
+  const routes = Array.isArray(config.routes) ? config.routes : [];
+  if (routes.some((route) => route && route.handle === 'filesystem')) return;
+  config.routes = [{ handle: 'filesystem' }, ...routes];
+  await writeFile(configPath, JSON.stringify(config), 'utf8');
+  console.log(
+    "\u2705 Routage : phase « filesystem » ouverte avant l\u2019attrape-tout (sans elle, l\u2019actif part \u00e0 la fonction)"
+  );
 }
 
 /**

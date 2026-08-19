@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, it, expect, afterEach } from 'vitest';
 
 import { verifyProfile } from '../../../src/features/onboarding/domain/services/profile-completion';
@@ -8,7 +11,12 @@ import {
   pendingInterviewStep,
   skipsInterview,
 } from '../../../src/features/onboarding/domain/services/interview-chat';
-import { onboardingVideoUrl, videoLine, writtenGuide } from '../../../src/shared/onboarding-video';
+import {
+  ONBOARDING_VIDEO_PATH,
+  onboardingVideoUrl,
+  videoLine,
+  writtenGuide,
+} from '../../../src/shared/onboarding-video';
 import {
   buildProfileInviteBlocks,
   buildWelcomeBlocks,
@@ -36,6 +44,7 @@ const prefill = {
 
 afterEach(() => {
   delete process.env.ONBOARDING_VIDEO_URL;
+  delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
 });
 
 describe('la vidéo ne devient jamais une promesse creuse', () => {
@@ -62,6 +71,39 @@ describe('la vidéo ne devient jamais une promesse creuse', () => {
       expect(onboardingVideoUrl(), bad).toBeUndefined();
       expect(videoLine(), bad).toBe('');
     }
+  });
+
+  it('DÉDUIT l’URL du déploiement, sans variable à poser', () => {
+    // La vidéo est un actif de NOTRE déploiement (`.vercel/output/static/`) : son URL est donc
+    // connue du code. La faire dépendre d'une variable posée à la main, c'est deux choses qui
+    // doivent s'accorder — donc deux choses qui finissent par diverger, sur le premier message
+    // que l'entreprise envoie à un arrivant.
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = 'kisso.vercel.app';
+
+    expect(onboardingVideoUrl()).toBe(`https://kisso.vercel.app${ONBOARDING_VIDEO_PATH}`);
+    expect(videoLine()).toContain(ONBOARDING_VIDEO_PATH);
+  });
+
+  it('la variable explicite PRIME sur la valeur déduite', () => {
+    // C'est ce qui permet d'héberger la vidéo ailleurs sans toucher au code.
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = 'kisso.vercel.app';
+    process.env.ONBOARDING_VIDEO_URL = 'https://cdn.kisso.example/tuto.mp4';
+
+    expect(onboardingVideoUrl()).toBe('https://cdn.kisso.example/tuto.mp4');
+  });
+
+  it('le chemin de l’actif est en ASCII pur', () => {
+    // Il traverse trois écritures — le disque, le CDN, un lien Slack — qui n'encodent pas
+    // toutes un accent de la même façon. Le fichier d'origine s'appelait
+    // « tuto_complétion_de_profil.mp4 » ; le renommer était le correctif, pas un détail.
+    expect(ONBOARDING_VIDEO_PATH).toMatch(/^\/[a-z0-9/.-]+$/);
+  });
+
+  it('l’actif référencé EXISTE réellement dans le dépôt', () => {
+    // Le pendant local du contrôle de build (`fix-vercel-output.js` échoue si le fichier
+    // manque). Puisque l'URL est désormais DÉDUITE, plus aucune configuration ne signalerait
+    // sa disparition : seul un contrôle sur le fichier lui-même le peut.
+    expect(existsSync(join(process.cwd(), 'public', ONBOARDING_VIDEO_PATH))).toBe(true);
   });
 
   it('la numérotation du guide reste continue dans les deux cas', () => {

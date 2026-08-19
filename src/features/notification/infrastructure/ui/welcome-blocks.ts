@@ -146,8 +146,10 @@ export function buildProfileDoneButtonBlock(prefill: ProfileModalPrefill): Slack
  *  2. il faisait dépendre le tout premier geste de l'accueil d'un `trigger_id` de 3 secondes,
  *    que le démarrage à froid rendait structurellement inatteignable.
  *
- * La phrase de la vidéo DISPARAÎT tant que `ONBOARDING_VIDEO_URL` n'est pas posée — jamais un
- * lien mort dans le premier message de l'entreprise à quelqu'un.
+ * La phrase de la vidéo DISPARAÎT quand aucune URL n'est résolvable — jamais un lien mort dans
+ * le premier message de l'entreprise à quelqu'un. Depuis le 2026-08-19 la vidéo existe et son
+ * URL est DÉDUITE du domaine de production (`onboarding-video.ts`) : elle n'est donc plus
+ * conditionnée à une variable qu'on aurait pu oublier de poser.
  */
 export function buildWelcomeBlocks(
   prefill: ProfileModalPrefill,
