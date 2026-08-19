@@ -2951,7 +2951,14 @@ export class SlackEventsHandler {
         {
           getWorkflow: (key) => this.mastra.getWorkflow(key as never),
           notify: (text) => this.sayAndRemember(input, text),
-          onRecordReady: () => this.sayAndRemember(input, INTERVIEW_QUESTION_DAILY),
+          // ⚠️ RELIER D'ABORD, DEMANDER ENSUITE — l'ordre EST le correctif du 2026-08-19.
+          // La question de l'entretien invite la personne à répondre ; sa réponse arrive au
+          // tour SUIVANT, avec une identité relue de l'annuaire. Poser la question avant
+          // d'avoir relié rejouerait le défaut un tour plus tard.
+          onRecordReady: async (employeeId) => {
+            await this.linkRequesterToRecord(input.user, employeeId);
+            await this.sayAndRemember(input, INTERVIEW_QUESTION_DAILY);
+          },
         },
         answers,
         startDateFromJoin(undefined, new Date()),
@@ -2961,6 +2968,58 @@ export class SlackEventsHandler {
         error: String(error),
       });
       await this.sayAndRemember(input, PROFILE_CHAT_SAVE_FAILED);
+    }
+  }
+
+  /**
+   * Rattache la ligne d'annuaire au dossier qui vient d'être créé.
+   *
+   * ## Le défaut que ceci ferme, et pourquoi il était invisible
+   *
+   * `slack_directory.employee_id` n'était écrite par AUCUN chemin de production. Son unique
+   * écrivain est `linkEmployee` ; son unique appelant est `directory-sync.service.ts`, dont
+   * l'unique point d'entrée est le script manuel `scripts/sync-slack-directory.mts` — qui, en
+   * dry-run (le défaut), le remplace par un no-op.
+   *
+   * Or c'est de cette colonne que vient l'`employeeId` du demandeur, par
+   * `resolveRequesterIdentity`. Deux conséquences, toutes deux mesurées :
+   *
+   *   1. `persistInterviewAnswer` sortait en silence, donc l'entretien répondait « Noté. »
+   *      puis « j'y mettrai ce que tu viens de me dire » sans rien enregistrer. La personne
+   *      demandait son guide et recevait le gabarit générique.
+   *   2. `canReadPersonRecord` accorde « son propre dossier, toujours » sur ce même champ :
+   *      poser `AUTHZ_ENFORCE` aurait coupé chacun de SON PROPRE dossier.
+   *
+   * ⚠️ Le test de production du 2026-08-19 n'a rien vu : la ligne d'annuaire de la personne
+   * qui testait avait été reliée par une exécution passée du script. La feature fonctionnait
+   * exactement pour les gens reliés à la main — c'est-à-dire pour son testeur.
+   *
+   * ⚠️ ON INVALIDE LE CACHE, et ce n'est pas une précaution de style. `requesterNames` est un
+   * LRU de 12 h qui mémorise l'identité COMPLÈTE, `employeeId` inclus. Sans cette ligne, le
+   * tour suivant relirait l'entrée périmée — donc `employeeId: null` — et le défaut se
+   * rejouerait à l'identique, un tour plus tard, avec la base pourtant correcte.
+   *
+   * ⚠️ Un échec est journalisé et AVALÉ : la personne vient de faire enregistrer son dossier,
+   * lui montrer une erreur après coup lui ferait croire que rien n'a abouti. Le geste de
+   * rattrapage est humain (`npm run directory:sync -- --apply`) et le log est ce qui le
+   * déclenche.
+   */
+  private async linkRequesterToRecord(
+    slackUserId: string | undefined,
+    employeeId: string | undefined,
+  ): Promise<void> {
+    if (!slackUserId || !employeeId) return;
+
+    try {
+      await this.getDirectoryRepo()?.linkEmployee(slackUserId, employeeId);
+      this.requesterNames.delete(slackUserId);
+      logger.info('Annuaire relié au dossier', { slackUserId, employeeId });
+    } catch (error) {
+      logger.error('Annuaire NON relié — l’entretien et la frontière d’accès en dépendent', {
+        slackUserId,
+        employeeId,
+        error: String(error),
+      });
     }
   }
 
@@ -3153,11 +3212,12 @@ export class SlackEventsHandler {
    * l'état de la machine EST le dernier tour `assistant`. Ne pas mémoriser la question
    * suivante ferait perdre le fil au message d'après, en silence.
    *
-   * ⚠️ L'écriture en base de l'entretien est délibérément ABSENTE de ce chemin : elle vit
-   * dans la route d'interactivité, avec `applyInterview`, qui sait aussi inviter aux canaux.
-   * La dupliquer ici ferait deux écrivains pour une table dont `employee_id` est la clé
-   * primaire — et le second écraserait le premier sans que personne ne l'ait demandé. Ce pas
-   * COLLECTE ; la persistance suit le chemin déjà éprouvé.
+   * ⚠️ CE CHEMIN EST DÉSORMAIS LE SEUL ÉCRIVAIN de `onboarding_interview`, et le commentaire
+   * qui figurait ici affirmait l'inverse : « l'écriture vit dans la route d'interactivité,
+   * avec `applyInterview` ». C'était vrai jusqu'au 2026-08-19, quand les modales ont été
+   * retirées — `view_submission` n'est plus jamais émis par Slack. Le commentaire décrivait
+   * donc un partage de responsabilité disparu, à quatre lignes d'un appel à
+   * `persistInterviewAnswer` qui le démentait.
    */
   private async runInterviewStep(input: {
     step: InterviewStep;
@@ -3228,7 +3288,21 @@ export class SlackEventsHandler {
     skipped: boolean,
   ): Promise<void> {
     const answer = skipped ? null : captureInterviewAnswer(input.text);
-    if (!answer || !this.interviewRepo || !input.employeeId || !input.user) return;
+    if (!answer || !this.interviewRepo || !input.user) return;
+
+    // ⚠️ CE CAS ÉTAIT MUET, et c'est ce qui a rendu le défaut invisible pendant qu'un test de
+    // production le traversait. Il subsiste après le correctif pour les personnes DÉJÀ
+    // présentes, dont le dossier a été créé avant que la liaison n'existe. Le produit ne peut
+    // pas le réparer seul — le geste est `npm run directory:sync -- --apply` — mais il doit
+    // le DIRE plutôt que de perdre en silence ce que quelqu'un vient d'écrire sur lui-même.
+    if (!input.employeeId) {
+      logger.error('Réponse d’entretien PERDUE — annuaire non relié au dossier', {
+        reason: 'missing_employee_id',
+        slackUserId: input.user,
+        step: input.step,
+      });
+      return;
+    }
 
     try {
       const existing = await this.interviewRepo.findByEmployee(input.employeeId);
