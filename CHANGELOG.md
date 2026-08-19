@@ -1,5 +1,77 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## 2026-08-19 (nuit) — Ce que la production a démenti, et ce qu'on en a fait
+
+Trois sondes signées sur le déploiement du soir. Chacune a démenti une décision prise quelques
+heures plus tôt, et c'est la valeur du test en production : aucune n'était trouvable en local.
+
+### `revises` attendait un UUID que le modèle ne pouvait PAS avoir
+
+Sonde : « Corrige ce guide : ajoute que le bureau ouvre à 8h. Ne m'en crée pas un second. »
+Réponse : *« Pour réviser le guide, il me faut l'UUID du document existant. Peux-tu me le
+communiquer ? »* — une phrase absurde adressée à quelqu'un qui n'a jamais vu d'UUID.
+
+La cause est écrite dans `CLAUDE.md` depuis le 2026-08-11 : la mémoire conversationnelle **ne
+stocke QUE DU TEXTE**, « jamais de tool-call ni de tool-result ». Au message SUIVANT — le seul
+cas qui compte — l'identifiant rendu par le tool-result précédent n'est plus dans la fenêtre du
+modèle. Le champ était donc inutilisable exactement là où il servait.
+
+`revises` est désormais un **BOOLÉEN**, et le SERVEUR résout la cible : le dernier document de
+ce type pour cette personne. C'est la règle appliquée partout ailleurs ici — le canal, le fil,
+l'adresse email et l'identifiant du demandeur ne traversent jamais la fenêtre du modèle. Un
+identifiant qu'on demande au modèle est un identifiant qu'il peut inventer.
+- Le tri est fait dans le TOOL : ni `DrizzleDocumentRepository` ni la doublure n'ordonnent
+  `findByEmployee`, et un port qui ne promet pas d'ordre ne doit pas être lu comme s'il en
+  promettait un. Même défaut que celui corrigé sur `getNotificationHistory`.
+- L'ORACLE d'existence que la première version neutralisait à la main **n'existe plus** : aucun
+  identifiant produit par le modèle n'entre sur ce chemin.
+- Le champ est aussi moins cher : **25 tokens au lieu de 37**.
+
+### Le modèle RÉCLAMAIT toujours le contenu du document
+
+Sonde : « Génère-moi le guide d'accueil en PDF » → *« Peux-tu me fournir le contenu (sans
+markdown ni emoji) ? »*. Exactement la phrase du 2026-08-18, malgré le `.describe()` posé ce
+jour-là. Cinq mots — « rédige-le, ne le demande pas » — ne pèsent pas face à
+`AGENT_ANTI_INVENTION_BLOCK`, qui vit dans le PROMPT et s'applique à tout.
+
+La consigne est désormais des DEUX côtés (champ et bloc DOCUMENTS) et NOMME la ligne de partage
+plutôt que de l'énoncer : une prose se PRODUIT, un email ou un UUID se RETROUVENT. **Vérifié
+après correctif** : le guide est produit et livré, `guide-d-accueil.pdf` réellement dans le fil.
+
+⚠️ La même réponse a fait fuiter une contrainte de RENDU INTERNE vers un humain — « sans
+markdown ni emoji » — dans la phrase même par laquelle elle refusait de travailler. Cette
+consigne est retirée du bloc : elle était **redondante avec le code** (`document-template.ts`
+traduit le markdown, élimine `**gras**`, retire les emojis) et son motif d'origine décrivait
+l'état d'AVANT ce traducteur.
+
+### Un hint qui DÉCRIVAIT est devenu un hint qui PRESCRIT
+
+Voir la section suivante. Vérifié après correctif : la réponse de l'agent est exactement
+« Dis-moi « oui » ou « non ». », au lieu de « L'email d'entretien est prêt, il s'affichera pour
+confirmation » — au futur, alors que la personne l'avait sous les yeux.
+
+### Vérifié en production, de bout en bout
+
+- **Le parcours email complet** : préparation → question → changement de sujet (réponse au
+  nouveau sujet **et** rappel accolé, un seul message) → « non » annule et la ligne disparaît.
+  Puis, sur une seconde préparation, « oui » → **email réellement envoyé**
+  (`Invitation d'entretien envoyée`, `recipientDomain: gmail.com`, adresse jamais journalisée),
+  ligne consommée, réponse nommant le destinataire et la date. Le « oui » et le « non » coûtent
+  **zéro token**.
+- **Le texte d'accueil** qui remplace « Compléter mon profil », rendu intégralement (vidéo,
+  trois choses à préparer, « écris-moi j'ai fini »).
+- **« j'ai fini »** → dossier vérifié, puis passage à l'étape suivante. Zéro token.
+- Les cinq court-circuits statiques, pour zéro token.
+
+### Deux dettes trouvées au passage
+
+- `runProfileForm` payait un aller-retour Turso pour un champ de log `prefilled` valant `true`
+  alors que rien n'est plus pré-rempli. Supprimé.
+- Le « DM uniquement » du formulaire gardait son effet et avait perdu sa cause (le `value` du
+  bouton). Cause RÉÉNONCÉE : l'échange publie nom, adresse et poste.
+
+---
+
 ## 2026-08-19 (nuit) — La connaissance des PERSONNES atteignable par tous les agents
 
 **Ce qui a été FAIT.** `findExpertise` est exposé à `onboardingOrchestrator` et

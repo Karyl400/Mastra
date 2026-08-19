@@ -1555,17 +1555,23 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
     »*. D'où les **7 documents et 3 emails identiques en 8 minutes**. La garde d'idempotence a
     étouffé le symptôme ; ce champ referme la cause.
     - **UN CHAMP, jamais un second tool** : un tool de plus est un schéma réémis à CHAQUE
-      aller-retour de l'agent qui le porte (≈ 150 tokens). Mesuré : **+37 tokens**, contre
-      ≈ 1 500 pour l'aller-retour épargné. L'identifiant vient du tool-result précédent.
+      aller-retour de l'agent qui le porte (≈ 150 tokens). Mesuré : **+25 tokens**, contre
+      ≈ 1 500 pour l'aller-retour épargné.
+    - ⚠️ **UN BOOLÉEN, ET NON UN UUID** — corrigé quelques heures après la première version, par
+      une mesure en production : « Pour réviser le guide, il me faut l'UUID du document
+      existant. » La mémoire conversationnelle **ne stocke QUE DU TEXTE** (« jamais de tool-call
+      ni de tool-result ») : au message SUIVANT — le seul cas qui compte — l'identifiant rendu
+      par le tool-result précédent n'est plus dans la fenêtre du modèle. Le SERVEUR résout donc
+      la cible : le dernier document de ce type pour cette personne. Un identifiant qu'on
+      demande au modèle est un identifiant qu'il peut inventer.
     - Même identifiant, `update` et non `save`, `createdAt` préservé, document **RELIVRÉ** — une
       correction que personne ne reçoit n'en est pas une.
     - ⚠️ **La garde d'idempotence aurait rejeté la correction** : sa clé porte le titre, le type
       et le format, dont aucun ne change quand on corrige un texte. Le modèle aurait annoncé
       avoir corrigé alors que rien n'aurait bougé — la garde retournée contre son propre but.
       Une empreinte du contenu entre donc dans la clé sur ce chemin, et sur ce chemin seulement.
-    - ⚠️ **UN SEUL VERDICT** pour « ce document n'existe pas » et « il appartient à quelqu'un
-      d'autre » : les distinguer ferait de ce champ un ORACLE d'existence, un identifiant à la
-      fois. Même règle que le chemin email de `getEmployeeProfile`.
+    - ⚠️ L'ORACLE d'existence que la première version devait neutraliser à la main **n'existe
+      plus** : aucun identifiant produit par le modèle n'entre sur ce chemin.
     - ⚠️ **Aucun repli sur une création** en cas d'échec : le modèle annoncerait « j'ai corrigé »
       alors qu'il viendrait de produire un second document — un mensonge fabriqué par le repli.
   - **Il n'existe toujours AUCUNE URL de téléchargement dans ce système** — le fichier est livré

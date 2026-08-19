@@ -17,6 +17,14 @@
  * ⚠️ UN CHAMP OPTIONNEL, JAMAIS UN SECOND TOOL. Un tool de plus est un schéma de plus réémis
  * à CHAQUE aller-retour de l'agent qui le porte ; un champ optionnel coûte une vingtaine de
  * tokens. Le poste de coût dominant de ce dépôt est le nombre d'étapes, pas la prose.
+ *
+ * ⚠️ ET UN BOOLÉEN, JAMAIS UN UUID — corrigé le même jour, par une mesure en production.
+ * La première version attendait l'identifiant rendu par le tool-result précédent. Or la
+ * mémoire de ce dépôt ne stocke QUE DU TEXTE, « jamais de tool-call ni de tool-result » : au
+ * message suivant — le seul cas qui compte, « corrige ce guide » — le modèle ne l'avait plus,
+ * et il l'a demandé à l'humain : « il me faut l'UUID du document existant ». Le SERVEUR sait,
+ * lui. C'est la règle appliquée partout ailleurs ici : le canal, le fil, l'adresse et
+ * l'identifiant du demandeur ne traversent jamais la fenêtre du modèle.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 
@@ -38,7 +46,6 @@ import { DocumentFormat, DocumentType, EmployeeStatus } from '../../../src/share
 
 const EMPLOYEE_ID = '11111111-1111-4111-8111-111111111111';
 const AUTRE_ID = '22222222-2222-4222-8222-222222222222';
-const INCONNU_ID = '99999999-9999-4999-8999-999999999999';
 
 function person(id: string, firstName: string): Employee {
   return {
@@ -140,7 +147,7 @@ describe('corriger un document existant', () => {
 
     const corrige = (await t.execute!(
       input({
-        revises: premier.documentId,
+        revises: true,
         content: 'Bienvenue chez Kisso. Le bureau ouvre à 8h, pas à 9h.',
       }) as never,
       slackCtx('2.2') as never,
@@ -161,7 +168,7 @@ describe('corriger un document existant', () => {
     const premier = (await t.execute!(input() as never, slackCtx('1.1') as never)) as Result;
 
     const corrige = (await t.execute!(
-      input({ revises: premier.documentId, content: 'Texte corrigé.' }) as never,
+      input({ revises: true, content: 'Texte corrigé.' }) as never,
       slackCtx('2.2') as never,
     )) as Result;
 
@@ -177,7 +184,7 @@ describe('corriger un document existant', () => {
     const premier = (await t.execute!(input() as never, slackCtx('1.1') as never)) as Result;
 
     const corrige = (await t.execute!(
-      input({ revises: premier.documentId, content: 'Autre texte.' }) as never,
+      input({ revises: true, content: 'Autre texte.' }) as never,
       slackCtx('2.2') as never,
     )) as Result;
 
@@ -185,13 +192,13 @@ describe('corriger un document existant', () => {
     expect((corrige as { alreadyDelivered?: boolean }).alreadyDelivered).toBeUndefined();
   });
 
-  it('REFUSE un identifiant de document inconnu — sans rien créer', async () => {
+  it('REFUSE quand il n’y a rien à corriger — sans rien créer', async () => {
     // ⚠️ Ne PAS retomber sur une création : le modèle annoncerait « j'ai corrigé » alors
-    // qu'il vient de produire un second document. C'est la famille de mensonge que tout ce
-    // dépôt traque.
+    // qu'il vient de produire un PREMIER document. C'est la famille de mensonge que tout ce
+    // dépôt traque, avec la particularité que le repli la fabriquerait lui-même.
     const t = tool();
     const out = (await t.execute!(
-      input({ revises: INCONNU_ID }) as never,
+      input({ revises: true }) as never,
       slackCtx('1.1') as never,
     )) as Result;
 
@@ -200,25 +207,40 @@ describe('corriger un document existant', () => {
     expect(await documentRepo.findByEmployee(EMPLOYEE_ID)).toHaveLength(0);
   });
 
-  it('REFUSE de corriger le document d’une AUTRE personne, et rend le MÊME verdict', async () => {
-    // ⚠️ Le verdict est identique à « inconnu » : le distinguer ferait de ce champ un ORACLE
-    // d'existence, une adresse — pardon, un identifiant — à la fois. Même règle que le chemin
-    // email de `getEmployeeProfile`.
+  it('ne corrige JAMAIS le document d’une autre personne', async () => {
+    // ⚠️ La cible est résolue depuis `employeeId`, lui-même déjà passé par
+    // `canReadPersonRecord`. Il n'y a donc aucun identifiant produit par le modèle sur ce
+    // chemin — et donc rien à faire fuiter : l'ORACLE d'existence que la première version
+    // devait neutraliser à la main n'existe tout simplement plus.
     const t = tool();
-    const autre = (await t.execute!(
-      input({ employeeId: AUTRE_ID }) as never,
-      slackCtx('1.1') as never,
-    )) as Result;
+    await t.execute!(input({ employeeId: AUTRE_ID }) as never, slackCtx('1.1') as never);
 
     const out = (await t.execute!(
-      input({ revises: autre.documentId }) as never,
+      input({ revises: true }) as never,
       slackCtx('2.2') as never,
     )) as Result;
 
     expect(out.saved).toBe(false);
     expect(out.reason).toBe('document_not_found');
-    // La ligne d'autrui est intacte.
     expect(await documentRepo.findByEmployee(AUTRE_ID)).toHaveLength(1);
+  });
+
+  it('corrige le PLUS RÉCENT du même type, jamais un plus ancien ni un autre type', async () => {
+    const t = tool();
+    await t.execute!(
+      input({ type: DocumentType.WelcomeLetter, title: 'Bienvenue' }) as never,
+      slackCtx('1.1') as never,
+    );
+    const guide = (await t.execute!(input() as never, slackCtx('2.2') as never)) as Result;
+
+    const corrige = (await t.execute!(
+      input({ revises: true, content: 'Corrigé.' }) as never,
+      slackCtx('3.3') as never,
+    )) as Result;
+
+    expect(corrige.documentId).toBe(guide.documentId);
+    // La lettre de bienvenue n'a pas bougé, et rien n'a été créé.
+    expect(await documentRepo.findByEmployee(EMPLOYEE_ID)).toHaveLength(2);
   });
 
   it('sans `revises`, rien ne change — chaque appel crée', async () => {

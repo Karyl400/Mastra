@@ -108,9 +108,9 @@ type DeliveryVerdict = 'slack' | 'email' | 'none' | 'failed';
  */
 const HINTS = {
   document_not_found:
-    "Aucun document ne porte cet identifiant pour cette personne : RIEN n'a été corrigé et " +
-    "rien n'a été créé. Ne prétends pas avoir corrigé. Redemande, ou produis un document neuf " +
-    'en omettant `revises`.',
+    "Aucun document de ce type n'existe encore pour cette personne : RIEN n'a été corrigé et " +
+    "rien n'a été créé. Ne prétends pas avoir corrigé. Rappelle le tool sans `revises` pour " +
+    'en produire un.',
   employee_not_found:
     "Aucun employé ne porte cet identifiant : rien n'a été généré. Ne l'invente pas, demande " +
     "l'email professionnel et passe par findEmployeeByEmail.",
@@ -263,8 +263,8 @@ async function readInterview(
  * que ce soit. Ce qu'on veut, c'est que deux contenus DIFFÉRENTS donnent presque toujours deux
  * clés différentes — et que la clé reste courte, puisqu'elle vit en mémoire.
  */
-function revisionFingerprintOf(revises: string | undefined, content: string): string | undefined {
-  return revises ? `${revises}:${fingerprint(content)}` : undefined;
+function revisionFingerprintOf(revises: boolean | undefined, content: string): string | undefined {
+  return revises ? `revise:${fingerprint(content)}` : undefined;
 }
 
 function fingerprint(content: string): string {
@@ -288,23 +288,38 @@ function fingerprint(content: string): string {
  * avant : lire un document pour décider ensuite si l'on avait le droit de le lire, c'est
  * l'avoir déjà lu.
  */
+/** Le plus récemment mis à jour d'abord. Comparaison de chaînes ISO : elles s'ordonnent. */
+function byMostRecentlyUpdated(a: Document, b: Document): number {
+  if (a.updatedAt === b.updatedAt) return 0;
+  return a.updatedAt < b.updatedAt ? 1 : -1;
+}
+
 async function resolveRevisionTarget(
   documentRepo: DocumentRepository,
-  revises: string | undefined,
+  revises: boolean | undefined,
   employeeId: string,
+  type: DocumentType,
 ): Promise<{ refused: false; target?: { id: string; createdAt: string } } | { refused: true }> {
   if (!revises) return { refused: false };
 
-  const existing = await documentRepo.findById(revises);
-  if (!existing || existing.employeeId !== employeeId) {
-    logger.warn('Correction refusée — document introuvable pour cette personne', {
-      documentId: revises,
+  // ⚠️ Le tri est fait ICI et non dans le port : ni `DrizzleDocumentRepository` ni la doublure
+  // n'ordonnent `findByEmployee`, et un port qui ne promet pas d'ordre ne doit pas être lu
+  // comme s'il en promettait un. Même défaut que celui corrigé sur `getNotificationHistory`,
+  // où deux appels identiques rendaient deux ordres différents.
+  const all = await documentRepo.findByEmployee(employeeId);
+  const latest = all.filter((d) => d.type === type).sort(byMostRecentlyUpdated)[0];
+
+  if (!latest) {
+    // ⚠️ ON NE RETOMBE PAS SUR UNE CRÉATION : le modèle annoncerait « j'ai corrigé » alors
+    // qu'il viendrait de produire un premier document. Le hint lui dit quoi faire à la place.
+    logger.warn('Correction refusée — aucun document de ce type pour cette personne', {
       employeeId,
+      type,
     });
     return { refused: true };
   }
 
-  return { refused: false, target: { id: existing.id, createdAt: existing.createdAt } };
+  return { refused: false, target: { id: latest.id, createdAt: latest.createdAt } };
 }
 
 /**
@@ -460,9 +475,26 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // CHAQUE aller-retour de l'agent qui le porte (≈ 150 tokens), un champ optionnel en
       // coûte une vingtaine. L'identifiant vient du tool-result précédent, que le modèle a
       // déjà dans sa fenêtre.
-      revises: uuidSchema
+      // ⚠️ UN BOOLÉEN, ET NON UN UUID — corrigé le 2026-08-19, quelques heures après la
+      // première version, par une mesure en production.
+      //
+      // Le champ attendait l'identifiant rendu par le tool-result précédent. Or la mémoire
+      // conversationnelle de ce dépôt ne stocke QUE DU TEXTE : « jamais de tool-call ni de
+      // tool-result ». Au message suivant — c'est-à-dire dans le seul cas qui compte, « corrige
+      // ce guide » — le modèle n'avait donc plus l'identifiant, et il l'a demandé à l'humain :
+      // « Pour réviser le guide, il me faut l'UUID du document existant. » Un aller-retour
+      // perdu, et une phrase absurde adressée à quelqu'un qui n'a jamais vu d'UUID.
+      //
+      // Le SERVEUR sait, lui : le dernier document de ce type pour cette personne. C'est la
+      // règle appliquée partout ailleurs ici — le canal, le fil, l'adresse email et
+      // l'identifiant du demandeur ne traversent jamais la fenêtre du modèle. Un identifiant
+      // qu'on demande au modèle est un identifiant qu'il peut inventer.
+      revises: z
+        .boolean()
         .optional()
-        .describe('UUID d’un document à CORRIGER. Ne crée alors aucun second document.'),
+        .describe(
+          'true pour CORRIGER le dernier document de ce type déjà produit pour cette personne, au lieu d’en créer un second.',
+        ),
     }),
     execute: async (data, ctx) => {
       // ---------------------------------------------------------------------
@@ -645,7 +677,12 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // corrigé » alors qu'il vient de produire un SECOND document — la famille de mensonge
       // que ce dépôt traque, avec la particularité qu'ici le mensonge serait fabriqué par le
       // repli lui-même.
-      const revision = await resolveRevisionTarget(documentRepo, data.revises, data.employeeId);
+      const revision = await resolveRevisionTarget(
+        documentRepo,
+        data.revises,
+        data.employeeId,
+        data.type,
+      );
       if (revision.refused) {
         return {
           saved: false as const,
