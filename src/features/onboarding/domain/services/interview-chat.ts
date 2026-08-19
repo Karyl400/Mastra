@@ -49,9 +49,23 @@
  * passent par AUCUN filtre — `sanitizeAgentOutput` n'a qu'un seul site d'appel, la réponse
  * d'un modèle.
  */
+/**
+ * ⚠️ « je m'en sers pour te proposer les bons canaux » a été RETIRÉ le 2026-08-19 : RIEN ne
+ * proposait de canal. Le seul écrivain de `onboarding_interview.channels` était la modale,
+ * morte le même jour ; le chemin conversationnel écrit `channels: existing?.channels ?? []`.
+ * La promesse était faite au PREMIER message utile que reçoit un arrivant.
+ *
+ * ⚠️ Et un usage RÉEL n'était pas annoncé : cette phrase alimente `findExpertise`. Quand un
+ * collègue demande « qui s'occupe du backend ? », il reçoit ces mots-là. Ce que la personne
+ * écrit en confiance dans un questionnaire d'accueil devient sa fiche consultable — un
+ * changement d'usage que l'en-tête de `find-expertise.ts` disait lui-même devoir « se demander
+ * avant de se coder », et qui a été codé sans que la question soit tranchée. On le DIT
+ * désormais, ce qui est la moitié la moins chère de la réponse : la personne sait, et rien
+ * n'est retiré. Reste au propriétaire à décider si l'annonce suffit.
+ */
 export const INTERVIEW_QUESTION_DAILY =
-  'Dis-moi *ce que tu fais au quotidien*, en une phrase — je m’en sers pour te proposer les ' +
-  'bons canaux et pour préparer ton guide d’accueil.';
+  'Dis-moi *ce que tu fais au quotidien*, en une phrase — je m’en sers pour préparer ton ' +
+  'guide d’accueil, et pour te retrouver quand un collègue cherche quelqu’un sur ce sujet.';
 
 export const INTERVIEW_QUESTION_STYLE =
   'Noté. Et *comment tu préfères travailler* ? Une phrase suffit : en asynchrone, beaucoup ' +
@@ -153,5 +167,19 @@ export function skipsInterview(text: string | undefined): boolean {
   return /^(passe|plus tard|pas maintenant|skip|non merci|non)\b/.test(normalized);
 }
 
+/**
+ * ⚠️ « Reviens quand tu veux, je reprendrai où on en est » a été RETIRÉ le 2026-08-19 : aucun
+ * mécanisme ne reprend quoi que ce soit. L'état de cette machine EST le dernier tour
+ * `assistant` du fil ; après ce texte, c'est LUI le dernier tour, et il ne correspond à aucun
+ * marqueur — `pendingInterviewStep` rend `null` immédiatement. Même sans cela, le fil expire
+ * en 60 minutes.
+ *
+ * C'est `status: 'scheduled'` sans ordonnanceur, mot pour mot, dans un fichier dont l'en-tête
+ * concédait déjà l'abandon silencieux — puis le dé-concédait dans la réponse.
+ *
+ * On dit donc ce qui est vrai : le chemin de retour existe, il faut le reprendre du début, et
+ * il tient en trois mots.
+ */
 export const INTERVIEW_SKIPPED_REPLY =
-  'Pas de souci, on laisse ça de côté. Reviens quand tu veux, je reprendrai où on en est.';
+  'Pas de souci, on laisse ça de côté. Si tu changes d’avis, écris-moi « j’ai fini » et on ' +
+  'repart de là.';

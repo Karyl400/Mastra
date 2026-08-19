@@ -59,6 +59,22 @@ import { formatFrenchDay } from '../../../../shared/french-date';
 
 const COMPANY = 'Kisso Industries';
 
+/**
+ * La date de début est-elle STRICTEMENT postérieure à aujourd'hui ?
+ *
+ * Comparaison au JOUR, jamais à l'instant : une date de début est un jour, et « aujourd'hui à
+ * 23 h » ne rend pas l'arrivée future. Une date illisible rend `false` — on se tait plutôt que
+ * d'affirmer, comme partout ailleurs dans ce module.
+ */
+function isFutureDay(startDate: string | null | undefined): boolean {
+  if (!startDate) return false;
+  const parsed = new Date(startDate);
+  if (Number.isNaN(parsed.getTime())) return false;
+
+  const startOfDay = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  return startOfDay(parsed) > startOfDay(new Date());
+}
+
 export function buildWelcomeEmail(input: WelcomeEmailInput): WelcomeEmail {
   const firstName = input.firstName.trim();
 
@@ -87,7 +103,25 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): WelcomeEmail {
       : `Ravis de t'accueillir chez ${COMPANY}.`;
   parts.push(`<p>${welcome}</p>`);
 
-  if (day) parts.push(`<p>On t'attend le <strong>${esc(day)}</strong>.</p>`);
+  // ⚠️ UNE PHRASE D'ATTENTE NE VAUT QUE POUR L'AVENIR — 2026-08-19.
+  //
+  // Sur le chemin conversationnel, devenu le chemin PRINCIPAL depuis le retrait des modales,
+  // `submitProfile` passe `startDateFromJoin(undefined, …)` : `joinedAt` y est toujours
+  // `undefined`, donc la date vaut systématiquement AUJOURD'HUI. Un salarié présent depuis six
+  // mois qui complétait son dossier lisait « On t'attend le mercredi 19 août 2026 ».
+  //
+  // ⚠️ La règle de ce module — « un champ absent fait disparaître sa phrase » — n'était pas
+  // violée, elle était CONTOURNÉE : le champ n'est jamais absent, il est fabriqué deux couches
+  // plus haut. C'est la forme la plus difficile à voir de cette famille de défaut, parce que
+  // chaque module pris isolément se comporte correctement.
+  //
+  // On ne rend PAS la date facultative : `employees.start_date` est `NOT NULL` et le schéma du
+  // workflow exige `z.string().datetime()` — la corriger là demanderait un DDL en production
+  // pour un gain de texte. La règle juste est locale : on n'attend que ce qui n'est pas encore
+  // arrivé.
+  if (day && isFutureDay(input.startDate)) {
+    parts.push(`<p>On t'attend le <strong>${esc(day)}</strong>.</p>`);
+  }
 
   const channels = (input.channels ?? []).map((c) => c.trim()).filter(Boolean);
   if (channels.length > 0) {
@@ -105,7 +139,12 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): WelcomeEmail {
   // ⚠️ La SEULE projection dans le futur, et elle est vraie : ce DM part réellement, et le
   // formulaire derrière le bouton existe et écrit en base.
   parts.push(
-    `<p>Tu vas recevoir un message direct de notre bot sur Slack, avec un bouton pour compléter ton profil. C'est par là que tout commence.</p>`,
+    // ⚠️ « avec un bouton pour compléter ton profil » a été RETIRÉ le 2026-08-19. Le bouton
+    // réellement posté s'appelle « C'est fait » : `buildProfileButtonBlock` n'a plus aucun
+    // appelant, et son `action_id` n'est traité par aucune branche de `handleBlockActions`.
+    // Annoncer un libellé qu'on ne verra pas est pire qu'une simple erreur : l'arrivant
+    // ATTEND le bouton annoncé et ne clique pas sur celui qui est là.
+    `<p>Tu vas recevoir un message direct de notre bot sur Slack : il t'expliquera comment compléter ton dossier, en quelques messages. C'est par là que tout commence.</p>`,
     `<p>À très vite,<br/><strong>L'équipe ${COMPANY}</strong></p>`,
   );
 

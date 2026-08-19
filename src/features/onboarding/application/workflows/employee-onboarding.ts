@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { logger } from '../../../../shared/logger';
 import { buildWelcomeEmail } from '../../domain/services/welcome-email';
 import { createEmployee } from '../../../employee/domain/entities/employee';
-import { buildOnboardingPlan } from '../../domain/services/onboarding-plan';
+import { buildOnboardingPlan, reconcileProgress } from '../../domain/services/onboarding-plan';
 import {
   BestEffortStep,
   OnboardingOutcome,
@@ -274,11 +274,28 @@ export function createEmployeeOnboardingWorkflow(deps: {
       // On RELIT le suivi existant plutôt que d'en créer un second : il porte l'avancement
       // réel de la personne, qu'une réinitialisation effacerait.
       const existingProgress = await deps.onboardingRepo.findByEmployee(inputData.employeeId);
+      // ⚠️ RÉCONCILIÉ, jamais recopié tel quel. Constaté en production le 2026-08-18 :
+      // « Statut d'onboarding : en cours (étape 1 sur 5) » alors que `ONBOARDING_TOTAL_STEPS`
+      // vaut 1 depuis le retrait du suivi de tâches. La ligne datait d'avant, et l'idempotence
+      // ajoutée le 2026-08-17 la RÉUTILISAIT sans la corriger : le bot annonçait donc à
+      // quelqu'un un parcours en cinq étapes dont quatre n'existent plus. Une donnée héritée
+      // ne se périme pas toute seule — c'est le code qui la relit qui doit la ramener au
+      // barème courant.
+      const reconciled = existingProgress ? reconcileProgress(existingProgress) : null;
       const started =
-        existingProgress ?? buildOnboardingPlan({ employeeId: inputData.employeeId }).progress;
+        reconciled ?? buildOnboardingPlan({ employeeId: inputData.employeeId }).progress;
 
       if (!existingProgress) {
         await deps.onboardingRepo.save(started);
+      } else if (reconciled !== existingProgress) {
+        // `reconcileProgress` rend l'objet D'ORIGINE quand il est déjà cohérent : l'identité
+        // référentielle est ce qui nous dit s'il y a quelque chose à écrire. Une écriture
+        // inutile ferait bouger `updatedAt` sans raison.
+        logger.info('Onboarding — suivi hérité ramené au barème courant', {
+          progressId: started.id,
+          totalSteps: started.totalSteps,
+        });
+        await deps.onboardingRepo.update(started);
       } else {
         logger.info('Onboarding — suivi déjà existant, réutilisé', { progressId: started.id });
       }

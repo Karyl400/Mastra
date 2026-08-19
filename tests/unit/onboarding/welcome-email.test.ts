@@ -31,9 +31,19 @@ describe('buildWelcomeEmail — ne promet que ce qui existe', () => {
     expect(mail.body).not.toMatch(/première semaine/i);
   });
 
-  it('la seule projection dans le futur est VRAIE — le DM avec le bouton part réellement', () => {
+  it('la seule projection dans le futur est VRAIE — le DM part réellement', () => {
+    // ⚠️ L'assertion portait sur « compléter ton profil », qui était le LIBELLÉ D'UN BOUTON
+    // annoncé par cet email. Ce bouton n'existe plus depuis le 2026-08-19 : celui que la
+    // personne reçoit dit « C'est fait », et `buildProfileButtonBlock` n'a plus aucun
+    // appelant. Le test verrouillait donc une promesse devenue fausse — et son commentaire
+    // affirmait précisément l'inverse.
+    //
+    // Ce qui reste vrai et doit le rester : `handleTeamJoin` envoie bien un DM. On vérifie
+    // l'existence du DM, pas le libellé d'un bouton — c'est l'invariant, le reste est un
+    // détail d'interface qui a déjà changé une fois.
     const mail = buildWelcomeEmail(BASE);
-    expect(mail.body).toMatch(/compléter ton profil/i);
+    expect(mail.body).toMatch(/message direct de notre bot sur Slack/i);
+    expect(mail.body).toMatch(/dossier/i);
   });
 });
 
@@ -93,5 +103,49 @@ describe('buildWelcomeEmail — la réalité de la personne', () => {
     // capable de repérer une erreur est celle qui reçoit l'email.
     const mail = buildWelcomeEmail({ ...BASE, position: 'Backend Developer' });
     expect(mail.body).toMatch(/inexact/i);
+  });
+});
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * « On t'attend le … » — une phrase d'ATTENTE ne vaut que pour l'avenir
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Relevé le 2026-08-19. Sur le chemin conversationnel — devenu le chemin PRINCIPAL depuis le
+ * retrait des modales — `submitProfile` passe `startDateFromJoin(undefined, new Date())`, où
+ * `joinedAt` est TOUJOURS `undefined` : la date de début vaut donc systématiquement
+ * AUJOURD'HUI. Un salarié présent depuis six mois qui complète son dossier recevait « On
+ * t'attend le mercredi 19 août 2026 ».
+ *
+ * ⚠️ La règle « un champ absent fait disparaître sa phrase » — la fierté de ce module — était
+ * CONTOURNÉE, non pas violée : le champ n'est jamais absent, il est FABRIQUÉ deux couches plus
+ * haut. C'est la forme la plus difficile à voir de cette famille de défaut, parce que chaque
+ * module pris isolément se comporte correctement.
+ *
+ * ⚠️ On ne corrige PAS en rendant la date facultative : `employees.start_date` est `NOT NULL`
+ * et le schéma du workflow exige `z.string().datetime()`. La corriger là demanderait un DDL en
+ * production pour un gain de texte. La règle juste est locale et suffit : on n'ATTEND que ce
+ * qui n'est pas encore arrivé.
+ */
+describe('buildWelcomeEmail — la date d’arrivée', () => {
+  const inDays = (n: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return d.toISOString();
+  };
+
+  it('annonce le premier jour quand il est À VENIR', () => {
+    const mail = buildWelcomeEmail({ ...BASE, startDate: inDays(12) });
+    expect(mail.body).toMatch(/On t’attend le|On t'attend le/);
+  });
+
+  it('OMET la phrase quand la date est AUJOURD’HUI — le cas fabriqué', () => {
+    const mail = buildWelcomeEmail({ ...BASE, startDate: new Date().toISOString() });
+    expect(mail.body).not.toMatch(/attend/i);
+  });
+
+  it('OMET la phrase quand la date est PASSÉE — le rattrapage d’un salarié déjà là', () => {
+    const mail = buildWelcomeEmail({ ...BASE, startDate: inDays(-180) });
+    expect(mail.body).not.toMatch(/attend/i);
   });
 });

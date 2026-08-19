@@ -2411,6 +2411,84 @@ export class SlackEventsHandler {
     };
   }
 
+  /**
+   * Les cinq court-circuits STATIQUES : un prédicat pur, une réponse écrite en dur, zéro token.
+   *
+   * Extrait de `handleMessage` le 2026-08-19 — non par goût du découpage, mais parce que la
+   * garde `hasPendingOnboardingQuestion` ajoutée le même jour a porté la complexité cognitive
+   * de la fonction au-dessus du seuil, et que le lint de ce dépôt est à zéro warning depuis le
+   * 2026-08-18. Le corps est déplacé À L'IDENTIQUE.
+   *
+   * Rend `true` quand la réponse a été servie et que `handleMessage` doit s'arrêter là.
+   */
+  private async runStaticReply(ctx: {
+    input: Parameters<typeof findStaticReply>[0];
+    history: readonly ConversationTurn[];
+    channel: string;
+    threadTs: string | undefined;
+    conversationId: string;
+    user: string | undefined;
+  }): Promise<boolean> {
+    const { input, history, channel, threadTs, conversationId, user } = ctx;
+    const staticReply = findStaticReply(input);
+    const staticText = staticReply ? replyFor(staticReply, input) : null;
+
+    if (staticReply && staticText) {
+      logger.info(`Court-circuit deterministe (${staticReply.name}) — aucun appel de modele`, {
+        channel,
+        ...(staticReply.logFields?.(input) ?? {}),
+      });
+
+      await this.slack.chat.postMessage({
+        channel,
+        text: staticText,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+      });
+
+      // Seule la salutation entre en mémoire : sans elle, un fil ouvert par « bonjour » ne
+      // serait jamais « engagé » et `shouldAbandonThreadReply` écarterait le message
+      // SUIVANT. Voir `remembersTurn` dans la table.
+      //
+      // ⚠️ SAUF QUAND UNE QUESTION D'ACCUEIL ATTEND — correctif du 2026-08-19, second volet.
+      //
+      // Le premier volet a fait céder le pas aux court-circuits AGISSANTS ; le groupe
+      // STATIQUE, qui tourne AVANT `maybeAdvanceOnboarding`, n'avait pas été traité. L'état
+      // des deux machines EST le dernier tour `assistant` du fil : mémoriser ici l'écrase
+      // définitivement, et la question en attente devient invisible.
+      //
+      // Deux dégâts d'un seul geste, et le second est le pire : le tour `user` — « Salut » —
+      // serait apparié par `collectProfileAnswers` à la question en attente, donc enregistré
+      // comme PRÉNOM, puis imprimé dans un document au nom de la personne. C'est la faute
+      // exacte déjà corrigée pour l'entretien (« oublie ce que je t'ai dit » devenu une
+      // description de métier), par l'autre porte.
+      //
+      // ⚠️ ON NE TOUCHE PAS À L'ORDRE, et surtout pas pour la DÉTRESSE. L'asymétrie commande :
+      // un faux positif donne un numéro d'aide à quelqu'un qui parlait de son métier — gênant ;
+      // un faux négatif enregistre « je ne vais pas bien » comme un nom de famille et n'aide
+      // personne — dangereux. La réponse figée est servie ; c'est la MÉMOIRE qu'on retient,
+      // pour que le fil reste exactement où il était.
+      if (staticReply.remembersTurn && !hasPendingOnboardingQuestion(history)) {
+        await this.rememberTurn({
+          conversationId,
+          role: 'user',
+          content: input.text,
+          agentId: DEFAULT_AGENT_ID,
+          slackUserId: user ?? null,
+        });
+        await this.rememberTurn({
+          conversationId,
+          role: 'assistant',
+          content: staticText,
+          agentId: DEFAULT_AGENT_ID,
+          slackUserId: null,
+        });
+      }
+      return true;
+    }
+
+    return false;
+  }
+
   async handleMessage(event: SlackMessageEvent): Promise<void> {
     const context = await this.buildMessageContext(event);
     if (!context) return;
@@ -2464,59 +2542,16 @@ export class SlackEventsHandler {
       isDirectMessage,
       messageTs: event.ts,
     };
-    const staticReply = findStaticReply(shortCircuitInput);
-    const staticText = staticReply ? replyFor(staticReply, shortCircuitInput) : null;
-
-    if (staticReply && staticText) {
-      logger.info(`Court-circuit deterministe (${staticReply.name}) — aucun appel de modele`, {
+    if (
+      await this.runStaticReply({
+        input: shortCircuitInput,
+        history,
         channel,
-        ...(staticReply.logFields?.(shortCircuitInput) ?? {}),
-      });
-
-      await this.slack.chat.postMessage({
-        channel,
-        text: staticText,
-        ...(threadTs ? { thread_ts: threadTs } : {}),
-      });
-
-      // Seule la salutation entre en mémoire : sans elle, un fil ouvert par « bonjour » ne
-      // serait jamais « engagé » et `shouldAbandonThreadReply` écarterait le message
-      // SUIVANT. Voir `remembersTurn` dans la table.
-      //
-      // ⚠️ SAUF QUAND UNE QUESTION D'ACCUEIL ATTEND — correctif du 2026-08-19, second volet.
-      //
-      // Le premier volet a fait céder le pas aux court-circuits AGISSANTS ; le groupe
-      // STATIQUE, qui tourne AVANT `maybeAdvanceOnboarding`, n'avait pas été traité. L'état
-      // des deux machines EST le dernier tour `assistant` du fil : mémoriser ici l'écrase
-      // définitivement, et la question en attente devient invisible.
-      //
-      // Deux dégâts d'un seul geste, et le second est le pire : le tour `user` — « Salut » —
-      // serait apparié par `collectProfileAnswers` à la question en attente, donc enregistré
-      // comme PRÉNOM, puis imprimé dans un document au nom de la personne. C'est la faute
-      // exacte déjà corrigée pour l'entretien (« oublie ce que je t'ai dit » devenu une
-      // description de métier), par l'autre porte.
-      //
-      // ⚠️ ON NE TOUCHE PAS À L'ORDRE, et surtout pas pour la DÉTRESSE. L'asymétrie commande :
-      // un faux positif donne un numéro d'aide à quelqu'un qui parlait de son métier — gênant ;
-      // un faux négatif enregistre « je ne vais pas bien » comme un nom de famille et n'aide
-      // personne — dangereux. La réponse figée est servie ; c'est la MÉMOIRE qu'on retient,
-      // pour que le fil reste exactement où il était.
-      if (staticReply.remembersTurn && !hasPendingOnboardingQuestion(history)) {
-        await this.rememberTurn({
-          conversationId,
-          role: 'user',
-          content: text,
-          agentId: DEFAULT_AGENT_ID,
-          slackUserId: user ?? null,
-        });
-        await this.rememberTurn({
-          conversationId,
-          role: 'assistant',
-          content: staticText,
-          agentId: DEFAULT_AGENT_ID,
-          slackUserId: null,
-        });
-      }
+        threadTs,
+        conversationId,
+        user,
+      })
+    ) {
       return;
     }
     // ─────────────────────────────────────────────────────────────────────────
@@ -2653,6 +2688,13 @@ export class SlackEventsHandler {
     void this.audit({
       action: 'SLACK_MESSAGE',
       actorId: user ?? 'unknown',
+      // ⚠️ `accepted`, PAS `success` — correctif du 2026-08-19. Cette ligne est écrite avant
+      // le débit du budget, avant l'appel d'agent, avant la publication, et rien ne la met à
+      // jour ensuite : le défaut `?? 'success'` de `writeAuditLog` faisait donc enregistrer
+      // comme réussi un message qui allait échouer. La colonne est INDEXÉE pour qu'un humain
+      // filtre dessus, et les deux autres sites passent bien `'denied'` — c'était un oubli,
+      // pas un arbitrage. On dit ce qu'on a constaté : la demande est entrée.
+      status: 'accepted',
       resourceType: 'SlackChannel',
       resourceId: channel,
       // Le TEXTE n'est jamais enregistré : le DM au bot est le canal privilégié pour parler

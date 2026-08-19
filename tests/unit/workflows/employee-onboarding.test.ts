@@ -128,8 +128,12 @@ describe('Workflow: employee-onboarding', () => {
 
     const progress = (deps.onboardingRepo.save as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(progress.totalSteps).toBe(1);
-    expect(progress.currentStep).toBe(0);
-    expect(progress.status).toBe('in_progress');
+    // ⚠️ `currentStep: 0` / `in_progress` ont été corrigés le 2026-08-19. Cette étape tourne
+    // APRÈS `createEmployeeStep`, qui vient de persister un profil COMPLET — et l'unique étape
+    // du parcours EST cette complétion. Le suivi enregistrait donc « 0 sur 1 fait » une étape
+    // après avoir constaté que la seule étape était faite, et rien ne l'avançait ensuite.
+    expect(progress.currentStep).toBe(1);
+    expect(progress.status).toBe('completed');
     // Garde-fou de non-retour : aucune étape ne doit plus être écrite.
     expect(deps.onboardingRepo.saveStep).not.toHaveBeenCalled();
   });

@@ -57,10 +57,23 @@ export interface OnboardingPlanInput {
 }
 
 /**
- * Construit le suivi d'un parcours d'accueil.
+ * Construit le suivi d'un parcours d'accueil — et le rend COMPLÉTÉ.
  *
- * Le suivi est rendu DÉMARRÉ (`in_progress`, `startedAt` posé) : il n'est
- * construit qu'au moment où le parcours commence réellement.
+ * ⚠️ Il était rendu `in_progress` avec `currentStep: 0`, ce qui était FAUX depuis le
+ * 2026-08-14. `buildOnboardingPlan` n'est appelé que par `initOnboardingStep`, c'est-à-dire
+ * APRÈS que `createEmployeeStep` a persisté un profil COMPLET — et l'unique étape du parcours
+ * EST la complétion du profil, comme l'en-tête de ce module le dit. On enregistrait donc
+ * « 0 sur 1 fait » une étape après avoir constaté que la seule étape était faite.
+ *
+ * Rien ne l'avançait ensuite : les seuls écrivains de `currentStep` sont ce chemin et
+ * `updateOnboardingStatus`, l'outil qu'un MODÈLE appelle sur demande d'un humain.
+ * `getEmployeeProfile` remontait fidèlement `in_progress, 0/1` au modèle, qui le remontait à
+ * la personne. C'est le défaut `ONBOARDING_TASKS` recréé sous forme réduite — « un suivi qui
+ * ne bouge jamais est un suivi qui ment » — dans le fichier dont l'en-tête affirme l'avoir
+ * supprimé.
+ *
+ * ⚠️ Le jour où une seconde étape apparaîtra (l'entretien est le candidat), ce défaut inverse
+ * réapparaîtra : il faudra alors poser `currentStep: 1` et `InProgress`, pas recopier ceci.
  */
 export function buildOnboardingPlan(input: OnboardingPlanInput): OnboardingPlan {
   const newId = input.newId ?? (() => crypto.randomUUID());
@@ -69,16 +82,46 @@ export function buildOnboardingPlan(input: OnboardingPlanInput): OnboardingPlan 
   const base = createProgress({
     id: input.progressId ?? newId(),
     employeeId: input.employeeId,
-    currentStep: 0,
+    currentStep: ONBOARDING_TOTAL_STEPS,
     totalSteps: ONBOARDING_TOTAL_STEPS,
   });
 
   return {
     progress: {
       ...base,
-      status: OnboardingStatus.InProgress,
+      status: OnboardingStatus.Completed,
       startedAt: now,
+      completedAt: now,
       updatedAt: now,
     },
+  };
+}
+
+/**
+ * Ramène un suivi HÉRITÉ au barème courant.
+ *
+ * ⚠️ Constaté en production le 2026-08-18 : « Statut d'onboarding : en cours (étape 1 sur 5) »
+ * alors que `ONBOARDING_TOTAL_STEPS` vaut 1 depuis le retrait du suivi de tâches. La ligne
+ * datait d'avant ; le workflow, rendu idempotent le 2026-08-17, la RÉUTILISE sans la corriger.
+ * Le bot annonçait donc à quelqu'un un parcours en cinq étapes dont quatre n'existent plus.
+ *
+ * ⚠️ On rend l'OBJET D'ORIGINE quand il est déjà cohérent, et c'est ce qui permet à l'appelant
+ * de savoir s'il doit écrire : une écriture inutile fait bouger `updatedAt` sans raison, et
+ * une écriture est toujours une occasion de se tromper.
+ */
+export function reconcileProgress(progress: OnboardingProgress): OnboardingProgress {
+  if (progress.totalSteps === ONBOARDING_TOTAL_STEPS) return progress;
+
+  const currentStep = Math.min(progress.currentStep, ONBOARDING_TOTAL_STEPS);
+  const done = currentStep >= ONBOARDING_TOTAL_STEPS;
+  const now = new Date().toISOString();
+
+  return {
+    ...progress,
+    currentStep,
+    totalSteps: ONBOARDING_TOTAL_STEPS,
+    status: done ? OnboardingStatus.Completed : progress.status,
+    completedAt: done ? (progress.completedAt ?? now) : progress.completedAt,
+    updatedAt: now,
   };
 }

@@ -283,10 +283,19 @@ export function requestsErasure(text: string | undefined | null): boolean {
  * `emailSent: false` sous `status: 'success'` : une affirmation vraie dans sa lettre et
  * fausse dans ce qu'elle laisse comprendre. On nomme donc la frontière dans la réponse.
  */
+/**
+ * ⚠️ L'ENTRETIEN A ÉTÉ AJOUTÉ À LA LISTE le 2026-08-19, et c'était le plus important des
+ * quatre. `forget()` ne supprime que `conversation_turns` (et les faits épinglés) : les
+ * réponses d'entretien restent en base ET restent consultables par `findExpertise`. Or c'est
+ * la SEULE prose que la personne ait écrite sur elle-même.
+ *
+ * Une liste d'exceptions incomplète est pire qu'une liste absente : elle fait cesser de
+ * chercher. Quelqu'un qui lisait les trois premières concluait avoir tout retiré.
+ */
 export const ERASURE_SCOPE_NOTICE =
   'Ça ne touche que ce que je garde de nos échanges. Les documents déjà produits, les ' +
-  "notifications déjà envoyées et ta fiche dans l'annuaire ne passent pas par moi — " +
-  "pour ceux-là, adresse-toi à l'équipe RH.";
+  "notifications déjà envoyées, ta fiche dans l'annuaire et ce que tu m'as dit de ton métier " +
+  "lors de l'accueil ne passent pas par moi — pour ceux-là, adresse-toi à l'équipe RH.";
 
 /** Effacement réussi. `count` est le nombre de tours réellement supprimés. */
 export function erasureDoneReply(count: number): string {

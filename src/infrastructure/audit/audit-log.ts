@@ -33,7 +33,19 @@ export interface AuditEntry {
   actorType?: 'user' | 'system' | 'api' | 'webhook';
   resourceType?: string;
   resourceId?: string;
-  status?: 'success' | 'failure' | 'denied';
+  /**
+   * ⚠️ `accepted` a été AJOUTÉ le 2026-08-19, et il manquait à un endroit précis.
+   *
+   * Le défaut par défaut est `success`, ce qui est juste pour une action qu'on journalise
+   * APRÈS l'avoir accomplie. Le site `SLACK_MESSAGE` écrit AVANT tout traitement — avant le
+   * débit du budget, avant l'appel d'agent, avant la publication — et aucun chemin ne met la
+   * ligne à jour ensuite : un message qui a épuisé le quota ou levé dans l'agent était
+   * enregistré `success`. Même forme que `status = 'Sent'` posé avant le `try`.
+   *
+   * `accepted` dit exactement ce qui a été constaté à cet instant : la demande est entrée. Rien
+   * de plus, et c'est vrai.
+   */
+  status?: 'success' | 'accepted' | 'failure' | 'denied';
   details?: Record<string, unknown>;
   requestId?: string;
   sessionId?: string;
