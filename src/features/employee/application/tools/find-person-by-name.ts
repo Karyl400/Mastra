@@ -4,6 +4,7 @@ import type { EmployeeRepository } from '../../domain/ports/employee.repository'
 import type { DirectoryRepository } from '../../../directory/domain/ports/directory.repository';
 import { logger } from '../../../../shared/logger';
 import { fullName } from '../../../../shared/name-matching';
+import { sanitizeDisplayName } from '../../../notification/domain/services/context-preamble';
 
 /**
  * Résout une personne par son NOM.
@@ -121,8 +122,10 @@ export function makeFindPersonByName(repo: EmployeeRepository, directory?: Direc
           source: 'employees' as const,
           employee: {
             id: found.id,
-            firstName: found.firstName,
-            lastName: found.lastName,
+            // Même traitement que la branche annuaire : ces champs viennent d'un dossier
+            // que la personne a elle-même rempli en conversation.
+            firstName: sanitizeDisplayName(found.firstName),
+            lastName: sanitizeDisplayName(found.lastName),
             position: found.position,
             status: found.status,
             // ⚠️ PAS d'email. Ce tool lève une ambiguïté d'identité, il n'est pas un canal
@@ -160,9 +163,22 @@ export function makeFindPersonByName(repo: EmployeeRepository, directory?: Direc
             // cette personne n'a pas de dossier. Réutiliser `employee.id` ferait passer un
             // `U…` pour l'UUID interne qu'attendent les autres tools.
             slackUserId: member.slackUserId,
-            firstName: member.firstName,
-            lastName: member.lastName,
-            title: member.title,
+            // ⚠️ TEXTE ÉCRIT PAR UN TIERS. `schema.ts` le dit : « `title` est le poste
+            // DÉCLARATIF, ÉDITÉ PAR SON PORTEUR » — donc par n'importe qui du workspace,
+            // invité mono-canal compris, sans revue, et restitué ici en réponse à la question
+            // D'UN AUTRE. Cet outil est câblé sur `notificationAgent`, qui porte
+            // `sendNotification` : c'est la conjonction lecture-de-tiers + écriture externe
+            // qu'`outbound-tool-quarantine.ts` §4.2 interdit, atteinte par la porte que
+            // personne ne gardait. `findExpertise`, lui, est protégé en aval par la
+            // quarantaine ; celui-ci ne l'est pas.
+            //
+            // On réutilise le neutraliseur du préambule d'identité plutôt qu'une bannière :
+            // c'est une LISTE BLANCHE (lettres, marques, chiffres, `.'’-`), donc ni chevron,
+            // ni deux-points, ni retour à la ligne, ni URL ne survivent — et un poste
+            // ordinaire en ressort intact. Coût en tokens : négatif, il raccourcit.
+            firstName: sanitizeDisplayName(member.firstName),
+            lastName: sanitizeDisplayName(member.lastName),
+            title: sanitizeDisplayName(member.title),
             employeeId: member.employeeId,
           },
           ...(member.employeeId ? {} : { hint: DIRECTORY_ONLY_HINT }),
@@ -187,6 +203,13 @@ export function makeFindPersonByName(repo: EmployeeRepository, directory?: Direc
  * être RÉCITÉE à un humain pour qu'il désigne la bonne personne.
  */
 function label(firstName: string | null, lastName: string | null, role: string | null): string {
+  // ⚠️ Ce libellé sort AUSSI vers le modèle, sur le chemin ambigu. L'oublier aurait laissé
+  // ouverte exactement la même porte, une branche plus loin.
+  [firstName, lastName, role] = [
+    sanitizeDisplayName(firstName),
+    sanitizeDisplayName(lastName),
+    sanitizeDisplayName(role),
+  ];
   // Le repli « (sans nom) » reste ICI : c'est une décision d'affichage propre à la levée
   // d'ambiguïté, et un document signé ne doit surtout pas l'imprimer.
   const name = fullName(firstName, lastName) || '(sans nom)';

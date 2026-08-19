@@ -93,18 +93,44 @@ const ACCOMPLISHMENT_CLAIMS: ReadonlyArray<{ label: string; pattern: RegExp }> =
  * tort. L'inverse — lister les acteurs — ferait qu'un oubli de classement accuse le modèle
  * d'avoir menti alors qu'il a réellement agi.
  *
- * ⚠️ Verrouillé par `tests/unit/quality/tool-classification.test.ts` : tout outil câblé dans
- * `src/mastra/index.ts` doit être classé ici OU être un acteur assumé. Une liste écrite à la
- * main se désynchronise au premier changement de câblage — ce dépôt en a déjà fait deux fois
- * l'expérience, avec des instructions nommant des tools retirés depuis longtemps.
+ * ⚠️ Verrouillé par `tests/unit/quality/tool-classification.test.ts`, qui croise ces deux
+ * ensembles avec `AGENT_TOOLS` : tout outil câblé doit être classé, aucun ne peut l'être deux
+ * fois, et aucun nom mort ne peut y traîner.
+ *
+ * ⚠️ CE TEST ÉTAIT ANNONCÉ ICI ET N'EXISTAIT PAS — écrit le 2026-08-19, après que la liste eut
+ * dérivé exactement comme cet en-tête le prédisait. Le 2026-08-14 a retiré `getTaskList` et
+ * ajouté `findPersonByName` et `findExpertise` : le nom mort est resté, les deux nouveaux
+ * n'ont jamais été classés. Comme un nom inconnu est réputé ACTEUR, `findPersonByName` —
+ * PREMIER GESTE de presque toute demande nommant quelqu'un, câblé sur deux agents — désarmait
+ * la réconciliation pour tout le tour. Le garde-fou était éteint sur le chemin le plus
+ * fréquent du produit, et une phrase de vingt lignes expliquant pourquoi il ne pouvait pas
+ * l'être tenait lieu de preuve.
  */
-const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
+export const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
   'findEmployeeByEmail',
+  'findPersonByName',
+  'findExpertise',
   'getEmployeeProfile',
-  'getTaskList',
   'getNotificationHistory',
   'getUserConversations',
   'getChannelHistory',
+]);
+
+/**
+ * Les ACTEURS, déclarés explicitement.
+ *
+ * ⚠️ Cette liste ne sert PAS à décider : `hasActingToolCall` reste construit sur la seule
+ * liste des lecteurs, pour que le défaut sûr demeure le silence. Elle sert à rendre la
+ * classification EXHAUSTIVE et donc vérifiable — sans elle, le test ne pourrait pas
+ * distinguer « acteur assumé » de « nouvel outil que personne n'a classé », et il ne
+ * détecterait rien. C'est le prix d'un invariant qui se calcule au lieu de se relire.
+ */
+export const ACTING_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'generateDocument',
+  'sendNotification',
+  'scheduleReminder',
+  'updateOnboardingStatus',
+  'scheduleCandidateInterview',
 ]);
 
 /**

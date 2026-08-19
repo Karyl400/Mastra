@@ -6,6 +6,7 @@ import type { EmployeeRepository } from '../../../employee/domain/ports/employee
 import type { OnboardingInterviewRepository } from '../../../onboarding/domain/ports/onboarding-interview.repository';
 import { fullName, matchesName } from '../../../../shared/name-matching';
 import { logger } from '../../../../shared/logger';
+import { sanitizeDisplayName } from '../../../notification/domain/services/context-preamble';
 
 /**
  * « QUI PEUT FAIRE QUOI » — résout une COMPÉTENCE vers des personnes.
@@ -191,7 +192,10 @@ async function matchDirectory(deps: FindExpertiseDeps, skill: string): Promise<S
         .filter((member) => matchesName(skill, [member.title]))
         .map((member) => {
           const name = displayNameOf(member.realName, member.displayName);
-          return { key: normalizeKey(name), label: `${name} — ${member.title}` };
+          return {
+            key: normalizeKey(name),
+            label: `${safePart(name)} — ${safePart(member.title)}`,
+          };
         }),
     };
   } catch (error) {
@@ -216,7 +220,7 @@ async function matchEmployees(deps: FindExpertiseDeps, skill: string): Promise<S
       if (!matchedPosition && !matchedDaily) continue;
 
       const evidence = matchedPosition ? employee.position : daily;
-      experts.push({ key: normalizeKey(name), label: `${name} — ${evidence}` });
+      experts.push({ key: normalizeKey(name), label: `${safePart(name)} — ${safePart(evidence)}` });
     }
 
     return { available: true, experts };
@@ -271,6 +275,33 @@ function displayNameOf(realName: string, displayName: string): string {
 }
 
 /** Le NOM doit survivre à la coupe : c'est lui qui rend la réponse actionnable, pas l'intitulé. */
+/**
+ * ⚠️ ON ASSAINIT AVANT DE TRONQUER, et l'ordre importe.
+ *
+ * Ce libellé est bâti sur `title` (poste DÉCLARATIF, édité par son porteur — `schema.ts`) et
+ * sur `dailyWork` (prose libre écrite dans l'entretien). Deux champs contrôlés par des tiers,
+ * restitués en réponse à la question d'un AUTRE.
+ *
+ * ⚠️ LA TRONCATURE N'EST PAS UNE PROTECTION, et l'avoir cru a produit un test vert sur du code
+ * vulnérable : `MAX_LABEL_CHARS = 44` coupait une charge LONGUE avant son délimiteur, donc le
+ * premier test écrit passait. Une charge courte — `backend <kisso_x>` — traversait
+ * intégralement. Une borne ne protège que de ce qui est plus long qu'elle.
+ *
+ * Liste blanche (lettres, marques, chiffres, `.'’-`) plutôt que bannière : cet agent est déjà
+ * en quarantaine de sortie, la bannière coûterait des tokens sur un libellé de 44 caractères,
+ * et un poste ou un fragment de métier en ressort lisible.
+ *
+ * ⚠️ ON ASSAINIT LES PARTIES, JAMAIS LE LIBELLÉ ASSEMBLÉ. Le séparateur « — » du gabarit
+ * n'est pas dans la liste blanche : le passer entier détruirait la structure « nom — indice »,
+ * qui est ce qui rend la réponse lisible. Le séparateur vient de NOTRE code, il n'a pas à être
+ * assaini ; ce sont `title` et `dailyWork` qui viennent d'ailleurs. Essayé dans l'autre sens
+ * le 2026-08-19 : « Pamela KONE — je fais du support, niveau 2 (API) » ressortait en
+ * « Pamela KONE je fais du support niveau 2 API ».
+ */
+function safePart(raw: string | null | undefined): string {
+  return sanitizeDisplayName(raw);
+}
+
 function truncate(label: string): string {
   return label.length <= MAX_LABEL_CHARS ? label : `${label.slice(0, MAX_LABEL_CHARS - 1)}…`;
 }
