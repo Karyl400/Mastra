@@ -114,12 +114,30 @@ export class SlackAdapter implements ChatProvider, FileUploadProvider {
    * PAS — threader un DM enfouit le message hors de la conversation principale, ce qui a
    * déjà fait paraître ce bot muet pendant des heures.
    */
-  async sendMessage(channelId: string, text: string, threadTs?: string): Promise<void> {
-    await this.slack.chat.postMessage({
+  /**
+   * ⚠️ Rend le CANAL RÉELLEMENT UTILISÉ, et ce retour porte un correctif du 2026-08-19.
+   *
+   * Quand `channelId` est un identifiant d'UTILISATEUR (`U…`), Slack ouvre lui-même la
+   * conversation directe et le message atterrit dans un canal `D…` que l'appelant ne connaît
+   * pas. C'est exactement ce qui a cassé l'entretien conversationnel à sa première mise en
+   * production : la route posait la question à `U…`, le handler cherchait l'état dans la
+   * mémoire de la conversation `D…`, et les deux ne se rencontraient jamais. Le symptôme est
+   * trompeur — la question s'affiche bien, seule la RÉPONSE part chez l'agent.
+   *
+   * On rend donc ce que Slack a décidé, plutôt que ce qu'on lui a demandé. Sans ce retour, la
+   * seule alternative serait un `conversations.open` de plus, payé à chaque envoi.
+   */
+  async sendMessage(
+    channelId: string,
+    text: string,
+    threadTs?: string,
+  ): Promise<{ channel: string }> {
+    const response = await this.slack.chat.postMessage({
       channel: channelId,
       text,
       ...(threadTs ? { thread_ts: threadTs } : {}),
     });
+    return { channel: response.channel ?? channelId };
   }
 
   /**

@@ -29,7 +29,14 @@ export interface EmailProvider {
 }
 
 export interface ChatProvider {
-  sendMessage(channelId: string, text: string): Promise<void>;
+  /**
+   * ⚠️ Rend le CANAL réellement utilisé. Quand `channelId` est un identifiant d'UTILISATEUR
+   * (`U…`), Slack ouvre lui-même la conversation directe et le message atterrit dans un canal
+   * `D…` que l'appelant ne connaissait pas. C'est ce qui a cassé l'entretien conversationnel
+   * à sa première mise en production : la question était posée à `U…`, l'état était cherché
+   * dans la mémoire de `D…`, et les deux ne se rencontraient jamais.
+   */
+  sendMessage(channelId: string, text: string): Promise<{ channel: string }>;
 }
 
 export interface FileUploadInput {

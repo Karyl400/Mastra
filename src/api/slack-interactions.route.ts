@@ -88,6 +88,9 @@ import {
 import { scheduleBackgroundWork } from './slack-events.route';
 import { verifySlackSignature } from '../shared/security/slack-signature';
 import { logger } from '../shared/logger';
+import { DrizzleConversationRepository } from '../features/conversation/infrastructure/repositories/drizzle-conversation.repository';
+import { deriveConversationId } from '../features/conversation/domain/value-objects/conversation-id';
+import { DEFAULT_AGENT_ID } from '../features/notification/domain/services/agent-routing';
 
 /** Chemin public. À reporter dans *Interactivity & Shortcuts* de l'app Slack. */
 export const SLACK_INTERACTIONS_PATH = '/slack/interactions';
@@ -618,7 +621,12 @@ async function answerProfileDone(prefill: ProfileModalPrefill): Promise<void> {
   });
 
   if (!verdict.offerForm) {
-    await tellNewcomer(prefill.slackUserId, verdict.reply);
+    // ⚠️ Le verdict CONTIENT déjà la première question de l'entretien (voir
+    // `profile-completion.ts`). Il faut donc mémoriser CE texte-là, pas la question seule :
+    // `pendingInterviewStep` reconnaît un PRÉFIXE, et le préfixe du message posté est
+    // « Ton dossier est complet… », pas la question. Poster l'un et mémoriser l'autre
+    // rendrait l'état introuvable — la faute exacte corrigée le 2026-08-19.
+    await rememberAsked(prefill.slackUserId, verdict.reply);
     return;
   }
 
@@ -780,6 +788,53 @@ async function runOnboarding(
 }
 
 /**
+ * Pose la première question de l'entretien ET la MÉMORISE.
+ *
+ * ⚠️ LES DEUX SONT INDISSOCIABLES, et l'oublier a cassé la fonctionnalité à sa première mise
+ * en production le 2026-08-19. L'état de l'entretien conversationnel EST le dernier tour
+ * `assistant` du fil : une question posée sans être écrite dans `conversation_turns` est
+ * invisible pour `pendingInterviewStep`, donc la réponse de la personne part chez l'agent au
+ * lieu d'être capturée. Le symptôme trompe — la question s'affiche parfaitement, seule la
+ * suite se perd.
+ *
+ * ⚠️ La clé de conversation est le canal `D…` RENDU PAR SLACK, jamais le `U…` qu'on lui a
+ * passé : `chat.postMessage` accepte un identifiant d'utilisateur et ouvre lui-même le DM.
+ * Écrire la mémoire sous `U…` la rendrait introuvable pour le handler, qui ne voit que `D…`.
+ *
+ * Ne LÈVE jamais : la mémoire est un CONFORT dans tout ce dépôt, elle dégrade en silence.
+ * Sans elle, la question reste posée et la réponse part chez l'agent — dégradé, pas cassé.
+ */
+async function askInterviewQuestion(slackUserId: string): Promise<void> {
+  await rememberAsked(slackUserId, INTERVIEW_QUESTION_DAILY);
+}
+
+/** Poste un texte en DM et l'inscrit dans la mémoire du fil — voir ci-dessus. */
+async function rememberAsked(slackUserId: string | undefined, text: string): Promise<void> {
+  if (!slackUserId) return;
+  const { channel } = await getSlackInteractionsAdapter().sendMessage(slackUserId, text);
+
+  try {
+    await conversationRepo().append({
+      conversationId: deriveConversationId({ channel }),
+      role: 'assistant',
+      content: text,
+      agentId: DEFAULT_AGENT_ID,
+      slackUserId: null,
+    });
+  } catch (error) {
+    logger.error('Question d’entretien posée mais non mémorisée — la réponse ira à l’agent', {
+      error: String(error),
+    });
+  }
+}
+
+let cachedConversationRepo: DrizzleConversationRepository | undefined;
+function conversationRepo(): DrizzleConversationRepository {
+  cachedConversationRepo ??= new DrizzleConversationRepository();
+  return cachedConversationRepo;
+}
+
+/**
  * Propose l'entretien, une fois le dossier RÉELLEMENT créé.
  *
  * ⚠️ Appelé sur `completed` ET sur `degraded` — voir la justification à son site d'appel —
@@ -824,7 +879,7 @@ async function offerInterview(
     // `multi_static_select` de la modale, et le lire pour rien coûterait une requête Turso à
     // chaque arrivée. L'invitation aux canaux reste servie par la modale tant qu'elle existe
     // (`applyInterview`), et par `ONBOARDING_WELCOME_CHANNELS` au `team_join`.
-    await getSlackInteractionsAdapter().sendMessage(slackUserId, INTERVIEW_QUESTION_DAILY);
+    await askInterviewQuestion(slackUserId);
 
     logger.info('Interview started as a conversation', { employeeId });
   } catch (error) {
