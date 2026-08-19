@@ -33,6 +33,7 @@ import { DISTRESS_REPLY, detectsDistress } from '../../../../shared/distress';
 import { requestsErasure } from '../../../../shared/forget';
 import { extractPinnedFact } from '../../../../shared/pin-fact';
 import { requestsProfileForm } from '../../../../shared/profile-request';
+import { claimsProfileDone } from '../../../../shared/profile-done';
 import {
   CONTENT_FREE_REPLIES,
   CONTENT_FREE_REPLY,
@@ -69,7 +70,15 @@ export interface DeterministicReplyInput {
    * à une décision. Absent hors Slack : la variante canonique est alors rendue.
    */
   readonly messageTs?: string;
-  /** Sert au seul journal de la détresse — jamais à la décision. */
+  /**
+   * Le message vient-il d'un DM ?
+   *
+   * ⚠️ Sert au journal de la détresse ET, depuis le 2026-08-19, à la DÉCISION pour
+   * `profile_done` : la vérification porte sur le dossier de celui qui parle, donc en canal
+   * elle exposerait à des témoins ce qui manque au dossier de quelqu'un d'autre. Le critère
+   * est disponible à l'ACK sans aucune E/S (`channel_type`), ce qui est la condition pour
+   * qu'il puisse entrer dans le miroir de `isAnsweredWithoutModel`.
+   */
   readonly isDirectMessage?: boolean;
 }
 
@@ -117,7 +126,7 @@ export interface DeterministicReply {
    * l'EXÉCUTION — il est le seul à avoir les dépôts et le client Slack ; ce qui vit ici, c'est
    * la DÉCISION.
    */
-  readonly action?: 'erasure' | 'pin_fact' | 'profile_form';
+  readonly action?: 'erasure' | 'pin_fact' | 'profile_form' | 'profile_done';
   /** Champs de journal propres à ce cas. Voir les mises en garde, cas par cas. */
   readonly logFields?: (input: DeterministicReplyInput) => Record<string, unknown>;
 }
@@ -179,6 +188,22 @@ export const DETERMINISTIC_REPLIES: readonly DeterministicReply[] = [
     // ── À partir d'ici, les court-circuits qui AGISSENT. Ils restent exécutés par le
     // handler ; seul leur PRÉDICAT vit ici, pour que le miroir ne puisse pas diverger.
     //
+    // ⚠️ EN TÊTE DES AGISSANTS, et c'est l'ordre réel d'exécution : `maybeAdvanceOnboarding`
+    // est appelé avant le `switch (acting.action)`. La place dans cette table doit refléter
+    // l'exécution, sinon elle décrit un produit qui n'existe pas.
+    //
+    // Pourquoi il devait ENTRER dans la table : il coûte ZÉRO token — il lit un dossier et
+    // rend un verdict écrit en dur — mais il n'était pas dans le miroir
+    // `isAnsweredWithoutModel`. Une personne ayant atteint ses 12 messages du jour recevait
+    // donc « J'ai atteint mon quota » en réponse à « c'est fait », c'est-à-dire au geste
+    // même qui fait avancer son accueil. C'est exactement le défaut corrigé le 2026-08-15
+    // pour la salutation et la détresse, réapparu sur un chemin ajouté depuis.
+    name: 'profile_done',
+    matches: ({ text, isDirectMessage }) => isDirectMessage === true && claimsProfileDone(text),
+    reply: null,
+    action: 'profile_done',
+  },
+  {
     // Placé avant la frontière d'autorisation, comme la détresse : effacer ses données est
     // un droit, pas un privilège de niveau `full`.
     name: 'erasure_request',

@@ -56,6 +56,19 @@ function makeHandler(overrides: { pinnedFactRepository?: unknown } = {}) {
 
   return new SlackEventsHandler('xoxb-test-token', { getAgent } as unknown as Mastra, {
     slackClient: slack as unknown as WebClient,
+    // ⚠️ AJOUTÉ le 2026-08-19 : sans doublure d'annuaire, la résolution du nom d'affichage
+    // retombe sur un `users.info` RÉELLEMENT envoyé à slack.com avec ce jeton de test. Le
+    // client `@slack/web-api` réessaie avec un back-off, d'où des tests unitaires qui mettent
+    // 250 ms d'ordinaire et franchissent le délai de 5 s quand le réseau tousse. C'est la
+    // cause des faux échecs intermittents de la suite — reproduits trois fois le 2026-08-19,
+    // toujours sur les fichiers de handler dépourvus de cette doublure.
+    directoryRepository: {
+      findBySlackUserId: vi
+        .fn()
+        .mockResolvedValue({ slackUserId: HUMAN, displayName: 'Karyl', email: 'karyl@kisso.com' }),
+      upsert: vi.fn().mockResolvedValue(undefined),
+    } as unknown as SlackEventsHandlerOptions['directoryRepository'],
+    accessGuard: null,
     conversationRepository: conversation,
     pinnedFactRepository: (overrides.pinnedFactRepository ??
       pinnedFacts) as SlackEventsHandlerOptions['pinnedFactRepository'],

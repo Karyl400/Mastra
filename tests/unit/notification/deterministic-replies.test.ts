@@ -1,7 +1,7 @@
 /**
  * Le miroir entre les court-circuits et le rationnement ne peut plus diverger — vérifions-le.
  *
- * Ces huit cas vivaient à DEUX endroits du handler : la suite de `if` de `handleMessage` et
+ * Ces neuf cas vivaient à DEUX endroits du handler : la suite de `if` de `handleMessage` et
  * `isAnsweredWithoutModel`, dont le commentaire d'origine exigeait qu'il en soit « le MIROIR
  * EXACT ». Un court-circuit ajouté d'un seul côté fait rationner un message gratuit — c'est
  * exactement le défaut trouvé en production, où quelqu'un ayant atteint son quota recevait
@@ -16,13 +16,20 @@ import {
 } from '../../../src/features/notification/domain/services/deterministic-replies';
 
 describe('court-circuits déterministes — la table est la source unique', () => {
-  it('énumère les huit cas documentés, dans leur ordre contractuel', () => {
+  it('énumère les neuf cas documentés, dans leur ordre contractuel', () => {
+    // ⚠️ `profile_done` est le NEUVIÈME, ajouté le 2026-08-19, et sa place est l'ordre RÉEL
+    // d'exécution : `maybeAdvanceOnboarding` est appelé avant le `switch (acting.action)`.
+    // Il coûte zéro token — il lit un dossier et rend un verdict écrit en dur — mais il
+    // n'était pas dans le miroir : « c'est fait » écrit par quelqu'un ayant atteint ses
+    // 12 messages du jour recevait « J'ai atteint mon quota », c'est-à-dire un refus sur le
+    // geste même qui fait avancer son accueil.
     expect(DETERMINISTIC_REPLIES.map((entry) => entry.name)).toEqual([
       'bare_greeting',
       'file_attachment',
       'no_textual_content',
       'over_length',
       'distress',
+      'profile_done',
       'erasure_request',
       'pin_fact',
       'profile_form_request',
@@ -61,19 +68,24 @@ describe('court-circuits déterministes — la table est la source unique', () =
     expect(isAnsweredWithoutModel(ordinaire)).toBe(false);
   });
 
-  it('DÉRIVE le rationnement de la table — les huit cas y sont couverts', () => {
+  it('DÉRIVE le rationnement de la table — les neuf cas y sont couverts', () => {
     // L'invariant qui compte : tout ce que la table reconnaît est gratuit. Le vérifier
     // entrée par entrée plutôt que sur une liste recopiée est justement le point du module.
-    const payloads: Record<string, { text: string; subtype?: string }> = {
-      bare_greeting: { text: 'bonjour' },
-      file_attachment: { text: '', subtype: FILE_SHARE_SUBTYPE },
-      no_textual_content: { text: '👍' },
-      over_length: { text: 'x'.repeat(9000) },
-      distress: { text: 'je ne vais pas bien du tout, je suis au bout' },
-      erasure_request: { text: "oublie ce que je t'ai dit" },
-      pin_fact: { text: 'souviens-toi que je suis basé à Lagos' },
-      profile_form_request: { text: 'je veux compléter mon profil' },
-    };
+    const payloads: Record<string, { text: string; subtype?: string; isDirectMessage?: boolean }> =
+      {
+        bare_greeting: { text: 'bonjour' },
+        file_attachment: { text: '', subtype: FILE_SHARE_SUBTYPE },
+        no_textual_content: { text: '👍' },
+        over_length: { text: 'x'.repeat(9000) },
+        distress: { text: 'je ne vais pas bien du tout, je suis au bout' },
+        // ⚠️ Le seul de la table dont la reconnaissance exige un critère NON textuel entrant
+        // dans la décision. En canal, la vérification exposerait à des témoins ce qui manque
+        // au dossier de quelqu'un d'autre — même asymétrie que le formulaire lui-même.
+        profile_done: { text: "c'est fait", isDirectMessage: true },
+        erasure_request: { text: "oublie ce que je t'ai dit" },
+        pin_fact: { text: 'souviens-toi que je suis basé à Lagos' },
+        profile_form_request: { text: 'je veux compléter mon profil' },
+      };
 
     // Aucune entrée de la table ne doit être sans charge d'essai : sinon un ajout futur
     // passerait ce test sans être exercé.
@@ -84,6 +96,20 @@ describe('court-circuits déterministes — la table est la source unique', () =
       expect(entry.matches(payload), `${entry.name} doit reconnaître sa charge`).toBe(true);
       expect(isAnsweredWithoutModel(payload), `${entry.name} doit être gratuit`).toBe(true);
     }
+  });
+
+  it('« c’est fait » est GRATUIT en DM, et facturé en canal', () => {
+    // Les deux moitiés comptent. En DM, `runProfileDoneCheck` lit un dossier et rend un
+    // verdict écrit en dur : facturer ce message revenait à refuser l'accueil à quelqu'un
+    // qui a beaucoup écrit dans la journée — le défaut corrigé le 2026-08-15 pour la
+    // salutation, réapparu sur un chemin ajouté depuis.
+    //
+    // En canal, le message part réellement chez un agent (la vérification y est refusée :
+    // elle exposerait à des témoins ce qui manque au dossier d'autrui). Le compter comme
+    // gratuit ouvrirait un contournement du quota en une phrase.
+    expect(isAnsweredWithoutModel({ text: "c'est fait", isDirectMessage: true })).toBe(true);
+    expect(isAnsweredWithoutModel({ text: "c'est fait", isDirectMessage: false })).toBe(false);
+    expect(isAnsweredWithoutModel({ text: "c'est fait" })).toBe(false);
   });
 
   it("n'attribue `remembersTurn` qu'à la salutation", () => {

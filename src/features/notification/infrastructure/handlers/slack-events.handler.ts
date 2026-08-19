@@ -79,7 +79,6 @@ import {
   verifyProfile,
   type ProfileSnapshot,
 } from '../../../onboarding/domain/services/profile-completion';
-import { claimsProfileDone } from '../../../../shared/profile-done';
 import {
   INTERVIEW_QUESTION_STYLE,
   INTERVIEW_SKIPPED_REPLY,
@@ -993,7 +992,15 @@ export class SlackEventsHandler {
     // Sans `botUserId` : le chemin d'ACK n'a pas les 3 secondes d'un `auth.test()`. La
     // mention résiduelle du bot ne change aucun des verdicts — une salutation reste une
     // salutation, une longueur reste une longueur.
-    return isAnsweredWithoutModel({ text: this.cleanText(event.text), subtype: event.subtype });
+    return isAnsweredWithoutModel({
+      text: this.cleanText(event.text),
+      subtype: event.subtype,
+      // ⚠️ Le seul critère non textuel de la table qui entre dans une DÉCISION, et il est
+      // disponible ici sans aucune E/S — condition pour qu'il puisse servir sur le chemin des
+      // 3 secondes. Sans lui, « c'est fait » écrit en canal serait compté comme traité sans
+      // modèle alors qu'il part chez un agent.
+      isDirectMessage: event.channel_type === 'im' || (event.channel ?? '').startsWith('D'),
+    });
   }
 
   private async checkRateLimit(event: SlackEvent): Promise<SlackEventDecision | null> {
@@ -2804,7 +2811,12 @@ export class SlackEventsHandler {
     conversationId: string;
     user: string | undefined;
   }): Promise<boolean> {
-    if (!input.isDirectMessage || !claimsProfileDone(input.text)) return false;
+    // ⚠️ Le prédicat vient de la TABLE, il n'est pas réécrit ici — même règle que pour les
+    // trois autres court-circuits agissants depuis le 2026-08-18. C'est ce qui garantit que
+    // `isAnsweredWithoutModel` en soit le miroir exact : une seule déclaration, donc aucune
+    // divergence possible entre ce qui est exécuté et ce qui est facturé.
+    const acting = findActingReply({ text: input.text, isDirectMessage: input.isDirectMessage });
+    if (acting?.action !== 'profile_done') return false;
 
     await this.runProfileDoneCheck(input);
     return true;
@@ -2901,6 +2913,19 @@ export class SlackEventsHandler {
 
     const step = pendingInterviewStep(lastAssistantText(input.history));
     if (!step) return false;
+
+    // ⚠️ CORRECTIF DU 2026-08-19 : l'entretien CÈDE le pas aux court-circuits agissants.
+    //
+    // `captureInterviewAnswer` accepte presque n'importe quel texte — c'est sa nature, on
+    // demande à quelqu'un de décrire son métier avec ses mots. Une question d'entretien en
+    // attente absorbait donc « oublie ce que je t'ai dit » : l'effacement n'avait pas lieu,
+    // ET la phrase était enregistrée comme la description du métier de la personne, champ
+    // imprimé dans un document à son nom sous « Ton quotidien ».
+    //
+    // Le commentaire de `handleMessage` affirmait déjà « effacer ses données reste
+    // prioritaire sur répondre à une question d'accueil » — le code disait l'inverse. Ce
+    // n'est donc pas un arbitrage nouveau, c'est l'application de celui qui était écrit.
+    if (findActingReply({ text: input.text, isDirectMessage: true })) return false;
 
     await this.runInterviewStep({ ...input, step });
     return true;
