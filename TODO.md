@@ -1,5 +1,68 @@
 # TODO.md — Kisso Onboarding
 
+## [0] CAMPAGNE DE PRODUCTION DU 2026-08-19 (soir) — ce qu'elle a établi
+
+Déploiements `88hb6shko` → `ne5gg9sag` → `65utw20ho`. Tout ce qui suit est MESURÉ.
+
+### Vérifié en production ✅
+
+- **Le clic à froid tient** : **1 384 ms** après 14 minutes d'inactivité TOTALE, contre 5 229 ms
+  puis 9 173 ms avant le portier d'ACK. Les cinq `action_id` répondent entre 393 et 1 473 ms.
+- **Périmètre** : les quatre POST non signés refusés en 401, *y compris* `/internal/slack/*` —
+  le portier n'est pas une porte dérobée. `GET /api/agents` en 401. Vidéo servie en 200.
+- Message de détresse sans « médecine du travail » ; question d'entretien sans la promesse des
+  canaux et annonçant l'usage réel ; question de l'email nommant l'adresse personnelle, relance
+  comprise ; `onboarding_progress` du dossier créé à `1/1 completed` ; `maskPii` masque l'email.
+- **`findExpertise` lit bien l'entretien** : « qui s'occupe du support technique ? » → « Le
+  support technique est géré par Karyl SOUMAILA », et le palier 3 a bien délogé un fil en cours.
+- Les deux journaux d'échec bruyant se déclenchent : `no_directory_row`, `missing_employee_id`.
+
+### Deux défauts TROUVÉS par la campagne, et corrigés
+
+- [x] ~~`linkEmployee` est un `UPDATE` : sans ligne d'annuaire il réussit sans rien faire, et le
+      correctif du matin journalisait quand même le succès.~~ Le port rend un COMPTE, comme
+      `forget(scope)`. ⚠️ **Le cas est le cas COURANT** : `slack_directory` compte **41 lignes
+      dont UNE SEULE porte un `employee_id`**, et 26 n'ont pas de `real_name`.
+- [x] ~~Une QUESTION posée au bot devenait la description du métier.~~ « qui s'occupe du support
+      technique ? », envoyé pendant qu'une question d'entretien attendait, était enregistré comme
+      « ce que tu fais au quotidien » — champ imprimé dans un document au nom de la personne et
+      restitué à ses collègues. Critère GRAMMATICAL en deux passes (`isQuestionToBot`).
+
+### Défauts CONSTATÉS et non corrigés
+
+- [ ] ⚠️ **`QUOTA_FAILURE` ne se déclenche pas sur un vrai échec de débit.** Mesuré à 17:27 : les
+      logs portent `AI_APICallError: Rate limit reached … (TPM): Limit 8000`, et l'utilisateur a
+      reçu le message GÉNÉRIQUE — celui qui invite à SIGNALER là où il fallait RÉESSAYER. C'est
+      le seul échec où réessayer a un sens, et c'est celui qu'on décrit comme une panne.
+      **La cause n'est pas établie** : l'erreur qui parvient au détecteur est celle du DERNIER
+      maillon (Mistral), pas de Groq, et Mastra réemballe avec `name: 'Error'`. Une
+      instrumentation a été posée (`Échec non classé`, qui journalise la FORME de la chaîne
+      d'erreurs) : **le prochain échec donnera la réponse au lieu de la faire supposer.**
+      ⚠️ Ne PAS élargir le motif au seul texte du message sans cette donnée — ce serait
+      contredire un arbitrage écrit dans le fichier.
+- [ ] **`recruitmentAgent` réclame de l'ISO 8601 à un humain.** Réponse littérale à « envoie un
+      email d'entretien à … pour le 15 septembre à 14h » : « L'année et le fuseau horaire […]
+      (format ISO 8601, ex. 2026-09-15T14:00:00+01:00) ». C'est du langage de système, et surtout
+      un ALLER-RETOUR de plus — le poste de coût dominant du dépôt. L'année et le fuseau ont des
+      défauts évidents (l'année courante ou la suivante si la date est passée ;
+      `RECRUITMENT_TIMEZONE`). Le refus de déduire le NOM depuis l'adresse, lui, est correct et
+      documenté : ne pas y toucher.
+- [ ] **Observation non expliquée** : un second parcours d'arrivant, joué dans le MÊME canal DM,
+      a réutilisé le dossier du premier au lieu d'en créer un. Très probablement un artefact du
+      montage (deux identités de sonde partageant une conversation, ce qui n'arrive pas en DM
+      réel), mais **non vérifié** — à ne pas écarter sans regarder `collectProfileAnswers` sur
+      une fenêtre contenant deux parcours.
+- [ ] **Cosmétique** : Slack transforme les adresses d'exemple de la relance email en liens
+      `mailto:` malgré les backticks (`<mailto:prenom.nom@kisso.com|…>`). Pré-existant, doublé
+      par le correctif du jour.
+
+### ⚠️ CHIFFRE QUI CORRIGE LA DOCTRINE
+
+**Ce n'est pas le quota journalier qui a mordu pendant la campagne, c'est le seau PAR MINUTE.**
+Relevé : `tokens per minute (TPM): Limit 8000, Used 7236, Requested 2452`. Soit ≈ 2 500 tokens
+par étape et **environ 3 messages par minute**. `CLAUDE.md` cite encore 12 000 TPM, chiffre de
+l'ère `llama`. La chaîne de repli, elle, a bien fonctionné (réponse rendue par Mistral en 11,7 s).
+
 ## [0] REVUE GÉNÉRALE DU CONSEIL — 2026-08-19 (soir). Six lots livrés.
 
 Plan complet : `docs/plans/2026-08-19-conseil-revue-generale.md`. Livré et vert (1 801 tests) :

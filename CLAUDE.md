@@ -1136,6 +1136,14 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
   - ⚠️ **Le seau par minute a CHANGÉ aussi** : `x-ratelimit-limit-tokens: 8000` (et non plus
     12 000), `x-ratelimit-limit-requests: 1000`. Les chiffres ci-dessous datent de `llama` — les
     relever à nouveau avant d'en tirer une conclusion.
+  - ✅ **MESURÉ EN PRODUCTION le 2026-08-19 : c'est le seau PAR MINUTE qui mord, pas le quota
+    journalier.** `Rate limit reached … tokens per minute (TPM): Limit 8000, Used 7236,
+    Requested 2452` — soit ≈ 2 500 tokens par étape et **≈ 3 messages par minute**. Une campagne
+    de test qui espace ses messages de moins de 30 s se heurte donc au TPM bien avant le TPD.
+    Le repli Mistral a pris le relais (réponse rendue en 11,7 s) : la chaîne fonctionne.
+    ⚠️ Mais `QUOTA_FAILURE` n'a PAS été rendu — l'utilisateur a reçu le message générique, qui
+    invite à signaler là où il fallait réessayer. Cause non établie, instrumentation posée
+    (`Échec non classé`). Voir `TODO.md`.
   - `GROQ_MODEL_ID` / `MISTRAL_MODEL_ID` (`src/shared/llm/model-fallback.ts`) sont désormais la
     source UNIQUE, et `PRIMARY_MODEL_ID` en est dérivé. L'étiquette et le modèle réellement
     demandé étaient deux littéraux séparés : c'est ce qui a laissé un modèle mort survivre dans

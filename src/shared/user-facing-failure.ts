@@ -13,6 +13,8 @@
  * et l'utilisatrice testeuse a conclu à un bug puis est passée au message suivant — qui a
  * échoué pour la même raison.
  */
+
+import { logger } from './logger';
 import { securityRefusalMessage } from './security/llm-guardrail';
 
 /**
@@ -90,5 +92,48 @@ export function userFacingFailure(error: unknown): string {
     }
     current = candidate.cause;
   }
+
+  // ⚠️ INSTRUMENTATION, pas correctif — posée le 2026-08-19 après un échec de production que
+  // ce détecteur AURAIT dû reconnaître. Les logs montraient
+  // `AI_APICallError: Rate limit reached … (TPM): Limit 8000`, et l'utilisateur a pourtant reçu
+  // le message GÉNÉRIQUE (« quelque chose a cassé de mon côté »), qui invite à SIGNALER là où
+  // il fallait RÉESSAYER. C'est le seul échec où réessayer a un sens, et c'est celui qu'on
+  // décrit comme une panne.
+  //
+  // La cause n'est pas établie et on ne la devine pas : l'erreur qui parvient ici est celle du
+  // DERNIER maillon (Mistral), pas de Groq dont l'échec est journalisé séparément, et
+  // `CLAUDE.md` documente que Mastra réemballe avec `name: 'Error'`. Élargir le motif au seul
+  // texte du message contredirait l'arbitrage écrit dix lignes plus haut — « jamais sur le seul
+  // texte, la prose change d'une version à l'autre, le code HTTP non ».
+  //
+  // On journalise donc la FORME réelle de la chaîne, pour que le prochain échec la donne au
+  // lieu de la faire supposer.
+  logger.warn('Échec non classé — le message générique va être rendu', {
+    chain: describeErrorChain(error),
+  });
+
   return GENERIC_FAILURE;
+}
+
+/** La forme de la chaîne d'erreurs, sans jamais son contenu métier. */
+function describeErrorChain(error: unknown): Array<Record<string, unknown>> {
+  const chain: Array<Record<string, unknown>> = [];
+  for (let current: unknown = error, depth = 0; current && depth < 6; depth += 1) {
+    const c = current as {
+      name?: unknown;
+      message?: unknown;
+      statusCode?: unknown;
+      status?: unknown;
+      cause?: unknown;
+    };
+    chain.push({
+      name: String(c.name ?? ''),
+      status: c.statusCode ?? c.status ?? null,
+      // Borné : c'est une empreinte de forme, pas un dépotoir. Assez pour reconnaître
+      // « rate limit », jamais assez pour transporter une donnée personnelle.
+      message: String(c.message ?? '').slice(0, 160),
+    });
+    current = c.cause;
+  }
+  return chain;
 }
