@@ -65,6 +65,7 @@ import { createRequestContextGuard } from '../shared/security/request-context-gu
 import { createSecurityHeadersMiddleware } from '../shared/security/http-headers';
 import { createAgentApiGuard } from '../shared/security/agent-api-guard';
 import { logger } from '../shared/logger';
+import { DrizzlePendingInterviewEmailRepository } from '../features/recruitment/infrastructure/repositories/drizzle-pending-email.repository';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AMORÇAGE DE LA CONNEXION — mesuré, et à contre-courant du commentaire précédent
@@ -416,8 +417,26 @@ const knowledgeAgent = makeKnowledgeAgent({
 // `directoryRepo` n'est PAS une exception à la quarantaine : le tool s'en sert pour résoudre
 // l'adresse du DEMANDEUR (afin que le candidat puisse répondre à un humain), jamais sur une
 // valeur choisie par le modèle — le `slackUserId` vient du `requestContext`.
+/**
+ * L'email d'entretien PRÉPARÉ, en attente d'un « oui ».
+ *
+ * ⚠️ Remplace le `value` du bouton « Envoyer », retiré le 2026-08-19 avec tous les autres.
+ * L'état doit survivre à un changement de sujet — c'est l'exigence explicite : rappeler l'email
+ * en attente si l'on parle d'autre chose, et le garder en suspens si la personne veut vraiment
+ * changer de sujet. Un état qui tient pendant qu'on parle d'autre chose ne peut pas être le
+ * dernier message du bot, donc pas le fil : il lui faut une table.
+ *
+ * ⚠️ DDL à appliquer à la main : `scripts/ddl-pending-interview-email.sql`. Les migrations
+ * `drizzle/` sont désynchronisées de `schema.ts` et `drizzle-kit push` se bloque contre une
+ * base `libsql://` distante.
+ */
+const pendingInterviewEmailRepo = new DrizzlePendingInterviewEmailRepository();
+
 const scheduleCandidateInterview = makeScheduleCandidateInterview({
-  chat: chatProvider,
+  // ⚠️ Du TEXTE, plus des blocs — les boutons ont été retirés du produit le 2026-08-19. La
+  // relecture se conclut par une question à laquelle on répond oui ou non.
+  chat: { sendText: (channelId, text) => chatProvider.sendMessage(channelId, text) },
+  pending: pendingInterviewEmailRepo,
   // La présentation de la carte de relecture est injectée : la couche `application` ne
   // connaît pas Block Kit — voir `domain/ports/interview-confirmation.presenter.ts`.
   presenter: slackInterviewConfirmationPresenter,

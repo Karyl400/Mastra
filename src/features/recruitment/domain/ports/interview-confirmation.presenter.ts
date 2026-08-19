@@ -13,8 +13,12 @@
  * le modèle ne fournit aucune prose sortante, le corps est rendu par un gabarit, et rien ne
  * part sans un clic. Cette garantie ne doit pas être attachée à Slack.
  *
- * ⚠️ `Block` reste `unknown[]` : le domaine n'a aucune raison de connaître la forme d'un bloc
- * Slack. Il déclare qu'une confirmation se PRÉSENTE ; l'infrastructure sait avec quoi.
+ * ⚠️ IL NE REND PLUS DES BLOCS MAIS DU TEXTE — 2026-08-19. Les boutons ont été retirés du
+ * produit : la relecture se conclut désormais par une QUESTION à laquelle on répond oui ou non.
+ * Le port n'en est pas affaibli, il est même plus fidèle à ce qu'il déclare : il portait déjà
+ * « une confirmation se PRÉSENTE, l'infrastructure sait avec quoi », et la réponse est
+ * maintenant du texte plutôt qu'une carte. La garantie — un humain relit avant que ça parte —
+ * est inchangée.
  */
 export interface InterviewConfirmationPayload {
   readonly to: string;
@@ -30,18 +34,18 @@ export interface InterviewConfirmationPayload {
 
 export interface InterviewConfirmationPresenter {
   /**
-   * Les blocs de la carte de relecture.
+   * Le texte de relecture, terminé par la QUESTION.
    *
    * ⚠️ L'email est affiché INTÉGRALEMENT, corps compris. Un résumé (« un email va partir à
    * Jean ») rendrait la confirmation décorative : on ne peut pas relire ce qu'on ne voit pas,
    * et c'est la relecture qui est la valeur de cette étape.
    */
-  buildBlocks(input: {
+  buildConfirmationText(input: {
     payload: InterviewConfirmationPayload;
     humanReadableDate: string;
     subject: string;
     body: string;
-  }): unknown[];
+  }): string;
 
   /** Texte de repli : Slack l'utilise pour l'aperçu et les lecteurs d'écran. */
   fallbackText(candidateName?: string): string;

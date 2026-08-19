@@ -32,6 +32,8 @@ import { SlackWelcomeChannelSource } from '../features/directory/infrastructure/
 import { parseWelcomeChannelNames } from '../features/directory/domain/services/welcome-channel-names';
 import { DrizzleOnboardingInterviewRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding-interview.repository';
 import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
+import { DrizzlePendingInterviewEmailRepository } from '../features/recruitment/infrastructure/repositories/drizzle-pending-email.repository';
+import { createEmailProvider } from '../features/notification/infrastructure/providers/email-provider.factory';
 
 /** Chemin public de l'endpoint Slack. À reporter tel quel dans l'app Slack. */
 export const SLACK_EVENTS_PATH = '/slack/events';
@@ -202,6 +204,14 @@ let handlerOptionsForTests: SlackEventsHandlerOptions | undefined;
  * donc la double réponse du 2026-08-11. Le premier appel réseau n'a lieu qu'au premier
  * `team_join`.
  */
+let cachedEventsEmailProvider: ReturnType<typeof createEmailProvider> | undefined;
+
+/** Fournisseur d'email, construit au PREMIER envoi réel — jamais au chargement du module. */
+function getEventsEmailProvider() {
+  cachedEventsEmailProvider ??= createEmailProvider();
+  return cachedEventsEmailProvider;
+}
+
 function buildWelcomeChannels(botToken: string) {
   return makeWelcomeChannels({
     source: new SlackWelcomeChannelSource(new SlackWorkspaceService(botToken)),
@@ -225,6 +235,17 @@ export function getSlackEventsHandler(mastra: Mastra): SlackEventsHandler {
       // sources de vérité pour une seule vérification finiraient par ne plus dire la même
       // chose — la divergence corrigée deux fois en un jour sur ce même parcours.
       profileRepository: new DrizzleEmployeeRepository(),
+      // L'email d'entretien PRÉPARÉ, en attente d'un « oui » ou d'un « non ». Même contrat
+      // d'injection que les deux ci-dessus, et pour la même raison : aucun repli paresseux,
+      // donc aucun test de handler ne touche la base par accident.
+      pendingEmailRepository: new DrizzlePendingInterviewEmailRepository(),
+      // ⚠️ PARESSEUX à l'appel, jamais à la construction : `createEmailProvider` lit la
+      // configuration SMTP et construit un transport, et ce fichier est évalué à CHAQUE
+      // démarrage à froid, donc sur le chemin des 3 secondes d'ACK. La fabrique est la même
+      // que celle de `src/mastra/index.ts` et de la route d'interactivité — une copie ferait
+      // partir les emails d'entretien par un fournisseur et ceux de notification par un
+      // autre, sans que rien ne le signale.
+      sendEmail: (to, subject, body) => getEventsEmailProvider().sendEmail(to, subject, body),
       // Les options de test l'emportent : un test qui neutralise les canaux doit pouvoir le
       // faire, et l'ordre inverse rendrait l'injection silencieusement inopérante.
       ...handlerOptionsForTests,

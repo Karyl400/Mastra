@@ -741,6 +741,48 @@ export const pinnedFacts = sqliteTable(
 );
 
 // ============================================
+// 11 bis. PENDING INTERVIEW EMAIL (email préparé, en attente d'un « oui »)
+// ============================================
+//
+// Ajoutée le 2026-08-19, quand les boutons ont été retirés du produit. La confirmation d'envoi
+// vivait dans un Block Kit « Envoyer / Annuler » ; elle est devenue une question à laquelle on
+// répond oui ou non.
+//
+// ⚠️ POURQUOI UNE TABLE, alors que les deux machines à états de l'accueil n'en ont AUCUNE.
+// Leur état est le dernier tour `assistant` du fil — gratuit, et suffisant tant que l'état ne
+// survit pas à une digression. Ici il doit y survivre : l'exigence est de RAPPELER l'email en
+// attente si l'on change de sujet, et de le GARDER en suspens si la personne veut vraiment
+// changer de sujet. Un état qui doit tenir pendant qu'on parle d'autre chose ne peut pas être
+// le dernier message du bot — par définition, ce n'est plus lui.
+//
+// ⚠️ ON N'Y STOCKE QUE DES CHAMPS, JAMAIS LE CORPS DE L'EMAIL. C'est le contrat que portait
+// déjà le `value` du bouton, et sa raison n'a pas changé : transporter le corps ferait de cette
+// table un moyen d'envoyer un texte arbitraire à une adresse arbitraire, la primitive que toute
+// la feature est construite pour ne pas offrir. Sujet et corps sont RE-RENDUS à l'envoi, la
+// date RE-VALIDÉE.
+//
+// ⚠️ La clé est la CONVERSATION, pas la personne : c'est dans ce fil qu'on répondra « oui ».
+// Une seconde préparation dans la même conversation remplace la première — l'humain n'en voit
+// qu'une à l'écran, et deux lignes signifieraient qu'un « oui » est ambigu.
+//
+// Horodatage entier en millisecondes, comme `pinned_facts` et `conversation_turns`.
+
+export const pendingInterviewEmail = sqliteTable('pending_interview_email', {
+  conversationId: text('conversation_id').primaryKey(),
+  requesterUserId: text('requester_user_id').notNull(),
+  to: text('to_email').notNull(),
+  candidateName: text('candidate_name'),
+  /** ISO. RE-VALIDÉ à l'envoi : entre la préparation et le « oui », la date a pu passer. */
+  startsAt: text('starts_at').notNull(),
+  position: text('position'),
+  location: text('location'),
+  replyTo: text('reply_to'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+export type PendingInterviewEmailRow = typeof pendingInterviewEmail.$inferSelect;
+
+// ============================================
 // 12. SLACK EVENT DEDUP (Déduplication multi-instance)
 // ============================================
 //

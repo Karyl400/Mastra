@@ -89,6 +89,17 @@ import {
   type ProfileStep,
 } from '../../../onboarding/domain/services/profile-chat';
 import { runOnboarding } from '../../../onboarding/application/services/run-onboarding';
+import type {
+  PendingInterviewEmailRepository,
+  PendingInterviewEmail,
+} from '../../../recruitment/domain/ports/pending-email.repository';
+import {
+  confirmPendingEmail,
+  ALREADY_SETTLED_REPLY,
+  CANCELLED_REPLY,
+  pendingReminder,
+} from '../../../recruitment/application/services/confirm-pending-email';
+import { readsAsNo, readsAsYes } from '../../../../shared/confirmation';
 import { startDateFromJoin } from './profile-modal';
 import {
   INTERVIEW_QUESTION_DAILY,
@@ -379,6 +390,26 @@ export interface SlackEventsHandlerOptions {
    * En production, le défaut reste `writeAuditLog` : rien ne change.
    */
   auditSink?: (entry: Parameters<typeof writeAuditLog>[0]) => Promise<unknown>;
+  /**
+   * L'email d'entretien PRÉPARÉ et en attente d'un « oui ».
+   *
+   * ⚠️ Optionnel et SANS repli paresseux — même contrat que `interviewRepository`, et pour la
+   * même raison recensée dans `CLAUDE.md` : un repli ferait qu'un handler construit en test
+   * ouvrirait `data/kisso.db` sur le chemin nominal.
+   *
+   * Absent, la confirmation conversationnelle n'existe simplement pas : « oui » repart chez
+   * l'agent. C'est la bonne dégradation — l'inverse ferait dépendre d'un câblage la CAPACITÉ
+   * à ne pas envoyer un email.
+   */
+  pendingEmailRepository?: PendingInterviewEmailRepository | null;
+  /**
+   * L'envoi réel, injecté plutôt qu'importé.
+   *
+   * ⚠️ C'est le SEUL acte irréversible que ce handler puisse déclencher, et le seul qui sorte
+   * du workspace. Le laisser construire son propre fournisseur ferait partir un vrai email
+   * depuis un test unitaire — la faute que `smoke:email` documente déjà en toutes lettres.
+   */
+  sendEmail?: (to: string, subject: string, body: string) => Promise<unknown>;
 }
 
 /**
@@ -546,6 +577,17 @@ interface MessageContext {
   readonly history: ConversationTurn[];
 }
 
+/**
+ * Les trois issues d'une annulation, jamais confondues : effacé (> 0), déjà tranché (0),
+ * échec du dépôt (< 0). Dire « c'est annulé » sur un échec rejouerait exactement la famille
+ * `emailSent: false` sous `status: 'success'`.
+ */
+function cancellationReply(cleared: number): string {
+  if (cleared > 0) return CANCELLED_REPLY;
+  if (cleared === 0) return ALREADY_SETTLED_REPLY;
+  return 'Je n’ai pas réussi à annuler cet email — rien n’est parti pour autant. Redis-moi « non » dans un instant.';
+}
+
 export class SlackEventsHandler {
   private slack: WebClient;
   private mastra: Mastra;
@@ -617,6 +659,11 @@ export class SlackEventsHandler {
   /** Voir `auditSink` : injectable pour que les tests ne touchent pas `data/kisso.db`. */
   private readonly audit: (entry: Parameters<typeof writeAuditLog>[0]) => Promise<unknown>;
 
+  /** `null`/`undefined` = pas de confirmation conversationnelle. Aucune construction paresseuse. */
+  private readonly pendingEmailRepo: PendingInterviewEmailRepository | null | undefined;
+  private readonly sendEmail:
+    ((to: string, subject: string, body: string) => Promise<unknown>) | undefined;
+
   constructor(botToken: string, mastra: Mastra, options: SlackEventsHandlerOptions = {}) {
     this.botToken = botToken;
     this.slack = options.slackClient ?? new WebClient(botToken);
@@ -629,6 +676,8 @@ export class SlackEventsHandler {
     this.pinnedFactRepo = options.pinnedFactRepository;
     this.interviewRepo = options.interviewRepository;
     this.profileRepo = options.profileRepository;
+    this.pendingEmailRepo = options.pendingEmailRepository;
+    this.sendEmail = options.sendEmail;
     this.dedupRepo = options.dedupRepository;
     this.conversationTokenBudget = options.conversationTokenBudget ?? CONVERSATION_TOKEN_BUDGET;
     this.conversationTtlMs = options.conversationTtlMs ?? CONVERSATION_TTL_MS;
@@ -1983,6 +2032,7 @@ export class SlackEventsHandler {
     requesterIdentity: Promise<RequesterIdentity>;
     accessLevel: SlackAccessLevel | undefined;
     progress: Awaited<ReturnType<typeof startProgress>>;
+    pendingEmailReminder?: string;
   }): Promise<void> {
     const {
       event,
@@ -1995,6 +2045,7 @@ export class SlackEventsHandler {
       requesterIdentity,
       accessLevel,
       progress,
+      pendingEmailReminder,
     } = ctx;
 
     // Phase courante du traitement. Le catch générique ci-dessous couvrait cinq points
@@ -2234,7 +2285,8 @@ export class SlackEventsHandler {
         safeOutput.text +
           (unsupportedClaim ? UNSUPPORTED_CLAIM_NOTICE : '') +
           (deliveryPromise ? PROMISED_DELIVERY_NOTICE : '') +
-          (excerptCoverage ? `\n\n${excerptCoverage}` : ''),
+          (excerptCoverage ? `\n\n${excerptCoverage}` : '') +
+          (pendingEmailReminder ? `\n\n${pendingEmailReminder}` : ''),
       );
 
       // Ce que le log ne disait pas et qu'il fallait deviner : combien d'étapes le run a
@@ -2484,6 +2536,100 @@ export class SlackEventsHandler {
     return false;
   }
 
+  /**
+   * ════════════════════════════════════════════════════════════════════════════
+   * LE « OUI » CONVERSATIONNEL — ce qui a remplacé le bouton « Envoyer »
+   * ════════════════════════════════════════════════════════════════════════════
+   *
+   * L'invitation d'entretien est le SEUL acte irréversible de ce produit : un email part vers
+   * une adresse extérieure, au nom de l'entreprise. Il était confirmé par un bouton ; il l'est
+   * désormais par une phrase, pour la raison mesurée le 2026-08-19 sur les modales — un clic
+   * dépend d'une fonction chaude, une phrase ne dépend de rien.
+   *
+   * ⚠️ LA QUESTION D'ACCUEIL PRIME, et l'asymétrie commande. Si une question de profil ou
+   * d'entretien attend, « oui » lui est destiné bien plus probablement qu'à l'email — et les
+   * deux erreurs ne se valent pas : capturer « oui » comme un prénom se corrige d'un message,
+   * envoyer une invitation à un candidat ne se corrige pas. On DIFFÈRE donc, en rappelant.
+   *
+   * Rend `handled: true` quand la réponse a été servie ; sinon un `reminder` éventuel, que
+   * `runAgentPipeline` accole à la réponse de l'agent. Le rappel ne bloque RIEN : la personne
+   * change de sujet, on lui répond, et l'email reste en attente — c'est littéralement ce qui
+   * était demandé.
+   */
+  private async resolvePendingEmail(input: {
+    text: string;
+    channel: string;
+    threadTs: string | undefined;
+    user: string | undefined;
+    conversationId: string;
+    history: readonly ConversationTurn[];
+  }): Promise<{ handled: boolean; reminder?: string }> {
+    const repo = this.pendingEmailRepo;
+    const send = this.sendEmail;
+    // Les deux ou rien : un dépôt sans expéditeur ferait exister une attente que rien ne peut
+    // jamais trancher, c'est-à-dire une promesse en creux de plus.
+    if (!repo || !send) return { handled: false };
+
+    let pending: PendingInterviewEmail | null;
+    try {
+      pending = await repo.find(input.conversationId);
+    } catch (error) {
+      // Dégradation silencieuse, comme la mémoire : sans cette lecture le « oui » repart chez
+      // l'agent, qui ne peut rien envoyer. Rien de faux n'est dit, seule la commodité manque.
+      logger.error('Email d’entretien en attente illisible', { error: String(error) });
+      return { handled: false };
+    }
+    if (!pending) return { handled: false };
+
+    if (hasPendingOnboardingQuestion(input.history)) {
+      return { handled: false, reminder: pendingReminder(pending) };
+    }
+
+    if (readsAsNo(input.text)) {
+      const cleared = await repo.clear(pending.conversationId).catch((error) => {
+        logger.error('Annulation d’email d’entretien échouée', { error: String(error) });
+        return -1;
+      });
+      // ⚠️ Trois issues distinctes, et on ne les confond pas : effacé (1), déjà tranché (0),
+      // échec du dépôt (-1). Dire « c'est annulé » sur un échec rejouerait exactement la
+      // famille `emailSent: false` sous `status: 'success'`.
+      const reply = cancellationReply(cleared);
+      await this.sayAndRemember(
+        {
+          channel: input.channel,
+          threadTs: input.threadTs,
+          conversationId: input.conversationId,
+          user: input.user,
+          text: input.text,
+        },
+        reply,
+      );
+      return { handled: true };
+    }
+
+    if (readsAsYes(input.text)) {
+      const outcome = await confirmPendingEmail(
+        { pending: repo, sendEmail: send },
+        pending,
+        input.user,
+      );
+      await this.sayAndRemember(
+        {
+          channel: input.channel,
+          threadTs: input.threadTs,
+          conversationId: input.conversationId,
+          user: input.user,
+          text: input.text,
+        },
+        outcome.reply,
+      );
+      return { handled: true };
+    }
+
+    // Ni oui ni non : la personne parle d'autre chose. On ne l'interrompt pas.
+    return { handled: false, reminder: pendingReminder(pending) };
+  }
+
   async handleMessage(event: SlackMessageEvent): Promise<void> {
     const context = await this.buildMessageContext(event);
     if (!context) return;
@@ -2549,6 +2695,24 @@ export class SlackEventsHandler {
     ) {
       return;
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // L'EMAIL D'ENTRETIEN EN ATTENTE — « oui » / « non », et rien d'autre
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // Placé APRÈS les réponses figées — la détresse et la forme d'un message priment sur
+    // tout, y compris sur un email en attente — et AVANT le parcours d'accueil, dont il
+    // s'efface de lui-même quand une question y attend (voir la méthode).
+    const pendingEmail = await this.resolvePendingEmail({
+      text,
+      channel,
+      threadTs,
+      user,
+      conversationId,
+      history,
+    });
+    if (pendingEmail.handled) return;
+
     // ─────────────────────────────────────────────────────────────────────────
     // « J'AI FINI » À L'ÉCRIT — le jumeau du bouton « C'est fait »
     // ─────────────────────────────────────────────────────────────────────────
@@ -2728,6 +2892,10 @@ export class SlackEventsHandler {
       requesterIdentity,
       accessLevel,
       progress,
+      // ⚠️ ACCOLÉ à la réponse de l'agent, jamais posté à part : deux messages feraient
+      // paraître le bot bavard là où il ne fait que ne pas oublier. Et il ne bloque rien —
+      // la personne a changé de sujet, on lui répond d'abord.
+      pendingEmailReminder: pendingEmail.reminder,
     });
   }
 

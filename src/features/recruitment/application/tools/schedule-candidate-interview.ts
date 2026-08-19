@@ -8,6 +8,8 @@ import type { DirectoryRepository } from '../../../directory/domain/ports/direct
 import { parseInterviewSchedule } from '../../domain/value-objects/interview-schedule';
 import { buildInterviewEmail, checkInterviewLocation } from '../../domain/services/interview-email';
 import type { InterviewConfirmationPresenter } from '../../domain/ports/interview-confirmation.presenter';
+import type { PendingInterviewEmailRepository } from '../../domain/ports/pending-email.repository';
+import { deriveConversationId } from '../../../conversation/domain/value-objects/conversation-id';
 
 /**
  * PRÉPARE une invitation d'entretien — et ne l'envoie JAMAIS.
@@ -38,8 +40,17 @@ import type { InterviewConfirmationPresenter } from '../../domain/ports/intervie
 
 export interface ScheduleCandidateInterviewDeps {
   readonly chat: {
-    sendBlocks(channelId: string, text: string, blocks: unknown[]): Promise<unknown>;
+    sendText(channelId: string, text: string): Promise<unknown>;
   };
+  /**
+   * L'email préparé, en attente d'un « oui ».
+   *
+   * ⚠️ C'est ce qui remplace le `value` du bouton « Envoyer », retiré le 2026-08-19. Même
+   * contrat : DES CHAMPS, jamais le corps. Le stocker ferait de cette table un moyen d'envoyer
+   * un texte arbitraire à une adresse arbitraire — la primitive que toute cette feature est
+   * construite pour ne pas offrir.
+   */
+  readonly pending: PendingInterviewEmailRepository;
   /**
    * ⚠️ Injecté depuis le 2026-08-18, et ce n'est pas une préférence de style : ce tool
    * importait directement les blocs Block Kit depuis `infrastructure/`, l'unique violation de
@@ -177,7 +188,32 @@ export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewD
       });
 
       try {
-        const blocks = deps.presenter.buildBlocks({
+        // ⚠️ ON ENREGISTRE AVANT DE DEMANDER. L'inverse laisserait une fenêtre où la personne
+        // répond « oui » à une question dont rien ne garde la trace — et le « oui » partirait
+        // alors chez un agent, qui n'a aucun moyen d'envoyer quoi que ce soit. Un état qu'on
+        // annonce doit exister avant qu'on l'annonce ; c'est la règle de tout ce dépôt.
+        // ⚠️ La CONVERSATION, pas le canal : en fil de canal, deux préparations parallèles ne
+        // doivent pas se marcher dessus. En DM `threadTs` est absent par conception, donc le
+        // canal EST la conversation — exactement la règle de la mémoire conversationnelle, et
+        // on la réutilise plutôt que de la redériver ici.
+        const conversationId = deriveConversationId({
+          channel: slack.channel,
+          threadTs: slack.threadTs,
+        });
+
+        await deps.pending.save({
+          conversationId,
+          requesterUserId: slack.slackUserId,
+          to: data.candidateEmail,
+          candidateName: data.candidateName ?? null,
+          startsAt: parsed.schedule.at.toISOString(),
+          position: data.position ?? null,
+          location: data.location ?? null,
+          replyTo: replyTo ?? null,
+          createdAt: (deps.now ?? (() => new Date()))(),
+        });
+
+        const texte = deps.presenter.buildConfirmationText({
           payload: {
             to: data.candidateEmail,
             candidateName: data.candidateName,
@@ -192,11 +228,7 @@ export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewD
           body: email.body,
         });
 
-        await deps.chat.sendBlocks(
-          slack.channel,
-          deps.presenter.fallbackText(data.candidateName),
-          blocks,
-        );
+        await deps.chat.sendText(slack.channel, texte);
       } catch (error) {
         logger.error('Confirmation d’entretien non affichée', { error: String(error) });
         return { status: 'refused', reason: 'post_failed', hint: REFUSALS.post_failed };
@@ -214,7 +246,7 @@ export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewD
         status: 'awaiting_confirmation',
         recipient: data.candidateEmail,
         whenLabel: parsed.schedule.humanReadable,
-        hint: "L'email est prêt et affiché au-dessus. Il ne partira QU'APRÈS un clic sur « Envoyer ». Ne dis jamais qu'il est envoyé.",
+        hint: "L'email est prêt et affiché au-dessus, avec la question. Il ne partira QUE si la personne répond « oui ». N'ajoute rien, ne répète pas l'email, et ne dis jamais qu'il est envoyé.",
       };
     },
   });

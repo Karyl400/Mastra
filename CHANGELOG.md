@@ -1,5 +1,66 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## 2026-08-19 (nuit) — PLUS AUCUN BOUTON : le parcours devient entièrement conversationnel
+
+Quatre boutons, quatre `action_id`, deux `callback_id` : il n'en reste aucun sur le chemin
+nominal. La cause n'est pas esthétique — un clic ne réussit que si la fonction Vercel est
+chaude, et à ≈ 19 messages par jour **le cas froid EST le cas nominal**. Une phrase, elle, ne
+dépend de rien.
+
+### Lot 1 — « Compléter mon profil » et « C'est fait » (`2de094e`)
+
+Les deux boutons ouvraient une modale, donc dépendaient d'un `trigger_id` valable 3 secondes,
+donc échouaient (`invalid_trigger_id` dans les journaux). Remplacés par un texte d'accueil qui
+énonce ce qu'il faut préparer, et par « j'ai fini » **et ses synonymes**, reconnus par
+`shared/profile-done.ts` — même verdict que le bouton, `verifyProfile` étant partagé.
+
+### Lot 2 — « Envoyer » devient une QUESTION
+
+Le seul acte irréversible du produit — un email part à un candidat, au nom de l'entreprise —
+était confirmé par un clic. Il l'est désormais par « oui » ou « non ».
+
+- **`pending_interview_email`**, une préparation par conversation. ⚠️ Elle ne porte que des
+  CHAMPS, jamais le corps : c'était le contrat du `value` du bouton, et sa raison n'a pas
+  changé — stocker le corps ferait de ce chemin un moyen d'envoyer un texte arbitraire à une
+  adresse arbitraire, la primitive que toute la feature est construite pour ne pas offrir. Le
+  sujet et le corps sont RE-RENDUS au « oui », la date RE-VALIDÉE.
+- **`clear()` rend un COMPTE, et la suppression EST la prise** : on efface AVANT d'envoyer et
+  l'on n'envoie que si l'on a bien pris. Deux « oui » routés vers deux instances ne peuvent pas
+  envoyer deux fois ; la seconde rend 0. Un `find` puis un `delete` conditionnel — la forme
+  naturelle — rouvrirait cette course, et son symptôme serait un candidat convoqué deux fois.
+  Le contrat est verrouillé sur les DEUX implémentations par la même suite : c'est la doublure
+  in-memory qui décide, dans tous les tests du handler, si le second « oui » envoie.
+- **Sur échec de transport, on REND la prise** : rien n'est parti, réessayer est légitime.
+- **Le rappel, sur changement de sujet.** La personne parle d'autre chose : on lui répond, et
+  le rappel est ACCOLÉ à la réponse de l'agent — jamais posté à part. L'email reste en attente.
+- ⚠️ **La question d'accueil PRIME.** Si une question de profil ou d'entretien attend, « oui »
+  lui est destiné bien plus probablement, et les deux erreurs ne se valent pas : capturer
+  « oui » comme un prénom se corrige d'un message, envoyer une invitation ne se corrige pas.
+
+**Trois défauts trouvés par les tests adverses de `shared/confirmation.ts`**, dont deux
+préexistants et silencieux :
+
+1. **La borne de longueur ne bornait rien.** Elle était mesurée sur le texte NORMALISÉ, or la
+   normalisation retire la ponctuation finale : « oui » suivi de cinq mille points
+   d'exclamation se réduisait à trois caractères et passait. Une borne qu'on applique après
+   avoir raccourci ne borne rien.
+2. **« Oui ! » n'était pas reconnu.** Le point d'exclamation était retiré, l'espace qui le
+   précédait non : `/^oui$/` voyait « oui ».
+3. **« n'envoie pas » tapé sur un téléphone n'était reconnu par AUCUN motif de refus.** Slack,
+   iOS et Android produisent l'apostrophe TYPOGRAPHIQUE (U+2019) ; les motifs sont écrits avec
+   l'apostrophe droite. Le cas le plus fréquent était le cas non couvert.
+
+Et une leçon de coût : `/[.!]+$/` est un motif ancré à quantificateur, donc super-linéaire, sur
+une fonction appelée sur chaque message Slack (jusqu'à 40 000 caractères). Réécrit en boucle —
+linéaire par construction, et non par une garde placée ailleurs. Même famille que le `\b`
+ASCII : un motif dont le coût réel ne se lit pas dans le motif.
+
+⚠️ Les branches `send_interview_email` / `cancel_interview_email` et `profile_done` restent en
+place dans `slack-interactions.route.ts` : elles ne servent plus qu'aux cartes DÉJÀ postées
+dans Slack, que rien ne rappelle. Aucun code ne les émet plus.
+
+---
+
 ## 2026-08-19 (soir) — Revue générale du Conseil : six lots
 
 Six lentilles indépendantes sur l'intégralité du projet. Le fil qui relie les trouvailles : ce

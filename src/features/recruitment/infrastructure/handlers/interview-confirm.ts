@@ -207,6 +207,43 @@ export const INTERVIEW_SEND_FAILED_REPLY =
  * signalerait rien, un `action_id` inconnu se traduisant par un clic sans effet.
  */
 export const slackInterviewConfirmationPresenter: InterviewConfirmationPresenter = {
-  buildBlocks: (input) => buildInterviewConfirmBlocks(input),
+  buildConfirmationText: (input) => buildInterviewConfirmText(input),
   fallbackText: (candidateName) => interviewConfirmFallback(candidateName),
 };
+
+/**
+ * La relecture, EN TEXTE — remplace la carte Block Kit le 2026-08-19.
+ *
+ * ⚠️ L'email est affiché INTÉGRALEMENT, corps compris. Un résumé (« un email va partir à
+ * Jean ») rendrait la relecture décorative : on ne peut pas relire ce qu'on ne voit pas, et
+ * c'est la relecture qui est la valeur de cette étape. Cette règle vient de la carte et lui
+ * survit.
+ *
+ * ⚠️ mrkdwn Slack (`*gras*`), jamais markdown GitHub : ce texte est posté EN DUR et ne passe
+ * par aucun filtre — `sanitizeAgentOutput` n'a qu'un seul site d'appel, la réponse d'un modèle.
+ * Un `**` s'afficherait littéralement, ce qui a été constaté en production sur le message de
+ * détresse, au pire endroit possible.
+ *
+ * ⚠️ La question est la DERNIÈRE ligne, et elle dit que l'envoi est DÉFINITIF. C'est le seul
+ * acte irréversible du produit ; le mot « définitif » n'est pas une précaution de style, c'est
+ * ce qui distingue cette question de toutes les autres auxquelles on répond machinalement.
+ */
+export function buildInterviewConfirmText(input: {
+  payload: { to: string; candidateName?: string };
+  humanReadableDate: string;
+  subject: string;
+  body: string;
+}): string {
+  const nom = input.payload.candidateName?.trim();
+  const destinataire = nom ? `${nom} (${input.payload.to})` : input.payload.to;
+
+  return [
+    `Voici l’email que je peux envoyer à *${destinataire}*, pour le *${input.humanReadableDate}*.`,
+    '',
+    `*Objet* — ${input.subject}`,
+    '',
+    input.body,
+    '',
+    `Veux-tu que je l’envoie à ${input.payload.to} ? *Cet envoi est définitif.* Réponds « oui » ou « non ».`,
+  ].join('\n');
+}
