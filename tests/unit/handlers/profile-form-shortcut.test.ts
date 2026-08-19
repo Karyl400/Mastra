@@ -69,8 +69,16 @@ function makeHandler() {
     // explicitement `null`. Mesuré le 2026-08-19 : ≈ 3 s par test, back-off du client compris,
     // donc des tests à quelques centaines de millisecondes du délai de 5 s — la suite entière
     // a échoué deux fois sur neuf exécutions sans qu'aucun comportement ne soit cassé, et ce
-    // rouge ne désignait jamais sa cause. `CLAUDE.md` recense les SIX dépendances à neutraliser.
+    // rouge ne désignait jamais sa cause. `CLAUDE.md` recense les HUIT dépendances à neutraliser.
     accessGuard: null,
+    // ⚠️ HUITIÈME dépendance à neutraliser, recensée le 2026-08-19 — et la plus coûteuse
+    // restante. `handleMessage` AWAIT l'identité du demandeur avant les court-circuits
+    // agissants ; sans cette ligne, `resolveRequesterIdentity` retombe sur
+    // `SlackWorkspaceService` et un `users.info` part RÉELLEMENT vers slack.com avec le jeton
+    // de test — 0,7 à 1,7 s PAR TEST, le cache étant un LRU par instance et chaque test
+    // reconstruisant le handler. C'est ce qui faisait rougir un run sur trois, toujours par
+    // `Timeout 5000ms`, jamais par une assertion.
+    workspaceProvider: { getUserById: async () => null },
     // ⚠️ Le journal d'audit ouvre `data/kisso.db` par défaut : c'était la DERNIÈRE dépendance
     // non neutralisée de ces tests, ≈ 250 ms par message et, sous contention, des pointes qui
     // franchissent le délai de 5 s de Vitest.
