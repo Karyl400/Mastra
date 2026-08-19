@@ -31,6 +31,7 @@ import { makeWelcomeChannels } from '../features/directory/application/services/
 import { SlackWelcomeChannelSource } from '../features/directory/infrastructure/providers/slack-welcome-channel.adapter';
 import { parseWelcomeChannelNames } from '../features/directory/domain/services/welcome-channel-names';
 import { DrizzleOnboardingInterviewRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding-interview.repository';
+import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
 
 /** Chemin public de l'endpoint Slack. À reporter tel quel dans l'app Slack. */
 export const SLACK_EVENTS_PATH = '/slack/events';
@@ -219,6 +220,11 @@ export function getSlackEventsHandler(mastra: Mastra): SlackEventsHandler {
       // le jour où `rate_limit_counters` a existé. Absent, l'entretien conversationnel
       // collecte et répond correctement, seule la trace manque.
       interviewRepository: new DrizzleOnboardingInterviewRepository(),
+      // ⚠️ Le MÊME dépôt que celui de la route d'interactivité, et c'est voulu : le bouton
+      // « C'est fait » et la phrase « j'ai fini » doivent rendre le même verdict. Deux
+      // sources de vérité pour une seule vérification finiraient par ne plus dire la même
+      // chose — la divergence corrigée deux fois en un jour sur ce même parcours.
+      profileRepository: new DrizzleEmployeeRepository(),
       // Les options de test l'emportent : un test qui neutralise les canaux doit pouvoir le
       // faire, et l'ordre inverse rendrait l'injection silencieusement inopérante.
       ...handlerOptionsForTests,

@@ -75,6 +75,12 @@ import {
 import { SlackAccessGuard } from '../../../directory/application/services/access-guard';
 import type { OnboardingInterviewRepository } from '../../../onboarding/domain/ports/onboarding-interview.repository';
 import {
+  PROFILE_CHECK_UNAVAILABLE,
+  verifyProfile,
+  type ProfileSnapshot,
+} from '../../../onboarding/domain/services/profile-completion';
+import { claimsProfileDone } from '../../../../shared/profile-done';
+import {
   INTERVIEW_QUESTION_STYLE,
   INTERVIEW_SKIPPED_REPLY,
   INTERVIEW_TOO_SHORT_REPLY,
@@ -294,6 +300,16 @@ export interface SlackEventsHandlerOptions {
    * dépôt) casserait un accueil pour un défaut de câblage.
    */
   interviewRepository?: OnboardingInterviewRepository | null;
+  /**
+   * Dépôt employé pour la VÉRIFICATION de « j'ai fini » — optionnel, sans repli paresseux,
+   * même contrat que `interviewRepository` ci-dessus et pour la même raison : un repli ferait
+   * qu'un handler construit en test toucherait la base.
+   *
+   * Absent, la phrase écrite n'est pas reconnue et le message part chez l'agent — dégradé,
+   * jamais faux. Le bouton « C'est fait », lui, reste servi par la route, qui a son propre
+   * dépôt : les deux chemins ne tombent donc jamais ensemble.
+   */
+  profileRepository?: { findByEmail(email: string): Promise<ProfileSnapshot | null> } | null;
   /**
    * Déduplication PARTAGÉE entre instances. Injectée pour les tests (une seule doublure
    * partagée par deux handlers simule deux instances serverless devant le même store) ;
@@ -536,6 +552,8 @@ export class SlackEventsHandler {
   private conversationRepo: ConversationRepository | null | undefined;
   private pinnedFactRepo: PinnedFactRepository | null | undefined;
   private readonly interviewRepo: OnboardingInterviewRepository | null | undefined;
+  private readonly profileRepo:
+    { findByEmail(email: string): Promise<ProfileSnapshot | null> } | null | undefined;
   /**
    * Déduplication partagée. `undefined` = pas encore construite, `null` = désactivée : deux
    * états distincts, d'où l'union.
@@ -581,6 +599,7 @@ export class SlackEventsHandler {
     this.conversationRepo = options.conversationRepository;
     this.pinnedFactRepo = options.pinnedFactRepository;
     this.interviewRepo = options.interviewRepository;
+    this.profileRepo = options.profileRepository;
     this.dedupRepo = options.dedupRepository;
     this.conversationTokenBudget = options.conversationTokenBudget ?? CONVERSATION_TOKEN_BUDGET;
     this.conversationTtlMs = options.conversationTtlMs ?? CONVERSATION_TTL_MS;
@@ -2443,6 +2462,22 @@ export class SlackEventsHandler {
       return;
     }
     // ─────────────────────────────────────────────────────────────────────────
+    // « J'AI FINI » À L'ÉCRIT — le jumeau du bouton « C'est fait »
+    // ─────────────────────────────────────────────────────────────────────────
+    //
+    // ⚠️ Ce chemin existe parce qu'un TEXTE le promettait. Le guide d'accueil dit « clique
+    // sur "C'est fait" — ou écris-moi simplement "j'ai fini" » : sans lui, cette phrase était
+    // une promesse creuse, et la personne qui suivait l'instruction écrite voyait son message
+    // partir chez un agent qui n'a aucune idée de ce qu'elle vient d'accomplir.
+    //
+    // Il rend exactement le MÊME verdict que le bouton — `verifyProfile` est partagé, pas
+    // réécrit : deux formulations pour la même vérification finiraient par ne plus dire la
+    // même chose, et c'est la divergence que ce dépôt vient de corriger deux fois en un jour.
+    //
+    // ZÉRO token. En DM uniquement, comme le formulaire lui-même : le pré-remplissage est
+    // personnel, et la vérification porte sur le dossier de celui qui parle.
+
+    // ─────────────────────────────────────────────────────────────────────────
     // ENTRETIEN CONVERSATIONNEL — « Parlons de toi », sans modale et sans modèle
     // ─────────────────────────────────────────────────────────────────────────
     //
@@ -2463,7 +2498,7 @@ export class SlackEventsHandler {
     // et AVANT les court-circuits qui agissent : effacer ses données reste prioritaire sur
     // répondre à une question d'accueil.
     if (
-      await this.maybeRunInterviewStep({
+      await this.maybeAdvanceOnboarding({
         history,
         isDirectMessage,
         text,
@@ -2721,6 +2756,124 @@ export class SlackEventsHandler {
    * fonctionnel — et surtout pas le rendre muet. C'est notamment le cas tant que la table
    * `conversation_turns` n'a pas été appliquée sur la base de production.
    */
+  /**
+   * Le PARCOURS D'ACCUEIL, en un seul point d'entrée.
+   *
+   * Deux étapes conversationnelles s'y enchaînent, et elles sont ici plutôt que dans
+   * `handleMessage` pour deux raisons. La première est prosaïque — chacune ajoutait une
+   * branche au tronc commun, qui repassait au-dessus du plafond de complexité que ce dépôt
+   * tient à zéro warning. La seconde vaut mieux : ce sont les deux moments d'un même
+   * parcours, et les voir côte à côte rend leur ORDRE lisible.
+   *
+   * ⚠️ Et l'ordre porte un cas réel. « C'est fait » doit être reconnu AVANT l'entretien :
+   * quand le dossier est complet, la réponse à cette annonce CONTIENT la première question
+   * de l'entretien. Inverser reviendrait à traiter l'annonce comme une réponse à une
+   * question qui n'a pas encore été posée.
+   */
+  private async maybeAdvanceOnboarding(input: {
+    history: readonly ConversationTurn[];
+    isDirectMessage: boolean;
+    text: string;
+    channel: string;
+    threadTs: string | undefined;
+    conversationId: string;
+    user: string | undefined;
+    employeeId: string | null | undefined;
+  }): Promise<boolean> {
+    if (await this.maybeCheckProfileDone(input)) return true;
+    return await this.maybeRunInterviewStep(input);
+  }
+
+  /**
+   * La personne annonce-t-elle avoir fini, et si oui, vérifier.
+   *
+   * Rend `true` quand elle a répondu. Extraite de `handleMessage` pour la ramener sous le
+   * plafond de complexité — et l'extraction dit quelque chose de juste : la CONDITION
+   * d'entrée dans une étape appartient à l'étape, pas au tronc commun du handler.
+   *
+   * ⚠️ DM UNIQUEMENT, comme le formulaire lui-même. La vérification porte sur le dossier de
+   * CELUI QUI PARLE ; en canal, la réponse exposerait à des témoins ce qui manque au dossier
+   * de quelqu'un d'autre. Même asymétrie que `profile-request.ts`, où la restriction au DM
+   * est de la sécurité et non de l'ergonomie.
+   */
+  private async maybeCheckProfileDone(input: {
+    isDirectMessage: boolean;
+    text: string;
+    channel: string;
+    threadTs: string | undefined;
+    conversationId: string;
+    user: string | undefined;
+  }): Promise<boolean> {
+    if (!input.isDirectMessage || !claimsProfileDone(input.text)) return false;
+
+    await this.runProfileDoneCheck(input);
+    return true;
+  }
+
+  /**
+   * Vérifie le dossier de celui qui dit avoir fini, et lui répond.
+   *
+   * ⚠️ La résolution se fait par EMAIL — la seule clé que `employees` partage avec l'annuaire
+   * Slack, cette table n'ayant aucune colonne d'identifiant Slack. Sans email résolvable, on
+   * traite comme « aucun dossier » : c'est exact, on n'a effectivement rien pu constater.
+   *
+   * ⚠️ Un échec de lecture ne devient JAMAIS « ton dossier est incomplet ». Une base
+   * indisponible est notre défaut, pas le sien, et le lui imputer l'enverrait corriger un
+   * formulaire qui n'a rien à corriger.
+   */
+  private async runProfileDoneCheck(input: {
+    text: string;
+    channel: string;
+    threadTs: string | undefined;
+    conversationId: string;
+    user: string | undefined;
+  }): Promise<void> {
+    const { text, channel, threadTs, conversationId, user } = input;
+
+    let reply: string;
+    try {
+      // L'email vient de l'ANNUAIRE Slack, jamais du texte du message : c'est la même règle
+      // que pour `slackEmployeeId` dans le `requestContext` — on ne décide pas d'une lecture
+      // de dossier sur une valeur que la personne peut écrire elle-même.
+      const member = user ? await this.getDirectoryRepo()?.findBySlackUserId(user) : null;
+      const email = member?.email ?? null;
+      const record = email && this.profileRepo ? await this.profileRepo.findByEmail(email) : null;
+      reply = verifyProfile(record).reply;
+    } catch (error) {
+      logger.error('Vérification « j’ai fini » impossible — on ne l’impute pas à la personne', {
+        error: String(error),
+      });
+      reply = PROFILE_CHECK_UNAVAILABLE;
+    }
+
+    logger.info('« J’ai fini » vérifié — aucun appel de modele', { channel });
+
+    await this.slack.chat.postMessage({
+      channel,
+      text: reply,
+      ...(threadTs ? { thread_ts: threadTs } : {}),
+    });
+
+    // ⚠️ Mémorisés tous les deux, et c'est INDISPENSABLE : quand le dossier est complet, la
+    // réponse CONTIENT la première question de l'entretien, et l'état de cette machine est
+    // précisément le dernier tour `assistant`. Ne pas mémoriser ici ferait perdre le fil au
+    // message suivant — la faute exacte corrigée côté route quelques heures plus tôt.
+    await this.rememberTurn({
+      conversationId,
+      role: 'user',
+      content: text,
+      agentId: DEFAULT_AGENT_ID,
+      slackUserId: user ?? null,
+    });
+    await this.rememberTurn({
+      conversationId,
+      role: 'assistant',
+      content: reply,
+      agentId: DEFAULT_AGENT_ID,
+      slackUserId: null,
+    });
+  }
+
   /**
    * L'entretien est-il en cours, et si oui, le faire avancer.
    *

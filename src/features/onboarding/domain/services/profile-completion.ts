@@ -127,3 +127,19 @@ export function verifyProfile(snapshot: ProfileSnapshot | null): ProfileVerdict 
     offerForm: true,
   };
 }
+
+/**
+ * Réponse quand la vérification n'a PAS PU avoir lieu.
+ *
+ * ⚠️ Elle ne dit jamais « ton dossier est incomplet ». Une base indisponible est notre
+ * défaut, pas celui de la personne, et le lui imputer l'enverrait corriger un formulaire qui
+ * n'a rien à corriger. Elle ne dit pas non plus « c'est bon » : on n'a rien constaté, et
+ * c'est tout ce qu'on sait. Même discipline que `null` face à `[]` dans la réconciliation
+ * FAIT/NARRATION — sans preuve positive, on se tait sur le fond.
+ *
+ * mrkdwn Slack, jamais markdown GitHub : ce texte est posté en dur, sans passer par aucun
+ * filtre.
+ */
+export const PROFILE_CHECK_UNAVAILABLE =
+  'Je n’arrive pas à consulter les dossiers en ce moment, donc je ne peux pas te confirmer ' +
+  'que le tien est complet. Redemande-moi dans un instant.';
