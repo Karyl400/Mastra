@@ -775,8 +775,16 @@ Slack, aucun `action_id` connu de lui.
 - ⚠️ L'hôte de réexpédition vient de la REQUÊTE (`x-forwarded-host`), jamais d'une variable :
   sur un déploiement de prévisualisation, une URL de production ferait traiter l'événement par
   le mauvais code, et le symptôme serait « ça marche ».
-- Mesuré après déploiement : **premier clic sur un déploiement neuf, 1 188 ms**, puis 714 à
-  1 775 ms. Les quatre boutons vérifiés un par un.
+- Mesuré après déploiement, sur dix clics signés : **734 ms de médiane, 734 à 2 024 ms**, et
+  l'ACK reste sous la limite après 13 minutes d'inactivité totale. Les quatre boutons vérifiés
+  un par un.
+- ⚠️ Ces chiffres sont un MAJORANT : `x-vercel-id: cpt1::iad1` — la requête entre au Cap, la
+  fonction tourne à Washington, et un simple `GET` CDN depuis cette machine oscille entre
+  0,34 s et 2,26 s. Slack ne paie pas ce trajet. **Toute mesure de latence prise d'ici doit
+  être lue avec cette réserve** — c'est aussi vrai des 5,2 s d'origine, dont la CAUSE reste
+  établie par la comparaison chaud/froid sur la même machine, pas par la valeur absolue.
+- Le portier tourne à **1769 Mo**, le palier où AWS Lambda alloue un vCPU entier. Ce code n'a
+  besoin d'aucune mémoire ; ce qu'on achète est du CPU au démarrage de Node.
 
 ⚠️ **UN PORTIER NE SAUVE PAS UNE MODALE, et c'est pour cela qu'il n'en reste AUCUNE.** Il répond
 vite précisément parce qu'il ne connaît rien du produit ; `views.open` a lieu ensuite, dans la

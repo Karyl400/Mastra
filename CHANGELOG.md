@@ -36,8 +36,16 @@ Elle ne décide rien : elle ne lit aucune base, n'appelle pas Slack, ne connaît
 ⚠️ `url_verification` est répondu PAR LE PORTIER : Slack attend le `challenge` dans la réponse,
 le réexpédier produirait un 200 vide et l'URL serait refusée.
 
-**Mesuré après déploiement — premier clic sur un déploiement neuf : 1 188 ms**, puis 714 à
-1 775 ms. Les quatre boutons sont sous la limite, vérifiés un par un.
+**Mesuré après déploiement, sur dix clics signés : 734 ms de médiane, 734 à 2 024 ms.** Après
+13 minutes d'inactivité totale — le cas d'un arrivant, premier à écrire de la journée — l'ACK
+reste sous la limite. Les quatre boutons ont été vérifiés un par un.
+
+⚠️ Ces chiffres sont un MAJORANT pessimiste : `x-vercel-id: cpt1::iad1` — la requête entre au
+Cap et la fonction tourne à Washington, et un simple `GET` sur le CDN depuis cette machine
+oscille entre 0,34 s et 2,26 s. Slack, dont les serveurs sont aux États-Unis, ne paie pas ce
+trajet. Le portier tourne par ailleurs à **1769 Mo**, le palier où AWS Lambda alloue un vCPU
+entier : ce code n'a besoin d'aucune mémoire, mais le seuil de Slack est un SEUIL, pas une
+moyenne.
 
 ### Added — élagage du bundle par ATTEIGNABILITÉ
 

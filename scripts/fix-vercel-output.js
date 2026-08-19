@@ -265,7 +265,12 @@ async function buildSlackAckFunction() {
         // Le réacheminement est prolongé par `waitUntil` : la fonction doit rester éveillée le
         // temps que la fonction applicative réponde, démarrage à froid compris.
         maxDuration: 60,
-        memory: 512,
+        // ⚠️ 1769 Mo est le palier où AWS Lambda alloue UN vCPU entier, et le CPU est ce qui
+        // gouverne le démarrage de Node. Ce code n'a besoin d'aucune mémoire — il fait un HMAC
+        // et un `fetch` — mais le seuil de Slack est un SEUIL, pas une moyenne : le peu de
+        // marge qu'on peut acheter ici se paie en millisecondes d'un compte de fonction
+        // invoquée quelques fois par jour.
+        memory: 1769,
       },
       null,
       2
