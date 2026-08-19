@@ -51,6 +51,8 @@ function makeHandler(options?: {
   startsAt?: string;
   seed?: boolean;
   agentText?: string;
+  createdAt?: Date;
+  now?: Date;
 }) {
   const slack = {
     chat: {
@@ -71,7 +73,7 @@ function makeHandler(options?: {
       position: 'Backend Developer',
       location: null,
       replyTo: null,
-      createdAt: new Date(),
+      createdAt: options?.createdAt ?? new Date(),
     });
   }
 
@@ -137,6 +139,7 @@ function makeHandler(options?: {
       } as unknown as SlackEventsHandlerOptions['directoryRepository'],
       pendingEmailRepository: pending,
       sendEmail,
+      ...(options?.now ? { now: () => options.now! } : {}),
       pruneProbability: 0,
     },
   );
@@ -291,5 +294,56 @@ describe('LE RAPPEL — la demande explicite du 2026-08-19', () => {
     expect(finale).toContain('Jean DUPONT');
     // Le sujet a bien changé ET l'email attend toujours.
     expect(await pending.find(DM)).not.toBeNull();
+  });
+});
+
+describe('une préparation ABANDONNÉE ne survit pas', () => {
+  it('après 24 h, elle est effacée, RIEN n’est envoyé, et on le DIT', async () => {
+    // ⚠️ Sans cette borne, une préparation ne meurt jamais : la ligne reste sur la Turso —
+    // l'adresse d'un NON-SALARIÉ, donc une donnée personnelle sans chemin d'effacement — et le
+    // rappel s'accole à CHAQUE réponse d'agent, indéfiniment. Le bruit qui s'ignore, c'est-à-
+    // dire exactement ce que le rappel existe pour éviter.
+    const { handler, slack, sendEmail, pending } = makeHandler({
+      createdAt: new Date('2026-08-17T10:00:00.000Z'),
+      now: new Date('2026-08-19T10:00:00.000Z'),
+      agentText: 'Voici le guide.',
+    });
+
+    await handler.handleMessage(dm('Génère-moi le guide'));
+
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(await pending.find(DM)).toBeNull();
+
+    const finale = String(
+      (slack.chat.update.mock.calls.at(-1)?.[0] as { text?: string })?.text ?? '',
+    );
+    // ⚠️ On le DIT au lieu d'effacer en silence : la personne a vu un email complet et une
+    // question ; le retirer sans un mot la laisserait croire qu'il est peut-être parti.
+    expect(finale).toContain('Rien n’est parti');
+    expect(finale).not.toContain('attend toujours ton « oui »');
+  });
+
+  it('« oui » sur une préparation périmée n’envoie RIEN', async () => {
+    const { handler, sendEmail, pending } = makeHandler({
+      createdAt: new Date('2026-08-17T10:00:00.000Z'),
+      now: new Date('2026-08-19T10:00:00.000Z'),
+      agentText: 'Je ne sais pas quoi faire de ce « oui ».',
+    });
+
+    await handler.handleMessage(dm('oui'));
+
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(await pending.find(DM)).toBeNull();
+  });
+
+  it('à 23 h, elle vit encore — la borne n’est pas une purge zélée', async () => {
+    const { handler, sendEmail } = makeHandler({
+      createdAt: new Date('2026-08-18T12:00:00.000Z'),
+      now: new Date('2026-08-19T10:00:00.000Z'),
+    });
+
+    await handler.handleMessage(dm('oui'));
+
+    expect(sendEmail).toHaveBeenCalledTimes(1);
   });
 });

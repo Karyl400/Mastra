@@ -96,6 +96,8 @@ import type {
 } from '../../../recruitment/domain/ports/pending-email.repository';
 import {
   confirmPendingEmail,
+  isPendingEmailStale,
+  staleReply,
   ALREADY_SETTLED_REPLY,
   CANCELLED_REPLY,
   pendingReminder,
@@ -2634,6 +2636,24 @@ export class SlackEventsHandler {
       return { handled: false };
     }
     if (!pending) return { handled: false };
+
+    // ── ABANDONNÉE ──────────────────────────────────────────────────────────
+    //
+    // Sans cette borne, une préparation ne meurt jamais : la ligne reste sur la Turso — une
+    // adresse de NON-SALARIÉ, donc une donnée personnelle sans chemin d'effacement — et le
+    // rappel s'accole à CHAQUE réponse d'agent, indéfiniment. Le bruit qui s'ignore, c'est-à-
+    // dire exactement ce que le rappel existe pour éviter.
+    //
+    // ⚠️ On le DIT au lieu d'effacer en silence : la personne a vu un email complet et une
+    // question ; le retirer sans un mot la laisserait croire qu'il est peut-être parti.
+    if (isPendingEmailStale(pending, this.now())) {
+      await repo.clear(pending.conversationId).catch((error) => {
+        logger.error('Préparation périmée non effacée', { error: String(error) });
+        return 0;
+      });
+      logger.info('Email d’entretien abandonné — préparation périmée');
+      return { handled: false, reminder: staleReply(pending) };
+    }
 
     if (hasPendingOnboardingQuestion(input.history)) {
       return { handled: false, reminder: pendingReminder(pending) };

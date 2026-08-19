@@ -769,6 +769,22 @@ livrait même ce dossier en PDF **dans le canal du demandeur**.
   l'onboarding est `karylsoumaila1@gmail.com`, domaine étranger, donc `readonly` — l'activer en
   l'état la couperait du dossier de tout le monde.
 
+⚠️ **LE MODÈLE NE SAVAIT PAS QUEL JOUR ON EST — corrigé le 2026-08-19.** Sonde signée :
+« Prépare un entretien … **lundi prochain à 9h** » → « **samedi 22 août 2026 à 08:00** ».
+Mauvais jour, mauvaise heure. La cause n'est pas une faiblesse du modèle : RIEN, dans toute la
+fenêtre qu'on lui donne, ne disait la date — ni les `instructions`, ni le préambule, ni
+l'historique. Toute date relative était donc une invention obligée, même famille que
+`findEmployeeByEmail` inatteignable. Le préambule porte désormais
+« Nous sommes le mercredi 19 août 2026, fuseau Africa/Lagos. » — **17 tokens, le FAIT SEUL** :
+la consigne « calcule toute date relative à partir de là » a été écrite puis retirée,
+`AGENT_ANTI_INVENTION_BLOCK` interdisant déjà d'inventer. Vérifié en production après
+correctif : la même phrase rend « lundi 24 août 2026 à 09:00 ».
+⚠️ Cela ne remplace pas la relecture : la date reste le seul champ TRANSCRIT, donc le seul
+vecteur d'erreur restant. C'est le réaffichage en toutes lettres qui a permis de VOIR ce défaut.
+⚠️ Le fuseau avait DEUX lectures divergentes (`interview-schedule.ts` lisait
+`RECRUITMENT_TIMEZONE`, `french-datetime.ts` lit `DISPLAY_TIMEZONE || RECRUITMENT_TIMEZONE`) :
+poser la première variable aurait changé l'affichage partout SAUF pour les entretiens.
+
 **Le modèle sait désormais QUI lui parle** (`buildContextPreamble`, 2026-08-11). L'identité du
 demandeur est injectée dans un message **`system`** : nom d'affichage résolu via `users.info`,
 **assaini** (`sanitizeDisplayName` — un nom d'affichage est contrôlé par son porteur, donc un
@@ -888,7 +904,17 @@ fonction restée froide, et le `trigger_id` est périmé (`invalid_trigger_id` d
 La complétion de profil est donc devenue un ÉCHANGE ÉCRIT
 (`onboarding/domain/services/profile-chat.ts`), comme l'entretien avant elle : quatre questions
 au plus, une par message, **zéro token**, l'état reconstitué du fil et le dossier existant en
-socle. Le traitement de `view_submission` est conservé mais INATTEIGNABLE — voir `TODO.md`.
+socle.
+⚠️ **`profile-modal.ts`, `interview-modal.ts` et `interview-invite.ts` ont été SUPPRIMÉS le
+2026-08-19**, avec ~300 lignes de traitement de `view_submission`. Laisser du code qu'un
+recâblage pourrait rebrancher sans le relire est la situation exacte de
+`discoverSlackWorkspace` avant sa suppression. Ce qui a survécu a DÉMÉNAGÉ :
+`NewcomerIdentity` (ex-`ProfileModalPrefill`) et `startDateFromJoin` vivent en
+`onboarding/domain/services/newcomer-identity.ts` — ils n'avaient rien de modal.
+⚠️ **Le BRANCHEMENT `view_submission` reste**, et c'est la seule chose qui compte : sur une
+fonction CHAUDE (684 ms mesurées), un bouton posté hier peut encore ouvrir sa modale. Sans ce
+chemin, la personne remplirait le formulaire, verrait la fenêtre se fermer comme sur un succès,
+et rien ne serait gardé. On acquitte, et on DIT en DM que rien n'a été retenu.
 
 ⚠️ **IL NE RESTE AUCUN BOUTON SUR LE CHEMIN NOMINAL — 2026-08-19.** Les quatre `action_id` ont
 été retirés au fur et à mesure et pour la MÊME cause, jamais pour une préférence :
@@ -1587,6 +1613,14 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
     l'erreur d'`employeeId` qui a enregistré « Bienvenue Awa » sous l'identifiant de Karyl et
     envoyé le fichier à son adresse (les 10 documents de la base portent le même UUID). La
     correction, elle, est en amont — `findPersonByName`.
+  - ⚠️ **LE `recipient` EST NOMMÉ PAR LE CODE depuis le 2026-08-19.** Le bloc DOCUMENTS
+    l'exigeait du modèle depuis le 2026-08-14 ; mesuré sur DEUX sondes, **il ne le cite pas**.
+    Une mesure de visibilité qui ne se déclenche jamais est pire qu'absente — on la croit en
+    place. Le tool écrit le nom dans le `RequestContext` (coût ZÉRO), le handler accole
+    `_(Ce document a été produit pour X.)_` — **uniquement si la réponse ne nomme pas déjà la
+    personne** (`textMentionsName`), une redite sur une réponse juste étant du bruit. C'est la
+    TROISIÈME consigne d'agent mesurée en échec après la couverture des extraits et la
+    rédaction du contenu : une consigne est PROBABLE, le code est GARANTI.
   - **Le permalink Slack est journalisé, jamais retourné au modèle.** Remettre une URL dans le
     contexte rouvrirait précisément la porte par laquelle le faux lien est passé — et le fichier
     est déjà dans le fil, le lien n'apporte rien.

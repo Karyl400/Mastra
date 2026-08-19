@@ -1,7 +1,10 @@
 import { logger } from '../../../../shared/logger';
 import { buildInterviewEmail } from '../../domain/services/interview-email';
 import { parseInterviewSchedule } from '../../domain/value-objects/interview-schedule';
-import type { PendingInterviewEmail } from '../../domain/ports/pending-email.repository';
+import {
+  PENDING_EMAIL_TTL_MS,
+  type PendingInterviewEmail,
+} from '../../domain/ports/pending-email.repository';
 
 /**
  * Le « oui » — le seul acte IRRÉVERSIBLE du produit.
@@ -74,6 +77,30 @@ export function sentReply(pending: PendingInterviewEmail, humanReadableDate: str
 export function pendingReminder(pending: PendingInterviewEmail): string {
   const nom = pending.candidateName?.trim() || pending.to;
   return `_(Au fait : l’email d’entretien pour ${nom} attend toujours ton « oui » — ou ton « non ».)_`;
+}
+
+/**
+ * Cette préparation est-elle ABANDONNÉE ?
+ *
+ * ⚠️ Vérifié À LA LECTURE et non par un balayage : ce projet n'a aucun cron, et une purge qui
+ * dépend d'un automate inexistant est la promesse creuse que ce dépôt traque. Le seul moment
+ * où l'on est sûr de regarder cette ligne est celui où quelqu'un parle dans cette conversation.
+ */
+export function isPendingEmailStale(pending: PendingInterviewEmail, now: Date): boolean {
+  return now.getTime() - pending.createdAt.getTime() > PENDING_EMAIL_TTL_MS;
+}
+
+/**
+ * Ce qu'on dit UNE FOIS quand une préparation a expiré.
+ *
+ * ⚠️ On le DIT, on ne se contente pas d'effacer. La personne a vu un email complet et une
+ * question ; le supprimer en silence la laisserait croire qu'il est peut-être parti. Dire que
+ * rien n'est parti est la seule chose vraie et utile — et c'est la discipline `emailSent:
+ * false` sous `status: 'success'`, appliquée à un oubli plutôt qu'à une panne.
+ */
+export function staleReply(pending: PendingInterviewEmail): string {
+  const nom = pending.candidateName?.trim() || pending.to;
+  return `_(J’ai laissé tomber l’email d’entretien pour ${nom} — il attendait depuis plus d’un jour. Rien n’est parti. Redemande-le-moi si tu en as encore besoin.)_`;
 }
 
 export async function confirmPendingEmail(

@@ -43,20 +43,40 @@
 - [x] ~~Le `hint` de `scheduleCandidateInterview` DÉCRIVAIT au lieu de PRESCRIRE~~ — d'où
       « L'email est prêt, il s'affichera pour confirmation », au futur, en doublon.
 
-### Reste ouvert
+### Reste ouvert — les trois dettes du 2026-08-19 au soir sont FERMÉES
 
-- [ ] **Le modèle ne NOMME pas le `recipient`** sur le document, alors que le bloc DOCUMENTS
-      l'exige (« Nomme le `recipient` »). Constaté sur les deux sondes document du 2026-08-19.
-      C'est la mesure de VISIBILITÉ posée le 2026-08-14 contre l'erreur de destinataire : elle
-      ne se déclenche pas. À traiter comme les deux précédents — si la consigne échoue, le
-      correctif suivant est du code (le tool pourrait poster le nom lui-même).
-- [ ] `recruitmentAgent` exige encore une date ISO 8601 d'un humain : « le 20 août à 14h » doit
-      suffire. Recensé le 2026-08-19, non corrigé — le modèle a su transcrire dans les deux
-      sondes, donc le défaut est latent, pas bloquant.
-- [ ] Les modales (`profile-modal.ts`, `interview-modal.ts`) et le traitement de
-      `view_submission` sont conservés mais **INATTEIGNABLES** : plus aucun code n'ouvre de
-      modale. Même situation que `discoverSlackWorkspace` avant sa suppression — à supprimer ou
-      à documenter comme volontairement mort.
+- [x] ~~Le modèle ne NOMME pas le `recipient`~~ — nommé par le CODE, vérifié en production :
+      « _(Ce document a été produit pour Karyl SOUMAILA.)_ » là où le modèle ne disait rien.
+- [x] ~~`recruitmentAgent` exige une date ISO~~ — la cause était que le modèle ne savait pas
+      quel jour on est. « lundi prochain à 9h » rendait « samedi 22 août à 08:00 » ; il rend
+      désormais « lundi 24 août 2026 à 09:00 », vérifié en production.
+- [x] ~~Les modales sont inatteignables mais toujours dans le dépôt~~ — supprimées, le
+      branchement `view_submission` conservé pour ne pas avaler une soumission venue d'un
+      bouton d'hier.
+
+### Ce que ces lots ont trouvé au passage
+
+- [x] **Personne n'était prévenu qu'un email de bienvenue n'était pas parti** : `STEP_LABELS`
+      était indexée sur les NOMS des membres de `BestEffortStep`, le workflow poussant leurs
+      VALEURS. Table dérivée de l'enum, exhaustivité vérifiée à la compilation.
+- [x] **Le fuseau avait deux lectures divergentes** — poser `DISPLAY_TIMEZONE` aurait changé
+      l'affichage partout SAUF pour les entretiens, sans qu'aucun test ne rougisse.
+- [x] **Une préparation d'email n'expirait JAMAIS** : la ligne restait sur la Turso (adresse
+      d'un non-salarié, sans chemin d'effacement) et le rappel s'accolait à chaque réponse,
+      indéfiniment. `PENDING_EMAIL_TTL_MS` = 24 h, vérifié À LA LECTURE — ce projet n'a aucun
+      cron, et une purge qui dépend d'un automate inexistant est une promesse creuse.
+
+### Limites CONNUES, écrites plutôt que découvertes
+
+- [ ] **À quota atteint, on ne peut pas ANNULER un email en attente ce jour-là.** Le prédicat
+      « oui / non » n'est pas textuel — il exige de lire `pending_interview_email` — donc il ne
+      peut pas entrer dans `isAnsweredWithoutModel`, qui tourne à l'ACK sans droit de lecture.
+      Rien n'est envoyé pour autant (« oui » est refusé de la même façon) et la préparation
+      expire en 24 h. L'exempter au vu du seul texte rouvrirait un contournement du quota.
+- [ ] **`AUTHZ_ENFORCE` reste inactivable** : 1 ligne d'annuaire sur 41 est reliée à un dossier,
+      et l'adresse de l'administratrice est d'un domaine étranger (`gmail.com`), donc
+      `readonly`. Décision de propriétaire — voir `SLACK_ORG_EMAIL_DOMAINS`.
+- [ ] Le suivi de `notifications` et `documents` n'a toujours aucun chemin d'effacement.
 
 ---
 

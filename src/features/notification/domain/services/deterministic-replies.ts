@@ -20,6 +20,21 @@
  * fois ») et pour la même raison : deux copies d'une liste divergent au premier changement,
  * en silence, sans qu'aucun type ne bouge.
  *
+ * ## ⚠️ CE QU'ELLE NE PEUT PAS PORTER, et il faut le dire
+ *
+ * La confirmation d'un email d'entretien (« oui » / « non », 2026-08-19) répond elle aussi
+ * SANS appel de modèle, et elle n'est PAS dans cette table. Ce n'est pas un oubli : son
+ * prédicat n'est pas textuel. « oui » ne veut rien dire tant qu'on n'a pas lu
+ * `pending_interview_email`, et cette table est le contrat de ce qui se décide sur la FORME du
+ * message seul — `isAnsweredWithoutModel` tourne à l'ACK, où l'on n'a pas le droit de lire en
+ * base (3 secondes, et la prise de clé de déduplication y est déjà).
+ *
+ * Conséquence assumée, à connaître : une personne ayant atteint ses 12 messages du jour ne
+ * peut pas ANNULER un email en attente ce jour-là. Rien n'est envoyé pour autant — « oui » est
+ * refusé de la même façon — et la préparation expire d'elle-même en 24 h
+ * (`PENDING_EMAIL_TTL_MS`). L'exempter au vu du seul texte rouvrirait un contournement du
+ * quota : sans préparation en attente, « oui » repart chez l'agent et coûte un appel plein.
+ *
  * ## Ce que la table ne porte pas
  *
  * L'ORDRE est significatif et il est celui du tableau. Trois entrées portent `reply: null` :
