@@ -1,5 +1,42 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## 2026-08-20 — La promesse d'envoi ne se détecte plus, elle se DÉDUIT du câblage
+
+Sonde en production : « Enregistre un rappel pour Karyl : relire le guide d'accueil avant
+vendredi. » Réponse :
+
+> « Rappel enregistré pour Karyl : relire le guide d'accueil le **jeudi 20 août 2026 à 17 h**. »
+
+Rien ne l'enverra. Il n'existe dans ce dépôt ni cron, ni poller, ni site d'appel de
+`findPending()`. Et le détecteur de promesse s'est tu — à raison, selon ses propres règles :
+**il n'y a aucun mot de promesse dans cette phrase**. Le verbe est celui du tool lui-même, le
+seul honnête. Ce qui promet, c'est la DATE accolée. Une juxtaposition, pas un mot.
+
+C'est la TROISIÈME occurrence, et elle ferme le débat. La liste fermée avait déjà été élargie
+deux fois pour la même cause — « planifié » le 2026-08-19 au matin, puis « programmé » le tour
+SUIVANT. Une liste de mots ne peut pas couvrir une juxtaposition.
+
+**La note est donc désormais accolée sur une condition de CÂBLAGE, jamais de texte** : quand le
+seul outil AGISSANT du tour rend `willBeSentAutomatically: false` (`onlyNonDeliveringTools`),
+« rien ne l'enverra » est vrai QUELLE QUE SOIT la formulation. Il n'y a rien à détecter —
+seulement à dire.
+
+Le détecteur SURVIT et sert enfin à ce pour quoi il est bon : journaliser que le modèle a
+promis, ce qui reste le signal à suivre pour juger ses instructions.
+
+⚠️ Deux garanties de non-régression, parce qu'un garde-fou d'honnêteté qui dément une réponse
+JUSTE est le pire défaut possible : la note ne s'accole jamais quand un outil qui LIVRE a
+tourné (`sendNotification`), ni quand seules des lectures ont tourné — c'est alors l'autre
+détecteur qui parle, et deux notes se contrediraient (« rien n'a été exécuté » contre
+« c'est enregistré »).
+
+**Vérifié en production le même soir**, sur le déploiement précédent : la date relative
+(« lundi prochain » → « lundi 24 août 2026 à 09:00 »), la note de destinataire
+(« _(Ce document a été produit pour Karyl SOUMAILA.)_ »), la salutation qui n'annonce que des
+capacités réelles, et `findExpertise` répondant depuis les données réelles.
+
+---
+
 ## 2026-08-19 (nuit, fin) — Ce qu'un produit apprend à taper doit être reconnu
 
 **Nouveau garde-fou dérivé : `tests/unit/quality/taught-phrases.test.ts`.** Il EXTRAIT des

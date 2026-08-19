@@ -2270,10 +2270,31 @@ export class SlackEventsHandler {
       // Les deux notes sont MUTUELLEMENT EXCLUSIVES : `onlyNonDeliveringTools` exige au moins
       // une action, `hasActingToolCall` exige qu'il n'y en ait aucune. Deux démentis accolés
       // à la même réponse se contrediraient l'un l'autre.
-      const deliveryPromise =
-        toolCalls !== null && onlyNonDeliveringTools(toolCalls)
-          ? detectUnsupportedDeliveryPromise(safeOutput.text)
-          : null;
+      // ⚠️ LA NOTE EST DÉSORMAIS INCONDITIONNELLE quand le seul outil AGISSANT du tour est un
+      // enregistreur sans transport — correctif du 2026-08-20, TROISIÈME occurrence.
+      //
+      // La liste fermée de formules a été élargie deux fois pour la même cause : « planifié »
+      // (2026-08-19 matin), puis « programmé » le tour SUIVANT. Le 2026-08-20, le modèle a
+      // trouvé un troisième logement, et c'est celui qui ferme le débat :
+      //
+      //     « Rappel enregistré pour Karyl : relire le guide d'accueil le jeudi 20 août à 17 h. »
+      //
+      // Aucun mot de promesse. Le verbe est celui du tool lui-même — le seul honnête — et
+      // c'est la DATE accolée qui fait la promesse. Aucune liste de mots ne peut couvrir ça :
+      // ce qui promet ici n'est pas un mot, c'est une juxtaposition.
+      //
+      // La condition ne porte donc plus sur le TEXTE mais sur le CÂBLAGE, qui est certain :
+      // `onlyNonDeliveringTools` est vrai quand le seul outil agissant rend
+      // `willBeSentAutomatically: false`. Dans ce cas, « rien ne l'enverra » est vrai QUELLE
+      // QUE SOIT la formulation, donc il n'y a rien à détecter — seulement à dire.
+      //
+      // Le détecteur SURVIT, et sert désormais à ce pour quoi il est bon : journaliser que le
+      // modèle a promis, ce qui reste le signal à suivre pour juger ses instructions.
+      const registeredWithoutDelivery = toolCalls !== null && onlyNonDeliveringTools(toolCalls);
+
+      const deliveryPromise = registeredWithoutDelivery
+        ? detectUnsupportedDeliveryPromise(safeOutput.text)
+        : null;
 
       if (deliveryPromise) {
         logger.error('Agent promised an automatic delivery that nothing performs', {
@@ -2339,7 +2360,7 @@ export class SlackEventsHandler {
       await progress.resolve(
         safeOutput.text +
           (unsupportedClaim ? UNSUPPORTED_CLAIM_NOTICE : '') +
-          (deliveryPromise ? PROMISED_DELIVERY_NOTICE : '') +
+          (registeredWithoutDelivery ? PROMISED_DELIVERY_NOTICE : '') +
           (excerptCoverage ? `\n\n${excerptCoverage}` : '') +
           recipientNotice +
           (pendingEmailReminder ? `\n\n${pendingEmailReminder}` : ''),
@@ -3933,7 +3954,14 @@ export { GENERIC_FAILURE, QUOTA_FAILURE, userFacingFailure };
 export { FOREIGN_TURN_PREFIX, buildContextPreamble, sanitizeDisplayName };
 
 // Réexports de la réconciliation FAIT/NARRATION — trois tests les importent depuis ici.
-export { UNSUPPORTED_CLAIM_NOTICE, detectUnsupportedCompletionClaim, readToolCallNames };
+export {
+  UNSUPPORTED_CLAIM_NOTICE,
+  // ⚠️ RÉEXPORTÉE le 2026-08-20 : elle est désormais accolée sur une condition de CÂBLAGE et
+  // non de texte, donc le seul endroit où ce comportement se vérifie est le handler.
+  PROMISED_DELIVERY_NOTICE,
+  detectUnsupportedCompletionClaim,
+  readToolCallNames,
+};
 
 export { buildProfileInviteBlocks, buildWelcomeBlocks };
 

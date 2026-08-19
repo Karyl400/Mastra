@@ -17,6 +17,7 @@ import {
   readToolCallNames,
   FOREIGN_TURN_PREFIX,
   UNSUPPORTED_CLAIM_NOTICE,
+  PROMISED_DELIVERY_NOTICE,
   userFacingFailure,
   GENERIC_FAILURE,
   QUOTA_FAILURE,
@@ -2119,6 +2120,64 @@ describe('SlackEventsHandler — réconciliation fait / narration', () => {
     await handler.handleEvent(envelope(dm({ text: 'envoie le guide', ts: nextTs() }), 'EvRC4'));
 
     expect(lastPosted(slack)).toContain(UNSUPPORTED_CLAIM_NOTICE.trim());
+  });
+
+  /* ─────────────────────────────────────────────────────────────────────────
+   * LA PROMESSE D'AVENIR — la note ne dépend plus du TEXTE mais du CÂBLAGE
+   *
+   * ⚠️ TROISIÈME occurrence, et c'est celle qui ferme le débat. La liste fermée de formules a
+   * été élargie deux fois pour la même cause : « planifié » le 2026-08-19 au matin, puis
+   * « programmé » le tour SUIVANT. Le 2026-08-20, le modèle a trouvé un troisième logement :
+   *
+   *     « Rappel enregistré pour Karyl : relire le guide d'accueil le jeudi 20 août à 17 h. »
+   *
+   * AUCUN mot de promesse. Le verbe est celui du tool lui-même — le seul honnête — et c'est la
+   * DATE accolée qui fait la promesse. Aucune liste de mots ne peut couvrir ça : ce qui promet
+   * n'est pas un mot, c'est une juxtaposition.
+   *
+   * La condition porte donc sur le CÂBLAGE, qui est certain : quand le seul outil AGISSANT du
+   * tour rend `willBeSentAutomatically: false`, « rien ne l'enverra » est vrai QUELLE QUE SOIT
+   * la formulation. Il n'y a rien à détecter — seulement à dire.
+   * ───────────────────────────────────────────────────────────────────────── */
+
+  it('accole la note même SANS aucun mot de promesse — c’est la date qui promet', async () => {
+    const agent = makeAgentMock({
+      text: "Rappel enregistré pour Karyl : relire le guide d'accueil le jeudi 20 août à 17 h.",
+      toolCalls: [{ type: 'tool-call', payload: { toolName: 'scheduleReminder' } }],
+    });
+    const { handler, slack } = makeHandler({ mastra: agent.mastra });
+
+    await handler.handleEvent(envelope(dm({ text: 'rappel pour Karyl', ts: nextTs() }), 'EvPD1'));
+
+    expect(lastPosted(slack)).toContain(PROMISED_DELIVERY_NOTICE.trim());
+  });
+
+  it('ne l’accole JAMAIS quand un outil qui LIVRE a tourné', async () => {
+    // Le pire défaut possible pour un garde-fou d'honnêteté serait de démentir une réponse
+    // juste : `sendNotification` transporte vraiment.
+    const agent = makeAgentMock({
+      text: 'Le message est parti à Karyl.',
+      toolCalls: [{ type: 'tool-call', payload: { toolName: 'sendNotification' } }],
+    });
+    const { handler, slack } = makeHandler({ mastra: agent.mastra });
+
+    await handler.handleEvent(envelope(dm({ text: 'préviens Karyl', ts: nextTs() }), 'EvPD2'));
+
+    expect(lastPosted(slack)).not.toContain(PROMISED_DELIVERY_NOTICE.trim());
+  });
+
+  it('ne l’accole pas non plus quand SEULES des lectures ont tourné', async () => {
+    // C'est alors l'AUTRE détecteur qui parle, et deux notes accolées à la même réponse se
+    // contrediraient : l'une dit « rien n'a été exécuté », l'autre « c'est enregistré ».
+    const agent = makeAgentMock({
+      text: 'Voici ce que je trouve.',
+      toolCalls: [{ type: 'tool-call', payload: { toolName: 'getNotificationHistory' } }],
+    });
+    const { handler, slack } = makeHandler({ mastra: agent.mastra });
+
+    await handler.handleEvent(envelope(dm({ text: 'historique', ts: nextTs() }), 'EvPD3'));
+
+    expect(lastPosted(slack)).not.toContain(PROMISED_DELIVERY_NOTICE.trim());
   });
 
   it('ne requalifie pas quand une lecture ACCOMPAGNE une action', async () => {
