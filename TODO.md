@@ -1,5 +1,41 @@
 # TODO.md — Kisso Onboarding
 
+## [0] RELEVÉ EN PRODUCTION LE 2026-08-19, PENDANT LE RE-TEST DU PARCOURS
+
+Deux défauts constatés en faisant tourner les quatre agents en production. Aucun n'est corrigé —
+ils sont hors du périmètre demandé, et les corriger à la volée aurait mêlé du travail non
+vérifié à un lot qui l'est.
+
+- [ ] **`notificationAgent` annonce « Rappel PLANIFIÉ » et se trompe de jour.** Réponse
+      littérale à « planifie un rappel pour Karyl : relire le guide d'accueil avant lundi » :
+      « Rappel planifié : … à 09 h 00 le **lundi 22 août 2026** ». Le 22 août 2026 est un
+      **samedi**, et « avant lundi » désignait le 24. Vérifié en base : `scheduled_at` vaut bien
+      `2026-08-22T09:00:00Z`.
+
+      Deux fautes distinctes, et la seconde est la plus intéressante :
+      1. Le mot « planifié » — `scheduleReminder` rend pourtant `willBeSentAutomatically: false`
+         et sa description dit « enregistre ». Aucun automate ne reprend `status: 'scheduled'`.
+         ⚠️ La réconciliation FAIT/NARRATION ne rattrape rien ici : un outil a bien tourné, donc
+         elle se tait par conception.
+      2. Le jour de la semaine est écrit par le MODÈLE, à côté d'une date qu'il a lui-même
+         calculée, et rien ne les confronte. `recruitmentAgent` ne peut pas commettre cette
+         faute : son libellé est rendu par un gabarit (`interview-schedule.ts`) à partir de la
+         date, et il a produit « mardi 15 septembre 2026 » — exact. La correction est du même
+         ordre : faire rendre la phrase par le code, pas par le modèle.
+
+- [ ] **`findExpertise` ignore `onboarding_interview.daily_work`.** « qui s'occupe du support
+      technique ? » a rendu « aucun collaborateur n'est identifié » alors que la personne venait
+      d'écrire, dans l'entretien, qu'elle fait du support technique. La réponse est HONNÊTE — la
+      donnée est simplement ailleurs — mais l'entretien est le seul endroit où quelqu'un décrit
+      son métier avec ses mots, et c'est précisément ce qu'une recherche d'expertise cherche.
+      Correctif à coût nul en tokens : c'est une jointure, pas un aller-retour de plus.
+
+- [ ] **La suite de tests reste à quelques centaines de millisecondes du délai de 5 s.**
+      `pinned-facts.test.ts` a été rendu hermétique le 2026-08-19 ; `profile-form-shortcut.test.ts`
+      et `slack-events.handler.test.ts` n'injectent toujours pas `accessGuard`, donc un
+      `users.info` part réellement vers slack.com avec le jeton de test. Voir l'encadré de
+      `CLAUDE.md` sur les SIX dépendances à neutraliser.
+
 ## [0 preamble] CE QUI RESTE APRÈS LE 2026-08-18
 
 Journée consacrée à quatre demandes : KISS/SOLID, les boutons, l'exécution réelle des agents, et

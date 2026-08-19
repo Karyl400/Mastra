@@ -1,5 +1,109 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## [Unreleased] - 2026-08-19 — la vidéo d'accueil, et deux trous sur le chemin du parcours
+
+### Added — la vidéo tutorielle entre dans le parcours, servie par le CDN
+
+`tuto_complétion_de_profil.mp4` (54 s, 7,4 Mio) est publié en actif STATIQUE
+(`public/onboarding/` → `.vercel/output/static/`) et servi par le CDN Vercel. Il n'entre PAS
+dans `index.func` : le poste de coût numéro un du produit est le démarrage à froid (4,9 s
+mesurées le 2026-08-18, dominé par le dépaquetage du bundle), et 7 Mio l'auraient aggravé à
+CHAQUE invocation pour un fichier lu quelques fois par mois. Vérifié après build : aucun `.mp4`
+sous `functions/`.
+
+Corollaire de routage : le déployeur Mastra écrit `routes: [{src:'/(.*)',dest:'/'}]`, donc
+l'actif partait à la fonction et aurait répondu 404. La phase `{handle:'filesystem'}` est
+insérée en tête ; elle ne peut masquer que les chemins réellement présents dans `public/`, dont
+aucun ne commence par `/api` ni `/slack` — vérifié en production après déploiement (401 sur
+`/slack/events` non signé, 400 sur un `requestContext` forgé, en-têtes de sécurité intacts).
+
+**L'URL est DÉDUITE du domaine de production**, plus posée à la main : l'actif est servi par
+notre propre déploiement, donc son URL est connue du code. `ONBOARDING_VIDEO_URL` reste acceptée
+et prime, mais n'est plus nécessaire — deux choses qui doivent s'accorder sont deux choses qui
+divergent. ⚠️ Le pendant obligatoire : le **build échoue** si l'actif manque, sinon plus rien ne
+signalerait sa disparition et le premier message de l'entreprise à un arrivant pointerait vers
+un 404.
+
+Mesuré en production : `https://mastra-71ya.vercel.app/onboarding/tuto-completion-de-profil.mp4`
+→ 200, `content-type: video/mp4`, `accept-ranges: bytes`, et la ligne apparaît réellement dans
+le message d'accueil sans qu'aucune variable n'ait été posée.
+
+⚠️ Une affirmation fausse corrigée au passage : le message promettait « deux minutes, tout y
+est » sur une vidéo qui n'existait pas encore, donc sans rien à vérifier. Elle dure 54 secondes.
+
+### Fixed — « c'est fait » était facturé sur un quota qu'il ne consomme pas
+
+`runProfileDoneCheck` lit un dossier et rend un verdict écrit en dur : zéro token. Il n'était
+pourtant pas dans le miroir `isAnsweredWithoutModel`, donc le plafond quotidien (12 messages par
+personne) le comptait — une personne ayant beaucoup écrit dans la journée recevait « J'ai
+atteint mon quota » en réponse au geste même qui fait avancer son accueil. Mot pour mot le
+défaut corrigé le 2026-08-15 pour la salutation et la détresse, réapparu sur un chemin ajouté
+depuis.
+
+`profile_done` devient la NEUVIÈME entrée de `DETERMINISTIC_REPLIES`, à l'endroit où elle
+s'exécute réellement, et le handler ne réécrit plus le prédicat : une seule déclaration, donc
+aucune divergence possible entre ce qui est exécuté et ce qui est facturé. ⚠️ `isDirectMessage`
+entre pour la première fois dans une DÉCISION de la table — il le peut parce qu'il est
+disponible à l'ACK sans aucune E/S. En canal la vérification est refusée, donc le message part
+chez un agent : le compter gratuit y ouvrirait un contournement du quota en une phrase.
+
+### Fixed — une question d'entretien absorbait « oublie ce que je t'ai dit »
+
+`captureInterviewAnswer` accepte presque n'importe quel texte, et c'est sa nature. Tant qu'une
+question était en attente, l'effacement n'avait donc pas lieu ET la phrase était enregistrée
+comme la description du métier de la personne — champ imprimé dans un document à son nom sous
+« Ton quotidien ». Un droit non exercé, et une donnée fausse écrite sous l'identité de
+quelqu'un.
+
+Le commentaire de `handleMessage` affirmait pourtant déjà « effacer ses données reste
+prioritaire sur répondre à une question d'accueil » : le code disait l'inverse de sa propre
+documentation. L'entretien cède désormais le pas à tout court-circuit agissant, avec un test de
+non-régression dans les deux sens.
+
+Constaté en base au passage : `onboarding_interview.daily_work` valait « je n'ai pas fini » pour
+le seul dossier actif — capture de l'essai de la veille, antérieure au correctif. Le re-test du
+parcours l'a écrasée par une vraie réponse.
+
+### Fixed — la suite de tests échouait 2 fois sur 9 sans rien de cassé
+
+Les fichiers de handler qui n'injectent pas `directoryRepository` font fabriquer un dépôt
+Drizzle AWAITÉ sur le chemin nominal (≈ 250 ms de SQLite par message, 2 s au premier) ; ceux qui
+n'injectent pas `accessGuard` font partir un `users.info` RÉELLEMENT vers slack.com avec le
+jeton de test — 3 s mesurées, back-off du client compris. Des tests à quelques centaines de
+millisecondes du délai de 5 s basculent en rouge dès que la machine travaille, et ce rouge ne
+désigne jamais sa cause.
+
+⚠️ `CLAUDE.md` disait « les QUATRE dépendances qui touchent la base ». Il y en a SIX, et les deux
+oubliées sont les plus chères. `directoryRepository: null` est d'ailleurs PIRE que l'absence :
+l'identité retombe sur le même `users.info` réseau. Il faut une doublure qui répond.
+
+### Vérifié en production — parcours complet et quatre agents
+
+Parcours : invitation (vidéo + guide + « C'est fait ») → vérification du dossier → « Parlons de
+toi » → deux questions → réponses persistées dans `onboarding_interview`. ACK entre 1,9 et 2,9 s,
+zéro appel de modèle sur tout le chemin.
+
+Quatre agents, un message chacun, chacun ayant appelé exactement l'outil attendu en 2 étapes :
+`onboardingOrchestrator`/`getEmployeeProfile` (3 755 tokens), `knowledgeAgent`/`findExpertise`
+(3 188), `notificationAgent`/`scheduleReminder` (4 282), `recruitmentAgent`/
+`scheduleCandidateInterview` (3 624). Le palier THÉMATIQUE a délogé le fil trois fois sur
+quatre (`sticky: false` dans les journaux) : c'est le routage par CAPACITÉ qui fonctionne, et
+c'est aussi la seule chose qui ressemble à « un agent qui en interroge un autre » — **aucun
+mécanisme de délégation n'existe**, aucun agent ne porte d'outil menant à un autre.
+
+### Relevé — deux défauts trouvés pendant le re-test, NON corrigés
+
+1. `notificationAgent` a répondu « Rappel **planifié** … lundi 22 août 2026 ». Le 22 août 2026
+   est un **samedi**, et « avant lundi » désignait le 24. La phrase est écrite par le modèle, pas
+   par un gabarit : rien ne recalcule le jour de la semaine à partir de la date, contrairement à
+   `interview-schedule.ts` qui l'a fait correctement pour « mardi 15 septembre 2026 ».
+   `scheduleReminder` rend pourtant `willBeSentAutomatically: false` — la réconciliation
+   FAIT/NARRATION ne rattrape rien ici, un outil ayant bien tourné.
+2. `findExpertise` ne regarde pas `onboarding_interview.daily_work`. « qui s'occupe du support
+   technique ? » a rendu « aucun collaborateur identifié » alors que la personne venait
+   d'écrire, dans l'entretien, qu'elle fait du support technique. La réponse est honnête, la
+   donnée est simplement ailleurs.
+
 ## [Unreleased] - 2026-08-18 — sécurité, boutons, ton, et zéro warning
 
 ### Security — les deux SEULS écrivains exposés sans garde d'autorisation

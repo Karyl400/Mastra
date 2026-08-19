@@ -41,9 +41,19 @@
 > touchée par les tests). Mais tout handler construit sans `rateLimiter` injecté fabrique un
 > `DrizzleRateLimitRepository` : compteurs partagés entre tests et persistés d'un run à l'autre,
 > onze tests d'`accept()` en `rate_limited` dès que `rate_limit_counters` existe. Toute
-> construction manuelle d'un `SlackEventsHandler` en test doit neutraliser les **quatre**
-> dépendances qui touchent la base — `conversationRepository`, `dedupRepository`, `rateLimiter`
-> et, depuis le 2026-08-14, `pinnedFactRepository`.
+> construction manuelle d'un `SlackEventsHandler` en test doit neutraliser **SIX** dépendances
+> — `conversationRepository`, `dedupRepository`, `rateLimiter`, `pinnedFactRepository` (depuis
+> le 2026-08-14) et, recensées le 2026-08-19, `directoryRepository` et `accessGuard`.
+>
+> ⚠️ Ces deux dernières sont les plus chères, et leur oubli ne produit pas un échec mais une
+> LENTEUR : sans `directoryRepository`, un dépôt Drizzle est fabriqué puis AWAITÉ sur le chemin
+> nominal (≈ 250 ms de SQLite par message, 2 s au premier) ; sans `accessGuard`, un `users.info`
+> part RÉELLEMENT vers slack.com avec le jeton de test — 3 s mesurées, back-off du client
+> compris. Des tests à quelques centaines de millisecondes du délai de 5 s basculent en rouge dès
+> que la machine travaille, et ce rouge ne désigne jamais sa cause : la suite a échoué deux fois
+> sur neuf exécutions le 2026-08-19, sans qu'aucun comportement ne soit cassé.
+> ⚠️ `directoryRepository: null` est PIRE que l'absence — l'identité retombe sur le même
+> `users.info` réseau. Il faut une doublure qui RÉPOND, pas un trou.
 >
 > Ce que la campagne a établi et qui change la doctrine du projet : **la limite qui casse la
 > production n'est PAS le seau Groq par minute mais le quota JOURNALIER (≈ 19 messages/jour)**,
@@ -348,13 +358,26 @@ verrouillent cette règle : `tests/unit/quality/architecture.test.ts` et `code-a
   `test`) gardent le seul pluriel `s?`. Ouvrir la tolérance à tous ferait revenir les faux
   positifs d'origine.
 
-**HUIT court-circuits déterministes répondent SANS aucun appel de modèle** (2026-08-14). Ils
-vivent dans `handleMessage`, dans cet ordre : salutation nue (`shared/greeting.ts`), pièce
-jointe (`subtype: file_share`), message sans contenu textuel et message trop long
-(`shared/message-shape.ts`), détresse (`shared/distress.ts`), **demande d'effacement**
-(`shared/forget.ts`), **mémorisation explicite** (`shared/pin-fact.ts`) et **demande du
-formulaire de profil** (`shared/profile-request.ts`). Chacun est un prédicat pur + une réponse
-écrite en dur, et coûte **zéro token** sur un quota qui se compte à la journée.
+**NEUF court-circuits déterministes répondent SANS aucun appel de modèle** (2026-08-14, un
+neuvième le 2026-08-19). Ils vivent dans `handleMessage`, dans cet ordre : salutation nue
+(`shared/greeting.ts`), pièce jointe (`subtype: file_share`), message sans contenu textuel et
+message trop long (`shared/message-shape.ts`), détresse (`shared/distress.ts`), **déclaration
+de profil terminé** (`shared/profile-done.ts`), **demande d'effacement** (`shared/forget.ts`),
+**mémorisation explicite** (`shared/pin-fact.ts`) et **demande du formulaire de profil**
+(`shared/profile-request.ts`). Chacun est un prédicat pur + une réponse écrite en dur, et coûte
+**zéro token** sur un quota qui se compte à la journée.
+
+⚠️ Le neuvième — `profile_done` — est le seul dont la reconnaissance dépende d'un critère NON
+textuel entrant dans la décision : `isDirectMessage`. En canal la vérification est refusée (elle
+exposerait à des témoins ce qui manque au dossier d'autrui), donc le message part réellement chez
+un agent — le compter gratuit y ouvrirait un contournement du quota en une phrase. Le critère
+peut entrer dans le miroir parce qu'il est disponible à l'ACK sans aucune E/S (`channel_type`).
+
+⚠️ **L'entretien conversationnel CÈDE LE PAS à ces court-circuits** (2026-08-19).
+`captureInterviewAnswer` accepte presque n'importe quel texte — on demande à quelqu'un de décrire
+son métier avec ses mots. Une question en attente absorbait donc « oublie ce que je t'ai dit » :
+l'effacement n'avait pas lieu, ET la phrase était enregistrée comme la description du métier de
+la personne, champ imprimé dans un document à son nom.
 
 **Le septième — `profile-request.ts` — donne un chemin vers le formulaire aux personnes DÉJÀ
 présentes.** `buildWelcomeBlocks` était le SEUL émetteur du bouton « Compléter mon profil », et
@@ -419,7 +442,11 @@ une garantie : seul un cron en serait une, et ce projet n'en a aucun.
   bien ». `DAILY_RULE` porte donc `rationsModelBudget: true` et est ni consultée ni incrémentée
   quand `isAnsweredWithoutModel(event)` est vrai ; `BURST_RULE`, elle, s'applique toujours.
   ⚠️ `isAnsweredWithoutModel` doit rester le MIROIR EXACT des court-circuits de `handleMessage`
-  — les huit. Un test vérifie ce contrat sur les deux ajouts du 2026-08-14.
+  — les neuf. Un test vérifie ce contrat entrée par entrée, avec une charge d'essai par nom :
+  un ajout à la table sans charge d'essai fait rougir le test. Le neuvième (`profile_done`,
+  2026-08-19) manquait au miroir et était donc FACTURÉ alors qu'il ne coûte rien — une personne
+  ayant atteint ses 12 messages du jour recevait « J'ai atteint mon quota » en réponse au geste
+  même qui fait avancer son accueil.
 - Vérifiable en production sans rien dépenser :
   `npx tsx --env-file=.env scripts/probe-deterministic-replies.mts`.
 
@@ -936,6 +963,7 @@ réussi le 2026-08-11 ; l'ancienne mention « ABSENT » était fausse).
 | `BREVO_API_KEY`         | Envoi email — **repli** uniquement (compte non activé, voir Pièges) |
 | `NOTIFICATION_FROM`     | Expéditeur email                                 |
 | `ONBOARDING_WELCOME_CHANNELS` | Noms de canaux publics (séparés par des virgules) où tout nouvel arrivant est invité au `team_join`. Vide ou absente ⇒ aucune invitation, et une ligne en `warn` |
+| `ONBOARDING_VIDEO_URL`  | **Facultative depuis le 2026-08-19.** La vidéo d'accueil est un actif STATIQUE du déploiement (`public/onboarding/` → `.vercel/output/static/`, servi par le CDN, jamais par la fonction) et son URL est DÉDUITE de `VERCEL_PROJECT_PRODUCTION_URL`. Cette variable ne sert plus qu'à héberger la vidéo ailleurs ; elle prime quand elle est posée. ⚠️ Le build **échoue** si l'actif manque — sans configuration à poser, plus rien d'autre ne signalerait sa disparition, et le premier message de l'entreprise à un arrivant pointerait vers un 404 |
 | `LOG_LEVEL`, `NODE_ENV` | `debug\|info\|warn\|error`, `development\|staging\|production\|test` |
 
 Ne **jamais** logger la valeur d'une clé d'API — uniquement sa présence (`Boolean(...)`).
