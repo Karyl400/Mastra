@@ -606,16 +606,42 @@ un humain relit, un clic envoie.
   ISO, poste, lieu. Le sujet et le corps sont rendus par un GABARIT
   (`recruitment/domain/services/interview-email.ts`). Le pire cas d'une injection réussie est
   donc un spam d'invitation, jamais une fuite — il n'y a rien à exfiltrer par ce chemin.
-- **Le tool n'envoie JAMAIS.** Il rend `status: 'awaiting_confirmation'` et poste une carte
-  Block Kit ; l'envoi vit dans `slack-interactions.route.ts`, hors de portée du modèle.
+- **Le tool n'envoie JAMAIS.** Il rend `status: 'awaiting_confirmation'`, enregistre la
+  préparation dans `pending_interview_email` et pose une QUESTION en texte ; l'envoi vit dans
+  `handleMessage`, hors de portée du modèle.
   ⚠️ La réconciliation FAIT/NARRATION ne rattraperait PAS un « c'est envoyé » ici — un outil a
   bien tourné, donc elle se tait par conception. Le verdict et l'instruction de l'agent sont
   les seuls garde-fous.
-- ⚠️ **Le bouton ne transporte que des CHAMPS**, jamais le corps. Le sujet et le corps sont
-  RE-RENDUS à l'envoi et la date RE-VALIDÉE : transporter le corps ferait de ce bouton un moyen
-  d'envoyer un texte arbitraire à une adresse arbitraire — la primitive que toute la feature est
-  construite pour ne pas offrir. Le cliqueur est comparé au demandeur (`requesterUserId`) : la
-  carte est visible de tous ceux qui voient le fil.
+- ⚠️ **LE BOUTON « ENVOYER » A DISPARU LE 2026-08-19** — remplacé par « oui » / « non ». Un clic
+  ne réussit que si la fonction Vercel est chaude, et à ≈ 19 messages/jour le cas froid EST le
+  cas nominal. La branche `send_interview_email` de `slack-interactions.route.ts` subsiste pour
+  les cartes DÉJÀ postées dans Slack, que rien ne rappelle ; aucun code ne les émet plus.
+- ⚠️ **La table ne porte que des CHAMPS**, jamais le corps — c'était le contrat du `value` du
+  bouton, et il n'a pas changé de support. Le sujet et le corps sont RE-RENDUS au « oui » et la
+  date RE-VALIDÉE : les stocker ferait de ce chemin un moyen d'envoyer un texte arbitraire à
+  une adresse arbitraire, la primitive que toute la feature est construite pour ne pas offrir.
+  Le répondant est comparé au demandeur (`requesterUserId`) : la question est visible de tous
+  ceux qui voient le fil.
+- ⚠️ **`clear()` REND UN COMPTE, et la suppression EST la prise.** On efface AVANT d'envoyer et
+  l'on n'envoie que si l'on a bien pris : deux « oui » routés vers deux instances ne peuvent
+  pas envoyer deux fois, la seconde rendant 0. Un `find` puis un `delete` conditionnel — la
+  forme « naturelle » — rouvrirait cette course, et son symptôme serait un candidat convoqué
+  deux fois. Sur échec de transport on REND la prise : rien n'est parti, réessayer est légitime.
+  Le contrat est verrouillé sur les DEUX implémentations par la même suite
+  (`tests/unit/recruitment/pending-email-repository.test.ts`) — c'est la doublure in-memory qui
+  décide, dans tous les tests du handler, si le second « oui » envoie.
+- ⚠️ **LA QUESTION D'ACCUEIL PRIME sur le « oui ».** Si une question de profil ou d'entretien
+  attend, la réponse lui est destinée bien plus probablement, et les deux erreurs ne se valent
+  pas : capturer « oui » comme un prénom se corrige d'un message, envoyer une invitation à un
+  candidat ne se corrige pas. On DIFFÈRE, en rappelant.
+- **Le RAPPEL sur changement de sujet** est ACCOLÉ à la réponse de l'agent, jamais posté à part.
+  La personne parle d'autre chose : on lui répond, et l'email reste en attente.
+- ⚠️ `shared/confirmation.ts` est strict par construction — trois défauts y ont été trouvés par
+  des tests adverses, dont deux préexistants : la borne de longueur était mesurée APRÈS
+  normalisation (or la normalisation retire la ponctuation finale, donc « oui » suivi de cinq
+  mille `!` passait) ; « Oui ! » laissait un espace après retrait du `!` et n'était reconnu par
+  aucun motif ; et **« n'envoie pas » tapé sur un téléphone** (apostrophe TYPOGRAPHIQUE U+2019)
+  n'était reconnu par aucun motif de refus — le cas le plus fréquent était le cas non couvert.
 - **La DATE est le seul champ transcrit depuis la phrase humaine**, donc le seul vecteur
   d'erreur restant. Deux bornes l'encadrent — strictement future (attrape l'erreur d'ANNÉE, la
   plus fréquente : un modèle écrit volontiers l'année de son entraînement) et moins d'un an
@@ -851,6 +877,14 @@ La complétion de profil est donc devenue un ÉCHANGE ÉCRIT
 (`onboarding/domain/services/profile-chat.ts`), comme l'entretien avant elle : quatre questions
 au plus, une par message, **zéro token**, l'état reconstitué du fil et le dossier existant en
 socle. Le traitement de `view_submission` est conservé mais INATTEIGNABLE — voir `TODO.md`.
+
+⚠️ **IL NE RESTE AUCUN BOUTON SUR LE CHEMIN NOMINAL — 2026-08-19.** Les quatre `action_id` ont
+été retirés au fur et à mesure et pour la MÊME cause, jamais pour une préférence :
+« Compléter mon profil » et « Parlons de toi » (modales, `trigger_id` périmé), « C'est fait »
+(remplacé par « j'ai fini » et ses synonymes, `shared/profile-done.ts`, MÊME verdict — 
+`verifyProfile` est partagé, pas réécrit) et « Envoyer » (remplacé par « oui » / « non »).
+Les branches correspondantes de `slack-interactions.route.ts` subsistent uniquement pour les
+cartes DÉJÀ postées dans Slack, que rien ne rappelle. **Aucun code n'en émet plus.**
 
 **Le bundle est élagué par ATTEIGNABILITÉ à chaque build** (`fix-vercel-output.js`) : le graphe
 des `import`/`require` littéraux est calculé depuis les modules racines, et les paquets
@@ -1502,6 +1536,26 @@ Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_K
   « aucun agent ne peut produire de PDF » est **caduque**). Il produit un fichier réel (PDF ou
   DOCX), l'enregistre, l'uploade dans le fil Slack d'où vient la demande ou l'envoie en pièce
   jointe, et retourne un **verdict**.
+  - ⚠️ **IL SAIT AUSSI CORRIGER depuis le 2026-08-19** — champ optionnel `revises`. La cause
+    était écrite dans ce fichier depuis le 2026-08-12 et n'avait jamais été traitée : *« le
+    système ne sait que CRÉER — il n'existe aucun outil de relecture de document, donc refaire
+    est la seule action que le modèle puisse entreprendre quand on lui demande "où en est-ce ?"
+    »*. D'où les **7 documents et 3 emails identiques en 8 minutes**. La garde d'idempotence a
+    étouffé le symptôme ; ce champ referme la cause.
+    - **UN CHAMP, jamais un second tool** : un tool de plus est un schéma réémis à CHAQUE
+      aller-retour de l'agent qui le porte (≈ 150 tokens). Mesuré : **+37 tokens**, contre
+      ≈ 1 500 pour l'aller-retour épargné. L'identifiant vient du tool-result précédent.
+    - Même identifiant, `update` et non `save`, `createdAt` préservé, document **RELIVRÉ** — une
+      correction que personne ne reçoit n'en est pas une.
+    - ⚠️ **La garde d'idempotence aurait rejeté la correction** : sa clé porte le titre, le type
+      et le format, dont aucun ne change quand on corrige un texte. Le modèle aurait annoncé
+      avoir corrigé alors que rien n'aurait bougé — la garde retournée contre son propre but.
+      Une empreinte du contenu entre donc dans la clé sur ce chemin, et sur ce chemin seulement.
+    - ⚠️ **UN SEUL VERDICT** pour « ce document n'existe pas » et « il appartient à quelqu'un
+      d'autre » : les distinguer ferait de ce champ un ORACLE d'existence, un identifiant à la
+      fois. Même règle que le chemin email de `getEmployeeProfile`.
+    - ⚠️ **Aucun repli sur une création** en cas d'échec : le modèle annoncerait « j'ai corrigé »
+      alors qu'il viendrait de produire un second document — un mensonge fabriqué par le repli.
   - **Il n'existe toujours AUCUNE URL de téléchargement dans ce système** — le fichier est livré
     par upload. C'est l'histoire à retenir : sommé de livrer un document qu'il ne pouvait pas
     produire, le modèle a inventé la seule chose qu'il savait fabriquer, le faux lien

@@ -1,5 +1,35 @@
 # TODO.md — Kisso Onboarding
 
+## [0] LOT « PLUS AUCUN BOUTON » — 2026-08-19 (nuit)
+
+### Livré et vert en local
+
+- [x] Le texte d'accueil remplace « Compléter mon profil » ; « j'ai fini » et ses synonymes
+      remplacent « C'est fait » ; MÊME verdict (`verifyProfile` partagé). Commit `2de094e`.
+- [x] « Envoyer » devient « oui » / « non ». Table `pending_interview_email`, `clear()` rendant
+      un COMPTE (la suppression EST la prise), rappel accolé sur changement de sujet, priorité
+      à la question d'accueil. Commit `38deac9`.
+- [x] `revises` sur `generateDocument` : corriger un document sans en produire un second.
+      Commit `c994c61`.
+- [x] **DDL `pending_interview_email` APPLIQUÉ sur la Turso de production** le 2026-08-19,
+      vérifié : 9 colonnes, 0 ligne. ⚠️ Ordre respecté — DDL d'abord, déploiement ensuite.
+- [x] `scripts/apply-ddl.mts` MENTAIT : son motif `/ON\s+/` matchait à l'intérieur de la
+      colonne « positi**on**   TEXT », donc il vérifiait une table nommée `TEXT` et concluait
+      « ⚠️ ABSENTE » sur une table qu'il venait de créer correctement. Corrigé : `ON` n'est
+      cherché que dans un `CREATE INDEX`, avec une frontière de mot. Non-régression vérifiée sur
+      deux DDL à index.
+
+### Reste à faire sur ce lot
+
+- [ ] **Déployer, puis retester le parcours complet en production** — c'est la demande
+      explicite, et rien de ce qui précède n'est vérifié côté Slack.
+- [ ] Le `hint` de `scheduleCandidateInterview` dit « affiché au-dessus, avec la question » :
+      à relire dans une vraie réponse d'agent, c'est le seul texte que le modèle reformule.
+- [ ] `recruitmentAgent` exige encore une date ISO 8601 d'un humain (recensé le 2026-08-19,
+      non corrigé) : « le 20 août à 14h » doit suffire.
+
+---
+
 ## [0] CAMPAGNE DE PRODUCTION DU 2026-08-19 (soir) — ce qu'elle a établi
 
 Déploiements `88hb6shko` → `ne5gg9sag` → `65utw20ho`. Tout ce qui suit est MESURÉ.

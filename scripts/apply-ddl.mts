@@ -73,7 +73,18 @@ for (const file of files) {
 
   for (const statement of statements) {
     const match = /(?:TABLE|INDEX)\s+(?:IF NOT EXISTS\s+)?["']?(\w+)/i.exec(statement);
-    const onTable = /ON\s+["']?(\w+)/i.exec(statement);
+    // ⚠️ `ON` n'est cherché QUE dans un `CREATE INDEX`, et avec une frontière de mot à gauche.
+    //
+    // Défaut CONSTATÉ le 2026-08-19 en appliquant `ddl-pending-interview-email.sql` : le motif
+    // `/ON\s+/` matchait à l'intérieur de la colonne « positi**on**   TEXT », donc la table
+    // retenue pour la vérification était… `TEXT`, et le script concluait « ⚠️ ABSENTE » sur une
+    // table qu'il venait de créer correctement. Un instrument qui dément un succès est pire
+    // qu'un instrument absent : il fait rejouer une migration réussie, ou douter d'elle.
+    //
+    // Même famille que le `\b` ASCII payé quatre fois dans ce dépôt — un motif de sous-chaîne
+    // là où il fallait un motif de MOT.
+    const isIndex = /^\s*CREATE\s+(?:UNIQUE\s+)?INDEX/i.test(statement);
+    const onTable = isIndex ? /(?<![\p{L}])ON\s+["']?(\w+)/iu.exec(statement) : null;
     if (match) touched.add((onTable ?? match)[1]);
 
     const label = statement.replace(/\s+/g, ' ').slice(0, 64);
