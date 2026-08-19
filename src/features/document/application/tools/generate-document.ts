@@ -21,7 +21,7 @@ import type {
   EmailProvider,
   FileUploadProvider,
 } from '../../../notification/domain/ports/providers';
-import { createDocument } from '../../domain/entities/document';
+import { createDocument, type Document } from '../../domain/entities/document';
 import { DEFAULT_TITLES } from '../../domain/services/document-template';
 import { uuidSchema } from '../../../../shared/validation';
 import { fullName } from '../../../../shared/name-matching';
@@ -107,6 +107,10 @@ type DeliveryVerdict = 'slack' | 'email' | 'none' | 'failed';
  * quoi il comble le vide — c'est la mécanique exacte du faux lien de téléchargement.
  */
 const HINTS = {
+  document_not_found:
+    "Aucun document ne porte cet identifiant pour cette personne : RIEN n'a été corrigé et " +
+    "rien n'a été créé. Ne prétends pas avoir corrigé. Redemande, ou produis un document neuf " +
+    'en omettant `revises`.',
   employee_not_found:
     "Aucun employé ne porte cet identifiant : rien n'a été généré. Ne l'invente pas, demande " +
     "l'email professionnel et passe par findEmployeeByEmail.",
@@ -251,6 +255,118 @@ async function readInterview(
   }
 }
 
+/**
+ * Empreinte COURTE d'un contenu, pour la seule clé de déduplication.
+ *
+ * ⚠️ Ce n'est PAS une garantie cryptographique et ça n'a pas à l'être : une collision ferait
+ * rejeter une correction comme un doublon dans une fenêtre de dix minutes, jamais fuir quoi
+ * que ce soit. Ce qu'on veut, c'est que deux contenus DIFFÉRENTS donnent presque toujours deux
+ * clés différentes — et que la clé reste courte, puisqu'elle vit en mémoire.
+ */
+function revisionFingerprintOf(revises: string | undefined, content: string): string | undefined {
+  return revises ? `${revises}:${fingerprint(content)}` : undefined;
+}
+
+function fingerprint(content: string): string {
+  let hash = 0;
+  for (let i = 0; i < content.length; i += 1) {
+    hash = (hash * 31 + content.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(36);
+}
+
+/**
+ * Le document à CORRIGER, ou un refus — jamais un repli sur une création.
+ *
+ * ⚠️ UN SEUL VERDICT pour deux causes : « ce document n'existe pas » et « ce document
+ * appartient à quelqu'un d'autre » se répondent à l'identique. Les distinguer ferait de ce
+ * champ un ORACLE d'existence, un identifiant à la fois — la règle déjà écrite pour le chemin
+ * email de `getEmployeeProfile`, qui passe l'identifiant RÉSOLU (ou `null`) à la garde pour que
+ * le refus soit indiscernable.
+ *
+ * ⚠️ Appelé APRÈS la frontière d'autorisation et APRÈS la résolution de l'employé, jamais
+ * avant : lire un document pour décider ensuite si l'on avait le droit de le lire, c'est
+ * l'avoir déjà lu.
+ */
+async function resolveRevisionTarget(
+  documentRepo: DocumentRepository,
+  revises: string | undefined,
+  employeeId: string,
+): Promise<{ refused: false; target?: { id: string; createdAt: string } } | { refused: true }> {
+  if (!revises) return { refused: false };
+
+  const existing = await documentRepo.findById(revises);
+  if (!existing || existing.employeeId !== employeeId) {
+    logger.warn('Correction refusée — document introuvable pour cette personne', {
+      documentId: revises,
+      employeeId,
+    });
+    return { refused: true };
+  }
+
+  return { refused: false, target: { id: existing.id, createdAt: existing.createdAt } };
+}
+
+/**
+ * Enregistre le document — TOUJOURS, quel que soit le sort de la livraison.
+ *
+ * ⚠️ `update` quand on CORRIGE, `save` sinon, et l'identifiant EXISTANT dans le premier cas :
+ * c'est toute la propriété du champ `revises`. Un UUID neuf ferait de « corrige » un synonyme
+ * de « refais », c'est-à-dire exactement le défaut des 7 documents identiques du 2026-08-12.
+ *
+ * Extrait de `execute` le 2026-08-19 : la correction y ajoutait cinq embranchements et portait
+ * la complexité cognitive au-dessus du seuil, or ce dépôt est à zéro warning depuis le
+ * 2026-08-18. Le corps est déplacé à l'identique.
+ */
+async function persistDocument(
+  documentRepo: DocumentRepository,
+  params: {
+    revised: { id: string; createdAt: string } | undefined;
+    employeeId: string;
+    type: DocumentType;
+    title: string;
+    content: string;
+    format: DocumentFormat;
+    delivery: DeliveryVerdict;
+  },
+): Promise<Document> {
+  const { revised, delivery } = params;
+
+  const doc = createDocument({
+    id: revised?.id ?? crypto.randomUUID(),
+    employeeId: params.employeeId,
+    type: params.type,
+    title: params.title,
+    content: params.content,
+    format: params.format,
+  });
+
+  const now = new Date().toISOString();
+  const generated: Document = {
+    ...doc,
+    // `createDocument` repose un `createdAt` à l'instant présent : sur une correction, ce
+    // serait effacer la date de production réelle du document.
+    createdAt: revised ? revised.createdAt : doc.createdAt,
+    // `Sent` n'est pas cosmétique : c'est la seule trace persistée d'une livraison réussie,
+    // la seule façon de savoir après coup si un document est parti.
+    status:
+      delivery === 'slack' || delivery === 'email' ? DocumentStatus.Sent : DocumentStatus.Generated,
+    generatedAt: now,
+    updatedAt: now,
+  };
+
+  if (revised) await documentRepo.update(generated);
+  else await documentRepo.save(generated);
+
+  logger.info(revised ? 'Document corrigé' : 'Document généré', {
+    id: generated.id,
+    format: params.format,
+    delivery,
+  });
+
+  return generated;
+}
+
 export function makeGenerateDocument(deps: GenerateDocumentDeps) {
   const {
     documentRepo,
@@ -321,6 +437,19 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // Destination — un seul champ, valeurs auto-explicites, aucun `.describe()`.
       // Ni canal, ni thread, ni adresse : voir le modèle de menace en tête de fichier.
       deliverTo: z.enum(['slack', 'email', 'none']).optional().default('slack'),
+      // ⚠️ CORRIGER plutôt que REFAIRE — ajouté le 2026-08-19, et il ferme une cause écrite
+      // dans ce fichier depuis le 2026-08-12 : « le système ne sait que CRÉER — il n'existe
+      // aucun outil de relecture de document, donc refaire est la seule action que le modèle
+      // puisse entreprendre ». D'où les 7 documents identiques en 8 minutes. La garde
+      // d'idempotence a étouffé le symptôme ; ce champ referme la cause.
+      //
+      // ⚠️ UN CHAMP, JAMAIS UN SECOND TOOL : un tool de plus est un schéma de plus réémis à
+      // CHAQUE aller-retour de l'agent qui le porte (≈ 150 tokens), un champ optionnel en
+      // coûte une vingtaine. L'identifiant vient du tool-result précédent, que le modèle a
+      // déjà dans sa fenêtre.
+      revises: uuidSchema
+        .optional()
+        .describe('UUID d’un document à CORRIGER. Ne crée alors aucun second document.'),
     }),
     execute: async (data, ctx) => {
       // ---------------------------------------------------------------------
@@ -384,6 +513,12 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         type: data.type,
         format: data.format,
         title,
+        // ⚠️ Une CORRECTION change presque toujours le contenu, jamais le titre ni le type ni
+        // le format — c'est-à-dire aucun des composants de la clé. Sans cette empreinte, la
+        // garde rejetterait la correction comme un doublon et le modèle annoncerait avoir
+        // corrigé alors que rien n'aurait bougé : exactement la famille de mensonge que la
+        // garde elle-même a été écrite pour empêcher, retournée contre son propre but.
+        revisionFingerprint: revisionFingerprintOf(data.revises, content),
       });
 
       const previous = dedupKey
@@ -480,6 +615,35 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       }
 
       // ─────────────────────────────────────────────────────────────────────
+      // CORRECTION — on remplace une ligne, on n'en ajoute pas une seconde
+      // ─────────────────────────────────────────────────────────────────────
+      //
+      // ⚠️ RÉSOLU APRÈS la frontière d'autorisation et APRÈS l'employé, jamais avant : lire
+      // un document pour décider ensuite si l'on avait le droit de le lire, c'est avoir déjà
+      // lu.
+      //
+      // ⚠️ ET LE MÊME VERDICT DANS LES DEUX CAS — « ce document n'existe pas » et « ce
+      // document appartient à quelqu'un d'autre » se répondent à l'identique. Les distinguer
+      // ferait de ce champ un ORACLE d'existence, un identifiant à la fois : exactement la
+      // règle déjà écrite pour le chemin email de `getEmployeeProfile`, qui passe l'identifiant
+      // RÉSOLU (ou `null`) à la garde pour que le refus soit indiscernable.
+      //
+      // ⚠️ ON NE RETOMBE PAS SUR UNE CRÉATION en cas d'échec. Le modèle annoncerait « j'ai
+      // corrigé » alors qu'il vient de produire un SECOND document — la famille de mensonge
+      // que ce dépôt traque, avec la particularité qu'ici le mensonge serait fabriqué par le
+      // repli lui-même.
+      const revision = await resolveRevisionTarget(documentRepo, data.revises, data.employeeId);
+      if (revision.refused) {
+        return {
+          saved: false as const,
+          delivery: 'none' as DeliveryVerdict,
+          reason: 'document_not_found',
+          hint: HINTS.document_not_found,
+        };
+      }
+      const revised = revision.target;
+
+      // ─────────────────────────────────────────────────────────────────────
       // TRACE — un document produit POUR AUTRUI
       // ─────────────────────────────────────────────────────────────────────
       //
@@ -535,8 +699,8 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // ---------------------------------------------------------------------
       // Enregistrement — TOUJOURS, quel que soit le sort de la livraison
       // ---------------------------------------------------------------------
-      const doc = createDocument({
-        id: crypto.randomUUID(),
+      const generated = await persistDocument(documentRepo, {
+        revised,
         employeeId: data.employeeId,
         type: data.type,
         // Persistance : les valeurs ASSAINIES, jamais celles du modèle. Une ligne
@@ -545,23 +709,8 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         title,
         content,
         format: producedFormat,
+        delivery,
       });
-
-      const now = new Date().toISOString();
-      const generated = {
-        ...doc,
-        // `Sent` n'est pas cosmétique : c'est la seule trace persistée d'une livraison
-        // réussie, la seule façon de savoir après coup si un document est parti.
-        status:
-          delivery === 'slack' || delivery === 'email'
-            ? DocumentStatus.Sent
-            : DocumentStatus.Generated,
-        generatedAt: now,
-        updatedAt: now,
-      };
-
-      await documentRepo.save(generated);
-      logger.info('Document généré', { id: generated.id, format: producedFormat, delivery });
 
       // ---------------------------------------------------------------------
       // Tool-result — PROJETÉ, jamais l'entité
@@ -594,6 +743,11 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // tokens, payés à chaque document produit.
       const result = {
         saved: true as const,
+        // ⚠️ Présent UNIQUEMENT sur une correction : le bloc DOCUMENTS impose au modèle de
+        // dire ce qui a eu lieu, et « corrigé » n'est pas « produit ». Un booléen toujours
+        // présent coûterait ses tokens à chaque document, pour ne rien dire dans le cas
+        // fréquent.
+        ...(revised ? { revised: true as const } : {}),
         documentId: generated.id,
         format: producedFormat,
         delivery,
@@ -640,6 +794,7 @@ function resolveDeliveryIntent(params: {
   type: DocumentType;
   format: DocumentFormat;
   title: string;
+  revisionFingerprint?: string;
 }): { effectiveDeliverTo: DeliveryIntent; dedupKey: string | undefined } {
   const { slackCtx, title } = params;
   const data = params;
@@ -684,6 +839,7 @@ function resolveDeliveryIntent(params: {
     title,
     data.format,
     effectiveDeliverTo,
+    ...(params.revisionFingerprint ? [params.revisionFingerprint] : []),
   ]);
 
   return { effectiveDeliverTo, dedupKey };

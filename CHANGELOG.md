@@ -55,6 +55,33 @@ une fonction appelée sur chaque message Slack (jusqu'à 40 000 caractères). R�
 linéaire par construction, et non par une garde placée ailleurs. Même famille que le `\b`
 ASCII : un motif dont le coût réel ne se lit pas dans le motif.
 
+### Lot 3 — CORRIGER un document, plutôt qu'en produire un second
+
+La cause de fond était écrite dans `generate-document.ts` depuis le 2026-08-12 et n'avait
+jamais été traitée : *« le système ne sait que CRÉER — il n'existe aucun outil de relecture de
+document, donc refaire est la seule action que le modèle puisse entreprendre quand on lui
+demande "où en est-ce ?" »*. D'où les **7 documents et 3 emails identiques en 8 minutes** de
+cette date. La garde d'idempotence a étouffé le symptôme ; ce lot referme la cause.
+
+- **Un CHAMP optionnel `revises`, jamais un second tool.** Un tool de plus est un schéma de
+  plus réémis à CHAQUE aller-retour de l'agent qui le porte (≈ 150 tokens). Mesuré : le champ
+  coûte **+37 tokens** sur `generateDocument`, et il achète un aller-retour entier — poste de
+  coût dominant, ≈ 1 500 tokens. L'identifiant vient du tool-result précédent, que le modèle a
+  déjà dans sa fenêtre.
+- **Le MÊME identifiant, `update` et non `save`**, et `createdAt` préservé : `createDocument`
+  repose la date à l'instant présent, ce qui effacerait la date de production réelle.
+- **Le document corrigé est RELIVRÉ.** Une correction que personne ne reçoit n'en est pas une.
+- ⚠️ **La garde d'idempotence aurait rejeté la correction.** Sa clé porte le titre, le type et
+  le format — aucun des trois ne change quand on corrige un texte. Le modèle aurait annoncé
+  avoir corrigé alors que rien n'aurait bougé : la garde retournée contre son propre but. Une
+  empreinte du contenu entre donc dans la clé sur ce chemin, et sur ce chemin seulement.
+- ⚠️ **UN SEUL VERDICT pour deux causes.** « Ce document n'existe pas » et « ce document
+  appartient à quelqu'un d'autre » se répondent à l'identique : les distinguer ferait de ce
+  champ un ORACLE d'existence, un identifiant à la fois. Même règle que le chemin email de
+  `getEmployeeProfile`.
+- ⚠️ **Aucun repli sur une création en cas d'échec.** Le modèle annoncerait « j'ai corrigé »
+  alors qu'il viendrait de produire un second document — un mensonge fabriqué par le repli.
+
 ⚠️ Les branches `send_interview_email` / `cancel_interview_email` et `profile_done` restent en
 place dans `slack-interactions.route.ts` : elles ne servent plus qu'aux cartes DÉJÀ postées
 dans Slack, que rien ne rappelle. Aucun code ne les émet plus.
