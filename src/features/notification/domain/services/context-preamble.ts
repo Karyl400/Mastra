@@ -27,6 +27,8 @@
  * C7, l'orchestrateur a repris le motif de `notificationAgent` (redemander sujet, texte,
  * canal) parce que rien ne distinguait ces tours des siens.
  */
+import { DISPLAY_TIMEZONE, frenchDayLabel } from '../../../../shared/french-datetime';
+
 export const FOREIGN_TURN_PREFIX = '[autre agent] ';
 
 /**
@@ -159,8 +161,46 @@ export function buildContextPreamble(input: {
    * dictée par le budget de tokens du préambule.
    */
   pinnedFacts?: readonly string[];
+  /**
+   * L'instant courant. INJECTÉ, jamais lu ici : ce module est en `domain`, et une fonction qui
+   * appelle `new Date()` ne se teste qu'en gelant l'horloge — ce que ce dépôt évite partout
+   * ailleurs par injection.
+   */
+  now?: Date;
 }): string {
   const lines: string[] = [];
+
+  // ── QUEL JOUR ON EST ────────────────────────────────────────────────────
+  //
+  // ⚠️ Ajouté le 2026-08-19 sur un défaut MESURÉ, et la cause n'était pas une faiblesse du
+  // modèle. Sonde signée : « Prépare un entretien pour … lundi prochain à 9h » → réponse
+  // « samedi 22 août 2026 à 08:00 ». Mauvais jour, mauvaise heure.
+  //
+  // RIEN, dans toute la fenêtre qu'on lui donne, ne disait quel jour on est : ni les
+  // `instructions`, ni ce préambule, ni l'historique. « Lundi prochain » n'était pas mal
+  // transcrit — il était INCALCULABLE, et le modèle a fait la seule chose possible : deviner.
+  // Même famille que `findEmployeeByEmail` inatteignable ou `findPersonByName` absent : une
+  // demande qu'AUCUN câblage ne pouvait satisfaire, à laquelle le modèle répond en inventant.
+  //
+  // Coût ≈ 12 tokens par tour. Le poste dominant de ce dépôt est le NOMBRE D'ÉTAPES : un
+  // aller-retour perdu à corriger une date en vaut ≈ 1 500.
+  //
+  // ⚠️ Dans le message `system`, comme l'identité — et surtout pas dans le bloc
+  // `<kisso_XXXX_user_input>` que la DIRECTIVE 3.1 déclare non fiable : une date que le
+  // serveur affirme n'a pas à être dévaluée par le cadre qui la porte.
+  //
+  // ⚠️ Cela ne remplace PAS la réaffichage en toutes lettres avant confirmation humaine. La
+  // date reste le seul champ TRANSCRIT depuis une phrase, donc le seul vecteur d'erreur qui
+  // subsiste ; ceci en réduit la fréquence, l'affichage la rend rattrapable.
+  if (input.now) {
+    lines.push(
+      // ⚠️ LE FAIT SEUL, sans consigne. « Calcule toute date relative à partir de là, n'en
+      // invente jamais une » a été écrit puis retiré : ce qui manquait n'était pas une
+      // instruction — `AGENT_ANTI_INVENTION_BLOCK` interdit déjà d'inventer — mais la DONNÉE.
+      // La consigne coûtait 20 tokens par tour pour répéter une règle déjà posée.
+      `Nous sommes le ${frenchDayLabel(input.now)}, fuseau ${DISPLAY_TIMEZONE}.`,
+    );
+  }
 
   if (input.slackUserId) {
     const name = sanitizeDisplayName(input.displayName);

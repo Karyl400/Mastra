@@ -98,20 +98,76 @@ export const SLACK_EXCERPT_COVERAGE_KEY = 'slackExcerptCoverage';
  * l'échantillon reste utile sans son avertissement, l'inverse n'est pas vrai.
  */
 export function writeExcerptCoverage(requestContext: unknown, coverage: string): void {
-  if (!coverage.trim()) return;
+  writeContextNote(requestContext, SLACK_EXCERPT_COVERAGE_KEY, coverage);
+}
+
+/**
+ * LE DESTINATAIRE D'UN DOCUMENT — seconde clé remontant des tools vers le handler.
+ *
+ * ## Pourquoi elle existe, et pourquoi elle ressemble tant à la précédente
+ *
+ * Même histoire, même issue. Le bloc DOCUMENTS impose au modèle de citer le `recipient` rendu
+ * par `generateDocument` : c'est la mesure de VISIBILITÉ posée le 2026-08-14 contre l'erreur
+ * de destinataire — celle qui a enregistré « Bienvenue Awa » sous l'UUID de Karyl et envoyé le
+ * fichier à l'adresse de Karyl. Mesuré en production le 2026-08-19 sur DEUX sondes document :
+ * **le modèle ne le cite pas**. Une mesure de visibilité qui ne se déclenche pas ne mesure
+ * rien, et elle est pire qu'absente : on la croit en place.
+ *
+ * Troisième consigne d'agent mesurée en échec après la couverture des extraits et la rédaction
+ * du contenu. Le verdict du dépôt ne bouge pas : une consigne est PROBABLE, le code est
+ * GARANTI.
+ *
+ * ⚠️ Le handler n'accole la note QUE si la réponse ne nomme pas déjà la personne
+ * (`textMentionsName`). Une redite de machine sur une réponse déjà juste serait exactement le
+ * « ton robotique » qu'on cherche par ailleurs à supprimer.
+ */
+export const SLACK_DOCUMENT_RECIPIENT_KEY = 'slackDocumentRecipient';
+
+/** ⚠️ NE LÈVE JAMAIS — même contrat que `writeExcerptCoverage`. */
+export function writeDocumentRecipient(requestContext: unknown, recipient: string): void {
+  writeContextNote(requestContext, SLACK_DOCUMENT_RECIPIENT_KEY, recipient);
+}
+
+/** Rend `undefined` hors Slack — cas NORMAL du playground, d'un workflow ou d'un test. */
+export function readDocumentRecipient(requestContext: unknown): string | undefined {
+  return readContextNote(requestContext, SLACK_DOCUMENT_RECIPIENT_KEY);
+}
+
+/**
+ * La plomberie commune aux notes qui remontent des tools vers le handler.
+ *
+ * ⚠️ Factorisée le 2026-08-19, à l'arrivée de la SECONDE note. Deux copies de soixante lignes
+ * de `try`/`catch` défensifs auraient divergé au premier durcissement — et c'est justement le
+ * genre de duplication silencieuse que ce dépôt paie le plus cher. Les deux notes gardent en
+ * revanche leurs fonctions nommées : elles n'ont pas la même sémantique, et un appelant ne
+ * doit pas pouvoir écrire n'importe quelle clé du contexte.
+ *
+ * NE LÈVE JAMAIS : un tool ne doit pas échouer parce qu'il n'a pas pu poser une note.
+ */
+function writeContextNote(requestContext: unknown, key: string, value: string): void {
+  if (!value.trim()) return;
   if (typeof requestContext !== 'object' || requestContext === null) return;
 
   const set = (requestContext as { set?: unknown }).set;
   if (typeof set !== 'function') return;
 
   try {
-    (set as (this: unknown, key: string, value: unknown) => void).call(
-      requestContext,
-      SLACK_EXCERPT_COVERAGE_KEY,
-      coverage,
-    );
+    (set as (this: unknown, k: string, v: unknown) => void).call(requestContext, key, value);
   } catch {
     // Silencieux à dessein — voir ci-dessus.
+  }
+}
+
+function readContextNote(requestContext: unknown, key: string): string | undefined {
+  if (typeof requestContext !== 'object' || requestContext === null) return undefined;
+
+  const get = (requestContext as { get?: unknown }).get;
+  if (typeof get !== 'function') return undefined;
+
+  try {
+    return nonEmptyString((get as (this: unknown, k: string) => unknown).call(requestContext, key));
+  } catch {
+    return undefined;
   }
 }
 
@@ -120,20 +176,7 @@ export function writeExcerptCoverage(requestContext: unknown, coverage: string):
  * de ces chemins, exactement comme `readSlackContext`.
  */
 export function readExcerptCoverage(requestContext: unknown): string | undefined {
-  if (typeof requestContext !== 'object' || requestContext === null) return undefined;
-
-  const get = (requestContext as { get?: unknown }).get;
-  if (typeof get !== 'function') return undefined;
-
-  try {
-    const value = (get as (this: unknown, key: string) => unknown).call(
-      requestContext,
-      SLACK_EXCERPT_COVERAGE_KEY,
-    );
-    return nonEmptyString(value);
-  } catch {
-    return undefined;
-  }
+  return readContextNote(requestContext, SLACK_EXCERPT_COVERAGE_KEY);
 }
 
 /**

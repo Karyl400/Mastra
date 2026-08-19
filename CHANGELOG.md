@@ -1,5 +1,95 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## 2026-08-19 (nuit, suite) — Trois dettes fermées, et deux défauts trouvés en les fermant
+
+### Le destinataire d'un document est nommé PAR LE CODE
+
+Le bloc DOCUMENTS impose au modèle de citer le `recipient` depuis le 2026-08-14. C'est la
+mesure de VISIBILITÉ contre l'erreur de destinataire — « Bienvenue Awa » enregistré sous l'UUID
+de Karyl, fichier parti à l'adresse de Karyl. Mesuré sur DEUX sondes document le 2026-08-19 :
+**le modèle ne le cite pas**. Une mesure de visibilité qui ne se déclenche jamais est pire
+qu'absente : on la croit en place.
+
+Troisième consigne d'agent mesurée en échec, après la couverture des extraits et la rédaction
+du contenu. Le verdict ne bouge pas : une consigne est PROBABLE, le code est GARANTI. Le tool
+écrit le nom dans le `RequestContext` (coût ZÉRO — il ne traverse ni le prompt, ni les schémas,
+ni le tool-result), le handler accole `_(Ce document a été produit pour X.)_`.
+
+⚠️ **Seulement si la réponse ne nomme pas déjà la personne** (`textMentionsName`). Doubler une
+réponse juste d'une redite de machine est exactement le ton qu'on cherche à supprimer, et un
+avertissement systématique devient du bruit, donc s'ignore — ce qui le ramènerait au défaut
+qu'il corrige. Le rapprochement est EXACT et non par préfixe, contrairement à `matchesName` :
+les deux questions sont inverses, et « ta carte » ne doit pas passer pour « Karyl ».
+
+### « Lundi prochain » n'était pas mal transcrit — il était INCALCULABLE
+
+Sonde signée : « Prépare un entretien pour … **lundi prochain à 9h** ».
+Réponse : « **samedi 22 août 2026 à 08:00** ». Mauvais jour, mauvaise heure.
+
+La dette était notée « `recruitmentAgent` exige une date ISO » ; la cause est ailleurs et bien
+plus large. **RIEN, dans toute la fenêtre qu'on donne au modèle, ne dit quel jour on est** —
+ni les `instructions`, ni le préambule, ni l'historique. Toute date relative — « demain »,
+« dans deux semaines », « lundi prochain » — était donc une invention obligée. Même famille que
+`findEmployeeByEmail` inatteignable ou `findPersonByName` absent : une demande qu'aucun câblage
+ne pouvait satisfaire.
+
+Le préambule porte désormais « Nous sommes le mercredi 19 août 2026, fuseau Africa/Lagos. » —
+**17 tokens, le FAIT seul**. La consigne « calcule toute date relative à partir de là, n'en
+invente jamais une » a été écrite puis retirée : ce qui manquait n'était pas une instruction —
+`AGENT_ANTI_INVENTION_BLOCK` interdit déjà d'inventer — mais la DONNÉE.
+
+⚠️ Cela ne remplace pas la relecture : la date reste le seul champ TRANSCRIT depuis une phrase
+humaine, donc le seul vecteur d'erreur restant. Ceci en réduit la fréquence ; c'est le
+réaffichage en toutes lettres, jour de la semaine compris, qui la rend rattrapable. C'est
+d'ailleurs lui qui a permis de VOIR ce défaut.
+
+⚠️ **Le fuseau avait DEUX lectures divergentes** : `interview-schedule.ts` lisait
+`RECRUITMENT_TIMEZONE`, `french-datetime.ts` lit `DISPLAY_TIMEZONE || RECRUITMENT_TIMEZONE`.
+Poser la première variable aurait changé l'affichage partout SAUF pour les entretiens, sans
+qu'aucun test ne rougisse. Un fuseau ne fait jamais échouer personne — il fait seulement se
+présenter à la mauvaise heure.
+
+### Les modales sont SUPPRIMÉES du dépôt
+
+`profile-modal.ts`, `interview-modal.ts` et `interview-invite.ts` n'existent plus, avec le
+traitement de `view_submission` et ses 300 lignes. Elles ne s'ouvraient pas — un `trigger_id`
+expire en 3 s, le démarrage à froid mesuré est de 4,9 s — et laisser du code qu'un recâblage
+pourrait rebrancher sans le relire est la situation exacte de `discoverSlackWorkspace` avant sa
+suppression.
+
+⚠️ **Le branchement `view_submission`, lui, RESTE** — et c'est la seule chose qui compte. Sur
+une fonction CHAUDE (684 ms mesurées), un bouton posté hier peut encore ouvrir sa modale : sans
+ce chemin, la personne remplirait le formulaire, verrait la fenêtre se fermer comme sur un
+succès, et rien ne serait gardé. On acquitte, et on DIT en DM que rien n'a été retenu, avec la
+marche à suivre. Un formulaire disparu n'est pas une panne ; le taire en serait une.
+
+Ce qui a survécu a DÉMÉNAGÉ plutôt que d'être supprimé : `NewcomerIdentity` (ex-
+`ProfileModalPrefill` — un nom qui décrivait un mécanisme disparu) et `startDateFromJoin` vivent
+en `onboarding/domain/services/newcomer-identity.ts`. Ils n'avaient rien de modal.
+
+### ⚠️ DEUX DÉFAUTS TROUVÉS EN DÉPLAÇANT LES TESTS
+
+**1. Personne n'était jamais prévenu qu'un email de bienvenue n'était pas parti.**
+`STEP_LABELS` était indexée sur `WelcomeEmail` / `SlackInvite` — les NOMS des membres de
+`BestEffortStep` — alors que le workflow pousse leurs VALEURS, `welcomeEmail` / `slackInvite`.
+`describeMissingSteps` rendait donc `[]` sur TOUTE dégradation réelle, et `runOnboarding`
+n'envoie rien sur une liste vide. Le verdict existait, était calculé, était journalisé — et
+n'atteignait personne : la faute exacte que ce module dit combattre, dans le module qui le dit.
+Rien ne rougissait, les deux bords étant corrects séparément. La table est désormais DÉRIVÉE de
+l'enum (`Record<BestEffortStep, string>`), ce qui rend l'exhaustivité vérifiable à la
+compilation.
+
+**2. Les tests de ce verdict vivaient sur le chemin de la MODALE.** Ils ont DÉMÉNAGÉ vers
+`runOnboarding` plutôt que disparaître avec le chemin mort : la propriété protégée n'était pas
+« la modale prévient », c'était « personne ne reste sans nouvelle ».
+
+Retiré au passage : `MODAL_FAILED_REPLY` (« reclique sur le bouton, ça repart en général du
+premier coup ») — faux dans les deux moitiés, il n'y a plus de bouton et ça ne repartait pas ;
+et une lecture Turso dans `runProfileForm` qui n'alimentait plus qu'un champ de log `prefilled`
+valant `true` alors que rien n'est pré-rempli.
+
+---
+
 ## 2026-08-19 (nuit) — Ce que la production a démenti, et ce qu'on en a fait
 
 Trois sondes signées sur le déploiement du soir. Chacune a démenti une décision prise quelques

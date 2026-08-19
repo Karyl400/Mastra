@@ -30,11 +30,22 @@ import { computeSlackSignature } from '../../../src/shared/security/slack-signat
  * dans Slack — ils y restent indéfiniment — ne tombe pas dans le vide.
  */
 const COMPLETE_PROFILE_ACTION_ID = 'complete_profile';
-import {
-  PROFILE_MODAL_CALLBACK_ID,
-  PROFILE_FIELDS,
-  encodePrefill,
-} from '../../../src/features/notification/infrastructure/handlers/profile-modal';
+/**
+ * ⚠️ Identifiants et encodage HÉRITÉS, recopiés ici à dessein. `profile-modal.ts` a été
+ * SUPPRIMÉ le 2026-08-19 : il n'existe plus aucune modale, donc plus aucun module d'où les
+ * importer. Ils survivent uniquement dans les messages DÉJÀ POSTÉS dans Slack, que rien ne
+ * rappelle, et ces tests vérifient qu'un clic ou une soumission venus de là ne tombent pas
+ * dans le vide.
+ */
+const PROFILE_MODAL_CALLBACK_ID = 'employee_profile';
+const encodePrefill = (p: {
+  slackUserId: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  joinedAt?: string;
+}) =>
+  JSON.stringify({ u: p.slackUserId, e: p.email, f: p.firstName, l: p.lastName, j: p.joinedAt });
 
 const SECRET = 'unit-test-signing-secret';
 const NEWCOMER = 'U0NEWCOMER1';
@@ -79,40 +90,21 @@ const blockActionsPayload = (value: string) => ({
   actions: [{ action_id: COMPLETE_PROFILE_ACTION_ID, value }],
 });
 
-const viewSubmissionPayload = (overrides: Record<string, string> = {}) => {
-  const fields = {
-    email: 'alice@kisso.com',
-    firstName: 'Alice',
-    lastName: 'Martin',
-    position: 'Software Engineer',
-    ...overrides,
-  };
-
-  return {
-    type: 'view_submission',
-    user: { id: NEWCOMER },
-    view: {
-      callback_id: PROFILE_MODAL_CALLBACK_ID,
-      private_metadata: JSON.stringify({ u: NEWCOMER }),
-      state: {
-        values: {
-          [PROFILE_FIELDS.email.blockId]: {
-            [PROFILE_FIELDS.email.actionId]: { value: fields.email },
-          },
-          [PROFILE_FIELDS.firstName.blockId]: {
-            [PROFILE_FIELDS.firstName.actionId]: { value: fields.firstName },
-          },
-          [PROFILE_FIELDS.lastName.blockId]: {
-            [PROFILE_FIELDS.lastName.actionId]: { value: fields.lastName },
-          },
-          [PROFILE_FIELDS.position.blockId]: {
-            [PROFILE_FIELDS.position.actionId]: { value: fields.position },
-          },
-        },
-      },
-    },
-  };
-};
+/**
+ * Soumission venue d'une modale qui N'EXISTE PLUS.
+ *
+ * ⚠️ Aucun `state` : ce module ne lit plus la saisie, et le type de payload ne le déclare
+ * même plus. Le point n'est pas d'enregistrer quoi que ce soit — c'est de ne pas laisser la
+ * fenêtre se fermer comme sur un succès.
+ */
+const viewSubmissionPayload = (callbackId = PROFILE_MODAL_CALLBACK_ID) => ({
+  type: 'view_submission',
+  user: { id: NEWCOMER },
+  view: {
+    callback_id: callbackId,
+    private_metadata: JSON.stringify({ u: NEWCOMER }),
+  },
+});
 
 describe('Route /slack/interactions', () => {
   const originalSecret = process.env.SLACK_SIGNING_SECRET;
@@ -231,64 +223,49 @@ describe('Route /slack/interactions', () => {
     });
   });
 
-  describe('view_submission', () => {
-    it('answers 200 with an EMPTY body on success', async () => {
-      // Slack n'accepte qu'un corps vide ou un `response_action`. Un
-      // `{"ok":true}` affiche « We had some trouble connecting ».
+  describe('view_submission — la modale a disparu, la personne est PRÉVENUE', () => {
+    /**
+     * ════════════════════════════════════════════════════════════════════════
+     * Le silence aurait été le pire mode d'échec possible
+     * ════════════════════════════════════════════════════════════════════════
+     *
+     * Les deux modales ont été supprimées du dépôt le 2026-08-19 : elles ne s'ouvraient pas
+     * (`invalid_trigger_id`, 4,9 s de démarrage à froid contre 3 s accordées). Mais sur une
+     * fonction CHAUDE (684 ms mesurées), un bouton déjà posté dans un DM d'hier peut encore
+     * l'ouvrir — Slack ne rappelle pas les messages.
+     *
+     * Sans ce chemin, la personne remplirait le formulaire, cliquerait « Envoyer », verrait la
+     * fenêtre se fermer exactement comme sur un succès, et rien ne serait gardé. C'est le mode
+     * d'échec que ce dépôt traque depuis `emailSent: false` sous `status: 'success'`, dans sa
+     * forme la plus cruelle : elle aurait tapé ses réponses.
+     */
+    it('accuse réception avec un corps VIDE — la fenêtre doit se fermer', async () => {
       const res = await callRoute(formEncoded(viewSubmissionPayload()));
 
       expect(res.status).toBe(200);
       expect(await res.text()).toBe('');
     });
 
-    it('accepts a job title absent from the former allowlist', async () => {
-      const res = await callRoute(
-        formEncoded(viewSubmissionPayload({ position: 'Chief Vibes Officer' })),
-      );
+    it('DIT en DM que rien n’a été gardé, et comment faire', async () => {
+      await callRoute(formEncoded(viewSubmissionPayload()));
+      await new Promise((r) => setTimeout(r, 20));
 
-      expect(await res.text()).toBe('');
+      const texts = postMessage.mock.calls.map((c) => (c[0] as { text?: string }).text ?? '');
+      expect(texts.join(' ')).toMatch(/n’ai rien gardé|n'ai rien gardé/);
+      // La marche à suivre, sans quoi le message ne serait qu'un constat d'échec.
+      expect(texts.join(' ')).toMatch(/compléter mon profil/i);
     });
 
-    it('returns response_action errors keyed by block_id on invalid input', async () => {
-      const res = await callRoute(formEncoded(viewSubmissionPayload({ email: 'pas-un-email' })));
-      const body = (await res.json()) as {
-        response_action: string;
-        errors: Record<string, string>;
-      };
+    it('ne réaffiche JAMAIS la modale avec des erreurs de champ', async () => {
+      // `response_action: 'errors'` laisserait croire qu'un champ est à corriger, alors que
+      // c'est le formulaire entier qui n'existe plus.
+      const res = await callRoute(formEncoded(viewSubmissionPayload()));
+      expect(await res.text()).not.toContain('response_action');
+    });
 
+    it('répond pareil à une modale INCONNUE — aucune n’existe plus', async () => {
+      const res = await callRoute(formEncoded(viewSubmissionPayload('some_other_modal')));
       expect(res.status).toBe(200);
-      expect(body.response_action).toBe('errors');
-      expect(Object.keys(body.errors)).toEqual([PROFILE_FIELDS.email.blockId]);
-    });
-
-    it('never emits an error key that is not a block_id of the modal', async () => {
-      // Une clé inconnue est silencieusement ignorée par Slack : la modale se
-      // ferme et l'erreur disparaît sans trace.
-      const res = await callRoute(
-        formEncoded(
-          viewSubmissionPayload({
-            email: 'x',
-            firstName: '',
-            position: '',
-          }),
-        ),
-      );
-      const body = (await res.json()) as { errors: Record<string, string> };
-
-      const known = new Set<string>(Object.values(PROFILE_FIELDS).map((f) => f.blockId));
-      for (const key of Object.keys(body.errors)) {
-        expect(known.has(key), `block_id inconnu : ${key}`).toBe(true);
-      }
-    });
-
-    it('ignores a submission coming from another modal', async () => {
-      const payload = viewSubmissionPayload();
-      payload.view.callback_id = 'some_other_modal';
-
-      const res = await callRoute(formEncoded(payload));
-
-      expect(res.status).toBe(200);
-      expect(await res.text()).toBe('');
     });
   });
 
@@ -486,56 +463,6 @@ describe('bouton « Envoyer » — un seul email, et une carte neutralisée', ()
 /* -------------------------------------------------------------------------- *
  * Le formulaire échoue : la personne doit l'apprendre
  * -------------------------------------------------------------------------- */
-
-describe('« Compléter mon profil » — un échec ne doit plus être muet', () => {
-  /**
-   * ⚠️ Le verdict existait, il n'atteignait personne.
-   *
-   * `onboarding-outcome.ts` distingue `completed` / `degraded` / `failed` précisément pour
-   * que « réussi » cesse de couvrir « rien n'est parti ». Mais sur `failed` comme sur
-   * `degraded`, l'appelant écrivait une ligne `logger.error` et rendait la main : la personne
-   * qui venait de valider sa modale ne recevait RIEN, et ne pouvait pas distinguer un succès
-   * d'une panne.
-   *
-   * C'est le mode d'échec que tout ce dépôt combat, arrêté un cran trop tôt. Le correctif du
-   * 2026-08-17 avait traité la CAUSE (conflits `ConflictError` / `UNIQUE`) et pas le chemin
-   * d'erreur : toute autre panne — Turso indisponible, workflow absent du registre —
-   * reproduisait le même silence.
-   */
-  beforeEach(() => {
-    vi.clearAllMocks();
-    process.env.SLACK_SIGNING_SECRET = SECRET;
-  });
-
-  /** Contexte dont le registre Mastra ne connaît PAS le workflow. */
-  const contextWithoutWorkflow = (rawBody: string): SlackInteractionsContext => {
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    const signature = computeSlackSignature(SECRET, timestamp, rawBody);
-    const headers: Record<string, string> = {
-      'x-slack-request-timestamp': timestamp,
-      'x-slack-signature': signature,
-    };
-    return {
-      req: { text: async () => rawBody, header: (n: string) => headers[n.toLowerCase()] },
-      get: () => ({ getWorkflow: () => undefined }) as unknown as Mastra,
-    };
-  };
-
-  it('envoie un message quand le dossier n’a PAS pu être créé', async () => {
-    const body = formEncoded(viewSubmissionPayload());
-
-    const res = await handleSlackInteractionRequest(contextWithoutWorkflow(body));
-    expect(res.status).toBe(200);
-
-    await new Promise((r) => setTimeout(r, 20));
-
-    // Le point du test : quelque chose est POSTÉ à la personne. Le contenu exact appartient
-    // au domaine (`onboarding-replies.ts`) ; ce qui se vérifie ici, c'est le câblage.
-    expect(postMessage).toHaveBeenCalled();
-    const texts = postMessage.mock.calls.map((c) => (c[0] as { text?: string }).text ?? '');
-    expect(texts.join(' ')).toContain("Je n'ai pas réussi à enregistrer ton dossier");
-  });
-});
 
 describe('les confirmations ne threadent JAMAIS dans un DM', () => {
   /**

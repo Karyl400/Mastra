@@ -93,6 +93,38 @@ export function frenchOffsetLabel(at: Date, timeZone: string): string {
   }
 }
 
+/**
+ * « mercredi 19 août 2026 » — le JOUR seul, sans heure.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * Ce qu'il sert à réparer, mesuré en production le 2026-08-19
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Sonde signée : « Prépare un entretien pour … **lundi prochain à 9h** ».
+ * Réponse : « **samedi 22 août 2026 à 08:00** (UTC+01:00) ». Mauvais jour, mauvaise heure.
+ *
+ * La cause n'est pas une faiblesse du modèle : RIEN, dans toute la fenêtre qu'on lui donne, ne
+ * dit quel jour on est — ni les `instructions`, ni le préambule, ni l'historique. « Lundi
+ * prochain » n'était pas mal transcrit, il était **incalculable**, et le modèle a fait la seule
+ * chose possible : deviner. Même famille que `findEmployeeByEmail` inatteignable ou
+ * `findPersonByName` absent — une demande qu'aucun câblage ne pouvait satisfaire.
+ *
+ * ⚠️ Le JOUR DE LA SEMAINE en fait partie, et ce n'est pas décoratif : sans lui, « lundi
+ * prochain » reste incalculable, ce qui est exactement le défaut qu'on corrige.
+ *
+ * ⚠️ Donner la date au modèle réduit la FRÉQUENCE de l'erreur ; c'est la réaffichage en toutes
+ * lettres, avant confirmation humaine, qui la rend RATTRAPABLE. Les deux, jamais l'un à la
+ * place de l'autre.
+ */
+export function frenchDayLabel(at: Date, timeZone: string = DISPLAY_TIMEZONE): string {
+  return frenchDate(at, timeZone, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
 /** « jeudi 20 août 2026 à 14:00 (UTC+01:00) » — la forme qu'un humain peut vérifier. */
 export function frenchFullLabel(at: Date, timeZone: string): string {
   return `${frenchDate(at, timeZone, { dateStyle: 'full', timeStyle: 'short' })} (${frenchOffsetLabel(at, timeZone)})`;

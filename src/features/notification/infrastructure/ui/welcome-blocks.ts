@@ -13,7 +13,7 @@
  * responsabilité. Tout le reste en sort.
  */
 import { type SlackBlock } from '../providers/slack.adapter';
-import { type ProfileModalPrefill } from '../handlers/profile-modal';
+import { type NewcomerIdentity } from '../../../onboarding/domain/services/newcomer-identity';
 import { PROFILE_FORM_INVITE } from '../../../../shared/profile-request';
 import { videoLine, writtenGuide } from '../../../../shared/onboarding-video';
 
@@ -71,7 +71,7 @@ export function channelsLine(joinedNames: readonly string[]): string {
  * conditionnée à une variable qu'on aurait pu oublier de poser.
  */
 export function buildWelcomeBlocks(
-  prefill: ProfileModalPrefill,
+  prefill: NewcomerIdentity,
   joinedNames: readonly string[] = [],
 ): SlackBlock[] {
   return [

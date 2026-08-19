@@ -7,7 +7,6 @@ import { sanitizeAgentOutput } from '../../../../shared/security/agent-output';
 import { SlackAdapter } from '../providers/slack.adapter';
 import { SlackWorkspaceService } from '../providers/slack-workspace.service';
 import type { SlackWorkspaceProvider } from '../../domain/ports/slack-workspace.port';
-import { type ProfileModalPrefill } from './profile-modal';
 // Extraits le 2026-08-17 vers `infrastructure/ui/welcome-blocks.ts` — voir son en-tête.
 // Réexportés en fin de fichier : d'autres modules et des tests les importent depuis ici.
 import {
@@ -67,8 +66,10 @@ import { DrizzleSlackEventDedupRepository } from '../repositories/drizzle-slack-
 import {
   buildSlackRequestContext,
   readExcerptCoverage,
+  readDocumentRecipient,
   type SlackAccessLevel,
 } from '../../../../shared/slack-request-context';
+import { textMentionsName } from '../../../../shared/name-matching';
 import { SlackAccessGuard } from '../../../directory/application/services/access-guard';
 import type { OnboardingInterviewRepository } from '../../../onboarding/domain/ports/onboarding-interview.repository';
 import {
@@ -100,7 +101,10 @@ import {
   pendingReminder,
 } from '../../../recruitment/application/services/confirm-pending-email';
 import { readsAsNo, readsAsYes } from '../../../../shared/confirmation';
-import { startDateFromJoin } from './profile-modal';
+import {
+  startDateFromJoin,
+  type NewcomerIdentity,
+} from '../../../onboarding/domain/services/newcomer-identity';
 import {
   INTERVIEW_QUESTION_DAILY,
   INTERVIEW_QUESTION_STYLE,
@@ -410,6 +414,18 @@ export interface SlackEventsHandlerOptions {
    * depuis un test unitaire — la faute que `smoke:email` documente déjà en toutes lettres.
    */
   sendEmail?: (to: string, subject: string, body: string) => Promise<unknown>;
+  /**
+   * L'horloge, injectable.
+   *
+   * ⚠️ Elle n'a qu'un seul consommateur — la ligne « Nous sommes le … » du préambule — et elle
+   * existe pour la même raison que partout ailleurs dans ce dépôt : une valeur qui change à
+   * chaque exécution ne se verrouille pas par un test. Sans elle, les tests qui comparent le
+   * préambule construit à `buildContextPreamble({...})` ne pourraient plus qu'asserter des
+   * fragments, c'est-à-dire vérifier moins.
+   *
+   * Aucune E/S : ce n'est pas une neuvième dépendance à neutraliser.
+   */
+  now?: () => Date;
 }
 
 /**
@@ -588,6 +604,18 @@ function cancellationReply(cleared: number): string {
   return 'Je n’ai pas réussi à annuler cet email — rien n’est parti pour autant. Redis-moi « non » dans un instant.';
 }
 
+/**
+ * La note « produit pour X », ou rien du tout.
+ *
+ * Extraite de `runAgentPipeline` : deux conditions de plus y portaient la complexité cognitive
+ * au-dessus du seuil, et ce dépôt est à zéro warning depuis le 2026-08-18.
+ */
+function buildRecipientNotice(requestContext: unknown, answer: string): string {
+  const recipient = readDocumentRecipient(requestContext);
+  if (!recipient || textMentionsName(answer, recipient)) return '';
+  return `\n\n_(Ce document a été produit pour ${recipient}.)_`;
+}
+
 export class SlackEventsHandler {
   private slack: WebClient;
   private mastra: Mastra;
@@ -661,6 +689,7 @@ export class SlackEventsHandler {
 
   /** `null`/`undefined` = pas de confirmation conversationnelle. Aucune construction paresseuse. */
   private readonly pendingEmailRepo: PendingInterviewEmailRepository | null | undefined;
+  private readonly now: () => Date;
   private readonly sendEmail:
     ((to: string, subject: string, body: string) => Promise<unknown>) | undefined;
 
@@ -677,6 +706,7 @@ export class SlackEventsHandler {
     this.interviewRepo = options.interviewRepository;
     this.profileRepo = options.profileRepository;
     this.pendingEmailRepo = options.pendingEmailRepository;
+    this.now = options.now ?? (() => new Date());
     this.sendEmail = options.sendEmail;
     this.dedupRepo = options.dedupRepository;
     this.conversationTokenBudget = options.conversationTokenBudget ?? CONVERSATION_TOKEN_BUDGET;
@@ -1682,7 +1712,7 @@ export class SlackEventsHandler {
    */
   private async recordNewcomer(
     slackUserId: string,
-    identity: ProfileModalPrefill,
+    identity: NewcomerIdentity,
     joinedAt: string,
   ): Promise<void> {
     const repo = this.getDirectoryRepo();
@@ -1739,8 +1769,8 @@ export class SlackEventsHandler {
    * Son échec ne bloque pas — le DM part sur l'identifiant Slack et la modale
    * collectera l'email.
    */
-  private async resolveNewcomer(user: SlackTeamJoinUser): Promise<ProfileModalPrefill> {
-    const fromPayload: ProfileModalPrefill = {
+  private async resolveNewcomer(user: SlackTeamJoinUser): Promise<NewcomerIdentity> {
+    const fromPayload: NewcomerIdentity = {
       slackUserId: user.id ?? '',
       firstName: user.profile?.first_name || firstWordOf(user.real_name),
       lastName: user.profile?.last_name || restAfterFirstWord(user.real_name),
@@ -2286,11 +2316,30 @@ export class SlackEventsHandler {
       // deviendrait du bruit, et le bruit s'ignore.
       const excerptCoverage = readExcerptCoverage(requestContext);
 
+      // ── LE DESTINATAIRE D'UN DOCUMENT, TROISIÈME CONSIGNE MESURÉE EN ÉCHEC ──
+      //
+      // Le bloc DOCUMENTS impose de citer le `recipient` depuis le 2026-08-14 : c'est la
+      // mesure de VISIBILITÉ contre l'erreur de destinataire — « Bienvenue Awa » enregistré
+      // sous l'UUID de Karyl, fichier parti à l'adresse de Karyl. Mesuré en production le
+      // 2026-08-19 sur DEUX sondes document : le modèle ne le cite pas. Une mesure de
+      // visibilité qui ne se déclenche jamais est pire qu'absente — on la croit en place.
+      //
+      // Après la couverture des extraits et la rédaction du contenu, c'est la TROISIÈME
+      // consigne d'agent mesurée en échec sur ce dépôt. Le verdict ne bouge pas : une consigne
+      // est PROBABLE, le code est GARANTI.
+      //
+      // ⚠️ La note n'est accolée QUE si la réponse ne nomme pas déjà la personne. Doubler une
+      // réponse déjà juste d'une redite de machine est exactement le ton qu'on cherche par
+      // ailleurs à supprimer — et un avertissement systématique devient du bruit, donc
+      // s'ignore, ce qui le ramènerait au défaut qu'il corrige.
+      const recipientNotice = buildRecipientNotice(requestContext, safeOutput.text);
+
       await progress.resolve(
         safeOutput.text +
           (unsupportedClaim ? UNSUPPORTED_CLAIM_NOTICE : '') +
           (deliveryPromise ? PROMISED_DELIVERY_NOTICE : '') +
           (excerptCoverage ? `\n\n${excerptCoverage}` : '') +
+          recipientNotice +
           (pendingEmailReminder ? `\n\n${pendingEmailReminder}` : ''),
       );
 
@@ -3721,6 +3770,10 @@ export class SlackEventsHandler {
       email: context.identity.email,
       employeeId: context.identity.employeeId,
       pinnedFacts: context.pinnedFacts,
+      // ⚠️ INJECTÉE ici et non lue dans le domaine : `buildContextPreamble` est du TypeScript
+      // pur, et une fonction qui appellerait `new Date()` ne se testerait qu'en gelant
+      // l'horloge — ce que ce dépôt fait partout ailleurs par injection.
+      now: this.now(),
       hasForeignTurns: window.some(
         (turn) => turn.role === 'assistant' && turn.agentId !== context.agentId,
       ),

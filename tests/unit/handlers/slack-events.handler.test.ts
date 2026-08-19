@@ -94,10 +94,19 @@ function makeAgentMock(response: { text: string; toolCalls?: unknown }) {
  * exact est un arbitrage de coût (quelques dizaines de tokens), verrouillé par son propre
  * test, et le recopier ici ferait rougir vingt cas pour un mot déplacé.
  */
+/**
+ * ⚠️ `NOW` est FIGÉ et injecté dans le handler. Le préambule porte depuis le 2026-08-19 la
+ * ligne « Nous sommes le … », sans laquelle « lundi prochain » était incalculable pour le
+ * modèle — mesuré en production, il répondait « samedi ». Une horloge réelle rendrait ces
+ * comparaisons impossibles à écrire autrement qu'en fragments, c'est-à-dire en vérifiant
+ * moins.
+ */
+const NOW = new Date('2026-08-19T12:00:00.000Z');
+
 const preamble = (
   slackUserId: string | null = HUMAN,
   options: { displayName?: string; hasForeignTurns?: boolean } = {},
-) => ({ role: 'system', content: buildContextPreamble({ slackUserId, ...options }) });
+) => ({ role: 'system', content: buildContextPreamble({ slackUserId, now: NOW, ...options }) });
 
 /**
  * Doublures des deux dépendances du chemin `team_join`.
@@ -147,6 +156,7 @@ function makeHandler(
   const mastraMock = makeMastraMock();
   const handler = new SlackEventsHandler('xoxb-test-token', options.mastra ?? mastraMock.mastra, {
     slackClient: slack as unknown as WebClient,
+    now: () => NOW,
     inFlightGraceMs: options.inFlightGraceMs,
     // ⚠️ SANS CETTE LIGNE, un `users.info` part RÉELLEMENT vers slack.com avec ce jeton de
     // test : la frontière d'accès construit un `SlackMemberSource` dès qu'on ne lui passe pas
@@ -1703,8 +1713,18 @@ describe('SlackEventsHandler — identité du demandeur dans la fenêtre du mod�
     // Le nom d'affichage Slack est modifiable par son porteur : injecté brut dans un message
     // SYSTÈME, il devient un vecteur d'injection de prompt de premier ordre.
     expect(content).toContain('Bob');
-    expect(content.split('\n')).toHaveLength(1);
+    // ⚠️ LA PROPRIÉTÉ, et non un nombre de lignes en dur : le préambule ne doit pas gagner de
+    // ligne PARCE QUE le nom est hostile. Il en compte deux depuis le 2026-08-19 (la date, puis
+    // l'interlocuteur) et il en comptera davantage demain ; ce qui ne doit jamais varier, c'est
+    // que le `\n\n` du nom d'affichage n'en ajoute aucune.
+    const benin = buildContextPreamble({ slackUserId: HUMAN, displayName: 'Bob', now: NOW });
+    expect(content.split('\n')).toHaveLength(benin.split('\n').length);
     expect(content).not.toContain('<@U0FAKE>');
+    // ⚠️ On n'assertera PAS l'absence du mot « SYSTÈME » : `sanitizeDisplayName` ne promet pas
+    // de filtrer un vocabulaire, et un test qui l'exigerait affirmerait une garantie qui
+    // n'existe pas. Ce qu'il promet — et ce qui protège — c'est qu'un nom d'affichage ne peut
+    // ni ouvrir une ligne, ni forger une mention : il reste un NOM, entre « Interlocuteur : »
+    // et son identifiant, quelle que soit sa prose.
   });
 
   it('reste sur l’identifiant seul quand l’annuaire est muet', async () => {
@@ -1809,18 +1829,27 @@ describe('SlackEventsHandler — identité du demandeur dans la fenêtre du mod�
     // ≈ 19 messages. Chaque token ajouté ici retire du budget quotidien.
     const tok = (s: string) => Math.round(s.length / 3.5);
 
+    // ⚠️ Les trois bornes ont été relevées de 17 tokens le 2026-08-19 : le préambule porte
+    // désormais « Nous sommes le … », sans quoi « lundi prochain » était INCALCULABLE — mesuré
+    // en production, le modèle répondait « samedi 22 août » et se trompait aussi d'heure. C'est
+    // le FAIT seul, sans consigne : « calcule toute date relative à partir de là » a été écrit
+    // puis retiré, `AGENT_ANTI_INVENTION_BLOCK` interdisant déjà d'inventer.
+    //
+    // ⚠️ Et les trois passent désormais `now`, donc mesurent le préambule RÉEL. Sans lui, ce
+    // test verrouillait le coût d'une forme qui ne se produit jamais en production.
     expect(
-      tok(buildContextPreamble({ slackUserId: HUMAN, displayName: 'Karyl Sadan' })),
-    ).toBeLessThanOrEqual(45);
+      tok(buildContextPreamble({ slackUserId: HUMAN, displayName: 'Karyl Sadan', now: NOW })),
+    ).toBeLessThanOrEqual(62);
     expect(
       tok(
         buildContextPreamble({
           slackUserId: HUMAN,
           displayName: 'Karyl Sadan',
           hasForeignTurns: true,
+          now: NOW,
         }),
       ),
-    ).toBeLessThanOrEqual(85);
+    ).toBeLessThanOrEqual(102);
     // Avec l'identité résolue. Le surcoût est réel — et il est le MOINS CHER des deux termes :
     // sans lui, le modèle devine une adresse, la recherche échoue, et il recommence. La
     // production du 2026-08-12 a mesuré 38 `findEmployeeByEmail` en 1,5 s sur un seul tour,
@@ -1832,9 +1861,10 @@ describe('SlackEventsHandler — identité du demandeur dans la fenêtre du mod�
           displayName: 'Karyl Sadan',
           email: 'karylsoumaila1@gmail.com',
           employeeId: 'd20df236-5c24-42a5-b205-d0d738d34fb4',
+          now: NOW,
         }),
       ),
-    ).toBeLessThanOrEqual(105);
+    ).toBeLessThanOrEqual(122);
   });
 
   /* --------------------------------------------------------------------- *
@@ -1869,7 +1899,7 @@ describe('SlackEventsHandler — identité du demandeur dans la fenêtre du mod�
   });
 
   it('n’invente RIEN quand l’annuaire ne connaît ni email ni fiche', () => {
-    const preamble = buildContextPreamble({ slackUserId: HUMAN, displayName: 'Inconnu' });
+    const preamble = buildContextPreamble({ slackUserId: HUMAN, displayName: 'Inconnu', now: NOW });
 
     // Le mode d'échec à éviter est celui d'un gabarit à trous : « email : null » apprendrait
     // au modèle qu'une valeur existe et vaut la chaîne « null », qu'il passerait aux outils.
@@ -1956,7 +1986,7 @@ describe('SlackEventsHandler — attribution des tours entre agents', () => {
 
     const messages = generate.mock.lastCall?.[0] as Array<{ role: string; content: string }>;
     expect(JSON.stringify(messages)).not.toContain(FOREIGN_TURN_PREFIX);
-    expect(messages[0].content).toBe(buildContextPreamble({ slackUserId: HUMAN }));
+    expect(messages[0].content).toBe(buildContextPreamble({ slackUserId: HUMAN, now: NOW }));
   });
 });
 

@@ -1,7 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Mastra } from '@mastra/core';
 import { SlackEventsHandler } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
-import { decodePrefill } from '../../../src/features/notification/infrastructure/handlers/profile-modal';
+/**
+ * ⚠️ Décodeur RECOPIÉ ici le 2026-08-19 : `profile-modal.ts` a été supprimé avec les modales.
+ * Ce test lit le `value` d'un bouton d'accueil pour vérifier ce que le DM transporte ; le
+ * décodage lui-même n'est plus une pièce partagée, il ne sert qu'aux boutons DÉJÀ postés.
+ */
+function decodePrefill(value: string | undefined, fallbackUserId = '') {
+  if (!value) return { slackUserId: fallbackUserId };
+  try {
+    const p = JSON.parse(value) as { u?: string; e?: string; f?: string; l?: string; j?: string };
+    return {
+      slackUserId: p.u || fallbackUserId,
+      email: p.e ?? null,
+      firstName: p.f ?? null,
+      lastName: p.l ?? null,
+      joinedAt: p.j ?? null,
+    };
+  } catch {
+    return { slackUserId: value || fallbackUserId };
+  }
+}
 
 /** Forme minimale d'un bloc Slack, réduite à ce que ces tests lisent. */
 interface SlackBlockLike {

@@ -30,7 +30,11 @@ import {
   sanitizeDocumentText,
 } from '../../../../shared/security/agent-output';
 import { logger } from '../../../../shared/logger';
-import { readSlackContext, canReadPersonRecord } from '../../../../shared/slack-request-context';
+import {
+  readSlackContext,
+  canReadPersonRecord,
+  writeDocumentRecipient,
+} from '../../../../shared/slack-request-context';
 import type { OnboardingInterviewRepository } from '../../../onboarding/domain/ports/onboarding-interview.repository';
 import { buildRunKey, makeRunGuard } from '../../../../shared/tool-idempotency';
 import { DocumentFormat, DocumentStatus, DocumentType } from '../../../../shared/types';
@@ -791,6 +795,21 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // Le NOM, jamais l'email — pour la même raison que `findEmployeeByEmail` n'en rend
       // pas : ce tool est atteignable par n'importe quel membre du workspace. Coût ≈ 12
       // tokens, payés à chaque document produit.
+      const recipient = fullName(employee.firstName, employee.lastName);
+
+      // ⚠️ LE DESTINATAIRE REMONTE PAR LE CONTEXTE SERVEUR, en plus du tool-result.
+      //
+      // Le champ `recipient` du tool-result existe depuis le 2026-08-14 et le bloc DOCUMENTS
+      // impose de le citer : c'est la mesure de VISIBILITÉ contre l'erreur de destinataire —
+      // « Bienvenue Awa » enregistré sous l'UUID de Karyl, fichier parti à l'adresse de Karyl.
+      // Mesuré en production le 2026-08-19 sur DEUX sondes : le modèle ne le cite pas. Une
+      // mesure de visibilité qui ne se déclenche jamais est pire qu'absente — on la croit en
+      // place. Le handler accole donc la note lui-même, et seulement si elle manque.
+      //
+      // Coût en tokens : ZÉRO. Le `RequestContext` ne traverse ni le prompt, ni les schémas,
+      // ni le tool-result.
+      writeDocumentRecipient(ctx?.requestContext, recipient);
+
       const result = {
         saved: true as const,
         // ⚠️ Présent UNIQUEMENT sur une correction : le bloc DOCUMENTS impose au modèle de
@@ -801,7 +820,7 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         documentId: generated.id,
         format: producedFormat,
         delivery,
-        recipient: fullName(employee.firstName, employee.lastName),
+        recipient,
         ...(rendered ? { filename: rendered.filename } : {}),
         ...(reason ? { reason, hint: HINTS[reason] } : {}),
       };

@@ -41,9 +41,20 @@
  * L'offset est de toute façon IMPRIMÉ dans l'email (« (UTC+01:00) »), ce qui rend l'hypothèse
  * vérifiable par son destinataire au lieu d'être implicite.
  */
-import { frenchFullLabel, frenchShortLabel } from '../../../../shared/french-datetime';
+import {
+  DISPLAY_TIMEZONE,
+  frenchFullLabel,
+  frenchShortLabel,
+} from '../../../../shared/french-datetime';
 
-export const INTERVIEW_TIMEZONE = process.env.RECRUITMENT_TIMEZONE || 'Africa/Lagos';
+/**
+ * ⚠️ RÉEXPORT de `DISPLAY_TIMEZONE`, plus une seconde lecture de `process.env` — corrigé le
+ * 2026-08-19. Ce module lisait `RECRUITMENT_TIMEZONE` directement, `french-datetime.ts` lit
+ * `DISPLAY_TIMEZONE || RECRUITMENT_TIMEZONE` : poser la première variable aurait donc changé
+ * l'affichage PARTOUT SAUF ici, sans qu'aucun test ne rougisse. Un fuseau ne fait jamais
+ * échouer personne — il fait seulement se présenter à la mauvaise heure.
+ */
+export const INTERVIEW_TIMEZONE = DISPLAY_TIMEZONE;
 
 /**
  * Un entretien ne peut pas être fixé à plus d'un an. Cette borne n'existe pas pour des raisons

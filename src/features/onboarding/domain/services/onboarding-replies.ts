@@ -1,3 +1,5 @@
+import { BestEffortStep } from '../value-objects/onboarding-outcome';
+
 /**
  * Ce que reçoit la personne qui vient de valider le formulaire « Compléter mon profil ».
  *
@@ -54,34 +56,44 @@ export function profileSubmissionDegradedReply(missing: readonly string[]): stri
 /**
  * Traduction des étapes dégradées en langage lisible.
  *
- * Les identifiants d'étape (`WelcomeEmail`, `SlackInvite`) sont du vocabulaire de code ; ils
- * n'ont rien à faire dans un message. Une étape inconnue est OMISE plutôt que rendue telle
- * quelle — mieux vaut une liste incomplète qu'une ligne incompréhensible, et l'ouverture du
- * message dit déjà qu'il manque quelque chose.
+ * Les identifiants d'étape sont du vocabulaire de code ; ils n'ont rien à faire dans un
+ * message. Une étape inconnue est OMISE plutôt que rendue telle quelle — mieux vaut une liste
+ * incomplète qu'une ligne incompréhensible, et l'ouverture du message dit déjà qu'il manque
+ * quelque chose.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⚠️ CETTE TABLE ÉTAIT INDEXÉE SUR LES NOMS DE L'ENUM, JAMAIS SUR SES VALEURS
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Défaut trouvé le 2026-08-19. Les clés étaient `WelcomeEmail` et `SlackInvite` — les noms des
+ * MEMBRES de `BestEffortStep` — alors que le workflow pousse leurs VALEURS, `welcomeEmail` et
+ * `slackInvite`. `describeMissingSteps` rendait donc `[]` sur TOUTE dégradation réelle, et
+ * `runOnboarding` n'envoie rien quand la liste est vide : **personne n'était jamais prévenu
+ * qu'un email de bienvenue n'était pas parti.**
+ *
+ * C'est la faute exacte que tout ce module dit combattre, dans le module qui le dit : le
+ * verdict existait, était calculé, était journalisé — et n'atteignait personne. Rien ne
+ * rougissait, parce que les deux bords étaient corrects séparément.
+ *
+ * Le correctif n'est pas de recopier les bonnes chaînes — la même divergence reviendrait au
+ * premier renommage — mais de **dériver la table de l'enum lui-même**. `Record<BestEffortStep,
+ * string>` rend de surcroît l'exhaustivité vérifiable à la COMPILATION : ajouter une étape
+ * sans son libellé devient une erreur de build, pas un silence.
  */
-const STEP_LABELS: Readonly<Record<string, string>> = {
-  WelcomeEmail: "l'email de bienvenue ne t'a pas été envoyé",
-  SlackInvite: "je n'ai pas pu t'ajouter à tes canaux Slack",
+const STEP_LABELS: Readonly<Record<BestEffortStep, string>> = {
+  [BestEffortStep.WelcomeEmail]: "l'email de bienvenue ne t'a pas été envoyé",
+  [BestEffortStep.SlackInvite]: "je n'ai pas pu t'ajouter à tes canaux Slack",
 };
 
 export function describeMissingSteps(steps: readonly { step: string }[]): string[] {
   const labels = steps
-    .map((entry) => STEP_LABELS[entry.step])
+    .map((entry) => STEP_LABELS[entry.step as BestEffortStep])
     .filter((label): label is string => Boolean(label));
   return [...new Set(labels)];
 }
 
-/**
- * La modale n'a pas pu s'ouvrir.
- *
- * ⚠️ Sans ce message, le symptôme est exactement « le bouton ne fait rien » : le clic est
- * acquitté, la modale n'apparaît pas, et rien ne distingue cette panne d'une Request URL mal
- * configurée. C'est le seul cas où l'utilisateur ne peut RIEN déduire de ce qu'il voit.
- *
- * Il ne nomme pas la cause parce qu'elles sont plusieurs et qu'aucune ne concerne la
- * personne : un jeton expiré, une vue refusée par Slack, un `trigger_id` de plus de trois
- * secondes. Ce qui la concerne, c'est que recliquer a de bonnes chances de marcher.
+/*
+ * ⚠️ `MODAL_FAILED_REPLY` a été SUPPRIMÉ le 2026-08-19, avec les modales elles-mêmes. Il
+ * disait « reclique sur le bouton, ça repart en général du premier coup » — une consigne
+ * devenue fausse dans les deux moitiés : il n'y a plus de bouton, et ça ne repartait pas.
  */
-export const MODAL_FAILED_REPLY =
-  "Le formulaire ne s'est pas ouvert — c'est de mon côté. Reclique sur le bouton, ça repart " +
-  'en général du premier coup.';

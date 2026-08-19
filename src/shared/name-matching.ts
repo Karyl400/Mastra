@@ -129,3 +129,50 @@ export function fullName(
     .filter(Boolean)
     .join(' ');
 }
+
+/**
+ * Ce TEXTE nomme-t-il cette personne ?
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * Pourquoi cette fonction existe, et pourquoi elle est ici
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Le bloc DOCUMENTS impose au modèle de citer le `recipient` rendu par `generateDocument`.
+ * C'est la mesure de VISIBILITÉ posée le 2026-08-14 contre l'erreur de destinataire — celle
+ * qui a enregistré « Bienvenue Awa » sous l'UUID de Karyl et envoyé le fichier à son adresse.
+ * Mesuré en production le 2026-08-19, sur DEUX sondes document : **le modèle ne le cite pas**.
+ * La consigne ne se déclenche pas, donc la mesure ne mesure rien.
+ *
+ * Le handler accole donc la note lui-même — mais seulement si elle manque, sans quoi une
+ * réponse déjà juste se verrait doubler d'une redite de machine. Il faut donc SAVOIR si elle
+ * manque, et c'est ce que cette fonction répond.
+ *
+ * ⚠️ Le rapprochement est EXACT, pas par préfixe, contrairement à `matchesName`. Les deux
+ * questions sont inverses : là, un humain TAPE un nom incomplet et l'on cherche qui il vise ;
+ * ici, une machine a ÉCRIT le nom complet et l'on vérifie qu'il y est. Un préfixe rendrait
+ * « Kar » suffisant, donc « carte » — non, « carte » ne commence pas par… si, justement :
+ * `matchesName('kar', ['karyl'])` est vrai, et « ta carte » contiendrait donc « Karyl ».
+ *
+ * ⚠️ Les jetons de moins de 3 caractères sont écartés : « Li », « Bo », une initiale
+ * apparaissent partout dans une phrase française et feraient conclure à tort que la personne
+ * est nommée — le sens dangereux, celui qui SUPPRIME l'avertissement.
+ *
+ * ⚠️ Le découpage du texte se fait sur les non-lettres avec le drapeau `u`, jamais sur `\b`
+ * (qui raisonne en ASCII, piège payé quatre fois dans ce dépôt) : sans quoi « pour Karyl. »
+ * rendrait le jeton « karyl. », qui n'égale jamais « karyl ».
+ */
+export function textMentionsName(
+  text: string | null | undefined,
+  name: string | null | undefined,
+): boolean {
+  const wanted = nameTokens(name).filter((token) => token.length >= 3);
+  if (wanted.length === 0) return false;
+
+  const words = new Set(
+    normalizeName(text)
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter(Boolean),
+  );
+
+  return wanted.some((token) => words.has(token));
+}
