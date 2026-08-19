@@ -11,14 +11,11 @@ import { type ProfileModalPrefill } from './profile-modal';
 // Extraits le 2026-08-17 vers `infrastructure/ui/welcome-blocks.ts` — voir son en-tête.
 // Réexportés en fin de fichier : d'autres modules et des tests les importent depuis ici.
 import {
-  PROFILE_DONE_ACTION_ID,
-  buildProfileButtonBlock,
   buildProfileInviteBlocks,
   buildWelcomeBlocks,
   firstWordOf,
   greet,
   restAfterFirstWord,
-  COMPLETE_PROFILE_ACTION_ID,
 } from '../ui/welcome-blocks';
 import {
   UNSUPPORTED_CLAIM_NOTICE,
@@ -1946,15 +1943,12 @@ export class SlackEventsHandler {
     await this.chatProvider.sendBlocks(
       channel,
       PROFILE_FORM_INVITE,
-      buildProfileInviteBlocks({
-        slackUserId: user ?? '',
-        firstName: known?.firstName ?? null,
-        lastName: known?.lastName ?? null,
-        email: known?.email ?? null,
-        // Pas de `joinedAt` hors du flux d'arrivée : `startDateFromJoin` retombe alors sur
-        // l'instant courant. C'est la seule date honnête ici — l'arrivée réelle de
-        // quelqu'un déjà présent depuis des mois n'est connue de personne.
-      }),
+      // ⚠️ Plus AUCUN pré-remplissage : il vivait dans le `value` du bouton, et c'est ce
+      // `value` qui imposait la restriction « DM uniquement » pour des motifs de sécurité —
+      // en canal, un témoin qui cliquait ouvrait une modale portant les données d'autrui.
+      // Sans bouton, transporter ces champs serait une donnée personnelle qui voyage sans
+      // aucun destinataire.
+      buildProfileInviteBlocks(),
     );
 
     logger.info('Profile form posted — answered without any LLM call', {
@@ -3030,7 +3024,18 @@ export class SlackEventsHandler {
           },
         },
         answers,
-        startDateFromJoin(undefined, new Date()),
+        // ⚠️ LA DATE D'ARRIVÉE VIENT DE L'ANNUAIRE, plus d'un bouton — 2026-08-19.
+        //
+        // Elle voyageait dans le `value` du bouton (`joinedAt`), posé par `handleTeamJoin`.
+        // Les boutons ayant été retirés, ce chemin passait `undefined`, et `startDateFromJoin`
+        // retombait sur AUJOURD'HUI pour tout le monde — y compris pour quelqu'un présent
+        // depuis six mois.
+        //
+        // `slack_directory.first_seen_at` porte exactement la même information : `upsertFacts`
+        // la pose au `team_join`, et c'est plus robuste qu'un aller-retour par un `value`
+        // Slack — la donnée ne quitte jamais le serveur, donc rien ne peut la falsifier ni la
+        // perdre en route. Absente, on retombe sur aujourd'hui, comme avant.
+        startDateFromJoin(await this.joinedAtOf(input.user), new Date()),
       );
     } catch (error) {
       logger.error('Enregistrement du dossier en conversation impossible', {
@@ -3109,6 +3114,25 @@ export class SlackEventsHandler {
         employeeId,
         error: String(error),
       });
+    }
+  }
+
+  /**
+   * La date de première apparition dans le workspace, telle que l'annuaire l'a enregistrée.
+   *
+   * Rend `undefined` — jamais une date fabriquée — quand on ne sait pas : c'est ce qui permet
+   * à `buildWelcomeEmail` de faire disparaître sa phrase plutôt que d'annoncer une arrivée.
+   */
+  private async joinedAtOf(slackUserId: string | undefined): Promise<string | undefined> {
+    if (!slackUserId) return undefined;
+    try {
+      const member = await this.getDirectoryRepo()?.findBySlackUserId(slackUserId);
+      return member?.firstSeenAt?.toISOString();
+    } catch (error) {
+      logger.debug('Date d’arrivée illisible — la création se poursuit', {
+        error: String(error),
+      });
+      return undefined;
     }
   }
 
@@ -3665,13 +3689,7 @@ export { FOREIGN_TURN_PREFIX, buildContextPreamble, sanitizeDisplayName };
 // Réexports de la réconciliation FAIT/NARRATION — trois tests les importent depuis ici.
 export { UNSUPPORTED_CLAIM_NOTICE, detectUnsupportedCompletionClaim, readToolCallNames };
 
-export {
-  PROFILE_DONE_ACTION_ID,
-  buildProfileButtonBlock,
-  buildProfileInviteBlocks,
-  buildWelcomeBlocks,
-  COMPLETE_PROFILE_ACTION_ID,
-};
+export { buildProfileInviteBlocks, buildWelcomeBlocks };
 
 /**
  * Texte du dernier tour `assistant` du fil, ou `undefined`.

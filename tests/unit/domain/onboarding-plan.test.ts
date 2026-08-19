@@ -116,6 +116,7 @@ describe('un suivi ANCIEN est réconcilié, jamais recopié tel quel', () => {
       status: OnboardingStatus.InProgress,
       startedAt: '2026-08-01T00:00:00.000Z',
       completedAt: null,
+      createdAt: '2026-08-01T00:00:00.000Z',
       updatedAt: '2026-08-01T00:00:00.000Z',
     });
 
@@ -135,6 +136,7 @@ describe('un suivi ANCIEN est réconcilié, jamais recopié tel quel', () => {
       status: OnboardingStatus.Completed,
       startedAt: '2026-08-01T00:00:00.000Z',
       completedAt: '2026-08-01T00:00:00.000Z',
+      createdAt: '2026-08-01T00:00:00.000Z',
       updatedAt: '2026-08-01T00:00:00.000Z',
     };
 

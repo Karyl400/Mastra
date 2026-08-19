@@ -36,7 +36,7 @@ import { InMemorySlackEventDedupRepository } from '../../../src/features/notific
 const HUMAN = 'U0BJBDGTJUD';
 
 function makeHandler() {
-  const audit = vi.fn(async () => undefined);
+  const audit = vi.fn(async (_entry: { action: string; status?: string }) => undefined);
   const slack = {
     chat: {
       postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1700000000.000900' }),
@@ -60,7 +60,7 @@ function makeHandler() {
       } as unknown as SlackEventsHandlerOptions['chatProvider'],
       accessGuard: null,
       workspaceProvider: { getUserById: async () => null },
-      auditSink: audit,
+      auditSink: audit as unknown as SlackEventsHandlerOptions['auditSink'],
       conversationRepository: null,
       dedupRepository: new InMemorySlackEventDedupRepository(),
       rateLimiter: null,
@@ -97,7 +97,7 @@ describe('le journal d’audit ne conclut pas d’avance', () => {
     await handler.handleMessage(dm('retrouve l’employé dont l’email est karyl@kisso.com'));
 
     const slackMessage = audit.mock.calls
-      .map(([entry]) => entry as unknown as { action: string; status?: string })
+      .map((call) => call[0] as unknown as { action: string; status?: string })
       .find((entry) => entry.action === 'SLACK_MESSAGE');
 
     expect(slackMessage).toBeDefined();

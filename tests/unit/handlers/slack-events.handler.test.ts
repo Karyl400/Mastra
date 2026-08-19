@@ -587,13 +587,17 @@ describe('SlackEventsHandler — handleTeamJoin (DM de bienvenue)', () => {
     const [channel, fallback, blocks] = deps.sendBlocks.mock.calls[0];
     expect(channel).toBe(NEWCOMER);
     expect(fallback).toMatch(/bienvenue/i);
-    // ⚠️ Le bouton d'entrée est « C'est fait » depuis le 2026-08-19, plus « Compléter mon
-    // profil ». Ce n'est pas un changement de libellé : l'ancien ouvrait une MODALE, et un
-    // `trigger_id` Slack expire 3 secondes après le clic alors que le démarrage à froid de la
-    // fonction a été mesuré à 4,9 s — jusqu'à 16 s après une longue inactivité, c'est-à-dire
-    // précisément la situation d'un arrivant. Le bouton était structurellement cassé.
-    expect(JSON.stringify(blocks)).toMatch(/C’est fait/);
-    expect(JSON.stringify(blocks)).toContain('profile_done');
+    // ⚠️ PLUS AUCUN BOUTON depuis le 2026-08-19, et c'est la deuxième étape d'un même
+    // raisonnement. Le premier bouton ouvrait une MODALE : un `trigger_id` expire en 3 s alors
+    // que le démarrage à froid mesurait 4,9 s — structurellement cassé. Il a été remplacé par
+    // « C'est fait », qui n'ouvrait rien et dont l'ACK a été mesuré entre 393 et 1 473 ms, et
+    // 1 384 ms à froid après 14 minutes d'inactivité. Le propriétaire a pourtant signalé DEUX
+    // FOIS qu'il ne fonctionnait pas sous un vrai clic. Un désaccord entre une mesure et
+    // l'expérience répétée de l'utilisateur ne se tranche pas en répétant la mesure : on
+    // supprime la dépendance. `message.im`, lui, est prouvé à chaque campagne.
+    expect(JSON.stringify(blocks)).not.toContain('action_id');
+    expect(JSON.stringify(blocks)).not.toContain('button');
+    expect(JSON.stringify(blocks)).toMatch(/j’ai fini|j'ai fini/);
     // Le message DIT désormais ce qui sera demandé : l'ancien annonçait « il me manque une
     // information » sans laquelle, donc la personne ouvrait la modale pour la découvrir.
     expect(JSON.stringify(blocks)).toMatch(/adresse email/);

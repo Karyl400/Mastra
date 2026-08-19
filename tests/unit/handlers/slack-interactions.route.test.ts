@@ -24,7 +24,12 @@ import {
   type SlackInteractionsContext,
 } from '../../../src/api/slack-interactions.route';
 import { computeSlackSignature } from '../../../src/shared/security/slack-signature';
-import { COMPLETE_PROFILE_ACTION_ID } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
+/**
+ * ⚠️ Identifiant HÉRITÉ, recopié ici à dessein — les boutons ont été retirés du parcours le
+ * 2026-08-19 et plus aucun code ne l'émet. Ce test vérifie qu'un clic sur un bouton DÉJÀ POSTÉ
+ * dans Slack — ils y restent indéfiniment — ne tombe pas dans le vide.
+ */
+const COMPLETE_PROFILE_ACTION_ID = 'complete_profile';
 import {
   PROFILE_MODAL_CALLBACK_ID,
   PROFILE_FIELDS,

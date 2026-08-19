@@ -94,13 +94,19 @@ describe('handleTeamJoin', () => {
     expect(run).toHaveBeenCalledWith('U_NEW');
   });
 
-  it("transporte la date d'arrivée dans le bouton de la modale", async () => {
+  it("n'expose AUCUN bouton, et ne transporte donc plus aucune donnée personnelle", async () => {
+    // ⚠️ 2026-08-19. Ce test vérifiait que le `value` du bouton transportait `joinedAt` et
+    // l'email. Les boutons ont été retirés du parcours ; la date d'arrivée vient désormais de
+    // `slack_directory.first_seen_at`, que `upsertFacts` pose au `team_join`. C'est la MÊME
+    // information par un chemin plus robuste : elle ne quitte jamais le serveur, donc rien ne
+    // peut la falsifier ni la perdre en route.
     const { handler, sendBlocks } = makeHandler();
     await handler.handleTeamJoin(EVENT as never);
 
-    const prefill = decodePrefill(buttonValueOf(sendBlocks.mock.calls[0]![2]), '');
-    expect(prefill.joinedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(prefill.email).toBe('lea@kisso.com');
+    const json = JSON.stringify(sendBlocks.mock.calls[0]![2]);
+    expect(json).not.toContain('action_id');
+    expect(json).not.toContain('button');
+    expect(json).not.toContain('lea@kisso.com');
   });
 
   it("le DM part MÊME si l'invitation aux canaux échoue entièrement", async () => {

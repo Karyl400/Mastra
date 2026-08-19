@@ -4,13 +4,11 @@ import type { Mastra } from '@mastra/core';
 
 import {
   SlackEventsHandler,
-  PROFILE_DONE_ACTION_ID,
   type SlackEventsHandlerOptions,
   type SlackMessageEvent,
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
 import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
 import { InMemoryDirectoryRepository } from '../../../src/features/directory/infrastructure/repositories/in-memory-directory.repository';
-import { decodePrefill } from '../../../src/features/notification/infrastructure/handlers/profile-modal';
 import { PROFILE_FORM_CHANNEL_REDIRECT } from '../../../src/shared/profile-request';
 
 /**
@@ -118,7 +116,7 @@ beforeEach(() => {
 });
 
 describe('handleMessage — demande du formulaire de profil en DM', () => {
-  it('poste le bouton sans appeler le modèle', async () => {
+  it('poste le GUIDE sans appeler le modèle, et sans aucun bouton', async () => {
     const handler = makeHandler();
 
     await handler.handleMessage(dm('je veux compléter mon profil'));
@@ -128,63 +126,20 @@ describe('handleMessage — demande du formulaire de profil en DM', () => {
 
     const [channel, , blocks] = sendBlocks.mock.calls[0]!;
     expect(channel).toBe('D0MOCKDM01');
-    const actions = (
-      blocks as Array<{ type: string; elements?: Array<{ action_id?: string }> }>
-    ).find((b) => b.type === 'actions');
-    // ⚠️ « C'est fait », plus « Compléter mon profil » — 2026-08-19. Ce chemin-ci (une
-    // personne DÉJÀ dans le workspace qui demande son formulaire) était resté sur l'ancien
-    // bouton après la refonte du matin, et ce test verrouillait la divergence : pas de
-    // vidéo, pas de guide écrit, et surtout aucune vérification — cassé par la même cause
-    // que celui qu'on venait de réparer, à savoir un jeton d'ouverture de fenêtre qui expire
-    // en 3 s quand le démarrage à froid en prend 5.
-    //
-    // C'est aussi le chemin le PLUS emprunté : le relevé du 2026-08-14 comptait 2 fiches
-    // employés pour 6 personnes réelles, les quatre autres étant arrivées avant
-    // l'installation du bot. Le rattrapage passe donc par ici, pas par l'arrivée.
-    expect(actions?.elements?.[0]?.action_id).toBe(PROFILE_DONE_ACTION_ID);
-  });
 
-  it("pré-remplit le bouton depuis l'annuaire, sans aucun appel Slack supplémentaire", async () => {
-    const handler = makeHandler();
-    await directory.upsertFacts(
-      {
-        slackUserId: HUMAN,
-        teamId: 'TMLKC4EPP',
-        email: 'karylsoumaila1@gmail.com',
-        realName: 'Karyl SOUMAILA',
-        displayName: 'Karyl SOUMAILA',
-        firstName: 'Karyl',
-        lastName: 'SOUMAILA',
-        title: null,
-        isBot: false,
-        isAdmin: false,
-        isRestricted: false,
-        isUltraRestricted: false,
-        isDeleted: false,
-      },
-      new Date(),
-    );
-
-    await handler.handleMessage(dm('complète mon profil'));
-
-    const [, , blocks] = sendBlocks.mock.calls[0]!;
-    const button = (blocks as Array<{ type: string; elements?: Array<{ value?: string }> }>).find(
-      (b) => b.type === 'actions',
-    )?.elements?.[0];
-
-    const prefill = decodePrefill(button?.value, '');
-    expect(prefill).toMatchObject({
-      slackUserId: HUMAN,
-      firstName: 'Karyl',
-      lastName: 'SOUMAILA',
-      email: 'karylsoumaila1@gmail.com',
-    });
+    // ⚠️ PLUS AUCUN BOUTON — 2026-08-19. Le propriétaire a signalé deux fois qu'ils ne
+    // fonctionnaient pas sous un vrai clic, alors que les sondes signées mesuraient des ACK de
+    // 393 à 1 473 ms, et 1 384 ms à froid. Un désaccord entre une mesure et l'expérience
+    // répétée de l'utilisateur ne se tranche pas en répétant la mesure : on supprime la
+    // dépendance. Le conversationnel ne dépend que de `message.im`, prouvé à chaque campagne.
+    const json = JSON.stringify(blocks);
+    expect(json).not.toContain('action_id');
+    expect(json).not.toContain('button');
+    // Et ce qui remplace le bouton doit être DIT : la personne doit savoir quoi écrire.
+    expect(json).toMatch(/j’ai fini|j'ai fini/);
   });
 
   it('fonctionne même sans rien savoir de la personne', async () => {
-    // L'annuaire est vide : la modale collectera les quatre champs. L'absence de
-    // pré-remplissage ne doit jamais empêcher le geste — c'est le seul chemin qui crée un
-    // dossier.
     const handler = makeHandler();
 
     await handler.handleMessage(dm('remplis ma fiche'));

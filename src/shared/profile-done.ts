@@ -70,6 +70,13 @@ const DONE_PATTERNS: readonly RegExp[] = [
   /^(?:je l'ai|je viens de le) (?:fait|faite|rempli|complete)\b/,
   /^(?:profil|dossier|formulaire) (?:complete|rempli|fait|termine)\b/,
   /^(?:fait|termine)\s*!*$/,
+  // ⚠️ Ajoutés le 2026-08-19, quand cette liste est devenue la SEULE porte d'entrée du
+  // parcours : le bouton « C'est fait » a été retiré. Une formule non reconnue n'est plus une
+  // gêne, c'est un cul-de-sac — le message part chez un agent qui n'a aucune idée de ce que la
+  // personne vient d'accomplir, et l'accueil s'arrête là.
+  /^(?:ok|okay|voila|bon),? ?(?:c'est|cest) (?:fait|bon|termine|fini|pret|complete)\b/,
+  /^(?:c'est|cest) pret\b/,
+  /^ca y est\b/,
 ];
 
 /**

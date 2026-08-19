@@ -125,15 +125,19 @@ describe('la vidéo ne devient jamais une promesse creuse', () => {
 });
 
 describe('le message d’accueil', () => {
-  it('n’expose plus « Compléter mon profil » en porte d’entrée', () => {
-    const blocks = buildWelcomeBlocks(prefill);
-    const ids = blocks.flatMap((block) => {
-      const elements = (block as { elements?: Array<{ action_id?: string }> }).elements ?? [];
-      return elements.map((element) => element.action_id ?? '');
-    });
+  it('n’expose AUCUN bouton — le parcours est entièrement conversationnel', () => {
+    // ⚠️ 2026-08-19. Ce test assertait la présence de `profile_done`. Le propriétaire a
+    // signalé DEUX FOIS que les boutons ne fonctionnent pas sous un vrai clic, alors que les
+    // sondes signées mesuraient 393 à 1 473 ms, et 1 384 ms à froid après 14 min d'inactivité.
+    // Un désaccord entre une mesure et l'expérience répétée de l'utilisateur ne se tranche pas
+    // en répétant la mesure : on supprime la DÉPENDANCE. Il reste des causes possibles hors du
+    // code — la Request URL d'*Interactivity* n'a jamais été vérifiée en console — et aucune
+    // n'est observable d'ici. `message.im`, lui, est prouvé à chaque campagne.
+    const json = JSON.stringify(buildWelcomeBlocks(prefill));
 
-    expect(ids).toContain('profile_done');
-    expect(ids).not.toContain('complete_profile');
+    expect(json).not.toContain('action_id');
+    expect(json).not.toContain('button');
+    expect(json).not.toContain('profile_done');
   });
 
   it('DIT ce qui va être demandé', () => {
@@ -329,15 +333,16 @@ describe('les DEUX chemins vers le formulaire suivent le MÊME parcours', () => 
    */
   const paths = [
     ['arrivant', buildWelcomeBlocks(prefill)],
-    ['déjà présent', buildProfileInviteBlocks(prefill)],
+    ['déjà présent', buildProfileInviteBlocks()],
   ] as const;
 
-  it.each(paths)('« %s » propose « C’est fait », jamais l’ancien bouton', (_name, blocks) => {
+  it.each(paths)('« %s » invite à ÉCRIRE, sans aucun bouton', (_name, blocks) => {
     const json = JSON.stringify(blocks);
 
-    expect(json).toContain('profile_done');
-    expect(json).not.toContain('complete_profile');
-    expect(json).toContain('C’est fait');
+    expect(json).not.toContain('action_id');
+    expect(json).not.toContain('button');
+    // Ce qui remplace le bouton doit être DIT — sinon on retire une porte sans en ouvrir une.
+    expect(json).toMatch(/j’ai fini|j'ai fini/);
   });
 
   it.each(paths)('« %s » DIT ce qui sera demandé', (_name, blocks) => {
@@ -350,8 +355,7 @@ describe('les DEUX chemins vers le formulaire suivent le MÊME parcours', () => 
 
   it.each(paths)('« %s » cite la vidéo dès qu’elle existe', (_name) => {
     process.env.ONBOARDING_VIDEO_URL = 'https://kisso.example/tuto';
-    const blocks =
-      _name === 'arrivant' ? buildWelcomeBlocks(prefill) : buildProfileInviteBlocks(prefill);
+    const blocks = _name === 'arrivant' ? buildWelcomeBlocks(prefill) : buildProfileInviteBlocks();
 
     expect(JSON.stringify(blocks)).toContain('https://kisso.example/tuto');
   });
@@ -361,7 +365,7 @@ describe('les DEUX chemins vers le formulaire suivent le MÊME parcours', () => 
     // sonne faux — c'est toute la raison d'être du second chemin. Seule l'ouverture diffère ;
     // tout le reste est partagé, sans quoi les deux finiraient par ne plus dire la même chose.
     const arrivant = JSON.stringify(buildWelcomeBlocks(prefill));
-    const present = JSON.stringify(buildProfileInviteBlocks(prefill));
+    const present = JSON.stringify(buildProfileInviteBlocks());
 
     expect(arrivant).toContain('accueillir');
     expect(present).not.toContain('accueillir');

@@ -116,6 +116,6 @@ export function writtenGuide(): string {
     '  • ton nom et ton prénom\n' +
     '  • ton adresse email — celle de l’entreprise ou ta personnelle\n' +
     '  • l’intitulé de ton poste\n\n' +
-    `*${step + 1}.* Reviens ici et clique sur « C’est fait » — ou écris-moi simplement « j’ai fini ».`
+    `*${step + 1}.* Reviens ici et écris-moi simplement « j’ai fini ».`
   );
 }

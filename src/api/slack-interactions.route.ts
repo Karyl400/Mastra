@@ -34,7 +34,21 @@ import { registerApiRoute } from '@mastra/core/server';
 import type { Mastra } from '@mastra/core';
 
 import { SlackAdapter } from '../features/notification/infrastructure/providers/slack.adapter';
-import { PROFILE_DONE_ACTION_ID } from '../features/notification/infrastructure/ui/welcome-blocks';
+/**
+ * ⚠️ IDENTIFIANT HÉRITÉ — plus AUCUN émetteur depuis le 2026-08-19.
+ *
+ * Les boutons ont été retirés du parcours : le propriétaire a signalé deux fois qu'ils ne
+ * fonctionnaient pas sous un vrai clic humain, alors que les sondes signées mesuraient des ACK
+ * de 393 à 1 473 ms. On a supprimé la DÉPENDANCE plutôt que de rejouer la mesure.
+ *
+ * Cette branche est CONSERVÉE, et ce n'est pas du code mort : les messages déjà postés dans
+ * Slack portent encore leur bouton, indéfiniment. Quelqu'un qui remonte son fil et clique doit
+ * obtenir la vérification de son dossier — pas un `block_actions sans action connue`, c'est-à-
+ * dire un clic sans effet et sans trace. La constante vit ici parce que c'est désormais son
+ * unique consommateur.
+ */
+const PROFILE_DONE_ACTION_ID = 'profile_done';
+
 import { verifyProfile } from '../features/onboarding/domain/services/profile-completion';
 import { INTERVIEW_QUESTION_DAILY } from '../features/onboarding/domain/services/interview-chat';
 import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
