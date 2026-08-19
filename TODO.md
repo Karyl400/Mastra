@@ -66,6 +66,21 @@
       indéfiniment. `PENDING_EMAIL_TTL_MS` = 24 h, vérifié À LA LECTURE — ce projet n'a aucun
       cron, et une purge qui dépend d'un automate inexistant est une promesse creuse.
 
+### Vérifié en production le 2026-08-20, après déploiement
+
+- [x] **Date relative** : « lundi prochain à 9h » → « lundi 24 août 2026 à 09:00 » (contre
+      « samedi 22 août à 08:00 » avant). Idem « lundi matin » → « lundi 24 août 2026 à 09 h ».
+- [x] **Note de destinataire** : « _(Ce document a été produit pour Karyl SOUMAILA.)_ » accolée
+      là où le modèle ne nommait personne.
+- [x] **Note de non-envoi INCONDITIONNELLE** : « Rappel planifié pour Karyl … » suivi de
+      « _Note : c'est enregistré, mais aucun automate ne l'enverra_ ». Le tour précédent, sans
+      aucun mot de promesse, n'avait rien reçu.
+- [x] **Salutation** : n'annonce que des capacités réelles, formulation variée.
+- [x] **`findExpertise`** répond depuis les données réelles.
+- [x] **Périmètre** : les quatre POST non signés en 401, `/internal/*` compris ; `GET
+      /api/agents` et `/api/agents/:id` en 401.
+- [x] Les cinq court-circuits statiques, pour zéro token.
+
 ### Limites CONNUES, écrites plutôt que découvertes
 
 - [ ] **À quota atteint, on ne peut pas ANNULER un email en attente ce jour-là.** Le prédicat
