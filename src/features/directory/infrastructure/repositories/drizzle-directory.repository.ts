@@ -150,13 +150,17 @@ export class DrizzleDirectoryRepository implements DirectoryRepository {
   }
 
   /** Destructif à dessein, contrairement à `rememberDmChannel` : `null` DÉTACHE, c'est le port. */
-  async linkEmployee(slackUserId: string, employeeId: string | null): Promise<void> {
+  async linkEmployee(slackUserId: string, employeeId: string | null): Promise<number> {
     const db = this.resolveDb();
 
-    await db
+    // ⚠️ On REND le compte : un `UPDATE` sans ligne correspondante réussit sans rien faire.
+    // Voir le port pour l'incident de production qui l'a imposé.
+    const result = await db
       .update(slackDirectory)
       .set({ employeeId })
       .where(eq(slackDirectory.slackUserId, slackUserId));
+
+    return Number((result as { rowsAffected?: number }).rowsAffected ?? 0);
   }
 
   /**

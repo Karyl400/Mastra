@@ -45,7 +45,18 @@ export interface DirectoryRepository {
   rememberDmChannel(slackUserId: string, dmChannelId: string): Promise<void>;
 
   /** Rattache une personne à un employé enregistré. `null` détache. */
-  linkEmployee(slackUserId: string, employeeId: string | null): Promise<void>;
+  /**
+   * Rattache une ligne d'annuaire à un dossier, et rend le NOMBRE de lignes réellement
+   * touchées.
+   *
+   * ⚠️ Le compte n'est pas un confort de journalisation — même argument que `forget(scope)`,
+   * qui le rend pour la même raison. C'est un `UPDATE ... WHERE slack_user_id = ?` : si la
+   * ligne n'existe pas, l'ordre réussit sans rien faire. Trouvé EN PRODUCTION le 2026-08-19,
+   * en testant le correctif du matin même — il journalisait « Annuaire relié au dossier »
+   * alors que zéro ligne avait bougé, ce qui est exactement la famille de défaut qu'il
+   * fermait. Sans ce compte, l'appelant ne peut que réciter « c'est fait ».
+   */
+  linkEmployee(slackUserId: string, employeeId: string | null): Promise<number>;
 
   /** Tout l'annuaire, pour les usages de lecture groupée. */
   listAll(): Promise<DirectoryMember[]>;

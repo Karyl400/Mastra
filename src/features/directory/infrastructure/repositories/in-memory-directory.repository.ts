@@ -82,11 +82,14 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
   }
 
   /** Destructif à dessein : `null` DÉTACHE. Personne inconnue = sans effet, comme l'`UPDATE`. */
-  async linkEmployee(slackUserId: string, employeeId: string | null): Promise<void> {
-    const existing = this.rows.get(slackUserId);
-    if (!existing) return;
-
-    this.rows.set(slackUserId, { ...existing, employeeId });
+  async linkEmployee(slackUserId: string, employeeId: string | null): Promise<number> {
+    // ⚠️ Rend 0 quand la ligne n'existe pas, comme l'`UPDATE` SQL. La doublure DOIT partager ce
+    // contrat : c'est précisément l'écart entre « l'ordre a réussi » et « une ligne a bougé »
+    // qui a produit un log de succès mensonger en production le 2026-08-19.
+    const row = this.rows.get(slackUserId);
+    if (!row) return 0;
+    this.rows.set(slackUserId, { ...row, employeeId });
+    return 1;
   }
 
   /** Trié sur la clé, comme l'`ORDER BY` de l'implémentation Drizzle. */

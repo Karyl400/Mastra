@@ -3072,8 +3072,28 @@ export class SlackEventsHandler {
     if (!slackUserId || !employeeId) return;
 
     try {
-      await this.getDirectoryRepo()?.linkEmployee(slackUserId, employeeId);
+      const linked = (await this.getDirectoryRepo()?.linkEmployee(slackUserId, employeeId)) ?? 0;
       this.requesterNames.delete(slackUserId);
+
+      // ⚠️ ON NE L'ANNONCE QUE SI UNE LIGNE A BOUGÉ — trouvé EN PRODUCTION le 2026-08-19, en
+      // testant ce correctif le jour même où il a été écrit. `linkEmployee` est un
+      // `UPDATE … WHERE slack_user_id = ?` : sans ligne correspondante, l'ordre réussit et
+      // n'affecte rien. La version précédente journalisait « Annuaire relié au dossier » dans
+      // ce cas — c'est-à-dire exactement la famille de défaut que ce correctif venait fermer,
+      // reproduite par le correctif lui-même.
+      //
+      // Relevé au même moment : `slack_directory` compte 41 lignes dont UNE SEULE porte un
+      // `employee_id`. Le cas « pas de ligne » n'est donc pas théorique, c'est le cas courant
+      // pour qui n'est jamais passé ni par `team_join` ni par la synchronisation manuelle.
+      if (linked === 0) {
+        logger.error('Annuaire NON relié — aucune ligne pour cette personne', {
+          reason: 'no_directory_row',
+          slackUserId,
+          employeeId,
+        });
+        return;
+      }
+
       logger.info('Annuaire relié au dossier', { slackUserId, employeeId });
     } catch (error) {
       logger.error('Annuaire NON relié — l’entretien et la frontière d’accès en dépendent', {

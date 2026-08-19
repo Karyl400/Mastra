@@ -240,8 +240,24 @@ describe.each(implementations)('$nom — contrat DirectoryRepository', ({ make }
     expect((await repo.findBySlackUserId('U0AWA'))!.employeeId).toBeNull();
   });
 
-  it('rattacher une personne absente ne lève pas', async () => {
-    await expect(repo.linkEmployee('U0INCONNU', 'emp-42')).resolves.toBeUndefined();
+  it('rattacher une personne absente ne lève pas, et REND 0', async () => {
+    // ⚠️ Le compte est le contrat, pas un confort de journalisation — même argument que
+    // `forget(scope)`. Trouvé EN PRODUCTION le 2026-08-19 : `linkEmployee` est un
+    // `UPDATE … WHERE slack_user_id = ?`, donc sans ligne correspondante l'ordre RÉUSSIT sans
+    // rien faire. L'appelant journalisait « Annuaire relié au dossier » dans ce cas — la
+    // famille de défaut que ce correctif venait précisément fermer, reproduite par lui.
+    //
+    // Ce test tourne contre les DEUX implémentations : c'est ce qui garantit que la doublure
+    // en mémoire ne rende pas 1 là où SQLite rend 0, écart qui rendrait les tests verts sur un
+    // comportement que la production n'a pas.
+    await expect(repo.linkEmployee('U0INCONNU', 'emp-42')).resolves.toBe(0);
+  });
+
+  it('rattacher une personne PRÉSENTE rend 1', async () => {
+    await repo.upsertFacts(faits({ slackUserId: 'U0PRESENT' }), T0);
+
+    await expect(repo.linkEmployee('U0PRESENT', 'emp-42')).resolves.toBe(1);
+    expect((await repo.findBySlackUserId('U0PRESENT'))?.employeeId).toBe('emp-42');
   });
 
   // ── listAll ────────────────────────────────────────────────────────────────
