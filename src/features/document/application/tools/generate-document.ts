@@ -347,10 +347,9 @@ async function persistDocument(
     title: string;
     content: string;
     format: DocumentFormat;
-    delivery: DeliveryVerdict;
   },
 ): Promise<Document> {
-  const { revised, delivery } = params;
+  const { revised } = params;
 
   const doc = createDocument({
     id: revised?.id ?? crypto.randomUUID(),
@@ -367,10 +366,11 @@ async function persistDocument(
     // `createDocument` repose un `createdAt` à l'instant présent : sur une correction, ce
     // serait effacer la date de production réelle du document.
     createdAt: revised ? revised.createdAt : doc.createdAt,
-    // `Sent` n'est pas cosmétique : c'est la seule trace persistée d'une livraison réussie,
-    // la seule façon de savoir après coup si un document est parti.
-    status:
-      delivery === 'slack' || delivery === 'email' ? DocumentStatus.Sent : DocumentStatus.Generated,
+    // Toujours `Generated` ici : à cet instant RIEN n'est parti. `Sent` est posé ensuite
+    // par `markDeliveryOutcome`, et seulement si un transport a rendu la main — c'est la
+    // seule trace persistée d'un départ réel, et la poser d'avance rejouerait exactement le
+    // défaut `status = Sent` posé avant l'envoi, corrigé sur `sendNotification`.
+    status: DocumentStatus.Generated,
     generatedAt: now,
     updatedAt: now,
   };
@@ -381,10 +381,43 @@ async function persistDocument(
   logger.info(revised ? 'Document corrigé' : 'Document généré', {
     id: generated.id,
     format: params.format,
-    delivery,
   });
 
   return generated;
+}
+
+/**
+ * Pose `Sent` une fois — et seulement une fois — qu'un transport a réellement rendu la main.
+ *
+ * Séparé de `persistDocument` parce que les deux répondent à des questions différentes :
+ * l'un dit « ce document existe », l'autre « ce document est parti ». Les confondre, c'est
+ * ce qui permettait à un statut d'être posé avant l'acte qu'il décrit.
+ *
+ * ⚠️ NE LÈVE PAS. Un échec de mise à jour laisse une ligne `Generated` pour un document
+ * réellement livré : l'audit sous-compte, mais le destinataire a bien son fichier et rien
+ * n'est perdu. Propager l'erreur transformerait une imprécision de trace en échec d'un tour
+ * qui a pourtant abouti — et le modèle annoncerait une panne après une livraison réussie.
+ */
+async function markDeliveryOutcome(
+  documentRepo: DocumentRepository,
+  generated: Document,
+  delivery: DeliveryVerdict,
+): Promise<void> {
+  if (delivery !== 'slack' && delivery !== 'email') return;
+
+  try {
+    await documentRepo.update({
+      ...generated,
+      status: DocumentStatus.Sent,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('Document livré mais statut non mis à jour', {
+      id: generated.id,
+      delivery,
+      error: errorMessage(error),
+    });
+  }
 }
 
 export function makeGenerateDocument(deps: GenerateDocumentDeps) {
@@ -757,6 +790,44 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       });
 
       // ---------------------------------------------------------------------
+      // Enregistrement — AVANT la livraison, et c'est l'ordre qui compte
+      // ---------------------------------------------------------------------
+      //
+      // ⚠️ CORRIGÉ LE 2026-08-20. `deliver()` était appelé EN PREMIER. Le commentaire qui
+      // suivait disait vrai — l'enregistrement a bien lieu quel que soit le VERDICT de
+      // livraison — mais il ne disait rien de l'ORDRE, et c'est l'ordre qui décide de ce
+      // qui survit à une mort du processus.
+      //
+      // Sur Vercel la fonction peut être gelée ou tuée à `maxDuration` (60 s) à tout
+      // instant. Entre les deux appels, l'état atteignable était : le PDF est réellement
+      // dans Slack ou dans une boîte mail, et il n'existe AUCUNE ligne en base. Donc
+      // `revises` ne retrouve plus rien, une reprise produit un SECOND document — la
+      // famille du défaut « 7 documents et 3 emails identiques en 8 minutes » — et l'audit
+      // sous-compte un document réellement parti.
+      //
+      // La garde d'idempotence ne rattrape rien : `runGuard.remember` vient APRÈS les deux,
+      // et c'est une `Map` en mémoire de processus, qui meurt avec l'instance.
+      //
+      // L'ordre inverse a un pire cas STRICTEMENT moins coûteux : une ligne `Generated`
+      // sans fichier livré. Elle est visible, corrigible, et `revises` sait la retrouver.
+      // Même arbitrage que `clear()` avant l'envoi de l'email d'entretien : on prend
+      // d'abord, on agit ensuite.
+      //
+      // Il n'y a AUCUNE transaction dans ce dépôt — ce n'est donc pas une atomicité qu'on
+      // gagne ici, c'est le choix du pire cas.
+      const generated = await persistDocument(documentRepo, {
+        revised,
+        employeeId,
+        type: data.type,
+        // Persistance : les valeurs ASSAINIES, jamais celles du modèle. Une ligne
+        // enregistrée avec un marqueur ressortirait telle quelle au premier code qui la
+        // relirait — le filtre du rendu ne protège que le fichier, pas la base.
+        title,
+        content,
+        format: producedFormat,
+      });
+
+      // ---------------------------------------------------------------------
       // Livraison — aucune exception ne sort de ce bloc
       // ---------------------------------------------------------------------
       const delivered = await deliver({
@@ -772,21 +843,7 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       });
       const { delivery, reason } = delivered;
 
-      // ---------------------------------------------------------------------
-      // Enregistrement — TOUJOURS, quel que soit le sort de la livraison
-      // ---------------------------------------------------------------------
-      const generated = await persistDocument(documentRepo, {
-        revised,
-        employeeId,
-        type: data.type,
-        // Persistance : les valeurs ASSAINIES, jamais celles du modèle. Une ligne
-        // enregistrée avec un marqueur ressortirait telle quelle au premier code qui la
-        // relirait — le filtre du rendu ne protège que le fichier, pas la base.
-        title,
-        content,
-        format: producedFormat,
-        delivery,
-      });
+      await markDeliveryOutcome(documentRepo, generated, delivery);
 
       // ---------------------------------------------------------------------
       // Tool-result — PROJETÉ, jamais l'entité
