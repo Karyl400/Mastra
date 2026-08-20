@@ -54,6 +54,23 @@ export const QUOTA_FAILURE =
   "et si ça persiste, c'est le plafond de la journée qui est atteint : ça repartira demain.";
 
 /**
+ * Message posté quand l'appel au modèle a dépassé sa borne de durée.
+ *
+ * ⚠️ DISTINCT du générique, et ce n'est pas du confort. Le générique dit « remonte-le : je
+ * ne peux pas me réparer tout seul » — sur un délai dépassé c'est faux et coûteux : la
+ * cause est presque toujours transitoire (fournisseur lent, démarrage à froid, bascule vers
+ * le repli), et réessayer aboutit souvent. Inviter à signaler un défaut là où il fallait
+ * simplement réessayer est exactement l'erreur commise sur le quota avant `QUOTA_FAILURE`,
+ * et elle a été mesurée : l'utilisatrice a conclu à un bug et est passée au message suivant.
+ *
+ * Il ne promet rien qu'on ne tienne : le travail est réellement abandonné à ce stade, et
+ * aucun mécanisme ne le reprend — ce dépôt n'a ni cron, ni file, ni retry.
+ */
+export const TIMEOUT_FAILURE =
+  "Je n'ai pas réussi à répondre dans le temps qui m'est imparti — je n'ai donc rien fait. " +
+  'Réessaie : ça passe le plus souvent au coup suivant.';
+
+/**
  * Traduit une exception en message destiné à la personne.
  *
  * Volontairement **conservateur** : tout ce qui n'est pas reconnu avec certitude reste
@@ -83,6 +100,15 @@ export function userFacingFailure(error: unknown): string {
     };
     const status = candidate.statusCode ?? candidate.status;
     if (status === 429) return QUOTA_FAILURE;
+
+    // ⚠️ Reconnu sur le `name`, jamais sur le texte — même arbitrage que pour le quota.
+    // `AbortSignal.timeout` pose `TimeoutError` (`DOMException`) ; plusieurs couches du SDK
+    // et de Node rendent `AbortError` pour une annulation. Les deux désignent ici la MÊME
+    // cause : notre propre borne a mordu, puisque rien d'autre dans ce dépôt n'annule un
+    // appel en cours.
+    if (candidate.name === 'TimeoutError' || candidate.name === 'AbortError') {
+      return TIMEOUT_FAILURE;
+    }
     if (candidate.name === 'AI_APICallError' || candidate.name === 'APICallError') {
       // Le SDK n'expose pas toujours le code : à ce stade le message est le seul indice,
       // et « rate limit » y est stable chez Groq comme chez Mistral.

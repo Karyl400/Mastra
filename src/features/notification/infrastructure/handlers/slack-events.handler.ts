@@ -5,6 +5,7 @@ import { logger } from '../../../../shared/logger';
 import { wrapAgentInput } from '../../../../shared/security/llm-guardrail';
 import { sanitizeAgentOutput } from '../../../../shared/security/agent-output';
 import type { EmailBody } from '../../domain/services/email-body';
+import { AGENT_GENERATE_TIMEOUT_MS } from '../../../../shared/llm/model-fallback';
 import { SlackAdapter } from '../providers/slack.adapter';
 import { SlackWorkspaceService } from '../providers/slack-workspace.service';
 import type { SlackWorkspaceProvider } from '../../domain/ports/slack-workspace.port';
@@ -2327,6 +2328,20 @@ export class SlackEventsHandler {
         }),
         {
           requestContext,
+          // ⚠️ LA SEULE BORNE DE DURÉE DE TOUT LE CHEMIN — posée le 2026-08-20.
+          //
+          // Sans elle, une fonction tuée à `maxDuration` pendant cet appel laissait la
+          // personne sur « Je regarde ça, un instant… » pour toujours : l'ACK à 200 avait
+          // déjà supprimé tout rejeu Slack, et l'invocation mourait avant d'écrire la
+          // moindre ligne d'erreur. Ni `progress.resolve()` ni `progress.fail()` n'étaient
+          // atteints.
+          //
+          // `abortSignal` se pose ICI et non dans `modelSettings` : Mastra l'EXCLUT
+          // explicitement de ce dernier (`Omit<CallSettings, 'abortSignal' | …>`). Vérifié
+          // dans le paquet installé — `AgentExecutionOptionsBase` l'accepte au premier
+          // niveau. Le poser au mauvais endroit aurait été ignoré en silence, donc pire
+          // qu'une absence : on aurait cru la borne en place.
+          abortSignal: AbortSignal.timeout(AGENT_GENERATE_TIMEOUT_MS),
         },
       );
       const durationMs = Date.now() - startedAt;

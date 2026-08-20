@@ -221,3 +221,33 @@ export function makeModelChain(deps: ModelChainDeps = {}): ModelWithRetries[] {
     maxRetries: index === chain.length - 1 ? LAST_RESORT_MAX_RETRIES : 0,
   }));
 }
+
+/**
+ * Borne de durée d'un appel `agent.generate`, tous maillons de la chaîne compris.
+ *
+ * ⚠️ POSÉE LE 2026-08-20. Il n'y en avait AUCUNE, et c'est ce qui produisait le pire
+ * symptôme de ce produit : celui qui ne se distingue pas d'une panne.
+ *
+ * L'enchaînement, mesuré et non supposé :
+ *   1. l'ACK à 200 est parti en moins de 3 s, donc Slack ne rejouera JAMAIS l'événement ;
+ *   2. la fonction est tuée à `maxDuration` (60 s) pendant l'appel au modèle ;
+ *   3. ni `progress.resolve()` ni `progress.fail()` ne sont atteints ;
+ *   4. la personne reste sur « Je regarde ça, un instant… » indéfiniment ;
+ *   5. aucune ligne d'erreur n'est écrite — l'invocation meurt avant d'en écrire une.
+ * La grâce d'abandon de 60 s ne couvre pas ce cas : elle ne s'arme que sur un rejeu.
+ *
+ * LE CHOIX DU CHIFFRE. Deux contraintes se rejoignent :
+ *   - au-dessus : `maxDuration` vaut 60 s, et il faut qu'il reste du temps pour POSTER le
+ *     message d'échec. Une borne à 59 s donnerait la borne sans le message, c'est-à-dire
+ *     exactement le silence qu'on corrige ;
+ *   - en dessous : les runs mesurés en production vont de 2 à 17 s, jusqu'à ≈ 21 s avec le
+ *     back-off du dernier maillon. Couper une réponse qui allait aboutir coûte un tour, soit
+ *     5 % du quota de la journée.
+ * 40 s laisse 20 s au chemin d'échec et près du double du pire cas observé : la borne ne se
+ * déclenche que sur un vrai blocage, jamais sur une lenteur normale.
+ *
+ * ⚠️ Ce n'est PAS un correctif de performance. L'appel ne devient pas plus rapide — il
+ * devient NOMMABLE. Un échec bruyant vaut mieux qu'un silence, c'est la doctrine que ce
+ * dépôt applique partout ailleurs.
+ */
+export const AGENT_GENERATE_TIMEOUT_MS = 40_000;
