@@ -47,6 +47,23 @@ const EXPERTISE_QUESTION_PATTERN = new RegExp(
   'u',
 );
 
+/**
+ * ⚠️ CETTE BANDE EST UNIQUEMENT INTERROGATIVE — aucun mot-clé nu.
+ *
+ * La première version portait `décidé|décision|convenu`, et un test de non-régression
+ * PRÉEXISTANT l'a attrapée sur-le-champ : « je conteste cette décision » partait chez
+ * `knowledgeAgent`. Même critère que celui qui avait fait écarter « ajoute » et « word » —
+ * un mot très courant du français ne désigne pas une capacité. La FORME de la question, elle,
+ * ne se prononce que pour demander ce qui s'est dit.
+ */
+const RECALL_QUESTION_PATTERN = new RegExp(
+  `${LB}(?:qu${APOS}?est-ce\\s+qu[ie]|qu${APOS}?a-t-on|qu${APOS}?avons-nous|de\\s+quoi)\\s+` +
+    `(?:\\S+\\s+){0,3}(?:d[ié]cid|convenu|dit|parl|discut)` +
+    `|${LB}(?:ce\\s+)?qui\\s+(?:a|ont)\\s+[ée]t[ée]\\s+(?:d[ié]cid|convenu|dit|[ée]voqu)` +
+    `|${LB}on\\s+(?:avait|a)\\s+dit${RB}`,
+  'u',
+);
+
 const TOPIC_BANDS: ReadonlyArray<{
   readonly agentId: string;
   readonly keywords: readonly string[];
@@ -79,6 +96,17 @@ const TOPIC_BANDS: ReadonlyArray<{
     requiredTool: 'findExpertise',
     pattern: EXPERTISE_QUESTION_PATTERN,
     overridesSticky: true,
+  },
+  {
+    agentId: 'knowledgeAgent',
+    keywords: [],
+    requiredTool: 'searchKnowledge',
+    pattern: RECALL_QUESTION_PATTERN,
+    // ⚠️ `false`, et c'est une décision, pas une prudence molle. « c'est décidé, envoie-le »
+    // arrive au milieu d'une préparation de notification : déloger le fil là-dessus rejouerait
+    // exactement l'alternance A → B → A du 2026-08-11. La règle d'admission d'`overridesSticky`
+    // exige un terme qui OUVRE une tâche ; « décidé » peut aussi bien en continuer une.
+    overridesSticky: false,
   },
 ];
 

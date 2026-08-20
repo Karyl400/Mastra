@@ -11,6 +11,7 @@ import { InMemorySlackEventDedupRepository } from '../../../src/features/notific
 import { KnowledgeIngestionService } from '../../../src/features/knowledge/application/services/knowledge-ingestion.service';
 import { InMemoryMessageArchiveRepository } from '../../../src/features/knowledge/infrastructure/repositories/in-memory-message-archive.repository';
 import { InMemoryKnowledgeFactRepository } from '../../../src/features/knowledge/infrastructure/repositories/in-memory-knowledge-fact.repository';
+import { routeToAgent } from '../../../src/features/notification/domain/services/agent-routing';
 
 /**
  * L'INGESTION — ce qui entre dans la base de connaissance, et surtout ce qui n'y entre pas.
@@ -247,5 +248,39 @@ describe('distillation vers le niveau 2', () => {
     await deliver(handler, envelope({ text: 'je passe au bureau ce matin' }, 'Ev8'));
 
     expect(facts.size).toBe(0);
+  });
+});
+
+/**
+ * LE ROUTAGE — la moitié que ce dépôt a déjà oubliée deux fois.
+ *
+ * Une capacité qu'aucune phrase ne joint est inaccessible, quelle qu'en soit la qualité :
+ * `findEmployeeByEmail` (2026-08-10) et toute `disclosure-policy.ts` (2026-08-12) l'ont été.
+ * Mesuré en production le 2026-08-20, AVANT cette bande : « Qu'est-ce qui a été décidé au sujet
+ * de la sonde ? » partait au DÉFAUT, donc chez un agent sans `searchKnowledge`, qui a répondu
+ * — honnêtement — qu'il ne savait pas.
+ */
+describe('routage vers la base de connaissance', () => {
+  const cases: ReadonlyArray<readonly [string, string]> = [
+    ["Qu'est-ce qui a été décidé au sujet de la migration ?", 'knowledgeAgent'],
+    ["Qu'est-ce qu'on a dit sur le déploiement ?", 'knowledgeAgent'],
+    ['De quoi avez-vous parlé hier ?', 'knowledgeAgent'],
+    ['Ce qui a été convenu pour jeudi ?', 'knowledgeAgent'],
+    ['On avait dit jeudi, non ?', 'knowledgeAgent'],
+    // ⚠️ Les non-régressions. « décision » nu a été essayé puis RETIRÉ : un test préexistant
+    // l'a attrapé immédiatement sur cette phrase.
+    ['je conteste cette décision', 'onboardingOrchestrator'],
+    ["c'est décidé, envoie-le", 'onboardingOrchestrator'],
+    ['crée un employé', 'onboardingOrchestrator'],
+  ];
+
+  it.each(cases)('« %s » → %s', (text, expected) => {
+    expect(routeToAgent(text)).toBe(expected);
+  });
+
+  it('ne DÉLOGE PAS un fil en cours — « décidé » peut continuer une tâche', () => {
+    expect(routeToAgent("Qu'est-ce qui a été décidé ?", 'notificationAgent')).toBe(
+      'notificationAgent',
+    );
   });
 });
