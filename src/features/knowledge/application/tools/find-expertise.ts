@@ -262,10 +262,30 @@ async function matchEmployees(deps: FindExpertiseDeps, skill: string): Promise<S
       const matchedDaily = Boolean(daily) && matchesName(skill, [daily]);
       if (!matchedPosition && !matchedDaily) continue;
 
-      const evidence = matchedPosition ? employee.position : daily;
+      // ⚠️ LA PROSE D'ENTRETIEN NE SORT PAS — corrigé le 2026-08-20.
+      //
+      // `evidence` valait `daily` quand la correspondance venait de l'entretien : la phrase
+      // que la personne a écrite sur elle-même partait alors telle quelle dans le `label`,
+      // vers n'importe quel membre du workspace qui demande « qui s'occupe du backend ? ».
+      // `dailyWork` n'est pas un intitulé de poste : c'est de la prose libre, donnée dans un
+      // cadre d'accueil, et `maskPii` la protège d'ailleurs dans les logs depuis le
+      // 2026-08-14 — elle était protégée du journal et pas du produit.
+      //
+      // On garde la CAPACITÉ (trouver la bonne personne, qui est tout l'intérêt de ce tool
+      // et la raison de son ajout le 2026-08-14) et l'on retire la CITATION. Le demandeur a
+      // besoin d'un nom, pas d'un extrait du dossier d'accueil de quelqu'un d'autre.
+      //
+      // ⚠️ Ce tool n'est volontairement PAS gardé par `canReadPersonRecord` : il rend de
+      // l'annuaire (nom + poste déclaré), pas un dossier RH, et l'y soumettre le rendrait
+      // inutile à tous sauf au manager. `findPersonByName` suit la même règle et refuse déjà
+      // l'email pour cette raison exacte.
+      const label = matchedPosition
+        ? `${safePart(name)} — ${safePart(employee.position)}`
+        : `${safePart(name)} — d'après ce qu'iel a décrit de son travail au quotidien`;
+
       experts.push({
         key: normalizeKey(name),
-        label: `${safePart(name)} — ${safePart(evidence)}`,
+        label,
         score: matchedPosition ? 3 : 1,
         source: 'employees' as const,
       });

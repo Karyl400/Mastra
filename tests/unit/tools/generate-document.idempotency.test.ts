@@ -58,7 +58,13 @@ function makeDeps() {
 /** Le contexte d'un message Slack précis — DM, donc sans `thread_ts`, comme l'incident. */
 function slackRun(eventTs: string) {
   return {
-    requestContext: buildSlackRequestContext({ channel: 'D0BM9MK9QJV', eventTs }),
+    // `accessLevel: 'full'` — voir la note de `generate-document.test.ts` : ces cas
+    // exercent la garde d'idempotence, pas la frontière d'autorisation.
+    requestContext: buildSlackRequestContext({
+      channel: 'D0BM9MK9QJV',
+      eventTs,
+      accessLevel: 'full',
+    }),
   };
 }
 
@@ -141,11 +147,23 @@ describe('generateDocument — garde d’idempotence par run', () => {
 
     await tool.execute!(
       { ...INPUT, content: 'Bienvenue.' } as never,
-      { requestContext: buildSlackRequestContext({ channel: 'D0AAA', eventTs: '1.1' }) } as never,
+      {
+        requestContext: buildSlackRequestContext({
+          channel: 'D0AAA',
+          eventTs: '1.1',
+          accessLevel: 'full',
+        }),
+      } as never,
     );
     const elsewhere = (await tool.execute!(
       { ...INPUT, content: 'Bienvenue.' } as never,
-      { requestContext: buildSlackRequestContext({ channel: 'D0BBB', eventTs: '2.2' }) } as never,
+      {
+        requestContext: buildSlackRequestContext({
+          channel: 'D0BBB',
+          eventTs: '2.2',
+          accessLevel: 'full',
+        }),
+      } as never,
     )) as Record<string, unknown>;
 
     expect(upload).toHaveBeenCalledTimes(2);

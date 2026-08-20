@@ -4128,11 +4128,32 @@ export class SlackEventsHandler {
    * NE LÈVE JAMAIS : `SlackAccessGuard.evaluate` avale déjà ses propres échecs, et un annuaire
    * indisponible rend `unknown_actor`, donc `readonly` — la réponse monotone restrictive.
    */
+  /** Un avertissement de câblage pour la vie de l'instance, jamais un par message. */
+  private noAccessGuardLogged = false;
+
+  private warnNoAccessGuardOnce(): void {
+    if (this.noAccessGuardLogged) return;
+    this.noAccessGuardLogged = true;
+    logger.error(
+      'No access guard is wired (directoryRepository missing) — authorization cannot be ' +
+        "evaluated. Nobody will be able to read anyone else's record.",
+    );
+  }
+
   private async evaluateAccess(user: string | undefined): Promise<SlackAccessLevel | undefined> {
     if (!user) return undefined;
 
     const guard = this.getAccessGuard();
-    if (!guard) return undefined;
+    if (!guard) {
+      // ⚠️ ÉTAIT MUET jusqu'au 2026-08-20, et c'était le chemin le PLUS probable des deux :
+      // le garde est absent dès que `directoryRepository` n'est pas câblé. La conséquence
+      // n'est plus « tout le monde en `full` » depuis que `mayTouchRecord` refuse une
+      // non-décision — c'est désormais l'inverse, plus personne ne lit le dossier d'autrui.
+      // Dans les deux sens, un tel état doit se voir : il ne se déduit d'aucun symptôme, et
+      // « le bot ne sait plus rien faire » ne désignerait pas sa cause.
+      this.warnNoAccessGuardOnce();
+      return undefined;
+    }
 
     try {
       const evaluation = await guard.evaluate(user);

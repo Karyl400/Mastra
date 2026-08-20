@@ -186,6 +186,11 @@ function slackCtx(threadTs?: string) {
       channel: 'C0BJGBVB5HP',
       ...(threadTs ? { threadTs } : {}),
       slackUserId: 'U0BM123',
+      // ⚠️ `accessLevel` DÉCLARÉ depuis le 2026-08-20. Ces cas exercent le comportement de
+      // l'outil, pas la frontière d'autorisation — mais depuis qu'un contexte Slack sans
+      // décision vaut REFUS (`mayTouchRecord`), l'omettre les ferait passer par un état qui
+      // n'existe en production que si le garde est cassé. Le régime est donc énoncé.
+      accessLevel: 'full',
     }),
   };
 }

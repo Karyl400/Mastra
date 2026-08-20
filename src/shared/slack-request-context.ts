@@ -310,7 +310,23 @@ function mayTouchRecord(requestContext: unknown, targetEmployeeId: string | unde
   const target = nonEmptyString(targetEmployeeId);
   if (target && context.employeeId && context.employeeId === target) return true;
 
-  return context.accessLevel === undefined || context.accessLevel === 'full';
+  // ⚠️ « NON ÉVALUÉ » N'EST PAS « AUTORISÉ » — corrigé le 2026-08-20.
+  //
+  // Cette ligne rendait `true` dès que `accessLevel` valait `undefined`. Or c'est exactement
+  // ce que rend `evaluateAccess` quand la décision n'a PAS pu être prise : garde non câblé
+  // (`if (!guard) return undefined`) ou garde en panne. Une panne PARTIELLE de l'annuaire —
+  // pas une panne totale, qui masquerait le défaut en faisant échouer la lecture elle-même —
+  // accordait donc l'équivalent de `full` à tout le monde, `AUTHZ_ENFORCE=true` compris.
+  //
+  // La distinction qui compte n'est pas fail-open contre fail-closed : c'est « il n'y a pas
+  // de contexte Slack » (traité plus haut par `if (!context) return true`, cas NOMINAL du
+  // playground, d'une route HTTP, d'un workflow ou d'un test) contre « il y a un contexte
+  // Slack mais aucune décision » — qui est anormal, et qu'on ne peut pas lire comme un droit.
+  //
+  // Son propre dossier reste accessible en toutes circonstances : la comparaison d'identité
+  // ci-dessus précède cette ligne. C'est ce qui rend la frontière activable sans couper
+  // chacun de son propre parcours.
+  return context.accessLevel === 'full';
 }
 
 export function canPerformSideEffects(

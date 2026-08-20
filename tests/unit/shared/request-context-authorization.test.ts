@@ -50,12 +50,18 @@ describe('Contexte de requête — transport du niveau d’accès', () => {
   });
 
   it('IGNORE une valeur inconnue au lieu de l’interpréter', () => {
-    // Une faute de frappe côté producteur ne doit se traduire ni par un refus silencieux, ni
-    // par une autorisation silencieuse : elle ramène au cas « non évalué ».
+    // Une faute de frappe côté producteur ne doit pas être INTERPRÉTÉE : elle ramène au cas
+    // « non évalué ». C'est la lecture qui est testée ici, et elle n'a pas changé.
     const ctx = { get: (key: string) => (key === 'slackChannel' ? 'D0MOCKDM01' : 'FULL') };
 
     expect(readSlackContext(ctx)?.accessLevel).toBeUndefined();
-    expect(canPerformSideEffects(ctx)).toBe(true);
+
+    // ⚠️ Ce test attendait `true` — corrigé le 2026-08-20. Dans un contexte SLACK, « non
+    // évalué » ne peut pas valoir « autorisé » : c'est ce que rend le handler quand le garde
+    // est absent ou en panne. Une faute de frappe côté producteur ferme donc désormais,
+    // plutôt que d'ouvrir en silence — le sens le moins coûteux des deux pour une valeur
+    // qu'on vient de constater illisible.
+    expect(canPerformSideEffects(ctx)).toBe(false);
   });
 });
 

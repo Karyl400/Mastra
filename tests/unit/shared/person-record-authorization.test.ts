@@ -88,12 +88,33 @@ describe('canReadPersonRecord — les chemins SANS demandeur Slack', () => {
     expect(canReadPersonRecord({}, SOMEONE_ELSE)).toBe(true);
   });
 
-  it('autorise quand le niveau n’a pas été évalué', () => {
-    // `undefined` signifie « non évalué », jamais « autorisé par défaut » — mais le seul
-    // producteur qui omette ce champ est un chemin hors Slack.
+  it('REFUSE quand le niveau n’a pas été évalué, dans un contexte Slack', () => {
+    // ⚠️ CE TEST DISAIT L'INVERSE, et sa justification était FAUSSE — corrigé le 2026-08-20.
+    //
+    // Il énonçait le bon principe — « `undefined` signifie non évalué, jamais autorisé par
+    // défaut » — puis l'annulait par une prémisse qui ne tient pas : « le seul producteur
+    // qui omette ce champ est un chemin hors Slack ». Le handler en produit deux :
+    //
+    //   `if (!guard) return undefined;`   garde non câblé (directoryRepository absent)
+    //   `catch { … return undefined; }`   garde en panne
+    //
+    // Une panne PARTIELLE de l'annuaire accordait donc l'équivalent de `full` à tout le
+    // monde, `AUTHZ_ENFORCE=true` compris — et le premier chemin, le plus probable, ne
+    // journalisait rien. Le commentaire énonçait une propriété globale que rien ne
+    // recalculait : la famille de défaut recensée par `claimed-invariants.test.ts`.
+    //
+    // La distinction n'est pas fail-open contre fail-closed. C'est « pas de contexte Slack »
+    // (cas nominal du playground, d'un workflow, d'une route HTTP — traité au test suivant)
+    // contre « contexte Slack sans décision », qui est un état de panne.
     const ctx = context({ employeeId: ME });
 
-    expect(canReadPersonRecord(ctx, SOMEONE_ELSE)).toBe(true);
+    expect(canReadPersonRecord(ctx, SOMEONE_ELSE)).toBe(false);
+  });
+
+  it('accorde TOUJOURS son propre dossier, même sans décision', () => {
+    // La comparaison d'identité précède la lecture du niveau : c'est ce qui rend la
+    // frontière activable sans couper chacun de son propre parcours.
+    expect(canReadPersonRecord(context({ employeeId: ME }), ME)).toBe(true);
   });
 
   /**

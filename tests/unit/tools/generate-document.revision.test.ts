@@ -135,6 +135,10 @@ function slackCtx(eventTs: string) {
       channel: 'C0BJGBVB5HP',
       slackUserId: 'U0BM123',
       eventTs,
+      // Voir la note de `generate-document.test.ts`. Le cas « ne corrige JAMAIS le document
+      // d'une autre personne » reste porté par `canReadPersonRecord`, qui compare l'identité
+      // AVANT le niveau — il ne dépend donc pas de cette valeur.
+      accessLevel: 'full',
     }),
   };
 }

@@ -45,7 +45,13 @@ const EMPLOYEE_ID = '11111111-1111-4111-8111-111111111111';
 
 /** Même forme que dans `generate-document.test.ts` : les trois clés sont le contrat. */
 function slackCtx() {
-  return buildSlackRequestContext({ channel: 'C0BJGBVB5HP', slackUserId: 'U0BM123' });
+  // `accessLevel: 'full'` : ce fichier teste l'ORDRE persistance/livraison, pas la
+  // frontière. Un contexte Slack sans décision vaut refus depuis le 2026-08-20.
+  return buildSlackRequestContext({
+    channel: 'C0BJGBVB5HP',
+    slackUserId: 'U0BM123',
+    accessLevel: 'full',
+  });
 }
 
 const employee: Employee = {
