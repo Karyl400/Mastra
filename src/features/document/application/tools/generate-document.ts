@@ -415,7 +415,23 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
     // Schéma dépouillé pour le budget de tokens (voir `schedule-reminder.ts`) :
     // les `.describe()` qui ne faisaient que répéter le nom du champ ont été retirés.
     inputSchema: z.object({
-      employeeId: uuidSchema.describe('UUID annuaire'),
+      // ⚠️ FACULTATIF depuis le 2026-08-20, et par défaut c'est le DEMANDEUR.
+      //
+      // Il était obligatoire, donc le modèle devait se le procurer — et le seul endroit qui
+      // le lui donnait était `getEmployeeProfile`, qui l'imprimait ensuite dans la réponse :
+      // « ID : d20df236-… ». Un UUID ne dit rien à un humain et fait douter du reste (« je ne
+      // sais pas d'où il vient, s'il existe réellement ou pas »).
+      //
+      // Le SERVEUR sait pour qui, quand personne d'autre n'est nommé : `slackEmployeeId` est
+      // dans le `requestContext`, posé par le handler, hors de portée du modèle. C'est le même
+      // raisonnement que pour `revises`, passé d'un UUID à un booléen le 2026-08-19 : un
+      // identifiant qu'on demande au modèle est un identifiant qu'il peut inventer.
+      //
+      // ⚠️ Il reste EXIGÉ pour un tiers, et il reste un UUID — jamais une adresse. La
+      // frontière `canReadPersonRecord` est inchangée : soi-même toujours, autrui au niveau
+      // `full`. Rendre le champ facultatif ne rend rien plus permissif ; ça retire une valeur
+      // que le modèle fabriquait.
+      employeeId: uuidSchema.optional().describe('UUID annuaire — omets-le pour le demandeur'),
       type: z.nativeEnum(DocumentType),
       title: z.string().min(1).max(200).describe('rédige-le, ne le demande pas'),
       // ⚠️ Borne HAUTE ajoutée le 2026-08-13. `title`/`subject` étaient bornés à 200 sur la
@@ -502,6 +518,19 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
     }),
     execute: async (data, ctx) => {
       // ---------------------------------------------------------------------
+      // POUR QUI — résolu AVANT tout le reste
+      // ---------------------------------------------------------------------
+      //
+      // Le champ est facultatif : absent, c'est le demandeur. Sans demandeur identifiable
+      // NON PLUS, on renonce — et on le DIT, plutôt que de produire un document au nom de
+      // personne. C'est le cas hors Slack (playground, workflow) et celui d'une personne dont
+      // la ligne d'annuaire n'est reliée à aucun dossier.
+      const slackCtx = readSlackContext(ctx?.requestContext);
+      const employeeId = resolveSubjectId(data.employeeId, slackCtx);
+
+      if (!employeeId) return NO_SUBJECT_RESULT;
+
+      // ---------------------------------------------------------------------
       // Assainissement — AVANT tout usage du titre et du corps
       // ---------------------------------------------------------------------
       //
@@ -512,11 +541,11 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         title: data.title,
         content: data.content,
         type: data.type,
-        employeeId: data.employeeId,
+        employeeId,
       });
 
       logger.info('Génération document', {
-        employeeId: data.employeeId,
+        employeeId,
         type: data.type,
         title,
         format: data.format,
@@ -554,11 +583,10 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // ⚠️ Garde EN MÉMOIRE, donc par instance. Sur deux instances distinctes, le doublon
       // repasse — on retombe alors exactement sur le comportement d'avant, jamais pire.
       // Un store partagé coûterait une E/S Turso (Tokyo) sur un chemin déjà tendu côté ACK.
-      const slackCtx = readSlackContext(ctx?.requestContext);
       const { effectiveDeliverTo, dedupKey } = resolveDeliveryIntent({
         slackCtx,
         deliverTo: data.deliverTo,
-        employeeId: data.employeeId,
+        employeeId,
         type: data.type,
         format: data.format,
         title,
@@ -583,7 +611,7 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
           sameRun
             ? 'Document déjà produit dans ce run — second appel ignoré'
             : 'Document déjà livré dans cette conversation — régénération évitée',
-          { employeeId: data.employeeId, type: data.type, deliverTo: effectiveDeliverTo },
+          { employeeId: employeeId, type: data.type, deliverTo: effectiveDeliverTo },
         );
 
         // On rend le résultat du PREMIER appel, augmenté du fait qu'il n'y a rien à
@@ -620,7 +648,7 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // Ce tool restituait exactement le même dossier par un chemin voisin, et en pire :
       //
       //  1. il accepte un `employeeId` ARBITRAIRE, produit par le modèle donc par le texte ;
-      //  2. il imprime `firstName`, `lastName`, `email`, `department`, `position` et
+      //  2. il imprime `firstName`, `lastName`, `email`, `position` et
       //     `startDate` de cette personne dans le document rendu (voir `renderer.render`) ;
       //  3. il livre le fichier dans le canal du DEMANDEUR (`slackCtx.channel`), pas dans
       //     celui de la personne concernée.
@@ -638,9 +666,9 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // central du produit, une lettre de bienvenue est écrite par les RH. C'est exactement
       // pourquoi la règle est celle des trois autres et non un refus sec : soi-même toujours,
       // autrui au niveau `full`.
-      if (!canReadPersonRecord(ctx?.requestContext, data.employeeId)) {
+      if (!canReadPersonRecord(ctx?.requestContext, employeeId)) {
         logger.warn('Document refusé — demandeur non autorisé pour cette personne', {
-          employeeId: data.employeeId,
+          employeeId,
         });
         return {
           saved: false as const,
@@ -650,10 +678,10 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         };
       }
 
-      const employee = await employeeRepo.findById(data.employeeId);
+      const employee = await employeeRepo.findById(employeeId);
       if (!employee) {
         logger.warn('Document refusé — aucun employé pour cet identifiant', {
-          employeeId: data.employeeId,
+          employeeId,
         });
         return {
           saved: false as const,
@@ -684,7 +712,7 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       const revision = await resolveRevisionTarget(
         documentRepo,
         data.revises,
-        data.employeeId,
+        employeeId,
         data.type,
       );
       if (revision.refused) {
@@ -711,15 +739,8 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // ⚠️ `warn` et non `info` : c'est la ligne à chercher la prochaine fois qu'un
       // document semble être parti au mauvais destinataire. On journalise le fait, jamais
       // l'adresse — le logger masquerait de toute façon un email.
-      // `slackCtx` a déjà été lu ligne 384 : un second appel ne rendrait rien de plus.
-      const requesterEmployeeId = slackCtx?.employeeId;
-      if (requesterEmployeeId && requesterEmployeeId !== data.employeeId) {
-        logger.warn('Document produit pour une AUTRE personne que le demandeur', {
-          subjectId: data.employeeId,
-          requesterId: requesterEmployeeId,
-          deliverTo: effectiveDeliverTo,
-        });
-      }
+      // `slackCtx` a déjà été lu en tête d'`execute` : un second appel ne rendrait rien de plus.
+      warnIfForeignSubject(slackCtx?.employeeId, employeeId, effectiveDeliverTo);
 
       // ---------------------------------------------------------------------
       // Rendu
@@ -731,7 +752,7 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         title,
         content,
         employee,
-        interview: await readInterview(interviewRepo, channelRepo, data.employeeId),
+        interview: await readInterview(interviewRepo, channelRepo, employeeId),
       });
 
       // ---------------------------------------------------------------------
@@ -744,7 +765,7 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         fileUpload,
         emailProvider,
         employeeEmail: employee.email,
-        employeeId: data.employeeId,
+        employeeId,
         title,
         failure,
       });
@@ -755,7 +776,7 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
       // ---------------------------------------------------------------------
       const generated = await persistDocument(documentRepo, {
         revised,
-        employeeId: data.employeeId,
+        employeeId,
         type: data.type,
         // Persistance : les valeurs ASSAINIES, jamais celles du modèle. Une ligne
         // enregistrée avec un marqueur ressortirait telle quelle au premier code qui la
@@ -865,7 +886,7 @@ function resolveDeliveryIntent(params: {
   title: string;
   revisionFingerprint?: string;
 }): { effectiveDeliverTo: DeliveryIntent; dedupKey: string | undefined } {
-  const { slackCtx, title } = params;
+  const { slackCtx, title, employeeId } = params;
   const data = params;
   // Même clé que `deriveConversationId` : en DM `threadTs` est absent par conception,
   // donc le canal EST la conversation.
@@ -895,7 +916,7 @@ function resolveDeliveryIntent(params: {
 
   if (effectiveDeliverTo !== data.deliverTo) {
     logger.info('deliverTo=none ignoré dans une conversation Slack — livraison dans le fil', {
-      employeeId: data.employeeId,
+      employeeId,
       type: data.type,
     });
   }
@@ -903,7 +924,7 @@ function resolveDeliveryIntent(params: {
   // Hors Slack, `buildRunKey` rend `undefined` et la garde est INACTIVE : le
   // playground, les workflows et les tests ne sont bornés par aucune conversation.
   const dedupKey = buildRunKey(conversationKey, 'generateDocument', [
-    data.employeeId,
+    employeeId,
     data.type,
     title,
     data.format,
@@ -926,6 +947,62 @@ function resolveDeliveryIntent(params: {
  * livrable téléchargeable signifie que le modèle a écrit son propre garde-fou dans un fichier
  * qui sort de l'entreprise ; il n'existait aucune ligne pour le voir avant le 2026-08-11.
  */
+/**
+ * POUR QUI ce document est-il produit ?
+ *
+ * Le champ est facultatif depuis le 2026-08-20 : absent, c'est le DEMANDEUR, résolu côté
+ * serveur. Extraite en fonction parce que le corps d'`execute` est déjà au plafond de
+ * complexité que ce dépôt tient à zéro warning — et parce que la règle tient en une ligne,
+ * qui se lit mieux nommée qu'inline.
+ */
+/**
+ * Journalise qu'un document est produit pour QUELQU'UN D'AUTRE que le demandeur.
+ *
+ * ⚠️ `warn` et non `info` : c'est la ligne à chercher la prochaine fois qu'un document semble
+ * être parti au mauvais destinataire. On journalise le FAIT, jamais l'adresse — le logger
+ * masquerait de toute façon un email.
+ *
+ * Ce n'est PAS un refus : produire un document pour un tiers est le cas d'usage central du
+ * produit, c'est `canReadPersonRecord` qui en décide. Mais c'est le seul cas où une erreur de
+ * cible fait partir un fichier chez quelqu'un qui n'était pas concerné, et le relevé du
+ * 2026-08-13 montre que ça arrive : les DIX documents de la base portaient le même UUID, dont
+ * un « Bienvenue Awa » livré à l'adresse de quelqu'un d'autre.
+ */
+function warnIfForeignSubject(
+  requesterId: string | undefined,
+  subjectId: string,
+  deliverTo: DeliveryIntent,
+): void {
+  if (!requesterId || requesterId === subjectId) return;
+  logger.warn('Document produit pour une AUTRE personne que le demandeur', {
+    subjectId,
+    requesterId,
+    deliverTo,
+  });
+}
+
+function resolveSubjectId(
+  provided: string | undefined,
+  slackCtx: { employeeId?: string } | undefined,
+): string | undefined {
+  return provided ?? slackCtx?.employeeId;
+}
+
+/**
+ * Ni personne désignée, ni demandeur résolvable — on renonce, et on le DIT.
+ *
+ * C'est le cas hors Slack (playground, workflow) et celui d'une personne dont la ligne
+ * d'annuaire n'est reliée à aucun dossier. Produire un document au nom de personne serait
+ * pire qu'un refus : il partirait quand même, avec un gabarit vide là où il devrait y avoir
+ * un nom.
+ */
+const NO_SUBJECT_RESULT = {
+  saved: false as const,
+  delivery: 'none' as DeliveryVerdict,
+  reason: 'employee_not_found' as const,
+  hint: HINTS.employee_not_found,
+};
+
 function sanitizeDocumentInput(input: {
   title: string;
   content: string;
@@ -933,6 +1010,7 @@ function sanitizeDocumentInput(input: {
   employeeId: string;
 }): { title: string; content: string } {
   const data = input;
+  const { employeeId } = input;
   const safeTitle = sanitizeDocumentText(data.title);
   const safeContent = sanitizeDocumentSource(data.content);
 
@@ -945,7 +1023,7 @@ function sanitizeDocumentInput(input: {
     // téléchargeable. C'est la ligne qui manquait pour détecter une exfiltration
     // par document — il n'en existait aucune.
     logger.error('Document content carried internal markers — markers removed', {
-      employeeId: data.employeeId,
+      employeeId,
       type: data.type,
       markers,
     });
@@ -955,7 +1033,7 @@ function sanitizeDocumentInput(input: {
     // Seuls les HÔTES : le chemin d'un lien fabriqué embarque un identifiant réel
     // (celui du 2026-08-11 portait le vrai `Document.id`).
     logger.error('Document content carried fabricated links — links removed', {
-      employeeId: data.employeeId,
+      employeeId,
       type: data.type,
       hosts,
     });
@@ -994,7 +1072,6 @@ async function renderDocument(params: {
     firstName: string;
     lastName: string;
     email: string;
-    department?: string | null;
     position?: string;
     startDate?: string;
   };
@@ -1041,7 +1118,6 @@ async function renderDocument(params: {
           email: employee.email,
           // `?? undefined` : le gabarit distingue « absent » de « vide ». Un `null` qui
           // traverserait finirait imprimé tel quel dans un PDF signé de l'entreprise.
-          department: employee.department ?? undefined,
           position: employee.position,
           startDate: employee.startDate,
         },

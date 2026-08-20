@@ -55,17 +55,26 @@ describe('département facultatif', () => {
     });
   }
 
-  it('imprime bien le département quand il est connu', () => {
+  it('n’imprime PLUS le département, même s’il traîne encore en base', () => {
+    // ⚠️ INVERSION du 2026-08-20, demandée par le propriétaire : « les départements ne
+    // doivent plus apparaître ». Ce test vérifiait l'inverse — il garantissait que la valeur
+    // ressortait quand elle existait. Le champ n'était plus collecté depuis le 2026-08-13 ;
+    // ne subsistait que sa ressortie sur les lignes ANCIENNES, dont celle rendue en
+    // production le 2026-08-20 (« Département : Engineering »).
+    //
+    // Le champ a disparu de `DocumentRenderInput` : ce test passe donc une valeur que le type
+    // n'accepte plus, d'où le `as never` — c'est délibéré, il vérifie qu'une donnée résiduelle
+    // ne peut pas se frayer un chemin jusqu'au rendu.
     const rendered = JSON.stringify(
       buildDocumentOutline({
         type: DocumentType.Contract,
         title: 'Contrat',
         content: 'Bonjour',
-        employee: { ...WITHOUT_DEPARTMENT, department: 'Engineering' },
+        employee: { ...WITHOUT_DEPARTMENT, department: 'Engineering' } as never,
       }),
     );
 
-    expect(rendered).toContain('Département');
-    expect(rendered).toContain('Engineering');
+    expect(rendered).not.toContain('Département');
+    expect(rendered).not.toContain('Engineering');
   });
 });

@@ -108,19 +108,45 @@ export function buildOnboardingPlan(input: OnboardingPlanInput): OnboardingPlan 
  * ⚠️ On rend l'OBJET D'ORIGINE quand il est déjà cohérent, et c'est ce qui permet à l'appelant
  * de savoir s'il doit écrire : une écriture inutile fait bouger `updatedAt` sans raison, et
  * une écriture est toujours une occasion de se tromper.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⚠️ LA COHÉRENCE N'EST PAS L'ÉCHELLE — corrigé le 2026-08-20, signalé en production
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * La première version sortait sur `if (totalSteps === ONBOARDING_TOTAL_STEPS) return progress`,
+ * c'est-à-dire qu'elle tenait « déjà au bon barème » pour « déjà cohérent ». C'est faux : le
+ * barème peut être juste pendant que le STATUT contredit les compteurs. Réponse réellement
+ * rendue à une personne :
+ *
+ *     « Intégration : en cours, étape 1 sur 1. »
+ *
+ * Une étape sur une étape est FAITE. « En cours » est une contradiction dans la même phrase,
+ * et c'est très exactement le défaut que le retrait du suivi de tâches disait supprimer —
+ * « un suivi qui ne bouge jamais est un suivi qui ment » — sous une forme que la garde
+ * précédente laissait passer parce qu'elle regardait le mauvais champ.
+ *
+ * La réconciliation porte donc désormais sur l'INVARIANT : `currentStep >= totalSteps` ⇒
+ * `completed`. C'est la seule formulation qui ne puisse pas se désynchroniser d'elle-même.
  */
 export function reconcileProgress(progress: OnboardingProgress): OnboardingProgress {
-  if (progress.totalSteps === ONBOARDING_TOTAL_STEPS) return progress;
-
   const currentStep = Math.min(progress.currentStep, ONBOARDING_TOTAL_STEPS);
   const done = currentStep >= ONBOARDING_TOTAL_STEPS;
+  const status = done ? OnboardingStatus.Completed : progress.status;
+
+  const coherent =
+    progress.totalSteps === ONBOARDING_TOTAL_STEPS &&
+    progress.currentStep === currentStep &&
+    progress.status === status;
+
+  if (coherent) return progress;
+
   const now = new Date().toISOString();
 
   return {
     ...progress,
     currentStep,
     totalSteps: ONBOARDING_TOTAL_STEPS,
-    status: done ? OnboardingStatus.Completed : progress.status,
+    status,
     completedAt: done ? (progress.completedAt ?? now) : progress.completedAt,
     updatedAt: now,
   };

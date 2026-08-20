@@ -48,16 +48,20 @@ describe('lettre de bienvenue — elle ne dit que ce qu’elle sait', () => {
     expect(text).not.toMatch(/en tant que\s*\./);
   });
 
-  it('cite le poste et le département quand ils sont connus', () => {
+  it('cite le poste — et JAMAIS le département, même connu', () => {
+    // ⚠️ INVERSION du 2026-08-20 : « les départements ne doivent plus apparaître ». Le champ
+    // a quitté `DocumentRenderInput`, d'où le `as never` — ce test vérifie qu'une valeur
+    // résiduelle en base ne peut pas se frayer un chemin jusqu'à une lettre signée de
+    // l'entreprise.
     const text = letter({
       ...base,
       position: 'Backend Developer',
       department: 'Engineering',
       startDate: null,
-    });
+    } as never);
 
     expect(text).toContain('Backend Developer');
-    expect(text).toContain('Engineering');
+    expect(text).not.toContain('Engineering');
   });
 
   it('écrit la date en français, jamais en ISO', () => {

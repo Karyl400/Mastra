@@ -42,7 +42,6 @@ export interface WelcomeEmailInput {
   readonly firstName: string;
   readonly lastName: string;
   /** `null` par défaut depuis le 2026-08-13 : le parcours d'arrivée ne le collecte plus. */
-  readonly department?: string | null;
   readonly position?: string | null;
   /** ISO. Rendue en toutes lettres, ou omise si illisible — jamais affichée brute. */
   readonly startDate?: string | null;
@@ -88,8 +87,9 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): WelcomeEmail {
   // sa mention — c'est la règle du module et elle ne bouge pas.
   const known: string[] = [];
   if (input.position?.trim()) known.push(`comme <strong>${esc(input.position.trim())}</strong>`);
-  if (input.department?.trim())
-    known.push(`dans l'équipe <strong>${esc(input.department.trim())}</strong>`);
+  // ⚠️ Le DÉPARTEMENT a été retiré de cette phrase le 2026-08-20, à la demande du
+  // propriétaire : « les départements ne doivent plus apparaître ». Il n'est plus collecté
+  // depuis le 2026-08-13 ; ne subsistait que sa ressortie sur les lignes anciennes.
 
   const day = formatFrenchDay(input.startDate);
 

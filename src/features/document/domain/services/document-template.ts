@@ -233,6 +233,24 @@ function recipientName(input: DocumentRenderInput): string {
   return fullName(firstName, lastName);
 }
 
+/**
+ * La ligne qui dit À QUI le document s'adresse.
+ *
+ * ⚠️ Elle DISPARAÎT quand le nom est inconnu, plutôt que d'imprimer « Document destiné à  »
+ * ou un « N/A ». C'est la règle constante des gabarits de ce dépôt : un champ absent fait
+ * disparaître sa phrase — celle qui a fait retirer « en tant que N/A » d'une lettre de
+ * bienvenue signée de l'entreprise.
+ *
+ * ⚠️ Le NOM, jamais l'email ni l'identifiant. Un document circule : il est uploadé dans Slack,
+ * parfois envoyé en pièce jointe, et il est repartageable. Y imprimer une adresse en ferait un
+ * vecteur de diffusion de donnée personnelle, et un UUID n'apprendrait rien à qui le lit.
+ */
+function recipientBlocks(input: DocumentRenderInput): DocumentBlock[] {
+  const name = recipientName(input);
+  if (name.length === 0) return [];
+  return [{ kind: 'paragraph', text: `Document destiné à ${name}.`, italic: true }];
+}
+
 function titleOf(input: DocumentRenderInput): string {
   const provided = (input.title ?? '').trim();
   return provided.length > 0 ? provided : DEFAULT_TITLES[input.type];
@@ -250,14 +268,14 @@ function buildContract(input: DocumentRenderInput): DocumentBlock[] {
     { kind: 'heading', text: titleOf(input), level: 2 },
     {
       kind: 'fields',
-      // La ligne « Département » n'apparaît QUE si la valeur existe. Depuis le 2026-08-13
-      // le département n'est plus collecté : une ligne vide dans un contrat signé de
-      // l'entreprise se lit comme un champ qu'on a oublié de remplir, pas comme un champ
-      // qu'on a cessé de demander.
+      // ⚠️ La ligne « Département » a été RETIRÉE le 2026-08-20, à la demande du
+      // propriétaire : « les départements ne doivent plus apparaître ». Elle n'était déjà
+      // émise que si la valeur existait — le champ n'est plus collecté depuis le 2026-08-13 —
+      // mais un champ qu'on n'alimente plus finit toujours par ressortir sur les lignes
+      // anciennes, et c'est ce qui s'est produit.
       rows: [
         ['Employé', recipientName(input)],
         ['Email', employee.email ?? ''],
-        ...(employee.department ? [['Département', employee.department] as const] : []),
         ['Poste', employee.position ?? ''],
       ].map((row) => [row[0], row[1]] as [string, string]),
     },
@@ -267,9 +285,6 @@ function buildContract(input: DocumentRenderInput): DocumentBlock[] {
 
 function buildWelcomeLetter(input: DocumentRenderInput): DocumentBlock[] {
   const employee = input.employee ?? {};
-  // Extrait de la phrase : un ternaire dans un littéral déjà interpolé se relit mal, et c'est
-  // exactement la ligne qu'il faut pouvoir vérifier d'un coup d'œil.
-  const departmentClause = employee.department ? `, département ${employee.department},` : '';
 
   // ⚠️ Le POSTE suit désormais la même règle que le département, et il ne la suivait pas :
   // `employee.position ?? 'N/A'` produisait « en tant que N/A » dans une lettre signée de
@@ -294,9 +309,8 @@ function buildWelcomeLetter(input: DocumentRenderInput): DocumentBlock[] {
     { kind: 'paragraph', text: `Bonjour ${recipientName(input)},` },
     {
       kind: 'paragraph',
-      // Le département n'est cité que s'il est connu. « département N/A » dans une lettre de
-      // bienvenue est pire qu'un silence : c'est un aveu de trou, adressé à l'arrivant.
-      text: `Ravis de t'accueillir chez Kisso Industries${departmentClause}${positionClause}.`,
+      // Le département a disparu de cette phrase le 2026-08-20 — voir `buildContract`.
+      text: `Ravis de t'accueillir chez Kisso Industries${positionClause}.`,
     },
     // La phrase entière disparaît quand la date est inconnue — plutôt qu'un « à confirmer »
     // qui promet une confirmation que personne n'enverra.
@@ -396,10 +410,18 @@ function buildGuide(input: DocumentRenderInput): DocumentBlock[] {
   const employee = input.employee ?? {};
   return [
     { kind: 'heading', text: titleOf(input), level: 1 },
-    // Idem : pas de ligne « Département : Général », qui inventait une appartenance.
-    ...(employee.department
-      ? [{ kind: 'paragraph' as const, text: `Département : ${employee.department}` }]
-      : []),
+    // ⚠️ LE DESTINATAIRE, NOMMÉ DANS LE DOCUMENT — ajouté le 2026-08-20 à la demande du
+    // propriétaire : « le contenu du document doit préciser à qui il s'adresse ».
+    //
+    // Le guide était le seul gabarit à ne nommer PERSONNE : le contrat porte « Employé : … »
+    // et la lettre ouvre sur « Bonjour … », mais le guide commençait par son titre. C'est
+    // pourtant le document le plus produit du système, et un fichier qui circule dans Slack
+    // sans porter le nom de la personne qu'il concerne est exactement ce qui a permis, le
+    // 2026-08-13, qu'un « Bienvenue Awa » soit livré à quelqu'un d'autre sans que personne
+    // ne le voie. La note accolée à la réponse Slack (`buildRecipientNotice`) ne suit pas le
+    // fichier ; celle-ci, si.
+    ...recipientBlocks(input),
+    // Le département a disparu de ce gabarit le 2026-08-20 — voir `buildContract`.
     // Le poste, lui, est TOUJOURS connu (`employees.position` est `NOT NULL`) et il est la
     // seule chose qui distingue le guide d'une personne de celui d'une autre. L'écrire ici
     // évite que le modèle ait à le recopier dans `content` — et qu'il l'oublie.
@@ -434,6 +456,9 @@ function buildGeneric(input: DocumentRenderInput): DocumentBlock[] {
   const body = bodyBlocks(input);
   return [
     { kind: 'heading', text: titleOf(input), level: 1 },
+    // Même raison que dans `buildGuide` : c'est le gabarit de repli, donc celui qui sert dans
+    // la moitié des cas, et il ne nommait personne du tout.
+    ...recipientBlocks(input),
     ...(body.length > 0 ? body : [{ kind: 'paragraph' as const, text: '' }]),
   ];
 }

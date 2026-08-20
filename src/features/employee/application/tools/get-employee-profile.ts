@@ -7,7 +7,7 @@ import type { OnboardingProgress } from '../../../onboarding/domain/entities/onb
 import { uuidSchema, emailSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { canReadPersonRecord } from '../../../../shared/slack-request-context';
-import { ONBOARDING_TOTAL_STEPS } from '../../../onboarding/domain/services/onboarding-plan';
+import { reconcileProgress } from '../../../onboarding/domain/services/onboarding-plan';
 
 /**
  * Consigne rendue au modèle quand l'identifiant ne désigne personne.
@@ -199,42 +199,63 @@ function project(employee: Employee, progress: OnboardingProgress | null) {
   // lui-même. Il en était le poste de coût dominant : non borné, 19 champs par
   // ligne, 2 506 tokens mesurés pour 12 tâches avant projection, réémis à chaque
   // aller-retour. Ne pas le réintroduire sans borne ni projection.
+  //
+  // ════════════════════════════════════════════════════════════════════════════
+  // ⚠️ CINQ CHAMPS RETIRÉS LE 2026-08-20, chacun pour sa propre raison
+  // ════════════════════════════════════════════════════════════════════════════
+  //
+  // Le relevé qui les a fait tomber, rendu tel quel à la personne concernée :
+  //
+  //     ID : d20df236-…   Département : Engineering   Date de début : 1 septembre 2026
+  //     Poste : Developer   Statut : pending
+  //     Intégration : en cours, étape 1 sur 1.
+  //
+  //  • `id` — un UUID ne dit RIEN à un humain, et il a fait douter du reste : « je ne sais
+  //    pas d'où il vient, s'il existe réellement ou pas ». Le retirer de la SORTIE plutôt que
+  //    de demander au modèle de ne pas l'écrire : une consigne est probable, l'absence est
+  //    garantie. Les flux qui ont besoin d'un identifiant l'obtiennent ailleurs —
+  //    `generateDocument` prend celui du DEMANDEUR dans le `requestContext`, et
+  //    `findPersonByName` rend celui d'un tiers.
+  //  • `department` — retiré du produit entier ce jour-là, à la demande du propriétaire.
+  //  • `startDate` — « 1 septembre 2026 » pour quelqu'un qui travaille déjà là. La valeur
+  //    n'a qu'une source fiable (le jour d'arrivée sur Slack) et les lignes antérieures ne
+  //    l'ont pas ; l'affirmer dans une réponse, c'est affirmer ce qu'on ne sait pas.
+  //  • `status` — `employees.status` a **zéro écrivain** dans tout `src/` après la création :
+  //    il vaut `pending` pour toujours. Annoncer « pending » à quelqu'un dont l'accueil est
+  //    terminé, c'est le défaut nommé par ce dépôt — un suivi qui ne bouge jamais est un
+  //    suivi qui ment. Le SEUL suivi réellement observé est `progress`, juste en dessous.
+  //  • `managerId` — toujours `null`, et la notion de manager a déménagé vers
+  //    `slack_directory.role` le même jour. Un champ vide qui porte le nom d'une frontière
+  //    d'autorisation finit par être lu comme s'il en disait quelque chose.
+  //
+  // ⚠️ RÉCONCILIÉ, et par la MÊME fonction que le workflow — `reconcileProgress`. Cette
+  // projection faisait son propre `Math.min(currentStep, ONBOARDING_TOTAL_STEPS)` : elle
+  // corrigeait donc les compteurs et LAISSAIT le statut. D'où, en production, « Intégration :
+  // en cours, étape 1 sur 1 » — une étape sur une étape est faite, « en cours » se contredit
+  // dans la même phrase. Deux normalisations du même fait, dont l'incomplète vivait sur le
+  // chemin de LECTURE : la classe de défaut la plus fréquente de ce dépôt.
+  const view = progress ? reconcileProgress(progress) : null;
+
   return {
     // Symétrique de `findEmployeeByEmail` : le modèle distingue le succès de
     // l'échec sur le MÊME champ, quel que soit le tool.
     found: true as const,
     employee: {
-      id: employee.id,
       firstName: employee.firstName,
       lastName: employee.lastName,
       email: employee.email,
-      department: employee.department,
+      // Le POSTE est le seul attribut de métier rendu, et c'est ce qui a été demandé le
+      // 2026-08-20. Ce qui l'entourait a disparu, champ par champ, pour une raison propre à
+      // chacun — voir l'encadré au-dessus de cette fonction.
       position: employee.position,
-      startDate: employee.startDate,
-      status: employee.status,
-      managerId: employee.managerId ?? null,
     },
-    progress: progress
+    progress: view
       ? {
-          status: progress.status,
-          // ⚠️ BORNÉ par le parcours qui existe AUJOURD'HUI. Constaté en production le
-          // 2026-08-17 : le bot répondait « en cours (étape 1 sur 5) ». La ligne de suivi
-          // datait d'avant le 2026-08-14, quand le parcours comptait cinq tâches ; celles-ci
-          // ont été supprimées — aucun mécanisme ne pouvait les faire avancer — et
-          // `ONBOARDING_TOTAL_STEPS` vaut 1 depuis. Mais le workflow, rendu IDEMPOTENT le
-          // 2026-08-17, réutilise la ligne existante sans la corriger : le compteur périmé
-          // survit et le bot annonce quatre étapes qui n'existent plus.
-          //
-          // C'est exactement le défaut que le retrait du suivi de tâches disait supprimer —
-          // « un suivi qui ne bouge jamais est un suivi qui ment » — réintroduit par la
-          // donnée plutôt que par le code. On corrige donc À LA LECTURE : le code sait ce
-          // que vaut le parcours, la ligne ancienne non.
-          currentStep: Math.min(progress.currentStep, ONBOARDING_TOTAL_STEPS),
-          totalSteps: ONBOARDING_TOTAL_STEPS,
+          status: view.status,
+          currentStep: view.currentStep,
+          totalSteps: view.totalSteps,
         }
       : null,
-    // Le `hint` n'est payé que dans le cas dégradé : quand le suivi existe,
-    // pas un caractère de plus dans le contexte du modèle.
     ...(progress ? {} : { onboardingHint: NO_PROGRESS_HINT }),
   };
 }

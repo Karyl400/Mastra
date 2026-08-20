@@ -85,16 +85,19 @@ describe('getEmployeeProfile — redaction des données sensibles', () => {
       {} as never,
     )) as { employee: Record<string, unknown> };
 
+    // ⚠️ CINQ CHAMPS ONT DISPARU le 2026-08-20, sur signalement du propriétaire devant la
+    // réponse réelle. Chacun pour sa propre raison — voir l'encadré de `project()` — et deux
+    // d'entre elles sont des mensonges mesurés, pas des préférences :
+    //   • `status` valait `pending` pour quelqu'un dont l'accueil était terminé, parce que
+    //     cette colonne n'a AUCUN écrivain après la création ;
+    //   • `startDate` annonçait un premier jour dans le futur à quelqu'un déjà en poste.
+    // `id` a suivi parce qu'un UUID imprimé dans une réponse fait douter de tout le reste,
+    // `department` parce qu'il n'est plus collecté, `managerId` parce qu'il est toujours nul.
     expect(result.employee).toEqual({
-      id: ligneComplete.id,
       firstName: 'Karyl',
       lastName: 'SOUMAILA',
       email: 'karylsoumaila1@gmail.com',
-      department: 'Engineering',
       position: 'Software Engineer',
-      startDate: '2026-09-01T00:00:00.000Z',
-      status: 'pending',
-      managerId: null,
     });
   });
 });

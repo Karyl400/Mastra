@@ -24,7 +24,10 @@ export interface DocumentRenderInput {
     firstName?: string;
     lastName?: string;
     email?: string;
-    department?: string;
+    // ⚠️ `department` a été RETIRÉ le 2026-08-20 : aucun gabarit ne l'imprime plus, à la
+    // demande du propriétaire. Le laisser dans cette signature en aurait fait un champ que
+    // le prochain lecteur croirait rendu quelque part — c'est le raisonnement qui tient déjà
+    // `isAdmin` hors d'`AccessSubject`.
     position?: string;
     startDate?: string;
   };

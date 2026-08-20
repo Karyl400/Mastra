@@ -131,7 +131,9 @@ const onboardingInitializedSchema = z.object({
   email: z.string().email(),
   firstName: z.string(),
   lastName: z.string(),
-  department: z.string().nullable(),
+  // ⚠️ `department` a été retiré de ce chaînage le 2026-08-20 : son seul lecteur en aval
+  // était l'email de bienvenue, et « les départements ne doivent plus apparaître ». Il reste
+  // dans `employeeCreatedSchema` et en base — c'est la SORTIE qui change, pas la donnée.
   // ⚠️ AJOUTÉS le 2026-08-14. `employeeCreatedSchema` les portait déjà, mais ce schéma-ci les
   // JETAIT — deux étapes avant l'email de bienvenue, qui était donc générique faute de
   // matière, alors que la matière avait été saisie dans la modale. La personnalisation
@@ -147,7 +149,6 @@ const welcomeSentSchema = z.object({
   email: z.string().email(),
   firstName: z.string(),
   lastName: z.string(),
-  department: z.string().nullable(),
   emailSent: z.boolean(),
   slackChannelId: z.string().nullable().optional(),
   degraded: z.array(stepFailureSchema),
@@ -323,7 +324,6 @@ export function createEmployeeOnboardingWorkflow(deps: {
         email: inputData.email,
         firstName: inputData.firstName,
         lastName: inputData.lastName,
-        department: inputData.department,
         position: inputData.position,
         startDate: inputData.startDate,
         slackChannelId: inputData.slackChannelId,
@@ -351,7 +351,6 @@ export function createEmployeeOnboardingWorkflow(deps: {
       const { subject, body } = buildWelcomeEmail({
         firstName: inputData.firstName,
         lastName: inputData.lastName,
-        department: inputData.department,
         position: inputData.position,
         startDate: inputData.startDate,
       });
@@ -405,7 +404,6 @@ export function createEmployeeOnboardingWorkflow(deps: {
         email: inputData.email,
         firstName: inputData.firstName,
         lastName: inputData.lastName,
-        department: inputData.department,
         emailSent,
         slackChannelId: inputData.slackChannelId,
         degraded,

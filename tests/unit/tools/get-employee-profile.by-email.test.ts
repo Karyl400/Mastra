@@ -67,11 +67,14 @@ describe('getEmployeeProfile — résolution par email (une étape en moins)', (
 
     const result = (await t.execute!({ email: 'awa@kissohq.com' } as never, {} as never)) as {
       found: boolean;
-      employee?: { id: string; email: string };
+      employee?: { email: string };
     };
 
     expect(result.found).toBe(true);
-    expect(result.employee?.id).toBe(SOMEONE_ELSE);
+    // ⚠️ On vérifie l'EMAIL et non l'`id` : celui-ci a été retiré de la projection le
+    // 2026-08-20 — un UUID imprimé dans une réponse ne dit rien à un humain et fait douter
+    // du reste. Ce que ce test garde, c'est que la personne rendue est bien celle demandée.
+    expect(result.employee?.email).toBe('awa@kissohq.com');
     expect(findByEmail).toHaveBeenCalledWith('awa@kissohq.com');
     // LE POINT DU TEST : la résolution ne coûte pas une lecture de plus. Si `findById` était
     // rappelé derrière, on aurait déplacé l'aller-retour au lieu de le supprimer.

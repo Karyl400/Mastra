@@ -114,9 +114,16 @@ describe('getEmployeeProfile — budget du tool-result', () => {
     // Ce que ce test vérifie reste sa raison d'être : la FORME de la projection, trois champs
     // et pas un de plus. Les valeurs, elles, viennent désormais du code plutôt que d'une
     // ligne périmée.
+    //
+    // ⚠️ IL ATTENDAIT `InProgress` AVEC `1 sur 1`, ET C'ÉTAIT LE DÉFAUT. Signalé en
+    // production le 2026-08-20 : « Intégration : en cours, étape 1 sur 1. » Une étape sur une
+    // étape est FAITE ; « en cours » se contredit dans la même phrase. Le test verrouillait
+    // donc la contradiction — même famille que celui qui verrouillait `status = Sent` posé
+    // avant l'envoi. La réconciliation porte désormais sur l'INVARIANT
+    // (`currentStep >= totalSteps` ⇒ `completed`) et non sur le seul barème.
     expect(Object.keys(result.progress!).sort()).toEqual(['currentStep', 'status', 'totalSteps']);
     expect(result.progress).toEqual({
-      status: OnboardingStatus.InProgress,
+      status: OnboardingStatus.Completed,
       currentStep: ONBOARDING_TOTAL_STEPS,
       totalSteps: ONBOARDING_TOTAL_STEPS,
     });

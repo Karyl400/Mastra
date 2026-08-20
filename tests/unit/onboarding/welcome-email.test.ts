@@ -48,11 +48,10 @@ describe('buildWelcomeEmail — ne promet que ce qui existe', () => {
 });
 
 describe('buildWelcomeEmail — la réalité de la personne', () => {
-  it('cite le poste, l’équipe et le premier jour EN TOUTES LETTRES', () => {
+  it('cite le poste et le premier jour EN TOUTES LETTRES — sans l’équipe', () => {
     const mail = buildWelcomeEmail({
       ...BASE,
       position: 'Backend Developer',
-      department: 'Engineering',
       startDate: '2026-09-01T00:00:00.000Z',
     });
 
@@ -61,7 +60,10 @@ describe('buildWelcomeEmail — la réalité de la personne', () => {
     // gabarit n'a pas de raison d'y échapper.
     expect(mail.subject).toBe('Bienvenue chez Kisso Industries, Awa');
     expect(mail.body).toContain('Backend Developer');
-    expect(mail.body).toContain('Engineering');
+    // ⚠️ Le DÉPARTEMENT a été retiré le 2026-08-20 : « les départements ne doivent plus
+    // apparaître ». Le champ n'existe plus dans `WelcomeEmailInput`, donc il ne peut plus
+    // revenir par une ligne ancienne.
+    expect(mail.body).not.toContain('Engineering');
     // « 2026-09-01T00:00:00.000Z » ne dit rien à un arrivant ; « mardi 1 septembre 2026 » si.
     expect(mail.body).toContain('septembre 2026');
     expect(mail.body).not.toContain('2026-09-01T');

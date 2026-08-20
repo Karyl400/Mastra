@@ -12,12 +12,6 @@ export interface EmployeeRepository {
     firstName: string;
     lastName: string;
     email: string;
-    /**
-     * FACULTATIF depuis le 2026-08-13 — le parcours d'arrivée ne le collecte plus. Les
-     * gabarits omettent la ligne quand la valeur manque, plutôt que d'imprimer « N/A » ou
-     * « Général » dans un document signé de l'entreprise.
-     */
-    department: string | null;
     position: string;
     startDate: string;
   } | null>;

@@ -1,5 +1,91 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## 2026-08-20 (nuit) — Une réponse relue par son destinataire, et six défauts
+
+La personne concernée a lu sa propre fiche et l'a démontée ligne par ligne. Rien de ce qui suit
+n'a été trouvé par un test.
+
+> ID : d20df236-…  ·  Département : Engineering  ·  Date de début : 1 septembre 2026
+> Poste : Developer  ·  Statut : pending
+> Intégration : en cours, étape 1 sur 1.
+
+### « Intégration : en cours, étape 1 sur 1 »
+
+Une étape sur une étape est FAITE. « En cours » se contredit dans la même phrase, et il ne faut
+connaître aucun schéma pour le voir.
+
+`reconcileProgress` sortait sur `if (totalSteps === ONBOARDING_TOTAL_STEPS) return progress` —
+elle tenait « déjà au bon barème » pour « déjà cohérent ». Le barème peut être juste pendant que
+le statut ment. Elle porte désormais sur l'INVARIANT : `currentStep >= totalSteps ⇒ completed`.
+
+⚠️ **`getEmployeeProfile` ne l'appelait même pas** : il refaisait son propre
+`Math.min(currentStep, TOTAL)`. Deux normalisations du même fait, et l'incomplète — celle qui
+corrigeait les compteurs en laissant le statut — vivait sur le chemin de LECTURE. Il appelle la
+vraie, désormais.
+
+⚠️ **Un test verrouillait la contradiction** : il attendait `InProgress` avec `1 sur 1`. Même
+famille que celui qui verrouillait `status = Sent` posé avant l'envoi.
+
+### « Statut : pending » à quelqu'un dont l'accueil est terminé
+
+`employees.status` a **zéro écrivain** dans tout `src/` après la création. Il vaut `pending`
+pour toujours, quoi qu'il arrive à la personne. C'est le défaut que ce dépôt nomme depuis le
+retrait du suivi de tâches — *un suivi qui ne bouge jamais est un suivi qui ment* — et il était
+imprimé dans la réponse. Le champ ne sort plus. Le seul suivi réellement observé est
+`onboarding_progress`, et c'est celui qui reste.
+
+### Cinq champs retirés de la fiche, chacun pour sa propre raison
+
+| champ | pourquoi |
+| --- | --- |
+| `id` | un UUID ne dit rien à un humain, et il fait douter du reste : « je ne sais pas d'où il vient, s'il existe réellement ou pas » |
+| `status` | zéro écrivain — voir ci-dessus |
+| `startDate` | « 1 septembre 2026 » annoncé à quelqu'un déjà en poste |
+| `department` | retiré du produit entier ce jour-là |
+| `managerId` | toujours `null`, et la notion a déménagé vers `slack_directory.role` le matin même |
+
+Reste : prénom, nom, email, **poste** — le seul attribut de métier demandé.
+
+### `generateDocument` ne réclame plus d'identifiant au modèle
+
+Conséquence directe du retrait de `id` : le champ `employeeId` était OBLIGATOIRE, donc le modèle
+devait se le procurer — et le seul endroit qui le lui donnait était la fiche, qui l'imprimait
+ensuite dans la réponse. Il est désormais **facultatif, et par défaut c'est le demandeur**,
+résolu depuis le `requestContext`, hors de portée du modèle.
+
+C'est le même geste que pour `revises`, passé d'un UUID à un booléen la veille : *un identifiant
+qu'on demande au modèle est un identifiant qu'il peut inventer.* Il reste exigé — et reste un
+UUID — pour produire le document d'un tiers, et `canReadPersonRecord` est inchangée.
+
+### Les départements ne sortent plus nulle part
+
+Contrat, lettre de bienvenue, guide, email de bienvenue. Le champ a aussi quitté
+`DocumentRenderInput` et le chaînage du workflow : une signature qui le déclare encore finit par
+être lue comme si quelque chose le rendait. Il reste en base — c'est la SORTIE qui change.
+
+### Un document dit à qui il s'adresse
+
+Le contrat portait « Employé : … », la lettre ouvrait sur « Bonjour … ». Le **guide** — le
+document le plus produit du système — et le gabarit **générique** — celui qui sert dans la
+moitié des cas — ne nommaient personne.
+
+Ce n'est pas une question de forme. Un fichier circule : uploadé dans Slack, parfois envoyé en
+pièce jointe, repartageable. Le 2026-08-13, les dix documents de la base portaient le même UUID
+et un « Bienvenue Awa » avait été livré à quelqu'un d'autre — personne ne l'a vu, parce que rien
+DANS le fichier ne disait pour qui il avait été fait. La note accolée à la réponse Slack ne suit
+pas le fichier ; cette ligne-ci, si.
+
+⚠️ Le NOM, jamais l'email ni l'identifiant : un document repartageable qui porte une adresse
+devient un vecteur de diffusion. Et la phrase disparaît quand le nom est inconnu, plutôt que
+d'imprimer « destiné à  ».
+
+### Données corrigées en production
+
+`position` : « Developer » → « Software Engineer ». Suivi d'intégration : `in_progress 1/5` →
+`completed 1/1`, `completed_at` posé.
+
+**1 888 tests verts, typecheck et lint propres.**
+
 ## 2026-08-20 (soir) — Le Manager, et lui seul, voit les données de tout le monde
 
 Demande du propriétaire : *« le Manager doit avoir une portée d'action que les autres n'ont pas ;

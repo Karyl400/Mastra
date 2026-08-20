@@ -218,9 +218,12 @@ describe('generateDocument — rendu', () => {
       firstName: 'Karyl',
       lastName: 'SOUMAILA',
       email: 'karylsoumaila1@gmail.com',
-      department: 'Engineering',
       position: 'Software Engineer',
     });
+    // ⚠️ Le département ne traverse plus, depuis le 2026-08-20 — et `toMatchObject` ne
+    // l'aurait pas vu partir : il ignore les champs en trop. C'est l'assertion NÉGATIVE qui
+    // porte la garantie, pas celle du dessus.
+    expect(pdf.calls[0]!.employee).not.toHaveProperty('department');
   });
 
   it('retombe sur le PDF quand le renderer du format demandé n est pas câblé', async () => {
