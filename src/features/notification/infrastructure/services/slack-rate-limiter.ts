@@ -48,6 +48,18 @@ export interface RateLimitDecision {
   readonly shouldNotify: boolean;
   /** Le store partagé n'a pas répondu : la décision ne porte que sur cette instance. */
   readonly degraded: boolean;
+  /**
+   * La règle qui a refusé RATIONNE-T-ELLE le budget du modèle, ou contre-t-elle un abus ?
+   *
+   * ⚠️ Lu depuis l'objet `RateLimitRule` qui vient de refuser, JAMAIS d'une correspondance
+   * par nom chez l'appelant. Une table `nom → rationne` recopiée ailleurs serait une liste
+   * tenue à la main de plus, et ce dépôt en a déjà vu trois se désynchroniser en silence.
+   *
+   * L'appelant s'en sert pour une seule chose, et elle est décisive : un refus de RAFALE
+   * s'applique à tout, un refus de BUDGET ne doit jamais frapper un message qui ne coûtera
+   * pas un token. Voir le miroir exact dans `slack-events.handler.ts`.
+   */
+  readonly rationsModelBudget: boolean;
 }
 
 const ALLOWED: RateLimitDecision = {
@@ -55,6 +67,7 @@ const ALLOWED: RateLimitDecision = {
   rule: null,
   shouldNotify: false,
   degraded: false,
+  rationsModelBudget: false,
 };
 
 export interface SlackRateLimiterOptions {
@@ -302,8 +315,13 @@ export class SlackRateLimiter {
           refusal: {
             allowed: false,
             rule: rule.name,
-            shouldNotify: localVerdict.shouldNotify,
+            // ⚠️ `claimNotification` et non le seul verdict — voir `readSharedVerdicts`, où
+            // le même correctif est expliqué : sous RÉSERVATION le compteur n'avance pas,
+            // donc l'égalité `count === limit + 1` reste vraie à CHAQUE message et la
+            // protection se met à répéter son propre avertissement.
+            shouldNotify: localVerdict.shouldNotify && this.claimNotification(key),
             degraded: false,
+            rationsModelBudget: rule.rationsModelBudget === true,
           },
           pending,
         };
@@ -343,8 +361,21 @@ export class SlackRateLimiter {
           // le plus coûteux de ce dépôt, le bot muet, produit par le garde-fou censé
           // l'éviter. On retombe ici sur « une fois par fenêtre et par instance », qui ne
           // peut pas se tromper dans ce sens-là.
-          shouldNotify: verdict.shouldNotify || this.claimNotification(key),
+          // ⚠️ `claimNotification` est désormais la CONDITION, plus un simple repli — corrigé
+          // le 2026-08-20. `evaluateCount` fonde `shouldNotify` sur une égalité exacte
+          // (`count === limit + 1`), juste pour un compteur qui avance de 1 en 1. Or depuis
+          // que le budget modèle est RÉSERVÉ à l'ACK et débité seulement avant
+          // `agent.generate()`, un message refusé n'incrémente RIEN : le compteur lu reste
+          // figé, l'égalité reste vraie, et « une fois, puis silence » était devenu « à chaque
+          // message ». La limitation se transformait en son propre spam, c'est-à-dire
+          // exactement ce que ce champ existe pour empêcher — et chaque publication est
+          // elle-même un appel à l'API Slack.
+          //
+          // Le budget de TOKENS, lui, ne tombe jamais pile sur `limit + 1` : c'est le cas qui
+          // avait imposé le `||`. « Une fois par fenêtre et par instance » couvre les deux.
+          shouldNotify: this.claimNotification(key),
           degraded,
+          rationsModelBudget: rule.rationsModelBudget === true,
         };
       }
     }

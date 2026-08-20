@@ -1,3 +1,4 @@
+import { readsAsNo, readsAsYes } from '../../../../shared/confirmation';
 import { logger } from '../../../../shared/logger';
 import { buildInterviewEmail } from '../../domain/services/interview-email';
 import { parseInterviewSchedule } from '../../domain/value-objects/interview-schedule';
@@ -166,4 +167,59 @@ export async function confirmPendingEmail(
   });
 
   return { kind: 'sent', reply: sentReply(pending, parsed.schedule.humanReadable) };
+}
+
+/**
+ * CE QU'IL FAUT FAIRE d'une préparation en attente — la DÉCISION, sans l'EXÉCUTION.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * Pourquoi cette fonction a été extraite du handler le 2026-08-20
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Elle vivait dans `resolvePendingEmail`, mêlée aux effets (effacer, envoyer, publier). Or il
+ * fallait poser exactement la même question à un SECOND endroit — le miroir exact du
+ * rationnement, qui doit savoir si un message sera traité SANS appel de modèle avant de le
+ * refuser pour cause de quota. La réécrire là-bas aurait été la TROISIÈME copie d'un prédicat
+ * dans ce dépôt, configuration où il a déjà payé : deux bords corrects, aucun câblage entre
+ * les deux, et une divergence qui ne se voit qu'en production.
+ *
+ * Séparer la décision de l'exécution est d'ailleurs la doctrine déjà appliquée à
+ * `DETERMINISTIC_REPLIES` : « ce qui reste chez le handler, c'est l'EXÉCUTION — il est le seul
+ * à avoir les dépôts et le client Slack ; ce qui vit ici, c'est la DÉCISION. »
+ *
+ * ⚠️ `onboardingQuestionPending` est passé en PARAMÈTRE et non calculé : le prédicat vit dans
+ * la couche `infrastructure` du handler, et cette couche-ci ne peut pas l'importer sans
+ * inverser la règle de dépendance. Un booléen traverse la frontière ; un import ne le peut pas.
+ */
+export type PendingEmailVerdict = 'stale' | 'deferred' | 'cancel' | 'send' | 'unrelated';
+
+export function pendingEmailVerdict(input: {
+  readonly pending: PendingInterviewEmail;
+  readonly text: string;
+  readonly onboardingQuestionPending: boolean;
+  readonly now: Date;
+}): PendingEmailVerdict {
+  if (isPendingEmailStale(input.pending, input.now)) return 'stale';
+
+  // ⚠️ LA QUESTION D'ACCUEIL PRIME. Les deux erreurs ne se valent pas : capturer « oui » comme
+  // un prénom se corrige d'un message, envoyer une invitation à un candidat ne se corrige pas.
+  if (input.onboardingQuestionPending) return 'deferred';
+
+  if (readsAsNo(input.text)) return 'cancel';
+  if (readsAsYes(input.text)) return 'send';
+
+  // La personne parle d'autre chose. On ne l'interrompt pas — on lui répond, et l'email reste
+  // en attente.
+  return 'unrelated';
+}
+
+/**
+ * Ce message TRANCHE-T-IL la préparation, ici et maintenant, sans aucun appel de modèle ?
+ *
+ * C'est la seule question que se pose le rationnement du budget : `cancel` et `send` sont
+ * traités par du code écrit en dur, les trois autres verdicts laissent le message partir chez
+ * un agent — donc coûter des tokens, donc mériter le refus quand le quota est atteint.
+ */
+export function settlesPendingEmail(verdict: PendingEmailVerdict): boolean {
+  return verdict === 'cancel' || verdict === 'send';
 }

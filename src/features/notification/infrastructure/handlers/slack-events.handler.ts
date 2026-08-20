@@ -96,13 +96,13 @@ import type {
 } from '../../../recruitment/domain/ports/pending-email.repository';
 import {
   confirmPendingEmail,
-  isPendingEmailStale,
+  pendingEmailVerdict,
+  settlesPendingEmail,
   staleReply,
   ALREADY_SETTLED_REPLY,
   CANCELLED_REPLY,
   pendingReminder,
 } from '../../../recruitment/application/services/confirm-pending-email';
-import { readsAsNo, readsAsYes } from '../../../../shared/confirmation';
 import {
   startDateFromJoin,
   type NewcomerIdentity,
@@ -1135,6 +1135,38 @@ export class SlackEventsHandler {
       });
       if (decision.allowed) return null;
 
+      // ────────────────────────────────────────────────────────────────────────
+      // LE MIROIR EXACT — seule branche autorisée à lire en base sur ce chemin
+      // ────────────────────────────────────────────────────────────────────────
+      //
+      // Le miroir TEXTUEL ci-dessus (`isAnsweredWithoutModel`) est évalué pour CHAQUE message
+      // et ne peut donc rien lire : le chemin de l'ACK a 3 secondes. Il en résulte un angle
+      // mort structurel — les court-circuits dont la reconnaissance dépend d'un ÉTAT
+      // (« oui » à un email en attente, réponse à une question d'accueil) lui sont invisibles,
+      // alors qu'ils coûtent ZÉRO token. Une personne au quota s'entendait donc répondre
+      // « le budget est épuisé » au moment précis où elle voulait ANNULER un envoi, ou
+      // terminer son propre dossier. Le garde-fou du budget bloquait des gestes qui ne
+      // consomment pas de budget — même famille que « bonjour » refusé en 2026-08-13, et que
+      // `profile_done` facturé jusqu'au 2026-08-19.
+      //
+      // ⚠️ LA PRÉMISSE QUI A ÉTÉ RENVERSÉE : « l'ACK n'a pas le droit de lire en base ». Il le
+      // fait déjà DEUX fois par message — la prise de clé de déduplication et le compteur
+      // partagé sont l'un et l'autre des allers-retours Turso. Ce qui n'a pas le droit de
+      // grossir, c'est le chemin NOMINAL. Cette lecture-ci vit APRÈS un refus, donc sur un
+      // chemin rare : elle ne coûte rien à personne d'autre qu'à celui qui allait de toute
+      // façon être refusé.
+      //
+      // ⚠️ Réservé aux règles qui RATIONNENT LE MODÈLE. Un refus de RAFALE s'applique à tout,
+      // y compris aux gestes gratuits : une rafale reste une rafale, et attendre douze
+      // secondes n'a jamais empêché personne d'annuler un email.
+      if (decision.rationsModelBudget && (await this.settlesWithoutModel(event))) {
+        logger.info('Rate limit waived: this message is answered without a model', {
+          slackUserId: subject,
+          rule: decision.rule,
+        });
+        return null;
+      }
+
       logger.warn('Slack event dropped: rate limit exceeded', {
         slackUserId: subject,
         rule: decision.rule,
@@ -1185,6 +1217,68 @@ export class SlackEventsHandler {
       // Même doctrine que le fail-open de `checkRateLimit` : un compteur en panne ne doit
       // jamais priver quelqu'un d'une réponse.
       logger.error('Could not charge the model budget — serving the message anyway', { error });
+    }
+  }
+
+  /**
+   * Ce message sera-t-il traité SANS aucun appel de modèle — en tenant compte de l'ÉTAT ?
+   *
+   * Contrepartie exacte de `isAnsweredWithoutModel`, qui ne juge que sur le TEXTE. Les deux
+   * cas couverts ici ont en commun de coûter zéro token et d'être invisibles à un prédicat
+   * purement textuel, parce que leur reconnaissance dépend de ce qui a été dit avant :
+   *
+   *   • une réponse à une question du parcours d'accueil (l'état EST le dernier tour
+   *     `assistant` du fil) ;
+   *   • un « oui » / « non » qui tranche un email d'entretien en attente (l'état est une ligne
+   *     de `pending_interview_email`).
+   *
+   * ⚠️ Aucun des deux prédicats n'est réécrit ici : `answersOnboardingQuestion` est celui-là
+   * même qu'exécutent les deux machines à états, et `pendingEmailVerdict` celui-là même
+   * qu'exécute `resolvePendingEmail`. C'est la condition pour que ce miroir ne puisse pas
+   * mentir — un miroir qui approxime son objet finit par refuser ce qu'il devait épargner.
+   *
+   * ⚠️ ÉCHOUE VERS LE REFUS, à l'inverse du fail-open qui gouverne le reste de ce fichier, et
+   * c'est cohérent : cette lecture n'accorde pas un droit, elle lève une restriction. Store
+   * illisible ⇒ `resolvePendingEmail` échouerait de la même façon quelques instants plus tard
+   * et le « oui » partirait chez un agent, donc coûterait des tokens. Laisser passer sur une
+   * panne de lecture reviendrait à ouvrir le quota sur une panne de base.
+   */
+  private async settlesWithoutModel(event: SlackEvent): Promise<boolean> {
+    if (isTeamJoinEvent(event) || !event.channel) return false;
+
+    const { isDirectMessage, threadTs } = resolveThreadTarget(event, event.channel);
+    const conversationId = deriveConversationId({ channel: event.channel, threadTs });
+    // Sans `botUserId` : le chemin d'ACK n'a pas les 3 secondes d'un `auth.test()`, et la
+    // mention résiduelle ne change aucun de ces deux verdicts.
+    const text = this.cleanText(event.text);
+
+    try {
+      // EN PARALLÈLE : les deux lectures sont indépendantes, et ce chemin reste borné par les
+      // 3 secondes de l'ACK même s'il est rare.
+      const [history, pending] = await Promise.all([
+        this.loadHistory(conversationId),
+        this.pendingEmailRepo && this.sendEmail
+          ? this.pendingEmailRepo.find(conversationId)
+          : Promise.resolve(null),
+      ]);
+
+      if (answersOnboardingQuestion({ history, isDirectMessage, text })) return true;
+
+      if (!pending) return false;
+
+      return settlesPendingEmail(
+        pendingEmailVerdict({
+          pending,
+          text,
+          onboardingQuestionPending: hasPendingOnboardingQuestion(history),
+          now: this.now(),
+        }),
+      );
+    } catch (error) {
+      logger.warn('Could not tell whether this message is answered without a model', {
+        error: String(error),
+      });
+      return false;
     }
   }
 
@@ -2658,6 +2752,13 @@ export class SlackEventsHandler {
     }
     if (!pending) return { handled: false };
 
+    const verdict = pendingEmailVerdict({
+      pending,
+      text: input.text,
+      onboardingQuestionPending: hasPendingOnboardingQuestion(input.history),
+      now: this.now(),
+    });
+
     // ── ABANDONNÉE ──────────────────────────────────────────────────────────
     //
     // Sans cette borne, une préparation ne meurt jamais : la ligne reste sur la Turso — une
@@ -2667,7 +2768,7 @@ export class SlackEventsHandler {
     //
     // ⚠️ On le DIT au lieu d'effacer en silence : la personne a vu un email complet et une
     // question ; le retirer sans un mot la laisserait croire qu'il est peut-être parti.
-    if (isPendingEmailStale(pending, this.now())) {
+    if (verdict === 'stale') {
       await repo.clear(pending.conversationId).catch((error) => {
         logger.error('Préparation périmée non effacée', { error: String(error) });
         return 0;
@@ -2676,11 +2777,11 @@ export class SlackEventsHandler {
       return { handled: false, reminder: staleReply(pending) };
     }
 
-    if (hasPendingOnboardingQuestion(input.history)) {
+    if (verdict === 'deferred') {
       return { handled: false, reminder: pendingReminder(pending) };
     }
 
-    if (readsAsNo(input.text)) {
+    if (verdict === 'cancel') {
       const cleared = await repo.clear(pending.conversationId).catch((error) => {
         logger.error('Annulation d’email d’entretien échouée', { error: String(error) });
         return -1;
@@ -2702,7 +2803,7 @@ export class SlackEventsHandler {
       return { handled: true };
     }
 
-    if (readsAsYes(input.text)) {
+    if (verdict === 'send') {
       const outcome = await confirmPendingEmail(
         { pending: repo, sendEmail: send },
         pending,
@@ -3164,22 +3265,14 @@ export class SlackEventsHandler {
     conversationId: string;
     user: string | undefined;
   }): Promise<boolean> {
-    if (!input.isDirectMessage) return false;
+    // ⚠️ Les TROIS gardes communes aux deux machines vivent dans `answersOnboardingQuestion`
+    // depuis le 2026-08-20 : DM, court-circuit agissant prioritaire, question posée au bot.
+    // Elles y sont parce qu'un TROISIÈME lecteur en a besoin — le miroir exact du
+    // rationnement — et qu'une copie de plus est la configuration où ce dépôt a déjà payé.
+    if (!answersOnboardingQuestion(input)) return false;
 
     const step = pendingProfileStep(lastAssistantText(input.history));
     if (!step) return false;
-
-    // Même arbitrage que pour l'entretien : effacer ses données, épingler un fait ou demander
-    // le formulaire priment sur une question d'accueil en attente. Sans cela, « oublie ce que
-    // je t'ai dit » deviendrait le prénom de la personne.
-    if (findActingReply({ text: input.text, isDirectMessage: true })) return false;
-
-    // ⚠️ UNE QUESTION POSÉE AU BOT N'EST PAS UNE RÉPONSE — trouvé EN PRODUCTION le 2026-08-19.
-    // Le clic sur « C'est fait » arme la machine ; « qui s'occupe du support technique ? » était
-    // ensuite capturé comme la description du métier de la personne — champ IMPRIMÉ dans un
-    // document à son nom et restitué à ses collègues par `findExpertise`. Le critère est
-    // GRAMMATICAL, jamais une liste de mots : voir `isQuestionToBot`.
-    if (isQuestionToBot(input.text)) return false;
 
     await this.runProfileStep({ ...input, step });
     return true;
@@ -3559,30 +3652,12 @@ export class SlackEventsHandler {
     user: string | undefined;
     employeeId: string | null | undefined;
   }): Promise<boolean> {
-    if (!input.isDirectMessage) return false;
+    // Mêmes trois gardes que le pas de dossier, et pour les mêmes raisons — voir
+    // `answersOnboardingQuestion`, qui les porte une seule fois.
+    if (!answersOnboardingQuestion(input)) return false;
 
     const step = pendingInterviewStep(lastAssistantText(input.history));
     if (!step) return false;
-
-    // ⚠️ CORRECTIF DU 2026-08-19 : l'entretien CÈDE le pas aux court-circuits agissants.
-    //
-    // `captureInterviewAnswer` accepte presque n'importe quel texte — c'est sa nature, on
-    // demande à quelqu'un de décrire son métier avec ses mots. Une question d'entretien en
-    // attente absorbait donc « oublie ce que je t'ai dit » : l'effacement n'avait pas lieu,
-    // ET la phrase était enregistrée comme la description du métier de la personne, champ
-    // imprimé dans un document à son nom sous « Ton quotidien ».
-    //
-    // Le commentaire de `handleMessage` affirmait déjà « effacer ses données reste
-    // prioritaire sur répondre à une question d'accueil » — le code disait l'inverse. Ce
-    // n'est donc pas un arbitrage nouveau, c'est l'application de celui qui était écrit.
-    if (findActingReply({ text: input.text, isDirectMessage: true })) return false;
-
-    // ⚠️ UNE QUESTION POSÉE AU BOT N'EST PAS UNE RÉPONSE — trouvé EN PRODUCTION le 2026-08-19.
-    // Le clic sur « C'est fait » arme la machine ; « qui s'occupe du support technique ? » était
-    // ensuite capturé comme la description du métier de la personne — champ IMPRIMÉ dans un
-    // document à son nom et restitué à ses collègues par `findExpertise`. Le critère est
-    // GRAMMATICAL, jamais une liste de mots : voir `isQuestionToBot`.
-    if (isQuestionToBot(input.text)) return false;
 
     await this.runInterviewStep({ ...input, step });
     return true;
@@ -3981,6 +4056,44 @@ export { buildProfileInviteBlocks, buildWelcomeBlocks };
  * marqueurs serait la configuration où ce dépôt a déjà payé — deux bords corrects, aucun
  * câblage entre les deux.
  */
+/**
+ * Ce message est-il une RÉPONSE à une question du parcours d'accueil ?
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * Les trois gardes, et pourquoi elles vivent ici plutôt qu'en double
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ *  1. **DM uniquement.** En canal, le dernier tour `assistant` du fil peut être une question
+ *     posée à quelqu'un d'AUTRE : la réponse d'un témoin s'écrirait dans le dossier de cette
+ *     personne. Même asymétrie de SÉCURITÉ que `profile-request.ts`.
+ *  2. **Les court-circuits agissants priment.** `captureInterviewAnswer` accepte presque
+ *     n'importe quel texte — c'est sa nature, on demande à quelqu'un de décrire son métier
+ *     avec ses mots. Une question en attente absorbait donc « oublie ce que je t'ai dit » :
+ *     l'effacement n'avait pas lieu, ET la phrase était enregistrée comme la description du
+ *     métier de la personne, champ imprimé dans un document à son nom.
+ *  3. **Une question posée au bot n'est pas une réponse** — trouvé EN PRODUCTION le
+ *     2026-08-19. « qui s'occupe du support technique ? » était capturé comme la description
+ *     du métier de la personne, puis restitué à ses collègues par `findExpertise`. Le critère
+ *     est GRAMMATICAL, jamais une liste de mots : voir `isQuestionToBot`.
+ *
+ * ⚠️ Extraite le 2026-08-20 parce qu'un TROISIÈME lecteur en a besoin : le miroir exact du
+ * rationnement, qui doit savoir si un message sera traité SANS appel de modèle avant de le
+ * refuser pour cause de quota. Les trois gardes étaient déjà écrites DEUX fois, à l'identique,
+ * dans les deux machines à états ; une troisième copie aurait garanti la divergence, et son
+ * symptôme aurait été muet — quelqu'un qui répond à une question d'accueil et reçoit « quota
+ * atteint », c'est-à-dire l'accueil bloqué par le garde-fou censé protéger l'accueil.
+ */
+export function answersOnboardingQuestion(input: {
+  readonly history: readonly ConversationTurn[];
+  readonly isDirectMessage: boolean;
+  readonly text: string;
+}): boolean {
+  if (!input.isDirectMessage) return false;
+  if (!hasPendingOnboardingQuestion(input.history)) return false;
+  if (findActingReply({ text: input.text, isDirectMessage: true })) return false;
+  return !isQuestionToBot(input.text);
+}
+
 export function hasPendingOnboardingQuestion(history: readonly ConversationTurn[]): boolean {
   const last = lastAssistantText(history);
   return pendingProfileStep(last) !== null || pendingInterviewStep(last) !== null;
