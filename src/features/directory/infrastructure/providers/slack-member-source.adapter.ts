@@ -5,50 +5,15 @@ import type { SlackMemberPage } from '../../../notification/infrastructure/provi
 import { SLACK_MAX_PAGES } from '../../../notification/infrastructure/providers/slack-workspace.service';
 import { logger } from '../../../../shared/logger';
 
-/**
- * L'annuaire, alimenté depuis Slack.
- *
- * ----------------------------------------------------------------------------
- * POURQUOI CE FICHIER VIT EN `infrastructure`
- * ----------------------------------------------------------------------------
- * Il relie deux features : le port `MemberSource` (`directory/domain`) et
- * `SlackWorkspaceService` (`notification/infrastructure`). `member-source.ts` documente ce
- * choix — l'`infrastructure` est la seule couche où le croisement est légitime, et c'est
- * exactement ce que fait cet adaptateur : rien d'autre qu'une projection.
- *
- * ----------------------------------------------------------------------------
- * ⚠️ IL NE CRÉE PAS DE SECOND `WebClient`
- * ----------------------------------------------------------------------------
- * Il consomme le service Slack déjà câblé. Un second client dupliquerait le jeton, les
- * réglages de retry et les compteurs de rate-limit — deux clients ignorant chacun les appels
- * de l'autre franchiraient un plafond que ni l'un ni l'autre ne verrait venir.
- */
-
-/**
- * Le strict nécessaire côté Slack — deux méthodes.
- *
- * L'adaptateur ne dépend PAS de `SlackWorkspaceProvider` (7 méthodes, dont `inviteToChannel`,
- * une capacité d'écriture) : un annuaire dont le rôle est de lire qui est qui n'a aucune raison
- * de tenir un droit d'inviter. C'est aussi ce qui rend la doublure de test triviale.
- */
 export interface SlackMemberReader {
   listMembersPage(cursor?: string, limit?: number): Promise<SlackMemberPage>;
   getUserById(userId: string): Promise<SlackMember | null>;
 }
 
 export interface SlackMemberSourceOptions {
-  /** Plafond de pages. Défaut : celui du service Slack. Surchargé par les tests. */
   readonly maxPages?: number;
 }
 
-/**
- * Projection `SlackMember` → `DirectoryMemberFacts`.
- *
- * Elle NE FILTRE RIEN — ni les bots, ni les comptes désactivés, ni les invités. Chacun de ces
- * trois états est précisément ce que la politique d'autorisation lit pour REFUSER ou
- * rétrograder : une source qui les écarterait produirait un annuaire où seuls figurent les
- * gens à qui l'on dit oui, c'est-à-dire aucune décision.
- */
 function toFacts(member: SlackMember): DirectoryMemberFacts {
   return {
     slackUserId: member.id,
@@ -56,9 +21,6 @@ function toFacts(member: SlackMember): DirectoryMemberFacts {
     email: member.email,
     realName: member.realName,
     displayName: member.displayName,
-    // `|| null` et non `?? null` : Slack rend une CHAÎNE VIDE pour un champ de profil non
-    // renseigné, jamais `undefined`. Avec `??` on stockerait `''`, qui se lit « renseigné,
-    // mais vide » — indiscernable d'un vrai vide et faux positif garanti sur toute recherche.
     firstName: member.firstName || null,
     lastName: member.lastName || null,
     title: member.title || null,
@@ -73,12 +35,6 @@ function toFacts(member: SlackMember): DirectoryMemberFacts {
 export class SlackMemberSource implements MemberSource {
   private readonly maxPages: number;
 
-  /**
-   * ⚠️ `truncated` est un fait du DERNIER balayage, pas un état durable. Il existe parce que
-   * `MemberSource.fetchAll()` rend un tableau nu : un tableau ne sait pas dire qu'il est
-   * incomplet. Sans ce drapeau, une synchronisation plafonnée rapporterait « 10 000 membres
-   * synchronisés » et serait indiscernable d'une synchronisation intégrale.
-   */
   private truncated = false;
 
   constructor(
@@ -88,14 +44,6 @@ export class SlackMemberSource implements MemberSource {
     this.maxPages = options.maxPages ?? SLACK_MAX_PAGES;
   }
 
-  /**
-   * `null` sur un compte introuvable — jamais une exception.
-   *
-   * Cette méthode est atteignable depuis le chemin de l'ACK Slack (3 secondes) : y lever pour
-   * un identifiant inconnu coûterait le traitement du message entier. `getUserById` traduit
-   * déjà `user_not_found` en `null` ; ce qui reste (réseau, 5xx, rate-limit) remonte, et c'est
-   * volontaire — une panne de Slack n'est pas une absence de personne.
-   */
   async fetchById(slackUserId: string): Promise<DirectoryMemberFacts | null> {
     const member = await this.slack.getUserById(slackUserId);
     if (!member || !member.id) return null;
@@ -103,18 +51,6 @@ export class SlackMemberSource implements MemberSource {
     return toFacts(member);
   }
 
-  /**
-   * Balayage complet — PAGINÉ, BORNÉ, et bavard quand il est borné.
-   *
-   * `users.list` rend **100 entrées par défaut** et n'annonce sa suite que par
-   * `response_metadata.next_cursor`. Une lecture sans curseur — la forme « évidente » —
-   * synchroniserait donc un annuaire partiel : la politique d'autorisation rétrograderait
-   * ensuite en `unknown_actor` toute personne qui a eu le tort d'être en page 2. Le symptôme
-   * (« le bot ne reconnaît que la moitié de l'équipe ») ne désignerait pas sa cause.
-   *
-   * Les membres sans identifiant sont écartés : `slack_user_id` est la clé primaire, une chaîne
-   * vide y créerait UN sujet fantôme que toutes les lignes suivantes viendraient écraser.
-   */
   async fetchAll(): Promise<DirectoryMemberFacts[]> {
     const facts: DirectoryMemberFacts[] = [];
     let cursor: string | undefined;
@@ -160,7 +96,6 @@ export class SlackMemberSource implements MemberSource {
     return facts;
   }
 
-  /** Le dernier `fetchAll()` a-t-il touché le plafond de pages ? */
   wasLastFetchTruncated(): boolean {
     return this.truncated;
   }

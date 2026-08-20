@@ -6,48 +6,6 @@ import { logger } from '../../../../shared/logger';
 import { OnboardingStatus } from '../../../../shared/types';
 import { canPerformSideEffects } from '../../../../shared/slack-request-context';
 
-/**
- * Met à jour l'avancement du parcours d'intégration.
- *
- * ── Pourquoi ce tool ne lève plus ───────────────────────────────────────────
- * Il levait `NotFoundError('OnboardingProgress')` dès que l'employé n'avait pas
- * de ligne `onboarding_progress` — c'est-à-dire, mesuré sur la Turso de
- * production le 2026-08-11, pour 100 % des employés : les deux profils en base
- * ont été créés par le tool `createEmployee` (un simple `repo.save`), et seul
- * `employeeOnboardingWorkflow` écrivait le suivi.
- *
- * Cette exception n'était pas un échec ordinaire. L'AI SDK v7 capture ce que
- * lève un tool et le convertit en part `tool-error` RÉINJECTÉE au modèle : le
- * catch générique du handler Slack n'est jamais atteint. Le modèle reçoit donc
- * « ce suivi n'existe pas », en déduit qu'une étape lui manque, et INVENTE la
- * capacité qui la comblerait — reproduit en conditions réelles : « Souhaites-tu
- * que je crée un enregistrement d'onboarding ? » suivi d'un appel à un tool
- * `createOnboarding` inexistant. C'est la même mécanique que l'over-promise
- * « as-tu besoin de créer un profil ? » observée en production.
- *
- * ── L'arbitrage : résultat structuré, PAS de création implicite ─────────────
- * L'autre option était de créer le suivi manquant à la volée. Elle est écartée
- * pour trois raisons :
- *
- *  1. Un suivi seul ne vaut RIEN. Le parcours, c'est le suivi PLUS les cinq
- *     tâches et leurs étapes (`domain/services/onboarding-plan.ts`). Poser un
- *     compteur `totalSteps: 5` sans tâche derrière, c'est exactement le défaut
- *     déjà corrigé le 2026-08-10. Le faire ici obligerait ce tool à dépendre
- *     aussi de `TaskRepository`.
- *  2. Ce serait une ÉCRITURE MASSIVE déclenchée par un LLM sur un identifiant
- *     qu'il peut avoir halluciné : le tool ne dispose d'aucun `EmployeeRepository`
- *     pour vérifier que la personne existe, et créerait donc volontiers un
- *     parcours orphelin. Un tool nommé « update » qui insère six lignes est de
- *     surcroît un effet de bord que rien n'annonce.
- *  3. Le rattrapage a déjà un propriétaire : `scripts/backfill-onboarding.mts`,
- *     idempotent, en dry-run par défaut, exécuté sciemment par un humain.
- *
- * Reste donc à faire ce que `find-employee-by-email.ts` fait déjà : rendre un
- * résultat qui INSTRUIT le modèle. `hint` lui interdit nommément de proposer
- * une création — c'est cette phrase, et non le silence, qui empêche l'invention.
- */
-
-/** Consigne rendue au modèle quand le suivi n'existe pas. */
 const NO_PROGRESS_HINT =
   "Cet employé n'a aucun suivi d'intégration en base. Tu n'as aucun outil pour en créer un : " +
   "ne propose pas de le créer et ne dis pas que c'est fait. Signale simplement que le parcours " +
@@ -65,34 +23,10 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
       currentStep: z.number().int().min(0).optional().describe('Étape actuelle'),
     }),
     execute: async (data, _ctx) => {
-      // ─────────────────────────────────────────────────────────────────────
-      // FRONTIÈRE D'AUTORISATION — avant toute lecture, avant toute écriture
-      // ─────────────────────────────────────────────────────────────────────
-      // Ajoutée le 2026-08-18. Cet outil était, avec `scheduleReminder`, le SEUL écrivain
-      // exposé à un agent qui ne regardait pas qui demande — alors que `sendNotification`,
-      // son voisin de gravité, avait sa garde depuis le 2026-08-13.
-      //
-      // Ce que l'absence permettait : `employeeId` est produit par le MODÈLE à partir d'un
-      // texte Slack arbitraire, et un statut `Completed` pose `completedAt` (voir plus bas).
-      // Un invité mono-canal pouvait donc déclarer terminé le parcours d'intégration de
-      // quelqu'un d'autre — et la complétion du profil est le SEUL suivi que ce produit
-      // sache réellement observer depuis le retrait du suivi de tâches.
-      //
-      // ⚠️ L'ABSENCE de niveau vaut autorisation, exactement comme dans
-      // `send-notification.ts:117` : hors Slack (workflow, playground, test, route `/api/*`
-      // déjà derrière un jeton) il n'y a pas de demandeur à évaluer.
-      //
-      // ⚠️ Le refus tombe AVANT `findByEmployee` : lire d'abord et filtrer ensuite ferait de
-      // ce tool un oracle d'existence, journaliserait une consultation qui n'aurait pas dû
-      // avoir lieu, et fuirait par la latence. Un test vérifie que le dépôt n'est jamais
-      // touché.
       if (!canPerformSideEffects(_ctx?.requestContext, data.employeeId)) {
         logger.warn('updateOnboardingStatus refusé : le demandeur n’a pas le niveau requis', {
           employeeId: data.employeeId,
         });
-        // On INSTRUIT plutôt que de lever — même raison que `sendNotification` : une
-        // exception remonterait au modèle comme une panne, qu'il raconterait ou
-        // réessaierait, soit deux allers-retours gâchés.
         return {
           updated: false as const,
           reason: 'not_authorized' as const,
@@ -108,9 +42,6 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
       const progress = await repo.findByEmployee(data.employeeId);
 
       if (!progress) {
-        // `warn` volontaire : c'est la ligne à chercher quand un agent parle
-        // d'un parcours qui n'existe pas. Elle signale aussi les employés à
-        // passer au rattrapage.
         logger.warn("Aucun suivi d'intégration pour cet employé — mise à jour impossible", {
           employeeId: data.employeeId,
         });
@@ -135,10 +66,6 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
       const affected = await repo.update(updated);
 
       if (affected === 0) {
-        // Écriture sur zéro ligne : le suivi a disparu entre la lecture et l'écriture.
-        // On le DIT au lieu d'annoncer un succès — c'est exactement le mensonge mesuré
-        // en production le 2026-08-12, où le bot affirmait « l'avancement de ton
-        // onboarding est mis à jour » sans qu'aucune ligne ne bouge.
         logger.warn('Mise à jour du statut sans effet — aucune ligne affectée', {
           employeeId: data.employeeId,
         });
@@ -149,9 +76,6 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
         };
       }
 
-      // Projection : `id`, `employeeId` et les horodatages techniques n'aident
-      // en rien le modèle et sont repayés à chaque aller-retour (plafond Groq
-      // 12 000 tokens/minute). Même règle que `task-summary.mapper.ts`.
       return {
         updated: true as const,
         status: updated.status,

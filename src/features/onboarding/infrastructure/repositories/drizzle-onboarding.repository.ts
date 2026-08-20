@@ -22,14 +22,6 @@ export class DrizzleOnboardingRepository implements OnboardingRepository {
       })
       .onConflictDoUpdate({
         target: onboardingProgress.id,
-        // ⚠️ `startedAt` et `updatedAt` étaient ABSENTS de ce `set` — bug mesuré en
-        // production le 2026-08-12. Les valeurs sont bien passées à `.values()`, mais
-        // `values()` est IGNORÉ dès qu'il y a conflit : seul le `set` s'applique. Sur une
-        // ligne existante, `updated_at` restait donc gelé à la date d'insertion
-        // (2026-08-11T18:02:35 en production, alors que le tool venait de tourner), et le
-        // `startedAt` calculé lors de la transition `not_started → in_progress` était jeté
-        // en silence. Le symptôme observé était « le bot annonce une mise à jour et rien
-        // ne change en base ».
         set: {
           status: progress.status,
           currentStep: progress.currentStep,
@@ -41,14 +33,6 @@ export class DrizzleOnboardingRepository implements OnboardingRepository {
       });
   }
 
-  /**
-   * Rend le nombre de lignes RÉELLEMENT affectées.
-   *
-   * `Promise<void>` empêchait structurellement tout appelant de savoir si l'écriture
-   * avait eu lieu : `updateOnboardingStatus` retournait `updated: true` en constante, et
-   * le modèle annonçait à l'utilisateur une mise à jour qu'il ne pouvait pas vérifier.
-   * Quatrième occurrence dans ce dépôt de la signature « le champ dit mieux que le fait ».
-   */
   async update(progress: OnboardingProgress): Promise<number> {
     const db = getDb();
     const result = await db
@@ -63,8 +47,6 @@ export class DrizzleOnboardingRepository implements OnboardingRepository {
       })
       .where(eq(onboardingProgress.id, progress.id));
 
-    // libsql expose `rowsAffected` ; le `?? 0` couvre un pilote qui ne le fournirait pas,
-    // auquel cas on préfère annoncer « rien de sûr » plutôt qu'un succès supposé.
     return (result as unknown as { rowsAffected?: number }).rowsAffected ?? 0;
   }
 
@@ -96,8 +78,6 @@ export class DrizzleOnboardingRepository implements OnboardingRepository {
       })
       .onConflictDoUpdate({
         target: onboardingSteps.id,
-        // Même défaut que `save()` ci-dessus, même correctif : `updatedAt` était absent du
-        // `set`, donc gelé à l'insertion sur toute étape déjà existante.
         set: {
           status: step.status,
           completedAt: step.completedAt ?? null,

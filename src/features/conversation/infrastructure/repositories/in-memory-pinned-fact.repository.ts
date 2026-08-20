@@ -1,13 +1,5 @@
 import type { PinnedFact, PinnedFactRepository } from '../../domain/ports/pinned-fact.repository';
 
-/**
- * Doublure de `DrizzlePinnedFactRepository`.
- *
- * ⚠️ Elle doit reproduire EXACTEMENT l'éviction : faire de la place AVANT d'insérer, sur
- * `max - 1`. Une doublure plus permissive validerait en test un plafond que la production
- * n'applique pas — et ce plafond est ce qui empêche le préambule système de grossir sans
- * borne, à chaque aller-retour, sur un budget de ≈ 19 messages par jour.
- */
 export class InMemoryPinnedFactRepository implements PinnedFactRepository {
   private rows: PinnedFact[] = [];
 

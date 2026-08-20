@@ -72,19 +72,6 @@ export class InjectionAttemptError extends AppError {
   }
 }
 
-/**
- * Le message lisible d'une erreur, quelle que soit sa forme.
- *
- * ⚠️ Existait en QUATRE exemplaires — `channel-coverage.service.ts` et
- * `welcome-channels.service.ts` (`messageOf`), `directory-sync.service.ts` (`describe`) et
- * `generate-document.ts` (`errorMessage`) — et la quatrième avait DÉJÀ divergé : elle rendait
- * `'Erreur inconnue'` là où les trois autres rendent `String(error)`.
- *
- * Cette divergence n'est pas cosmétique dans un dépôt qui journalise pour diagnostiquer :
- * `String(error)` conserve ce qu'un `throw 'texte'` ou un rejet d'objet portait, quand
- * « Erreur inconnue » le jette. On garde donc la forme la plus INFORMATIVE — sur un chemin
- * d'erreur, perdre l'information est le seul défaut qui compte.
- */
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }

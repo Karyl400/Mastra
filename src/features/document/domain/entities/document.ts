@@ -1,4 +1,9 @@
-import { DocumentFormat, DocumentStatus, DocumentType, type Timestamps } from '../../../../shared/types';
+import {
+  DocumentFormat,
+  DocumentStatus,
+  DocumentType,
+  type Timestamps,
+} from '../../../../shared/types';
 
 export interface Document extends Timestamps {
   readonly id: string;

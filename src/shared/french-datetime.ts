@@ -1,50 +1,6 @@
-/**
- * Une date en toutes lettres, en français, dans un fuseau explicite.
- *
- * ════════════════════════════════════════════════════════════════════════════
- * Pourquoi ce module existe — un défaut mesuré en production
- * ════════════════════════════════════════════════════════════════════════════
- *
- * Le 2026-08-19, `notificationAgent` a répondu, mot pour mot :
- *
- *     « Rappel planifié : « Relire le guide d'accueil », à 09 h 00 le **lundi 22 août 2026** »
- *
- * Le 22 août 2026 est un **samedi**, et la demande disait « avant lundi », donc le 24. Vérifié
- * en base : `scheduled_at` valait bien `2026-08-22T09:00:00Z`. Deux fautes dans une phrase, et
- * la seconde est la plus instructive : **le jour de la semaine était écrit par le MODÈLE**, à
- * côté d'une date qu'il avait lui-même calculée, et rien ne confrontait les deux.
- *
- * `recruitmentAgent` ne peut pas commettre cette faute — au même moment, il a produit
- * « mardi 15 septembre 2026 », exact — parce que son libellé est RENDU PAR DU CODE à partir de
- * la date. C'est toute la différence, et c'est la doctrine du dépôt : une prose se produit, un
- * fait se calcule.
- *
- * ⚠️ Ce module existait déjà, en trois exemplaires divergents : `interview-schedule.ts`,
- * `welcome-email.ts` et `document-template.ts` (qui, lui, imprimait la date BRUTE dans un
- * document signé de l'entreprise). Le `TODO.md` le recensait. Les rassembler ici est ce qui
- * permet de corriger une fois.
- *
- * TypeScript pur — ce module est importé depuis des couches `domain`.
- */
-
-/**
- * Fuseau d'AFFICHAGE par défaut. `Africa/Lagos` = WAT, UTC+1 — les salariés sont au Nigeria.
- *
- * ⚠️ Lu dans l'environnement et non codé en dur : une erreur ici est invisible et coûteuse
- * (quelqu'un se présente à la mauvaise heure et personne ne comprend pourquoi). L'offset est
- * de toute façon IMPRIMÉ à côté de l'heure, ce qui rend l'hypothèse vérifiable.
- *
- * `RECRUITMENT_TIMEZONE` est accepté en second : c'est le nom historique, déjà posé, et le
- * retirer ferait basculer silencieusement le fuseau des entretiens.
- */
 export const DISPLAY_TIMEZONE =
   process.env.DISPLAY_TIMEZONE || process.env.RECRUITMENT_TIMEZONE || 'Africa/Lagos';
 
-/**
- * ⚠️ `Intl` peut manquer d'ICU sur un runtime minimal : il rendrait alors une chaîne anglaise
- * ou lèverait. On retombe sur l'ISO plutôt que d'échouer — une date moins lisible reste
- * vérifiable, une absence de date ne l'est pas.
- */
 export function frenchDate(
   at: Date,
   timeZone: string,
@@ -57,7 +13,6 @@ export function frenchDate(
   }
 }
 
-/** « jeudi 20 août à 14:00 » — forme courte, pour un objet d'email ou une phrase. */
 export function frenchShortLabel(at: Date, timeZone: string): string {
   try {
     const parts = new Intl.DateTimeFormat('fr-FR', {
@@ -75,12 +30,6 @@ export function frenchShortLabel(at: Date, timeZone: string): string {
   }
 }
 
-/**
- * « UTC+01:00 ».
- *
- * ⚠️ Imprimé tel quel partout où une heure est annoncée : c'est ce qui rend l'hypothèse de
- * fuseau VÉRIFIABLE par son destinataire au lieu d'être implicite.
- */
 export function frenchOffsetLabel(at: Date, timeZone: string): string {
   try {
     const parts = new Intl.DateTimeFormat('fr-FR', {
@@ -93,29 +42,6 @@ export function frenchOffsetLabel(at: Date, timeZone: string): string {
   }
 }
 
-/**
- * « mercredi 19 août 2026 » — le JOUR seul, sans heure.
- *
- * ════════════════════════════════════════════════════════════════════════════
- * Ce qu'il sert à réparer, mesuré en production le 2026-08-19
- * ════════════════════════════════════════════════════════════════════════════
- *
- * Sonde signée : « Prépare un entretien pour … **lundi prochain à 9h** ».
- * Réponse : « **samedi 22 août 2026 à 08:00** (UTC+01:00) ». Mauvais jour, mauvaise heure.
- *
- * La cause n'est pas une faiblesse du modèle : RIEN, dans toute la fenêtre qu'on lui donne, ne
- * dit quel jour on est — ni les `instructions`, ni le préambule, ni l'historique. « Lundi
- * prochain » n'était pas mal transcrit, il était **incalculable**, et le modèle a fait la seule
- * chose possible : deviner. Même famille que `findEmployeeByEmail` inatteignable ou
- * `findPersonByName` absent — une demande qu'aucun câblage ne pouvait satisfaire.
- *
- * ⚠️ Le JOUR DE LA SEMAINE en fait partie, et ce n'est pas décoratif : sans lui, « lundi
- * prochain » reste incalculable, ce qui est exactement le défaut qu'on corrige.
- *
- * ⚠️ Donner la date au modèle réduit la FRÉQUENCE de l'erreur ; c'est la réaffichage en toutes
- * lettres, avant confirmation humaine, qui la rend RATTRAPABLE. Les deux, jamais l'un à la
- * place de l'autre.
- */
 export function frenchDayLabel(at: Date, timeZone: string = DISPLAY_TIMEZONE): string {
   return frenchDate(at, timeZone, {
     weekday: 'long',
@@ -125,7 +51,6 @@ export function frenchDayLabel(at: Date, timeZone: string = DISPLAY_TIMEZONE): s
   });
 }
 
-/** « jeudi 20 août 2026 à 14:00 (UTC+01:00) » — la forme qu'un humain peut vérifier. */
 export function frenchFullLabel(at: Date, timeZone: string): string {
   return `${frenchDate(at, timeZone, { dateStyle: 'full', timeStyle: 'short' })} (${frenchOffsetLabel(at, timeZone)})`;
 }

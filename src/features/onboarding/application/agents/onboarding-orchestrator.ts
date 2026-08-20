@@ -8,67 +8,6 @@ import {
   agentToolBoundary,
 } from '../../../../shared/agent-style';
 
-/**
- * ── Ce qui a été SUPPRIMÉ le 2026-08-11, et pourquoi ────────────────────────
- * « Pour une notification ou un email, passe la main à l'agent de notification. »
- *
- * Aucun mécanisme de passation n'existe : ni tool, ni primitive de routage
- * accessible au modèle. Le choix de l'agent est fait EN AMONT, dans
- * `slack-events.handler.ts`, sur le texte du message ; un agent en cours
- * d'exécution ne peut rien transmettre à un autre. Cette ligne ordonnait donc
- * l'impossible — et une instruction impossible n'est pas neutre : elle invite le
- * modèle à NARRER la délégation (« je transmets ça à l'agent de notification »),
- * ce qui se lit comme une action réalisée. Elle était en plus repayée à chaque
- * aller-retour. Elle est remplacée par la frontière dérivée ci-dessous, qui dit
- * la vérité : ces outils-là, et rien d'autre.
- *
- * ── Le bloc CRÉATION D'EMPLOYÉ, resserré et non supprimé ────────────────────
- * C'est le seul refus qui ait fonctionné en production (A3), et le chemin de
- * remplacement qu'il cite est RÉEL : `handleTeamJoin` ouvre un DM portant le
- * bouton « Compléter mon profil », la modale collecte les données et le workflow
- * est appelé en code, sans LLM. Ce qui manquait était sa CONDITION : ce DM ne part
- * que quand la personne rejoint le workspace Slack. Dire « elle recevra un
- * formulaire » sans dire quand laisse croire à une RH que le dossier est réglé,
- * alors que rien ne partira tant que l'arrivée n'a pas eu lieu.
- *
- * ── Le bloc DOCUMENTS ───────────────────────────────────────────────────────
- * Il a été réécrit le 2026-08-11 quand la livraison est devenue réelle : le tool
- * rend un vrai fichier et le livre. Deux choses n'ont pas bougé : l'interdiction
- * d'inventer un lien (le fichier est livré par UPLOAD, aucune URL de
- * téléchargement n'existe dans ce système — c'est par ce trou qu'est passé le faux
- * `https://kisso.internal/docs/<uuid>/download`), et l'obligation de lire le champ
- * `delivery` plutôt que de supposer.
- *
- * ⚠️ « Dans `content` : ni markdown ni emoji » a été RETIRÉ le 2026-08-19, et remplacé par
- * « rédige `content` toi-même ». Deux raisons, toutes deux mesurées :
- *   1. la consigne était REDONDANTE avec le code — `document-template.ts` TRADUIT le markdown
- *      (`#` → titre, `- ` → puce), élimine `**gras**` et retire les emojis. On payait des
- *      tokens à chaque aller-retour pour une contrainte que le rendu applique de toute façon ;
- *   2. elle a FUITÉ vers l'utilisateur. Constaté en production le 2026-08-19 sur « Génère-moi
- *      le guide d'accueil en PDF » : « Peux-tu me fournir le contenu (sans markdown ni
- *      emoji) ? » — une contrainte de rendu interne, remontée telle quelle à un humain, dans
- *      une phrase qui refusait déjà de faire le travail.
- *
- * ⚠️ Et c'est le second volet du même relevé : le `.describe()` de `content` disait « rédige-le,
- * ne le demande pas » depuis le 2026-08-18, et le modèle a redemandé. Cinq mots ne pèsent pas
- * face à `AGENT_ANTI_INVENTION_BLOCK` (« n'invente jamais une donnée absente : demande-la »),
- * qui est dans le PROMPT. La consigne existe désormais des deux côtés — champ ET bloc — et son
- * effet sera remesuré. Si elle échoue encore, le correctif suivant est du CODE, pas du texte.
- *
- * ⚠️ « Cite toujours le `recipient` » a été ajouté le 2026-08-14 (≈ 6 tokens). Le relevé de
- * production montre les DIX documents de la base enregistrés sous l'UUID de Karyl, dont un
- * intitulé « Bienvenue Awa » — dont l'email est donc parti à l'adresse de Karyl. La cause
- * est corrigée en amont (`findPersonByName` : aucun tool ne résolvait un prénom) ; cette
- * consigne-ci ne fait que rendre l'erreur VISIBLE au tour même, en obligeant le modèle à
- * dire pour qui il vient de produire. C'est une mesure de visibilité, pas une garantie.
- *
- * S'y ajoute la seule contrainte existante sur le CONTENU d'un document.
- * `sanitizeAgentOutput` ne s'applique qu'à `response.text` : les arguments de tool
- * ne le traversent jamais. Vérifié en décodant la CMap de vrais PDF — les emojis
- * sortent en glyphe `.notdef` (carrés, Roboto étant la seule police du VFS) et le
- * markdown s'imprime littéralement. Un filet de code est posé par ailleurs et
- * reste le seul garant réel ; cette consigne est la ceinture, pas les bretelles.
- */
 export function makeOnboardingOrchestrator(tools: ToolsInput) {
   return new Agent({
     id: 'onboardingOrchestrator',

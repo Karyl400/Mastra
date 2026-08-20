@@ -2,19 +2,6 @@ import type { EmailAttachment, EmailProvider } from '../../domain/ports/provider
 import type { EmailBody } from '../../domain/services/email-body';
 import { assertEmailAttachmentsFit } from '../../domain/services/email-attachment-policy';
 
-/**
- * Adaptateur email Brevo — chemin de REPLI, mort en pratique.
- *
- * `createEmailProvider()` ne le retient que si la configuration SMTP est
- * incomplète. Et même alors il n'enverra rien : la clé est valide
- * (`GET /v3/account` → 200) mais `POST /v3/smtp/email` répond
- * `403 permission_denied` — le compte transactionnel n'est pas activé, ce qui se
- * règle chez Brevo et non dans la configuration.
- *
- * Il est malgré tout maintenu cohérent avec le port `EmailProvider` : sans cela
- * TypeScript casserait au premier ajout au port, et une éventuelle reprise du
- * chemin Brevo enverrait un corps de requête silencieusement invalide.
- */
 export class BrevoAdapter implements EmailProvider {
   private apiKey: string;
   private from: string;
@@ -30,9 +17,6 @@ export class BrevoAdapter implements EmailProvider {
     body: EmailBody,
     attachments?: EmailAttachment[],
   ): Promise<void> {
-    // Même borne que SMTP, et pour la même raison : ici le binaire est en plus
-    // encodé en base64 DANS le corps JSON, soit +33 % sur le fil et deux copies
-    // simultanées en mémoire de la fonction.
     if (attachments?.length) assertEmailAttachmentsFit(attachments);
 
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -47,14 +31,7 @@ export class BrevoAdapter implements EmailProvider {
         to: [{ email: to }],
         subject,
         htmlContent: body.html,
-        // Le repli texte accompagne désormais le HTML ici aussi. Les deux transports
-        // doivent livrer le MÊME message : un basculement de fournisseur ne peut pas
-        // changer ce que reçoit le destinataire — même exigence que la borne de pièces
-        // jointes, posée dans le domaine pour cette raison exacte.
         textContent: body.text,
-        // L'API Brevo attend `attachment` (singulier), avec `content` en base64 et
-        // `name` — ce n'est ni le nom ni la forme de la clé nodemailer. Absente
-        // quand il n'y a rien à joindre, pour ne pas modifier les envois existants.
         ...(attachments?.length
           ? {
               attachment: attachments.map((attachment) => ({

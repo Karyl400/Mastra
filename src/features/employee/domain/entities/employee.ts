@@ -5,13 +5,6 @@ export interface Employee extends Timestamps {
   readonly firstName: string;
   readonly lastName: string;
   readonly email: string;
-  /**
-   * FACULTATIF depuis le 2026-08-13 — le parcours d'arrivée ne le collecte plus.
-   *
-   * `null` et non `''` : une chaîne vide serait indiscernable d'une saisie effacée, et tout
-   * lecteur finirait par l'afficher telle quelle. `null` dit « pas de valeur », ce que le
-   * moindre `if` sait lire.
-   */
   readonly department: string | null;
   readonly position: string;
   readonly startDate: string;

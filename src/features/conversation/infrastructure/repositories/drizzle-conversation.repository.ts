@@ -13,14 +13,6 @@ import type {
   RecentTurnsOptions,
 } from '../../domain/ports/conversation.repository';
 
-/**
- * Persistance des tours de conversation sur LibSQL/Turso.
- *
- * ⚠️ La table `conversation_turns` n'est PAS créée par les migrations `drizzle/` : celles-ci
- * sont désynchronisées de `schema.ts`, et `drizzle-kit push` se bloque indéfiniment contre une
- * base `libsql://` distante. Le DDL à appliquer à la main vit dans
- * `scripts/ddl-conversation-turns.sql`.
- */
 export class DrizzleConversationRepository implements ConversationRepository {
   async append(turn: NewConversationTurn): Promise<ConversationTurn> {
     const db = getDb();
@@ -44,8 +36,6 @@ export class DrizzleConversationRepository implements ConversationRepository {
     const db = getDb();
     const cutoff = new Date(Date.now() - options.ttlMs);
 
-    // Tri DESC + `limit` pour tirer les tours les plus RÉCENTS — un `limit` sur un tri ASC
-    // ramènerait le début du fil, c'est-à-dire exactement ce qu'on veut oublier.
     const rows = await db
       .select()
       .from(conversationTurns)
@@ -58,7 +48,6 @@ export class DrizzleConversationRepository implements ConversationRepository {
       .orderBy(desc(conversationTurns.createdAt))
       .limit(options.limit);
 
-    // Remis à l'endroit : le port promet du plus ancien au plus récent.
     return rows.reverse().map(toDomain);
   }
 
@@ -70,14 +59,6 @@ export class DrizzleConversationRepository implements ConversationRepository {
     return (result as { rowsAffected?: number }).rowsAffected ?? 0;
   }
 
-  /**
-   * Effacement à la demande. Aucune borne de temps : on supprime ce qui appartient à la
-   * personne, y compris les tours plus récents que le TTL — c'est tout l'objet de la demande.
-   *
-   * ⚠️ Sans `slackUserId`, la clause ne porte QUE sur `conversationId`. C'est l'appelant qui
-   * garantit qu'on est en DM (donc dans un espace à une seule personne) ; le dépôt, lui, ne
-   * connaît pas la topologie Slack et n'a pas à la deviner.
-   */
   async forget(scope: ForgetScope): Promise<number> {
     const db = getDb();
 
@@ -97,8 +78,6 @@ function toDomain(row: ConversationTurnRow): ConversationTurn {
   return {
     id: row.id,
     conversationId: row.conversationId,
-    // SQLite ne connaît pas les unions littérales : la colonne est un `text` libre, la
-    // contrainte vit dans le domaine.
     role: row.role as ConversationRole,
     content: row.content,
     agentId: row.agentId,

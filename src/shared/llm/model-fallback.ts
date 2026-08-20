@@ -3,146 +3,16 @@ import { createMistral } from '@ai-sdk/mistral';
 import type { ModelWithRetries } from '@mastra/core/agent';
 import { logger as sharedLogger } from '../logger';
 
-/**
- * Chaîne de modèles partagée par les trois agents Mastra.
- *
- * Mastra 1.57 accepte `model: ModelWithRetries[]` sur un `Agent`. Le basculement
- * est assuré par `executeStreamWithFallbackModels`
- * (`@mastra/core/dist/agent-Dj30gJa3.js:23206`) : chaque modèle sauf le dernier est
- * appelé avec `shouldThrowError: true`, donc TOUTE erreur non-`TripWire` — y compris
- * un 429 — remonte et déclenche l'essai du modèle suivant. Le basculement n'est
- * jamais filtré par classe d'erreur.
- *
- * Le dernier modèle, lui, est appelé avec `shouldThrowError: false` : son erreur
- * n'est pas encapsulée, elle est renvoyée telle quelle au client (d'où le
- * `HTTP 500 {"error":"Rate limit exceeded"}` observé — c'est le message brut du
- * DERNIER modèle, pas celui du premier).
- *
- * Deux réglages corrigent ce comportement ici :
- *
- * 1. `maxRetries`. Mastra passe cette valeur à `p-retry`
- *    (`retries: modelSettings?.maxRetries ?? 2`, `agent-Dj30gJa3.js:22122`) et la
- *    normalise à **0** par défaut pour les entrées d'un tableau
- *    (`prepareModels`, `agent-Dj30gJa3.js:34185`). Résultat : le back-off
- *    exponentiel ET la prise en compte de l'en-tête `Retry-After` — tous deux déjà
- *    implémentés par Mastra — sont désactivés. On ne rétablit un budget de reprise
- *    que sur le DERNIER maillon (voir {@link LAST_RESORT_MAX_RETRIES}).
- *
- * 2. Les `id`. Sans `id` explicite, `Agent.toFallbackEntry` en génère un via
- *    `randomUUID()` : les journaux et `getModelList()` deviennent illisibles et
- *    non déterministes. On fixe donc des identifiants stables.
- */
-
-/**
- * Identifiant stable du modèle primaire (Groq).
- *
- * Forme `provider/model`, comme le routeur de modèles de Mastra. C'est une
- * simple étiquette : `prepareModels` ne fait que `modelConfig.id || model.modelId`
- * et s'en sert pour `findIndex`, les journaux et `reorderModels` — elle n'est
- * jamais analysée, le modèle étant déjà une instance résolue.
- */
-/**
- * Modèle Groq réellement demandé à l'API — la valeur qui part sur le fil.
- *
- * ⚠️ **`llama-3.3-70b-versatile` a été RETIRÉ du compte Groq**, constaté le 2026-08-15 par
- * appel direct : `404 model_not_found`, et `GET /openai/v1/models` ne rend plus AUCUN modèle
- * de chat Llama (13 modèles disponibles, dont `openai/gpt-oss-*`, `qwen/qwen3.6-27b`,
- * `groq/compound`, et des modèles audio). Ce n'est pas une panne de clé : la clé est valide et
- * les autres modèles répondent 200 avec elle.
- *
- * Le symptôme était le PIRE possible pour le diagnostic : la chaîne de repli faisait son
- * travail, donc le bot RÉPONDAIT — mais chaque message payait d'abord un aller-retour Groq
- * perdu, puis tombait chez Mistral, **plafonné à 4 REQUÊTES par minute**. Un flux à plusieurs
- * étapes épuise ce seau en un seul message. C'est exactement la panne que `CLAUDE.md` décrit
- * comme ayant coûté un diagnostic entier — lue comme un bug logiciel alors qu'elle est un
- * problème de quota, ici aggravée par un modèle absent.
- *
- * `openai/gpt-oss-120b` est retenu parce qu'il APPELLE LES OUTILS, ce que tout ce dépôt exige :
- * vérifié par une requête réelle portant un schéma de tool, qui a bien produit un `tool_calls`
- * nommant la fonction. `qwen/qwen3.6-27b` a été ÉCARTÉ sur ce même test — il répond 200 mais
- * n'émet aucun appel d'outil, donc il rendrait chaque agent bavard et impuissant.
- */
 export const GROQ_MODEL_ID = 'openai/gpt-oss-120b';
 
-/** Modèle Mistral réellement demandé. Vérifié joignable (HTTP 200) le 2026-08-15. */
 export const MISTRAL_MODEL_ID = 'mistral-large-latest';
 
-/**
- * Identifiant stable du modèle primaire (Groq).
- *
- * DÉRIVÉ de `GROQ_MODEL_ID`, jamais réécrit à la main : l'étiquette et le modèle réellement
- * appelé étaient deux littéraux distincts, donc libres de diverger — un journal aurait alors
- * accusé un modèle qui n'a jamais été sollicité, sur un chemin dont `CLAUDE.md` documente déjà
- * qu'il a fait diagnostiquer à tort « Groq saturé » pendant des heures.
- */
 export const PRIMARY_MODEL_ID = `groq/${GROQ_MODEL_ID}`;
 
-/** Identifiant stable du modèle de repli (Mistral). */
 export const FALLBACK_MODEL_ID = `mistral/${MISTRAL_MODEL_ID}`;
 
-/**
- * Budget de reprise accordé au DERNIER maillon de la chaîne uniquement.
- *
- * Politique asymétrique, volontairement :
- *
- * - Maillons non terminaux → `maxRetries: 0`. Un 429 signifie « quota épuisé chez
- *   CE fournisseur maintenant ». Attendre sur lui consomme le budget d'exécution
- *   de la fonction serverless sans rien gagner, alors qu'un autre fournisseur,
- *   avec un quota distinct, est disponible immédiatement. Basculer coûte moins
- *   cher que patienter.
- * - Dernier maillon → `maxRetries: 1`. Il n'y a plus rien vers quoi basculer ;
- *   une reprise bornée est la dernière défense. Mastra applique alors son
- *   back-off (1 s) et respecte `Retry-After`, plafonné à 30 s
- *   (`DEFAULT_MAX_RETRY_AFTER_MS`, `agent-Dj30gJa3.js:15675`).
- *
- * Pourquoi 1 et pas 2 : la fonction Vercel n'a pas de `maxDuration` explicite dans
- * `vercel.json`, donc 60 s. Une seule reprise plafonne la latence ajoutée à ~30 s
- * dans le pire cas ; deux reprises pourraient atteindre 60 s et faire expirer la
- * requête — soit exactement l'échec qu'on cherche à éviter.
- *
- * ## Journalisation de la chaîne complète des échecs
- *
- * Vérifié empiriquement (clé Groq invalide + Mistral valide, puis les deux
- * invalides — voir `/tmp/.../scratchpad/probe-fallback.mjs`, non versionné) :
- * la bascule fonctionne réellement dans cette version. Mais Mastra émet DEUX
- * logs `Upstream LLM API error` distincts, et un seul des deux est fiable :
- *
- * - Par tentative (`agent-Dj30gJa3.js:23729`, message
- *   `Upstream LLM API error from ${provider} (model: ${modelId})`) : fiable,
- *   `provider`/`modelId` viennent de `currentStep.model`, réaffecté à chaque
- *   tentative avec le modèle qui vient réellement d'être appelé.
- * - En fin de run (`agent-Dj30gJa3.js:29829-29842`, message nu `Upstream LLM
- *   API error`, `provider`/`modelId` en métadonnées séparées) : **trompeur**.
- *   `payload.model` provient de `capabilities.llm.getModel()`
- *   (`agent-Dj30gJa3.js:30111`), et `getModel()`/`getProvider()`/`getModelId()`
- *   sur ce wrapper de chaîne retournent inconditionnellement `#firstModel`
- *   (`agent-Dj30gJa3.js:26004-26010`, assigné une fois pour toutes à
- *   `models[0]` en `25994`) — jamais le modèle qui a réellement produit
- *   l'erreur finale. Reproduit dans
- *   `tests/unit/shared/model-fallback-chain-logging.test.ts` avant correctif :
- *   `{ error: <échec mistral.chat>, provider: 'groq.chat', modelId:
- *   'llama-3.3-70b-versatile' }` — l'échec de Mistral, le DERNIER maillon,
- *   attribué à Groq, le PREMIER. C'est exactement ce qui a fait perdre du
- *   temps en diagnostic : ce second log ne peut pas être utilisé tel quel
- *   pour savoir QUEL maillon a réellement échoué.
- *
- * `withChainFailureLogging` compense en enveloppant chaque modèle : un échec
- * de `doGenerate`/`doStream` est journalisé via `src/shared/logger` (JSON
- * structuré, PII masquée, respecte `LOG_LEVEL`) avec le `chainId`, le
- * `provider` et le `modelId` **du maillon qui vient réellement d'échouer**,
- * puis l'erreur est relancée inchangée — aucun changement de comportement
- * pour Mastra, uniquement une observation fiable en plus. Ce log ne dépend
- * pas de la configuration du `logger` passé (ou non) à `new Agent()`.
- */
 export const LAST_RESORT_MAX_RETRIES = 1;
 
-/**
- * Enveloppe un modèle de la chaîne pour journaliser fidèlement chaque échec
- * de `doGenerate`/`doStream` — voir « Journalisation de la chaîne complète
- * des échecs » ci-dessus. Exporté uniquement pour être testable en isolation
- * avec un modèle factice (`tests/unit/shared/model-fallback-chain-logging.test.ts`) ;
- * `makeModelChain` est le seul appelant en dehors des tests.
- */
 export function withChainFailureLogging<M extends object>(
   model: M,
   meta: { chainId: string; provider: string; modelId: string },
@@ -174,22 +44,10 @@ export function withChainFailureLogging<M extends object>(
 }
 
 export interface ModelChainDeps {
-  /** Clé Groq. Par défaut `process.env.GROQ_API_KEY`. */
   groqApiKey?: string;
-  /** Clé Mistral. Par défaut `process.env.MISTRAL_API_KEY`. */
   mistralApiKey?: string;
 }
 
-/**
- * Construit la chaîne `primaire → repli` consommée par `new Agent({ model })`.
- *
- * Le maillon Mistral est **omis** quand `MISTRAL_API_KEY` est absente. C'est
- * délibéré : un maillon sans identifiants échoue sur une erreur d'authentification
- * qui, étant celle du dernier modèle, remplace l'erreur réelle du primaire dans la
- * réponse. Un vrai 429 Groq était ainsi masqué par un « API key is missing »
- * trompeur. Sans la clé, Groq redevient le dernier maillon et hérite du budget de
- * reprise.
- */
 export function makeModelChain(deps: ModelChainDeps = {}): ModelWithRetries[] {
   const groqApiKey = deps.groqApiKey ?? process.env.GROQ_API_KEY;
   const mistralApiKey = deps.mistralApiKey ?? process.env.MISTRAL_API_KEY;
@@ -222,32 +80,4 @@ export function makeModelChain(deps: ModelChainDeps = {}): ModelWithRetries[] {
   }));
 }
 
-/**
- * Borne de durée d'un appel `agent.generate`, tous maillons de la chaîne compris.
- *
- * ⚠️ POSÉE LE 2026-08-20. Il n'y en avait AUCUNE, et c'est ce qui produisait le pire
- * symptôme de ce produit : celui qui ne se distingue pas d'une panne.
- *
- * L'enchaînement, mesuré et non supposé :
- *   1. l'ACK à 200 est parti en moins de 3 s, donc Slack ne rejouera JAMAIS l'événement ;
- *   2. la fonction est tuée à `maxDuration` (60 s) pendant l'appel au modèle ;
- *   3. ni `progress.resolve()` ni `progress.fail()` ne sont atteints ;
- *   4. la personne reste sur « Je regarde ça, un instant… » indéfiniment ;
- *   5. aucune ligne d'erreur n'est écrite — l'invocation meurt avant d'en écrire une.
- * La grâce d'abandon de 60 s ne couvre pas ce cas : elle ne s'arme que sur un rejeu.
- *
- * LE CHOIX DU CHIFFRE. Deux contraintes se rejoignent :
- *   - au-dessus : `maxDuration` vaut 60 s, et il faut qu'il reste du temps pour POSTER le
- *     message d'échec. Une borne à 59 s donnerait la borne sans le message, c'est-à-dire
- *     exactement le silence qu'on corrige ;
- *   - en dessous : les runs mesurés en production vont de 2 à 17 s, jusqu'à ≈ 21 s avec le
- *     back-off du dernier maillon. Couper une réponse qui allait aboutir coûte un tour, soit
- *     5 % du quota de la journée.
- * 40 s laisse 20 s au chemin d'échec et près du double du pire cas observé : la borne ne se
- * déclenche que sur un vrai blocage, jamais sur une lenteur normale.
- *
- * ⚠️ Ce n'est PAS un correctif de performance. L'appel ne devient pas plus rapide — il
- * devient NOMMABLE. Un échec bruyant vaut mieux qu'un silence, c'est la doctrine que ce
- * dépôt applique partout ailleurs.
- */
 export const AGENT_GENERATE_TIMEOUT_MS = 40_000;

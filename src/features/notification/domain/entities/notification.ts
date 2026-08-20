@@ -1,4 +1,9 @@
-import { NotificationChannel, NotificationStatus, RecipientType, type Timestamps } from '../../../../shared/types';
+import {
+  NotificationChannel,
+  NotificationStatus,
+  RecipientType,
+  type Timestamps,
+} from '../../../../shared/types';
 
 export interface Notification extends Timestamps {
   readonly id: string;
@@ -12,7 +17,9 @@ export interface Notification extends Timestamps {
   readonly sentAt?: string | null;
 }
 
-export function createNotification(data: Omit<Notification, keyof Timestamps | 'status'>): Notification {
+export function createNotification(
+  data: Omit<Notification, keyof Timestamps | 'status'>,
+): Notification {
   const now = new Date().toISOString();
   return {
     ...data,

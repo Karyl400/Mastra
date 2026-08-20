@@ -12,7 +12,6 @@ export class InMemoryNotificationRepository implements NotificationRepository {
     return Array.from(this.store.values()).filter((n) => n.recipientId === recipientId);
   }
 
-  /** Mêmes deux statuts que l'implémentation Drizzle — voir son commentaire. */
   async findPending(): Promise<Notification[]> {
     return Array.from(this.store.values()).filter(
       (n) => n.status === 'pending' || n.status === 'scheduled',

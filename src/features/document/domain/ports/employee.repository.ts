@@ -1,11 +1,3 @@
-/**
- * Port employé PROPRE à la feature `document` — il duplique délibérément celui de la feature
- * `employee` : chaque feature possède ses propres ports, et ce dédoublement est documenté
- * comme intentionnel dans `CLAUDE.md`.
- *
- * Il est aussi plus ÉTROIT : un document a besoin de nommer et de situer une personne, pas de
- * connaître son statut, son manager ni ses horodatages.
- */
 export interface EmployeeRepository {
   findById(id: string): Promise<{
     id: string;

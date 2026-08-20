@@ -17,9 +17,6 @@ export class InMemoryOnboardingRepository implements OnboardingRepository {
   }
 
   async update(p: OnboardingProgress): Promise<number> {
-    // Rend 0 quand la ligne n'existe pas — c'est ce que fait un UPDATE SQL, et c'est la
-    // divergence qui a laissé passer le bug : l'ancien double écrivait inconditionnellement
-    // l'objet entier, donc il conservait des horodatages que Drizzle, lui, jetait.
     if (!this.progressStore.has(p.id)) return 0;
     this.progressStore.set(p.id, p);
     return 1;

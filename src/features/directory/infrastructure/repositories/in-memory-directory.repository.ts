@@ -2,17 +2,6 @@ import type { DirectoryMember, DirectoryMemberFacts } from '../../domain/entitie
 import type { DirectoryRepository } from '../../domain/ports/directory.repository';
 import { matchesName } from '../../../../shared/name-matching';
 
-/**
- * Doublure de test du `DirectoryRepository`. Même contrat et même sémantique que
- * l'implémentation Drizzle — c'est elle qui sert de doublure aux tests de la politique d'accès
- * et des handlers, on ne mocke jamais Drizzle à la main.
- *
- * ⚠️ Elle doit reproduire EXACTEMENT la non-destruction de `upsertFacts` et de
- * `rememberDmChannel`. Une doublure plus permissive validerait en test un comportement que la
- * production n'a pas, et le défaut qu'elle laisserait passer — l'effacement muet du canal de DM
- * à chaque synchronisation — est précisément celui que ce port existe pour interdire. Les deux
- * implémentations sont donc exercées par la MÊME suite de tests.
- */
 export class InMemoryDirectoryRepository implements DirectoryRepository {
   private rows = new Map<string, DirectoryMember>();
 
@@ -20,11 +9,6 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
     return this.rows.get(slackUserId) ?? null;
   }
 
-  /**
-   * Égalité stricte d'abord, repli insensible à la casse ensuite — dans cet ORDRE, comme côté
-   * SQL. L'ordre est observable dès qu'une base contient deux adresses ne différant que par la
-   * casse : l'exacte doit gagner.
-   */
   async findByEmail(email: string): Promise<DirectoryMember | null> {
     const needle = email.trim();
     if (!needle) return null;
@@ -41,11 +25,6 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
     return null;
   }
 
-  /**
-   * ⚠️ LE POINT CRITIQUE — les trois champs que Slack ignore sont REPRIS de la ligne existante :
-   * `dmChannelId`, `employeeId` et `firstSeenAt`. Écrire `{ ...facts, ...}` sans eux les
-   * remettrait à leur valeur d'insertion à chaque synchronisation, ce que le port interdit.
-   */
   async upsertFacts(facts: DirectoryMemberFacts, now: Date): Promise<void> {
     const previous = this.rows.get(facts.slackUserId);
 
@@ -64,13 +43,8 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
       isUltraRestricted: facts.isUltraRestricted,
       isDeleted: facts.isDeleted,
 
-      // Faits que NOUS accumulons — jamais réécrits par une synchronisation.
       dmChannelId: previous?.dmChannelId ?? null,
       employeeId: previous?.employeeId ?? null,
-      // ⚠️ CONSERVÉ, jamais réécrit par une synchronisation — même contrat que `dmChannelId`
-      // et `employeeId` juste au-dessus. Slack ne connaît pas ce fait ; le laisser écrire par
-      // `upsertFacts` reviendrait à fabriquer une autorisation, et une resynchronisation
-      // rétrograderait le manager en silence.
       isManager: previous?.isManager ?? false,
       firstSeenAt: previous?.firstSeenAt ?? now,
 
@@ -78,7 +52,6 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
     });
   }
 
-  /** Non destructif : un `D…` déjà connu n'est pas remplacé. Personne inconnue = sans effet. */
   async rememberDmChannel(slackUserId: string, dmChannelId: string): Promise<void> {
     const existing = this.rows.get(slackUserId);
     if (!existing || existing.dmChannelId !== null) return;
@@ -86,38 +59,13 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
     this.rows.set(slackUserId, { ...existing, dmChannelId });
   }
 
-  /** Destructif à dessein : `null` DÉTACHE. Personne inconnue = sans effet, comme l'`UPDATE`. */
   async linkEmployee(slackUserId: string, employeeId: string | null): Promise<number> {
-    // ⚠️ Rend 0 quand la ligne n'existe pas, comme l'`UPDATE` SQL. La doublure DOIT partager ce
-    // contrat : c'est précisément l'écart entre « l'ordre a réussi » et « une ligne a bougé »
-    // qui a produit un log de succès mensonger en production le 2026-08-19.
     const row = this.rows.get(slackUserId);
     if (!row) return 0;
     this.rows.set(slackUserId, { ...row, employeeId });
     return 1;
   }
 
-  /**
-   * Pose le rôle — HORS DU PORT, et c'est volontaire.
-   *
-   * `DirectoryRepository` ne déclare aucune écriture du rôle parce qu'il n'en existe aucune en
-   * production : la colonne se pose par `npm run role:set`, délibérément, hors de portée de
-   * tout chemin exposé à un agent. Déclarer un `setRole()` dans le port en ferait une capacité
-   * du produit, donc quelque chose qu'un futur câblage pourrait brancher sans le relire — la
-   * situation exacte de `discoverSlackWorkspace` avant sa suppression.
-   *
-   * Ici, c'est un utilitaire de doublure : il donne aux tests le moyen de fabriquer un manager
-   * sans passer par SQL.
-   */
-  /**
-   * ⚠️ Les MÊMES exclusions que l'implémentation Drizzle — un bot ou un compte désactivé est
-   * refusé par la politique quel que soit son rôle, donc il ne compte pas comme manager.
-   *
-   * La première version de cette doublure les omettait, et le contrat partagé l'a attrapée :
-   * elle aurait autorisé l'application de toute la frontière au nom de quelqu'un que la
-   * politique refuse par ailleurs. Une doublure plus permissive que son original rend vertes
-   * des campagnes qui décrivent un produit qui n'existe pas.
-   */
   async hasManager(): Promise<boolean> {
     for (const member of this.rows.values()) {
       if (member.isManager && !member.isDeleted && !member.isBot) return true;
@@ -137,8 +85,6 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
     this.rows.set(slackUserId, { ...row, isManager });
   }
 
-  /** Trié sur la clé, comme l'`ORDER BY` de l'implémentation Drizzle. */
-  /** Même rapprochement que la production — le module partagé est le seul juge. */
   async findByName(query: string, limit: number): Promise<DirectoryMember[]> {
     if (limit <= 0) return [];
 
@@ -154,17 +100,11 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
     );
   }
 
-  /** Confort de test : vide l'annuaire entre deux cas. */
   clear(): void {
     this.rows.clear();
   }
 }
 
-/**
- * Comparaison BINAIRE, celle de l'`ORDER BY` de SQLite sur une colonne `text`.
- * `localeCompare` s'en écarterait — et deux implémentations qui trient différemment finiraient
- * par faire diverger un test de la production sur un détail que personne ne relit.
- */
 function compareBinary(a: string, b: string): number {
   if (a < b) return -1;
   return a > b ? 1 : 0;

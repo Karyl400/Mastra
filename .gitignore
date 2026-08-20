@@ -23,3 +23,12 @@ coverage
 
 # Réglages Claude Code PERSONNELS (par poste). Les skills du projet, eux, sont versionnés.
 .claude/settings.local.json
+
+# Documents de travail à la racine : non versionnés (décision du 2026-08-20).
+# La documentation versionnée vit dans docs/ ; README.md est la seule exception.
+/*.md
+!README.md
+
+# Le gabarit d'environnement EST versionné : il ne contient aucune valeur.
+# Sans cette exception, la règle `.env*` plus haut l'emporte.
+!.env.example

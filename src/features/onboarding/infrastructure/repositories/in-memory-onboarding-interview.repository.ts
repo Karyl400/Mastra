@@ -3,14 +3,6 @@ import type {
   OnboardingInterviewRepository,
 } from '../../domain/ports/onboarding-interview.repository';
 
-/**
- * Doublure de `DrizzleOnboardingInterviewRepository`.
- *
- * ⚠️ Elle doit reproduire la propriété que le SQL obtient en ne nommant pas `created_at` dans
- * son `set` : une correction ne réécrit PAS la date du premier entretien. Une doublure plus
- * permissive validerait en test un comportement que la production n'a pas — et l'écart porterait
- * précisément sur une perte silencieuse de donnée.
- */
 export class InMemoryOnboardingInterviewRepository implements OnboardingInterviewRepository {
   private rows = new Map<string, OnboardingInterview>();
 

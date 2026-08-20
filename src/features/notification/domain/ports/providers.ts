@@ -1,13 +1,5 @@
 import type { EmailBody } from '../services/email-body';
 
-/**
- * Pièce jointe d'un email, exprimée dans les termes du domaine.
- *
- * `Uint8Array` et non `Buffer` : la couche domaine reste indépendante des types
- * Node — c'est le même arbitrage que `RenderedDocument` côté rendu de document.
- * Chaque adaptateur convertit vers ce que son transport attend (Buffer pour
- * nodemailer, base64 pour l'API Brevo).
- */
 export interface EmailAttachment {
   filename: string;
   bytes: Uint8Array;
@@ -15,26 +7,6 @@ export interface EmailAttachment {
 }
 
 export interface EmailProvider {
-  /**
-   * `attachments` est OPTIONNEL, et doit le rester : les appelants historiques
-   * (`send-notification`, workflow d'onboarding) n'ont pas été modifiés et
-   * doivent continuer à compiler et à produire exactement le même message.
-   *
-   * La taille totale est bornée — voir `domain/services/email-attachment-policy.ts`.
-   */
-  /**
-   * ⚠️ `body` est un {@link EmailBody}, jamais une chaîne — corrigé le 2026-08-20.
-   *
-   * Le contrat était IMPLICITE : les deux adaptateurs placent le corps dans un slot HTML
-   * (`html:` chez SMTP, `htmlContent:` chez Brevo), donc il est INTERPRÉTÉ. Trois appelants
-   * sur quatre y passaient du texte brut, dont `sendNotification` — 5 000 caractères de
-   * prose écrite par le modèle, atteignable depuis un message Slack arbitraire. Un
-   * `<a href>` vers un domaine tiers partait en lien cliquable DEPUIS L'ADRESSE DE
-   * L'ENTREPRISE.
-   *
-   * Le type force chaque appelant à déclarer ce qu'il produit, et un futur appelant qui
-   * passerait une chaîne nue ne compilera pas. Voir `domain/services/email-body.ts`.
-   */
   sendEmail(
     to: string,
     subject: string,
@@ -44,20 +16,11 @@ export interface EmailProvider {
 }
 
 export interface ChatProvider {
-  /**
-   * ⚠️ Rend le CANAL réellement utilisé. Quand `channelId` est un identifiant d'UTILISATEUR
-   * (`U…`), Slack ouvre lui-même la conversation directe et le message atterrit dans un canal
-   * `D…` que l'appelant ne connaissait pas. C'est ce qui a cassé l'entretien conversationnel
-   * à sa première mise en production : la question était posée à `U…`, l'état était cherché
-   * dans la mémoire de `D…`, et les deux ne se rencontraient jamais.
-   */
   sendMessage(channelId: string, text: string): Promise<{ channel: string }>;
 }
 
 export interface FileUploadInput {
-  /** Canal de destination. En DM, l'identifiant `D…` du fil. */
   channel: string;
-  /** Fourni pour livrer le fichier DANS le fil plutôt qu'à la racine du canal. */
   threadTs?: string;
   bytes: Uint8Array;
   filename: string;
@@ -65,16 +28,6 @@ export interface FileUploadInput {
   initialComment?: string;
 }
 
-/**
- * Livraison d'un fichier dans la conversation.
- *
- * Le port ne mentionne aucun type `@slack/*` — la règle de dépendance l'interdit
- * dans `domain/`, et un garde-fou de test la verrouille
- * (`tests/unit/quality/architecture.test.ts`).
- *
- * `permalink` est optionnel : le fichier peut être livré alors que la réponse du
- * fournisseur ne porte pas d'URL. L'absence de lien n'est donc PAS un échec.
- */
 export interface FileUploadProvider {
   uploadFile(input: FileUploadInput): Promise<{ permalink?: string }>;
 }

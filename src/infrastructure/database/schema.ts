@@ -1,8 +1,3 @@
-// ============================================
-// db/schema.ts - Production-Grade Drizzle Schema
-// Standards 2026: FKs, Indexes, Soft Delete, Audit Trail
-// ============================================
-
 import {
   sqliteTable,
   text,
@@ -16,10 +11,6 @@ import {
 } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
-// ============================================
-// 1. EMPLOYEES
-// ============================================
-
 export const employees = sqliteTable(
   'employees',
   {
@@ -28,42 +19,28 @@ export const employees = sqliteTable(
     lastName: text('last_name').notNull(),
     email: text('email').notNull().unique(),
     phone: text('phone'),
-    /**
-     * NULLABLE depuis le 2026-08-13 : le parcours d'arrivée ne demande plus le département —
-     * la modale « Compléter mon profil » ne pose qu'une question, le poste.
-     *
-     * `NULL` est le seul encodage honnête de « on a délibérément cessé de collecter ça ». Une
-     * sentinelle dans une colonne NOT NULL finit toujours par être relue comme une vraie
-     * valeur, mode d'échec récurrent de ce dépôt.
-     *
-     * ⚠️ DDL : `scripts/ddl-employees-department-nullable.sql`, à appliquer AVANT le
-     * déploiement. `idx_employees_department` y est supprimé et non recréé — une colonne
-     * qu'on ne renseigne plus n'a aucune raison d'être indexée.
-     */
     department: text('department'),
     position: text('position').notNull(),
     startDate: text('start_date').notNull(),
-    status: text('status').notNull().default('pending'), // EmployeeStatus
-    onboardingStatus: text('onboarding_status').notNull().default('not_started'), // OnboardingStatus
+    status: text('status').notNull().default('pending'),
+    onboardingStatus: text('onboarding_status').notNull().default('not_started'),
     managerId: text('manager_id'),
     emergencyContactName: text('emergency_contact_name'),
     emergencyContactPhone: text('emergency_contact_phone'),
     emergencyContactRelationship: text('emergency_contact_relationship'),
     salaryAmount: real('salary_amount'),
     salaryCurrency: text('salary_currency').default('EUR'),
-    metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>
+    metadata: text('metadata', { mode: 'json' }),
 
-    // Timestamps
     createdAt: text('created_at')
       .notNull()
       .default(sql`(datetime('now'))`),
     updatedAt: text('updated_at')
       .notNull()
       .default(sql`(datetime('now'))`),
-    deletedAt: text('deleted_at'), // Soft delete
+    deletedAt: text('deleted_at'),
   },
   (table) => ({
-    // Indexes
     emailIdx: uniqueIndex('idx_employees_email').on(table.email),
     statusIdx: index('idx_employees_status').on(table.status),
     managerIdx: index('idx_employees_manager').on(table.managerId),
@@ -72,28 +49,23 @@ export const employees = sqliteTable(
     deletedAtIdx: index('idx_employees_deleted_at').on(table.deletedAt),
     nameSearchIdx: index('idx_employees_name_search').on(table.firstName, table.lastName),
 
-    // Contrainte: email doit contenir '@'
     emailCheck: check('chk_employees_email', sql`${table.email} LIKE '%@%'`),
   }),
 );
-
-// ============================================
-// 2. TASKS
-// ============================================
 
 export const tasks = sqliteTable(
   'tasks',
   {
     id: text('id').primaryKey(),
     employeeId: text('employee_id').notNull(),
-    assigneeId: text('assignee_id'), // La personne qui exécute (peut différer de employeeId)
-    reviewerId: text('reviewer_id'), // Pour les tâches de type Review
+    assigneeId: text('assignee_id'),
+    reviewerId: text('reviewer_id'),
 
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
-    type: text('type').notNull(), // TaskType
-    status: text('status').notNull().default('pending'), // TaskStatus
-    priority: text('priority').notNull().default('medium'), // TaskPriority
+    type: text('type').notNull(),
+    status: text('status').notNull().default('pending'),
+    priority: text('priority').notNull().default('medium'),
 
     dueDate: text('due_date'),
     completedAt: text('completed_at'),
@@ -102,20 +74,18 @@ export const tasks = sqliteTable(
     estimatedHours: real('estimated_hours'),
     actualHours: real('actual_hours'),
 
-    tags: text('tags', { mode: 'json' }).default('[]'), // string[]
-    metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>
+    tags: text('tags', { mode: 'json' }).default('[]'),
+    metadata: text('metadata', { mode: 'json' }),
 
-    // Timestamps
     createdAt: text('created_at')
       .notNull()
       .default(sql`(datetime('now'))`),
     updatedAt: text('updated_at')
       .notNull()
       .default(sql`(datetime('now'))`),
-    deletedAt: text('deleted_at'), // Soft delete
+    deletedAt: text('deleted_at'),
   },
   (table) => ({
-    // Foreign Keys
     employeeFk: foreignKey(() => ({
       columns: [table.employeeId],
       foreignColumns: [employees.id],
@@ -132,7 +102,6 @@ export const tasks = sqliteTable(
       name: 'fk_tasks_reviewer',
     })),
 
-    // Indexes
     employeeIdx: index('idx_tasks_employee').on(table.employeeId),
     assigneeIdx: index('idx_tasks_assignee').on(table.assigneeId),
     statusIdx: index('idx_tasks_status').on(table.status),
@@ -145,53 +114,27 @@ export const tasks = sqliteTable(
   }),
 );
 
-// ============================================
-// 3. DOCUMENTS
-// ============================================
-
 export const documents = sqliteTable(
   'documents',
   {
     id: text('id').primaryKey(),
     employeeId: text('employee_id').notNull(),
-    templateId: text('template_id'), // Si généré depuis un template
+    templateId: text('template_id'),
 
-    type: text('type').notNull(), // DocumentType
+    type: text('type').notNull(),
     title: text('title').notNull(),
     description: text('description').default(''),
 
-    /**
-     * CONTENU du document — le texte lui-même.
-     *
-     * Ajoutée le 2026-08-11 après une perte de données vérifiée en production :
-     * l'entité `Document` déclare `content: string`, `generateDocument` l'exige
-     * en entrée… et aucune colonne ne l'accueillait. Drizzle IGNORE
-     * silencieusement toute clé de `.values()` sans colonne déclarée, et le
-     * `as unknown as` des mappers effaçait l'écart pour le compilateur : les 6
-     * documents de la Turso de production ne contiennent RIEN.
-     *
-     * Pourquoi une colonne, et non un mappage vers les colonnes existantes : le
-     * bloc « stockage » ci-dessous décrit une référence vers un objet S3/GCS qui
-     * n'existe pas — `storage_key`, `storage_bucket`, `file_name`, `file_size`
-     * et `mime_type` sont NULL sur 6 lignes / 6, aucun bucket n'est configuré
-     * nulle part dans le dépôt. Détourner `description` (un résumé) ou
-     * `metadata` (un JSON libre) pour y loger le corps du document ferait mentir
-     * deux colonnes au lieu d'en ajouter une juste. Tant qu'aucun stockage
-     * objet n'existe, la base EST le stockage.
-     *
-     * Nullable, car les 6 lignes déjà écrites n'ont pas de contenu à rétablir.
-     */
     content: text('content'),
 
-    // Stockage : on stocke la référence S3, pas le contenu
-    storageKey: text('storage_key'), // Clé S3/GCS
+    storageKey: text('storage_key'),
     storageBucket: text('storage_bucket'),
     fileName: text('file_name'),
-    fileSize: integer('file_size'), // En bytes
+    fileSize: integer('file_size'),
     mimeType: text('mime_type'),
 
-    format: text('format').notNull(), // DocumentFormat
-    status: text('status').notNull().default('pending'), // DocumentStatus
+    format: text('format').notNull(),
+    status: text('status').notNull().default('pending'),
 
     version: integer('version').notNull().default(1),
     isConfidential: integer('is_confidential', { mode: 'boolean' }).default(false),
@@ -201,26 +144,23 @@ export const documents = sqliteTable(
     signedAt: text('signed_at'),
     viewedAt: text('viewed_at'),
 
-    metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>
+    metadata: text('metadata', { mode: 'json' }),
 
-    // Timestamps
     createdAt: text('created_at')
       .notNull()
       .default(sql`(datetime('now'))`),
     updatedAt: text('updated_at')
       .notNull()
       .default(sql`(datetime('now'))`),
-    deletedAt: text('deleted_at'), // Soft delete
+    deletedAt: text('deleted_at'),
   },
   (table) => ({
-    // Foreign Keys
     employeeFk: foreignKey(() => ({
       columns: [table.employeeId],
       foreignColumns: [employees.id],
       name: 'fk_documents_employee',
     })),
 
-    // Indexes
     employeeIdx: index('idx_documents_employee').on(table.employeeId),
     typeIdx: index('idx_documents_type').on(table.type),
     statusIdx: index('idx_documents_status').on(table.status),
@@ -231,26 +171,22 @@ export const documents = sqliteTable(
   }),
 );
 
-// ============================================
-// 4. NOTIFICATIONS
-// ============================================
-
 export const notifications = sqliteTable(
   'notifications',
   {
     id: text('id').primaryKey(),
     recipientId: text('recipient_id').notNull(),
-    recipientType: text('recipient_type').notNull(), // RecipientType
-    channel: text('channel').notNull(), // NotificationChannel
-    priority: text('priority').notNull().default('normal'), // NotificationPriority
+    recipientType: text('recipient_type').notNull(),
+    channel: text('channel').notNull(),
+    priority: text('priority').notNull().default('normal'),
 
     templateId: text('template_id'),
-    templateData: text('template_data', { mode: 'json' }), // Record<string, unknown>
+    templateData: text('template_data', { mode: 'json' }),
 
     subject: text('subject').notNull(),
     body: text('body').notNull(),
 
-    status: text('status').notNull().default('pending'), // NotificationStatus
+    status: text('status').notNull().default('pending'),
     errorMessage: text('error_message'),
     retryCount: integer('retry_count').notNull().default(0),
 
@@ -259,9 +195,8 @@ export const notifications = sqliteTable(
     deliveredAt: text('delivered_at'),
     readAt: text('read_at'),
 
-    metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>
+    metadata: text('metadata', { mode: 'json' }),
 
-    // Timestamps
     createdAt: text('created_at')
       .notNull()
       .default(sql`(datetime('now'))`),
@@ -270,7 +205,6 @@ export const notifications = sqliteTable(
       .default(sql`(datetime('now'))`),
   },
   (table) => ({
-    // Indexes
     recipientIdx: index('idx_notifications_recipient').on(table.recipientId, table.recipientType),
     statusIdx: index('idx_notifications_status').on(table.status),
     channelIdx: index('idx_notifications_channel').on(table.channel),
@@ -280,31 +214,26 @@ export const notifications = sqliteTable(
   }),
 );
 
-// ============================================
-// 5. QUESTIONNAIRES
-// ============================================
-
 export const questionnaires = sqliteTable(
   'questionnaires',
   {
     id: text('id').primaryKey(),
-    employeeId: text('employee_id'), // Nullable: questionnaire peut être un template
+    employeeId: text('employee_id'),
 
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
-    category: text('category'), // 'onboarding', 'feedback', 'evaluation', 'exit'
+    category: text('category'),
 
-    questions: text('questions', { mode: 'json' }).notNull(), // Question[]
+    questions: text('questions', { mode: 'json' }).notNull(),
 
-    status: text('status').notNull().default('draft'), // QuestionnaireStatus
+    status: text('status').notNull().default('draft'),
     isAnonymous: integer('is_anonymous', { mode: 'boolean' }).default(false),
 
-    assignedBy: text('assigned_by'), // Qui a assigné le questionnaire
+    assignedBy: text('assigned_by'),
     dueDate: text('due_date'),
 
     version: integer('version').notNull().default(1),
 
-    // Timestamps
     createdAt: text('created_at')
       .notNull()
       .default(sql`(datetime('now'))`),
@@ -316,14 +245,12 @@ export const questionnaires = sqliteTable(
     deletedAt: text('deleted_at'),
   },
   (table) => ({
-    // Foreign Keys
     employeeFk: foreignKey(() => ({
       columns: [table.employeeId],
       foreignColumns: [employees.id],
       name: 'fk_questionnaires_employee',
     })),
 
-    // Indexes
     employeeIdx: index('idx_questionnaires_employee').on(table.employeeId),
     statusIdx: index('idx_questionnaires_status').on(table.status),
     categoryIdx: index('idx_questionnaires_category').on(table.category),
@@ -332,10 +259,6 @@ export const questionnaires = sqliteTable(
   }),
 );
 
-// ============================================
-// 6. QUESTIONNAIRE RESPONSES
-// ============================================
-
 export const questionnaireResponses = sqliteTable(
   'questionnaire_responses',
   {
@@ -343,12 +266,12 @@ export const questionnaireResponses = sqliteTable(
     questionnaireId: text('questionnaire_id').notNull(),
     employeeId: text('employee_id').notNull(),
 
-    answers: text('answers', { mode: 'json' }).notNull(), // QuestionResponse[]
+    answers: text('answers', { mode: 'json' }).notNull(),
 
-    status: text('status').notNull().default('pending'), // ResponseStatus
+    status: text('status').notNull().default('pending'),
     score: real('score'),
     maxScore: real('max_score'),
-    percentage: real('percentage'), // 0-100
+    percentage: real('percentage'),
 
     timeSpentSeconds: integer('time_spent_seconds'),
 
@@ -358,7 +281,6 @@ export const questionnaireResponses = sqliteTable(
 
     submittedAt: text('submitted_at'),
 
-    // Timestamps
     createdAt: text('created_at')
       .notNull()
       .default(sql`(datetime('now'))`),
@@ -367,7 +289,6 @@ export const questionnaireResponses = sqliteTable(
       .default(sql`(datetime('now'))`),
   },
   (table) => ({
-    // Foreign Keys
     questionnaireFk: foreignKey(() => ({
       columns: [table.questionnaireId],
       foreignColumns: [questionnaires.id],
@@ -384,14 +305,11 @@ export const questionnaireResponses = sqliteTable(
       name: 'fk_responses_reviewer',
     })),
 
-    // Unique: un employé ne peut répondre qu'une fois à un questionnaire
-    // (sauf si le questionnaire le permet explicitement)
     uniqueEmployeeQuestionnaire: uniqueIndex('uq_responses_employee_questionnaire').on(
       table.employeeId,
       table.questionnaireId,
     ),
 
-    // Indexes
     questionnaireIdx: index('idx_responses_questionnaire').on(table.questionnaireId),
     employeeIdx: index('idx_responses_employee').on(table.employeeId),
     statusIdx: index('idx_responses_status').on(table.status),
@@ -399,32 +317,27 @@ export const questionnaireResponses = sqliteTable(
   }),
 );
 
-// ============================================
-// 7. ONBOARDING PROGRESS
-// ============================================
-
 export const onboardingProgress = sqliteTable(
   'onboarding_progress',
   {
     id: text('id').primaryKey(),
     employeeId: text('employee_id').notNull(),
-    templateId: text('template_id'), // Si basé sur un template d'onboarding
+    templateId: text('template_id'),
 
-    status: text('status').notNull().default('not_started'), // OnboardingStatus
+    status: text('status').notNull().default('not_started'),
     currentStep: integer('current_step').notNull().default(0),
     totalSteps: integer('total_steps').notNull(),
-    completionPercentage: real('completion_percentage').default(0), // 0-100
+    completionPercentage: real('completion_percentage').default(0),
 
     startedAt: text('started_at'),
     completedAt: text('completed_at'),
     blockedAt: text('blocked_at'),
     blockReason: text('block_reason'),
 
-    assignedBuddyId: text('assigned_buddy_id'), // Référent/parrain
+    assignedBuddyId: text('assigned_buddy_id'),
 
-    metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>
+    metadata: text('metadata', { mode: 'json' }),
 
-    // Timestamps
     createdAt: text('created_at')
       .notNull()
       .default(sql`(datetime('now'))`),
@@ -433,7 +346,6 @@ export const onboardingProgress = sqliteTable(
       .default(sql`(datetime('now'))`),
   },
   (table) => ({
-    // Foreign Keys
     employeeFk: foreignKey(() => ({
       columns: [table.employeeId],
       foreignColumns: [employees.id],
@@ -445,35 +357,29 @@ export const onboardingProgress = sqliteTable(
       name: 'fk_onboarding_progress_buddy',
     })),
 
-    // Unique: un seul onboarding actif par employé
     uniqueEmployee: uniqueIndex('uq_onboarding_employee').on(table.employeeId),
 
-    // Indexes
     statusIdx: index('idx_onboarding_progress_status').on(table.status),
     completionIdx: index('idx_onboarding_progress_completion').on(table.completionPercentage),
   }),
 );
-
-// ============================================
-// 8. ONBOARDING STEPS
-// ============================================
 
 export const onboardingSteps = sqliteTable(
   'onboarding_steps',
   {
     id: text('id').primaryKey(),
     progressId: text('progress_id').notNull(),
-    taskId: text('task_id'), // Optionnel: lié à une tâche existante
+    taskId: text('task_id'),
 
     name: text('name').notNull(),
     description: text('description').default(''),
     stepOrder: integer('step_order').notNull(),
-    category: text('category'), // 'documents', 'training', 'meetings', 'setup'
+    category: text('category'),
 
-    status: text('status').notNull().default('pending'), // TaskStatus
+    status: text('status').notNull().default('pending'),
     isRequired: integer('is_required', { mode: 'boolean' }).notNull().default(true),
 
-    assignedTo: text('assigned_to'), // Qui est responsable de cette étape
+    assignedTo: text('assigned_to'),
 
     startedAt: text('started_at'),
     completedAt: text('completed_at'),
@@ -481,9 +387,8 @@ export const onboardingSteps = sqliteTable(
 
     notes: text('notes'),
 
-    metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>
+    metadata: text('metadata', { mode: 'json' }),
 
-    // Timestamps
     createdAt: text('created_at')
       .notNull()
       .default(sql`(datetime('now'))`),
@@ -492,7 +397,6 @@ export const onboardingSteps = sqliteTable(
       .default(sql`(datetime('now'))`),
   },
   (table) => ({
-    // Foreign Keys
     progressFk: foreignKey(() => ({
       columns: [table.progressId],
       foreignColumns: [onboardingProgress.id],
@@ -504,17 +408,12 @@ export const onboardingSteps = sqliteTable(
       name: 'fk_onboarding_steps_task',
     })),
 
-    // Indexes
     progressIdx: index('idx_onboarding_steps_progress').on(table.progressId),
     statusIdx: index('idx_onboarding_steps_status').on(table.status),
     orderIdx: index('idx_onboarding_steps_order').on(table.progressId, table.stepOrder),
     dueDateIdx: index('idx_onboarding_steps_due_date').on(table.dueDate),
   }),
 );
-
-// ============================================
-// 9. EMPLOYEE DOCUMENTS (Junction Table)
-// ============================================
 
 export const employeeDocuments = sqliteTable(
   'employee_documents',
@@ -523,12 +422,10 @@ export const employeeDocuments = sqliteTable(
     employeeId: text('employee_id').notNull(),
     documentId: text('document_id').notNull(),
 
-    // Statut spécifique à l'association employé-document
-    status: text('status').notNull().default('pending'), // 'pending', 'acknowledged', 'signed', 'expired'
+    status: text('status').notNull().default('pending'),
     acknowledgedAt: text('acknowledged_at'),
     signedAt: text('signed_at'),
 
-    // Timestamps
     createdAt: text('created_at')
       .notNull()
       .default(sql`(datetime('now'))`),
@@ -537,7 +434,6 @@ export const employeeDocuments = sqliteTable(
       .default(sql`(datetime('now'))`),
   },
   (table) => ({
-    // Foreign Keys
     employeeFk: foreignKey(() => ({
       columns: [table.employeeId],
       foreignColumns: [employees.id],
@@ -549,55 +445,45 @@ export const employeeDocuments = sqliteTable(
       name: 'fk_employee_documents_document',
     })),
 
-    // Unique: un document ne peut être assigné qu'une fois à un employé
     uniqueEmployeeDocument: uniqueIndex('uq_employee_document').on(
       table.employeeId,
       table.documentId,
     ),
 
-    // Indexes
     employeeIdx: index('idx_employee_documents_employee').on(table.employeeId),
     documentIdx: index('idx_employee_documents_document').on(table.documentId),
     statusIdx: index('idx_employee_documents_status').on(table.status),
   }),
 );
 
-// ============================================
-// 10. AUDIT LOGS (Enriched)
-// ============================================
-
 export const auditLogs = sqliteTable(
   'audit_logs',
   {
     id: text('id').primaryKey(),
-    action: text('action').notNull(), // e.g., 'CREATE_EMPLOYEE', 'SEND_NOTIFICATION'
+    action: text('action').notNull(),
     actorId: text('actor_id').notNull(),
-    actorType: text('actor_type').notNull().default('user'), // 'user', 'system', 'api', 'webhook'
+    actorType: text('actor_type').notNull().default('user'),
     actorEmail: text('actor_email'),
 
     resourceId: text('resource_id'),
-    resourceType: text('resource_type'), // 'Employee', 'Task', 'Document', etc.
+    resourceType: text('resource_type'),
 
-    details: text('details', { mode: 'json' }), // { before, after, changes }
+    details: text('details', { mode: 'json' }),
 
-    // Contexte de la requête
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
     requestId: text('request_id'),
     correlationId: text('correlation_id'),
     sessionId: text('session_id'),
 
-    // Statut
-    status: text('status').notNull().default('success'), // 'success', 'failure', 'denied'
+    status: text('status').notNull().default('success'),
     errorMessage: text('error_message'),
 
-    // Timestamp
     createdAt: text('created_at')
       .notNull()
       .default(sql`(datetime('now'))`),
   },
   (table) => ({
-    // Indexes
     actorIdx: index('idx_audit_logs_actor').on(table.actorId, table.actorType),
     resourceIdx: index('idx_audit_logs_resource').on(table.resourceType, table.resourceId),
     actionIdx: index('idx_audit_logs_action').on(table.action),
@@ -608,36 +494,19 @@ export const auditLogs = sqliteTable(
   }),
 );
 
-// ============================================
-// 11. CONVERSATION TURNS (Mémoire conversationnelle)
-// ============================================
-//
-// Table unique de la feature `conversation`. L'agent « collant » d'un fil est simplement
-// l'`agent_id` du dernier tour : la requête de fenêtre le ramène déjà, aucune seconde table
-// n'est nécessaire.
-//
-// ⚠️ Écart ASSUMÉ au style des 10 tables ci-dessus : elles horodatent en `text` via
-// `datetime('now')`, qui a une résolution à la SECONDE et un format sans fuseau. Ici
-// l'horodatage est le discriminant du TTL *et* de l'ordre des tours ; deux messages d'un même
-// échange arrivent couramment dans la même seconde, et les égalités casseraient l'ordre
-// chronologique dont dépend `selectWindow`. D'où un entier en millisecondes, qui donne aussi
-// un `Date` natif côté Drizzle — donc pas de reparsing pour l'arithmétique du TTL.
-
 export const conversationTurns = sqliteTable(
   'conversation_turns',
   {
     id: text('id').primaryKey(),
-    conversationId: text('conversation_id').notNull(), // `${channel}` ou `${channel}:${threadTs}`
-    role: text('role').notNull(), // 'user' | 'assistant'
-    content: text('content').notNull(), // texte seul — jamais de tool-call ni de tool-result
-    agentId: text('agent_id').notNull(), // onboardingOrchestrator | questionnaireEngine | notificationAgent
-    slackUserId: text('slack_user_id'), // null sur un tour assistant
+    conversationId: text('conversation_id').notNull(),
+    role: text('role').notNull(),
+    content: text('content').notNull(),
+    agentId: text('agent_id').notNull(),
+    slackUserId: text('slack_user_id'),
 
-    // Timestamp
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (table) => ({
-    // Index unique servant les deux accès : fenêtre d'une conversation (égalité + tri) et purge.
     conversationCreatedAtIdx: index('idx_conversation_turns_conversation_created_at').on(
       table.conversationId,
       table.createdAt,
@@ -646,93 +515,32 @@ export const conversationTurns = sqliteTable(
   }),
 );
 
-// ============================================
-// 11 ter. ONBOARDING INTERVIEW (Entretien post-profil)
-// ============================================
-//
-// Ce que la personne dit d'elle APRÈS avoir complété son profil : les canaux qui l'intéressent,
-// ce qu'elle fait au quotidien, comment elle préfère travailler.
-//
-// ── Pourquoi une table et pas `questionnaire_responses` ─────────────────────────────────
-// Cette table existe déjà et porte `score`, `max_score`, `percentage`, `reviewed_by`,
-// `review_notes` : elle est en forme de QUIZ CORRIGÉ. Un entretien n'a ni bonne réponse ni
-// note, et sept colonnes resteraient NULL sur 100 % des lignes — un schéma qui décrit autre
-// chose que ce qu'il contient finit toujours par être relu comme s'il disait vrai. Elle a de
-// surcroît une clé étrangère vers `questionnaires`, qui obligerait à fabriquer une ligne de
-// définition pour un formulaire écrit en dur dans le code.
-//
-// Relevé du 2026-08-14 : `questionnaire_responses` = **0 ligne** pour 5 questionnaires
-// enregistrés. Personne n'a jamais pu répondre à quoi que ce soit, parce qu'aucun chemin de
-// soumission n'existait. C'est ce chemin-là qu'apporte l'entretien.
-//
-// ── `employee_id` EST la clé primaire ───────────────────────────────────────────────────
-// Un employé a un entretien, pas une collection. Cette forme rend l'upsert trivial et
-// l'invariant STRUCTUREL plutôt que conventionnel : il ne peut pas exister deux réponses
-// concurrentes dont on ne saurait laquelle est courante.
-
 export const onboardingInterview = sqliteTable(
   'onboarding_interview',
   {
     employeeId: text('employee_id').primaryKey(),
-    /** Auteur Slack — conservé pour l'effacement et pour ré-inviter sans relire `employees`. */
     slackUserId: text('slack_user_id').notNull(),
-    /**
-     * Identifiants `C…` des canaux choisis, en JSON.
-     *
-     * Les ID et non les NOMS : un canal se renomme sans que son `C…` bouge, et c'est l'ID que
-     * `conversations.invite` consomme. Même arbitrage que la clé de `slack_channels`.
-     */
     channels: text('channels', { mode: 'json' }).notNull(),
-    /** Texte libre — ce que la personne fait au quotidien. Assaini avant écriture. */
     dailyWork: text('daily_work').notNull().default(''),
-    /** Texte libre — comment elle préfère travailler. Assaini avant écriture. */
     workStyle: text('work_style').notNull().default(''),
 
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
     updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (table) => ({
-    // Sert l'effacement par personne et la relecture depuis un identifiant Slack — le seul
-    // disponible sur le chemin d'un message.
     slackUserIdx: index('idx_onboarding_interview_slack_user').on(table.slackUserId),
   }),
 );
-
-// ============================================
-// 11 bis. PINNED FACTS (Mémoire longue, hors TTL)
-// ============================================
-//
-// `conversation_turns` porte un TTL de 60 minutes et une fenêtre de 1 600 tokens : tout ce
-// qu'on y écrit est destiné à disparaître. C'est le bon comportement pour un fil de
-// discussion, et le mauvais pour « souviens-toi que mon poste est Backend Developer » —
-// `TODO.md` le recense depuis le 2026-08-13 : la demande n'ÉPINGLAIT rien, alors que le
-// modèle promettait de s'en souvenir.
-//
-// D'où une table SÉPARÉE, et non un drapeau sur `conversation_turns` : les deux ont des
-// durées de vie opposées, et un `WHERE pinned = 0` dans la purge finirait par être oublié
-// une fois. La séparation rend l'invariant structurel — cette table n'est JAMAIS purgée par
-// le TTL.
-//
-// La clé est le `slack_user_id`, pas la conversation : un fait sur soi vaut dans tous les
-// fils. C'est aussi ce qui permet à `forget()` de les emporter par la même clé.
-//
-// ⚠️ Aucune borne en SQL. Le plafond (5 faits, 120 caractères) vit dans le CODE
-// (`src/shared/pin-fact.ts`), parce qu'il est dicté par le budget de tokens du préambule et
-// non par le stockage — et parce qu'un dépassement doit ÉVINCER le plus ancien, pas échouer.
 
 export const pinnedFacts = sqliteTable(
   'pinned_facts',
   {
     id: text('id').primaryKey(),
     slackUserId: text('slack_user_id').notNull(),
-    /** Texte D'ORIGINE de la personne, assaini — jamais normalisé ni reformulé. */
     fact: text('fact').notNull(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (table) => ({
-    // Sert les deux accès : lecture des faits d'une personne (égalité + tri) et éviction du
-    // plus ancien. Aucun index sur `created_at` seul — rien ne purge cette table par l'âge,
-    // et c'est tout son objet.
     userCreatedAtIdx: index('idx_pinned_facts_user_created_at').on(
       table.slackUserId,
       table.createdAt,
@@ -740,39 +548,11 @@ export const pinnedFacts = sqliteTable(
   }),
 );
 
-// ============================================
-// 11 bis. PENDING INTERVIEW EMAIL (email préparé, en attente d'un « oui »)
-// ============================================
-//
-// Ajoutée le 2026-08-19, quand les boutons ont été retirés du produit. La confirmation d'envoi
-// vivait dans un Block Kit « Envoyer / Annuler » ; elle est devenue une question à laquelle on
-// répond oui ou non.
-//
-// ⚠️ POURQUOI UNE TABLE, alors que les deux machines à états de l'accueil n'en ont AUCUNE.
-// Leur état est le dernier tour `assistant` du fil — gratuit, et suffisant tant que l'état ne
-// survit pas à une digression. Ici il doit y survivre : l'exigence est de RAPPELER l'email en
-// attente si l'on change de sujet, et de le GARDER en suspens si la personne veut vraiment
-// changer de sujet. Un état qui doit tenir pendant qu'on parle d'autre chose ne peut pas être
-// le dernier message du bot — par définition, ce n'est plus lui.
-//
-// ⚠️ ON N'Y STOCKE QUE DES CHAMPS, JAMAIS LE CORPS DE L'EMAIL. C'est le contrat que portait
-// déjà le `value` du bouton, et sa raison n'a pas changé : transporter le corps ferait de cette
-// table un moyen d'envoyer un texte arbitraire à une adresse arbitraire, la primitive que toute
-// la feature est construite pour ne pas offrir. Sujet et corps sont RE-RENDUS à l'envoi, la
-// date RE-VALIDÉE.
-//
-// ⚠️ La clé est la CONVERSATION, pas la personne : c'est dans ce fil qu'on répondra « oui ».
-// Une seconde préparation dans la même conversation remplace la première — l'humain n'en voit
-// qu'une à l'écran, et deux lignes signifieraient qu'un « oui » est ambigu.
-//
-// Horodatage entier en millisecondes, comme `pinned_facts` et `conversation_turns`.
-
 export const pendingInterviewEmail = sqliteTable('pending_interview_email', {
   conversationId: text('conversation_id').primaryKey(),
   requesterUserId: text('requester_user_id').notNull(),
   to: text('to_email').notNull(),
   candidateName: text('candidate_name'),
-  /** ISO. RE-VALIDÉ à l'envoi : entre la préparation et le « oui », la date a pu passer. */
   startsAt: text('starts_at').notNull(),
   position: text('position'),
   location: text('location'),
@@ -782,269 +562,86 @@ export const pendingInterviewEmail = sqliteTable('pending_interview_email', {
 
 export type PendingInterviewEmailRow = typeof pendingInterviewEmail.$inferSelect;
 
-// ============================================
-// 12. SLACK EVENT DEDUP (Déduplication multi-instance)
-// ============================================
-//
-// Table unique de la déduplication PARTAGÉE des événements Slack. Le cache LRU du handler est
-// en mémoire, donc par instance : il est incapable par construction d'écarter un rejeu routé
-// vers une AUTRE instance pendant que la première traite encore l'événement — c'est-à-dire
-// exactement le cas qui produit une double réponse (incident du 2026-08-11, 12:38 UTC).
-//
-// La `key` est celle du handler (`ts:<channel>:<ts>` ou `id:<event_id>`) et sert de PRIMARY
-// KEY : c'est elle qui rend la prise atomique via `INSERT … ON CONFLICT DO NOTHING`.
-//
-// ⚠️ Même écart assumé que `conversation_turns` sur l'horodatage : entier en millisecondes et
-// non `datetime('now')` en `text`. `started_at` est le discriminant de la grâce d'abandon
-// (60 s) ; une résolution à la seconde y serait grossière, et le comparer exigerait un
-// reparsing à chaque prise de clé — sur le chemin d'ACK, celui qui a 3 secondes.
-
 export const slackEventDedup = sqliteTable(
   'slack_event_dedup',
   {
-    key: text('key').primaryKey(), // `ts:<channel>:<ts>` ou `id:<event_id>`
-    status: text('status').notNull(), // 'in-flight' | 'done'
+    key: text('key').primaryKey(),
+    status: text('status').notNull(),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (table) => ({
-    // Sert la purge de rétention (~10 min, la fenêtre de rejeu de Slack). L'accès par clé
-    // passe déjà par l'index implicite de la PRIMARY KEY.
     startedAtIdx: index('idx_slack_event_dedup_started_at').on(table.startedAt),
   }),
 );
 
-// ============================================
-// 13. SLACK DIRECTORY (Annuaire du workspace — autorisation)
-// ============================================
-//
-// Ce qui manquait pour que « qui parle ? » ait une réponse. `slack-events.handler.ts` lisait
-// `event.user` pour le journal et l'anti-boucle, puis le jetait : une chaîne `U…` opaque, dont
-// le système ne pouvait pas dire si elle désignait la responsable RH ou un invité mono-canal.
-//
-// La table porte des FAITS que Slack maintient lui-même (`is_bot`, `is_restricted`,
-// `is_ultra_restricted`, `deleted`), et non une liste d'identifiants tenue à la main : ajouter
-// un invité au workspace le rétrograde automatiquement, sans qu'aucune variable d'environnement
-// ne bouge. Même exigence que `agentToolBoundary(tools)`, dérivée de `Object.keys(tools)` — ce
-// dépôt a déjà payé trois fois le prix d'une liste rédigée qui se désynchronise du réel.
-//
-// ⚠️ DDL : `scripts/ddl-slack-directory.sql`, à appliquer à la main (les migrations `drizzle/`
-// sont désynchronisées et `drizzle-kit push` se bloque contre une base `libsql://` distante).
-
 export const slackDirectory = sqliteTable(
   'slack_directory',
   {
-    // La PRIMARY KEY est `slack_user_id`, PAS l'email : un email se change dans le profil Slack,
-    // l'identifiant `U…` est immuable. Une clé portée par l'email ferait qu'un changement
-    // d'adresse crée un SECOND sujet avec ses propres droits — élévation de privilège par
-    // simple édition de profil.
     slackUserId: text('slack_user_id').primaryKey(),
     teamId: text('team_id').notNull(),
 
-    // NULLABLE, et ce n'est pas de la prudence de façade : `users.list` ne rend `profile.email`
-    // que si `users:read.email` est accordé ET que le compte en porte un ; les bots n'en ont
-    // pas. La politique traite « pas d'email » comme un cas NOMMÉ, jamais comme une chaîne vide
-    // comparée à un domaine — une chaîne vide finirait par matcher.
     email: text('email'),
 
-    // NOT NULL avec DEFAULT '' : ces champs sont affichés et concaténés, un NULL y imprimerait
-    // « null » plutôt qu'un blanc. Arbitrage inverse de `email`, qui est une CLÉ de recherche.
     realName: text('real_name').notNull().default(''),
     displayName: text('display_name').notNull().default(''),
 
-    // Prénom, nom et poste — lus TELS QUELS dans `profile.first_name`, `profile.last_name` et
-    // `profile.title`, jamais dérivés de `real_name`. Sur les données réelles du workspace,
-    // découper `real_name` sur l'espace marche quatre fois sur cinq et échoue sur
-    // `ridwanenico77`, qui n'a pas de prénom mais un pseudo. Une heuristique fausse une fois
-    // sur cinq n'est pas une heuristique, c'est une invention.
-    //
-    // NULLABLES, et la nullité veut dire quelque chose : Slack rend une CHAÎNE VIDE pour un
-    // champ non renseigné, qu'on normalise en `NULL`. `''` se lirait « renseigné, mais vide ».
-    // Et comme `synced_at` prouve qu'on a interrogé Slack, `NULL` signifie ici « Slack ne le
-    // précise pas » — une absence AVÉRÉE, pas une ignorance.
-    //
-    // ⚠️ `title` est le poste DÉCLARATIF, édité par son porteur. Distinct de
-    // `employees.position`, qui est le poste CONTRACTUEL : deux faits, deux sources, aucun
-    // arbitrage à écrire entre eux.
     firstName: text('first_name'),
     lastName: text('last_name'),
     title: text('title'),
 
-    // Flags de CONFIANCE — matière première de la politique d'autorisation. Aucun n'est
-    // nullable : « on ne sait pas si c'est un invité » ne doit pas exister comme état, la
-    // politique devrait alors décider sur un troisième cas où le défaut sûr serait
-    // indiscernable de l'ignorance.
-    // is_restricted = invité multi-canal ; is_ultra_restricted = invité mono-canal.
     isBot: integer('is_bot', { mode: 'boolean' }).notNull().default(false),
     isAdmin: integer('is_admin', { mode: 'boolean' }).notNull().default(false),
     isRestricted: integer('is_restricted', { mode: 'boolean' }).notNull().default(false),
     isUltraRestricted: integer('is_ultra_restricted', { mode: 'boolean' }).notNull().default(false),
     isDeleted: integer('is_deleted', { mode: 'boolean' }).notNull().default(false),
 
-    // ⚠️ INDÉCOUVRABLE par balayage : `conversations.list({types:'im'})` répond `missing_scope`
-    // (il faudrait `im:read`, non accordé — vérifié le 2026-08-12). La colonne se remplit
-    // OPPORTUNÉMENT, au premier DM reçu, où Slack livre le canal dans `event.channel`. Vide
-    // signifie « cette personne ne nous a jamais écrit en direct », pas « on ne sait pas le
-    // trouver ». Corollaire : une valeur perdue l'est DÉFINITIVEMENT — d'où le `set`
-    // champ-par-champ de l'upsert côté repository, qui ne la nomme jamais.
     dmChannelId: text('dm_channel_id'),
 
-    // Pont vers le métier, NULLABLE dans les deux sens : tout membre du workspace n'est pas un
-    // employé enregistré, et tout employé n'a pas forcément de compte Slack.
     employeeId: text('employee_id').references(() => employees.id),
 
-    /**
-     * RÔLE — la seule colonne de ce dépôt dont dépende une autorisation.
-     *
-     * `employee` par défaut, et le défaut est le bon : n'accorde rien au-delà de son propre
-     * dossier. Seul `manager` ouvre la portée aux données de tout le monde (`resolveAccess`).
-     *
-     * ⚠️ **ICI et non sur `employees`**, et c'est la donnée réelle qui l'a imposé : le General
-     * Manager de l'entreprise n'a AUCUNE ligne dans `employees`, et 5 des 6 personnes vivantes
-     * non plus — cette table-là ne contient que les dossiers créés par le parcours d'accueil.
-     * Lui en fabriquer un aurait exigé d'inventer `start_date` et `position` pour quelqu'un que
-     * ce produit n'a jamais intégré. Le sujet d'une décision d'autorisation n'est pas un
-     * dossier RH, c'est un MEMBRE DU WORKSPACE : la colonne rejoint donc `is_bot`,
-     * `is_restricted` et `is_deleted`, les autres faits sur lesquels la même fonction tranche.
-     *
-     * ⚠️ Elle n'est écrite par AUCUN chemin en libre-service, ni par la synchronisation Slack :
-     * `upsertFacts` énumère ses colonnes une par une et ne la nomme pas, exactement comme pour
-     * `dm_channel_id` et `employee_id`. C'est ce qui la distingue de `title`, que son porteur
-     * édite dans son profil — une autorisation dérivée d'un champ déclaratif s'obtiendrait en
-     * le déclarant. Et `title` porte ici « Product Manager » sur quelqu'un qui n'est pas LE
-     * manager : la chaîne ne décide rien.
-     *
-     * ⚠️ DDL : `scripts/ddl-slack-directory-role.sql`, à appliquer AVANT le déploiement.
-     */
-    role: text('role').notNull().default('employee'), // EmployeeRole
+    role: text('role').notNull().default('employee'),
 
-    // Même écart assumé que `conversation_turns` : entier en millisecondes plutôt que
-    // `datetime('now')` en text. `syncedAt` gouverne la fraîcheur, `firstSeenAt` n'est écrit
-    // qu'à l'INSERT — une seule fois dans la vie de la ligne.
     firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull(),
     syncedAt: integer('synced_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (table) => ({
-    // NON UNIQUE à dessein : deux comptes peuvent porter la même adresse le temps d'une
-    // migration, et une contrainte d'unicité ferait échouer la synchronisation ENTIÈRE plutôt
-    // que de rapporter deux lignes.
     emailIdx: index('idx_slack_directory_email').on(table.email),
     employeeIdIdx: index('idx_slack_directory_employee_id').on(table.employeeId),
     syncedAtIdx: index('idx_slack_directory_synced_at').on(table.syncedAt),
   }),
 );
 
-// ============================================
-// 14. RATE LIMIT COUNTERS (Limitation de débit partagée)
-// ============================================
-//
-// Un compteur en mémoire est PAR INSTANCE et disparaît au gel de la fonction serverless. Sur un
-// budget qui se mesure à la JOURNÉE (`TPD: Limit 100000` ≈ 19 messages/jour), il ne protège donc
-// RIEN : Vercel démarre une instance neuve sans que personne le demande, le compteur repart à
-// zéro pendant que le quota du fournisseur, lui, continue de courir.
-//
-// C'est la leçon exacte de la double réponse du 2026-08-11 : le cache LRU de déduplication était
-// lui aussi en mémoire. Un état par instance ne peut, par construction, rien dire de sa voisine.
-//
-// ⚠️ DDL : `scripts/ddl-rate-limit-counters.sql`.
-
 export const rateLimitCounters = sqliteTable(
   'rate_limit_counters',
   {
-    // `key` EST la clé primaire, et ce n'est pas un détail de modélisation : c'est elle qui rend
-    // l'incrément atomique via `INSERT … ON CONFLICT DO UPDATE`. Deux instances qui incrémentent
-    // au même instant sont départagées par la base, sans verrou applicatif — le seul mécanisme
-    // qui tienne quand les deux concurrents ne partagent aucune mémoire.
-    //
-    // La FENÊTRE est DANS la clé (`<règle>:<sujet>:<numéro de fenêtre>`), pas dans une colonne
-    // comparée : remettre un compteur à zéro exigerait de lire, décider, puis écrire — donc de
-    // rouvrir la course. Ici, changer de fenêtre change de ligne.
     key: text('key').primaryKey(),
 
-    // Sans DEFAULT : une ligne n'existe que parce qu'un incrément l'a créée. Un DEFAULT 0
-    // laisserait croire qu'une ligne peut naître vide.
     count: integer('count').notNull(),
 
-    // Redondant avec le numéro de fenêtre encodé dans la clé, et c'est voulu : la clé est une
-    // chaîne opaque. Cette colonne répond à « depuis quand ce compteur court-il ? » sans
-    // reparser un identifiant.
     windowStart: integer('window_start', { mode: 'timestamp_ms' }).notNull(),
     expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (table) => ({
-    // Sert la PURGE : sans elle la table croîtrait indéfiniment, une ligne par sujet ET par
-    // fenêtre. L'accès par clé passe déjà par l'index implicite de la PRIMARY KEY.
     expiresAtIdx: index('idx_rate_limit_counters_expires_at').on(table.expiresAt),
   }),
 );
 
-// ============================================
-// 15. SLACK CHANNELS (Inventaire des canaux — feature `directory`)
-// ============================================
-//
-// ⚠️⚠️ CES DEUX TABLES SONT UN INVENTAIRE D'OBSERVABILITÉ, JAMAIS UNE SOURCE D'AUTORISATION.
-//
-// La tentation est écrite d'avance : « les membres de #engineer-karyl » RESSEMBLE à une liste
-// d'autorisation, et quelqu'un finira par la lire comme telle. Or `#engineer-karyl` est PRIVÉ,
-// et servir son contenu à un non-membre sur la foi de ces lignes est exactement le « deputy
-// confus » de `PLAN-ARCHITECTURE.md` §4.1 — que la feature `knowledge` ferme en interrogeant
-// Slack EN DIRECT à chaque décision de divulgation.
-//
-// L'aggravant est vérifiable et n'a rien d'hypothétique : **il n'existe AUCUN chemin
-// d'invalidation**. Les abonnements de l'app n'incluent ni `member_joined_channel`, ni
-// `member_left_channel` (liste faisant foi : `CLAUDE.md`, section « ABONNEMENTS »).
-// Aucun événement ne viendra jamais démentir une ligne d'ici. Ces tables ne sont donc pas
-// « périmées dans trois jours » : elles sont fausses, et silencieuses, dès la première personne
-// qui quitte un canal entre deux synchronisations manuelles.
-//
-// La règle est rendue EXÉCUTABLE, et non recommandée, par
-// `tests/unit/directory/channel-inventory-not-an-acl.test.ts` : il échoue si `knowledge/**`,
-// `access-policy.ts` ou `access-guard.ts` importent le repository de canaux.
-//
-// Ce que ces tables servent, et rien d'autre : « dans quels canaux le bot est-il ?  »,
-// « combien de personnes y a-t-il ? », « qui y est ? », « depuis quand ? » — de l'inventaire.
-//
-// ⚠️ DDL : `scripts/ddl-slack-channels.sql`.
-
 export const slackChannels = sqliteTable(
   'slack_channels',
   {
-    // La PRIMARY KEY est l'identifiant, PAS le nom. Un canal se renomme (`#random` →
-    // `#random-fr`) sans que son `C…` bouge : une clé portée par le nom ferait qu'un renommage
-    // crée un SECOND canal et laisse l'ancien vivre à côté, avec ses membres périmés. Même
-    // arbitrage que `slack_directory`, dont la clé est le `U…` et non l'email.
     channelId: text('channel_id').primaryKey(),
 
-    // NOT NULL DEFAULT '' : le nom est affiché et concaténé, un NULL y imprimerait « null ».
-    // Arbitrage identique à `real_name` / `display_name` de `slack_directory`.
     name: text('name').notNull().default(''),
 
-    // Faits d'accès, tels que `conversations.list` les rend. `isMember` est le seul qui
-    // détermine si `chat.postMessage` peut aboutir — c'est lui, et non « le bot est invité »,
-    // qui décide d'un `not_in_channel`.
     isPrivate: integer('is_private', { mode: 'boolean' }).notNull().default(false),
     isArchived: integer('is_archived', { mode: 'boolean' }).notNull().default(false),
     isMember: integer('is_member', { mode: 'boolean' }).notNull().default(false),
 
-    // ⚠️ LE NOM DE CETTE COLONNE EST LE COMMENTAIRE. C'est une ASSERTION DE SLACK
-    // (`conversations.list` → `num_members`), pas un cache du `COUNT(*)` de
-    // `slack_channel_members`. Les deux viennent d'appels DISTINCTS, donc d'instants distincts,
-    // et divergent normalement.
-    //
-    // Le VRAI compte est `COUNT(*)` sur la table de jointure. L'écart entre les deux est un
-    // signal de fraîcheur GRATUIT — et le nommer `member_count` tout court aurait garanti qu'on
-    // le prenne un jour pour l'autorité, puis qu'on « corrige » l'écart en le réécrivant.
-    //
-    // NULLABLE : Slack ne rend pas toujours `num_members` (canaux privés notamment). NULL dit
-    // « Slack n'a rien affirmé », ce qu'un `0` — indiscernable d'un canal vide — ne dirait pas.
     memberCountReported: integer('member_count_reported'),
 
-    // Millisecondes (Drizzle `timestamp_ms`), comme `conversation_turns`, `slack_event_dedup` et
-    // `slack_directory` — et non le `datetime('now')` en text des 10 tables historiques.
     syncedAt: integer('synced_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (table) => ({
-    // Sert « quand cet inventaire a-t-il été confirmé pour la dernière fois ? ». Sans fraîcheur
-    // lisible, une table sans chemin d'invalidation se lit « à jour ».
     syncedAtIdx: index('idx_slack_channels_synced_at').on(table.syncedAt),
   }),
 );
@@ -1052,63 +649,27 @@ export const slackChannels = sqliteTable(
 export const slackChannelMembers = sqliteTable(
   'slack_channel_members',
   {
-    // FK DÉCLARÉE, et c'est un choix : les deux lignes sont écrites par la MÊME passe de
-    // synchronisation, le canal AVANT ses membres. `PRAGMA foreign_keys = 1` étant ACTIF sur la
-    // Turso de production (vérifié le 2026-08-12), une appartenance orpheline échoue
-    // bruyamment — ce qui est le comportement voulu : une appartenance sans canal ne désigne
-    // rien.
     channelId: text('channel_id')
       .notNull()
       .references(() => slackChannels.channelId),
 
-    // ⚠️ AUCUNE FK VERS `slack_directory`, ET C'EST DÉLIBÉRÉ.
-    //
-    // Un membre de canal peut parfaitement être un compte que l'annuaire ne connaît pas encore :
-    // les deux synchronisations sont INDÉPENDANTES (`--members` et `--channels` s'exécutent
-    // séparément), une personne arrivée depuis le dernier balayage de `users.list` n'a pas de
-    // ligne, et les bots tiers n'en ont pas non plus.
-    //
-    // Avec le pragma actif, une FK ici ferait ÉCHOUER l'enregistrement précisément sur les
-    // comptes les plus intéressants — les nouveaux arrivants — et imposerait un ordre entre deux
-    // synchronisations qui n'en ont pas. Un inventaire enregistre ce qu'il OBSERVE ; il n'est
-    // pas la vérité référentielle des personnes.
     slackUserId: text('slack_user_id').notNull(),
 
-    // Survit aux resynchronisations d'une personne toujours présente : c'est le champ que
-    // `replaceMembers` ne nomme JAMAIS dans son `set`, exactement comme `upsertFacts` protège
-    // `dm_channel_id`. Le mode d'échec évité est celui, déjà payé, de `documents.content` : une
-    // écriture qui perd une donnée en silence.
     firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull(),
 
-    // Marqueur de passe. Il porte à lui seul la sémantique de REMPLACEMENT : la passe réécrit
-    // `synced_at` sur les membres présents, puis supprime du canal tout ce qui porte encore un
-    // `synced_at` antérieur. Une personne partie DISPARAÎT — les membres d'un canal à l'instant
-    // T sont un ENSEMBLE, jamais une accumulation.
     syncedAt: integer('synced_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (table) => ({
-    // PK COMPOSITE, sans clé de substitution : la ligne n'a pas d'identité propre, elle EST
-    // l'appartenance. Un `id` autogénéré autoriserait deux lignes identiques pour le même
-    // couple, et le doublon ne se verrait qu'au `COUNT(*)`, c'est-à-dire dans le seul chiffre
-    // que cette table existe pour rendre.
     pk: primaryKey({ columns: [table.channelId, table.slackUserId] }),
 
-    // « Dans quels canaux est cette personne ? » — la PK indexe (channel_id, slack_user_id),
-    // donc elle ne sait pas répondre dans ce sens.
     userIdx: index('idx_slack_channel_members_user').on(table.slackUserId),
 
-    // Détection des départs : c'est la colonne sur laquelle porte la suppression de fin de passe.
     syncedAtIdx: index('idx_slack_channel_members_synced_at').on(table.syncedAt),
   }),
 );
 
-// ============================================
-// 16. TYPES INFÉRÉS POUR LES REQUÊTES
-// ============================================
-
 import type { InferSelectModel, InferInsertModel } from 'drizzle-orm';
 
-// Select types (lecture)
 export type Employee = InferSelectModel<typeof employees>;
 export type Task = InferSelectModel<typeof tasks>;
 export type Document = InferSelectModel<typeof documents>;
@@ -1126,7 +687,6 @@ export type RateLimitCounterRow = InferSelectModel<typeof rateLimitCounters>;
 export type SlackChannelRow = InferSelectModel<typeof slackChannels>;
 export type SlackChannelMemberRow = InferSelectModel<typeof slackChannelMembers>;
 
-// Insert types (création)
 export type NewEmployee = InferInsertModel<typeof employees>;
 export type NewTask = InferInsertModel<typeof tasks>;
 export type NewDocument = InferInsertModel<typeof documents>;

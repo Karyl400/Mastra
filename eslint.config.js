@@ -23,6 +23,10 @@ export default defineConfig([
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     plugins: { security, sonarjs, js },
     rules: {
+      // Trois `catch` de ce dépôt sont délibérément vides : OpenTelemetry non configuré,
+      // écriture de contexte sur un porteur qui ne la supporte pas, et confort d'affichage.
+      // Ce sont des fail-open assumés, recensés dans docs/conception/shared.md.
+      'no-empty': ['error', { allowEmptyCatch: true }],
       ...security.configs.recommended.rules,
       ...sonarjs.configs.recommended.rules,
       '@typescript-eslint/no-explicit-any': 'warn',

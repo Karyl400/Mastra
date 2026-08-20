@@ -1,8 +1,3 @@
-// ============================================
-// db/connection.ts - Production-Grade DB Connection Manager (LibSQL/Turso)
-// Standards 2026: Serverless-safe, Migrations, Graceful Shutdown
-// ============================================
-
 import { drizzle } from 'drizzle-orm/libsql';
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 import { createClient, type Client } from '@libsql/client';
@@ -11,20 +6,12 @@ import { logger } from '../../shared/logger';
 import { migrate } from 'drizzle-orm/libsql/migrator';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 
-// ============================================
-// 1. TYPES
-// ============================================
-
 type DatabaseInstance = LibSQLDatabase<typeof schema>;
 
 interface ConnectionConfig {
-  /** URL de connexion Turso/LibSQL */
   dbUrl: string;
-  /** Token d'authentification Turso */
   authToken: string;
-  /** Exécuter les migrations au démarrage */
   autoMigrate: boolean;
-  /** Dossier des migrations */
   migrationsFolder: string;
 }
 
@@ -42,10 +29,6 @@ interface DatabaseStats {
   connectionCount: number;
 }
 
-// ============================================
-// 2. CONFIGURATION PAR DÉFAUT
-// ============================================
-
 const DEFAULT_CONFIG: ConnectionConfig = {
   dbUrl: process.env.DATABASE_URL || 'file:./data/kisso.db',
   authToken: process.env.DATABASE_AUTH_TOKEN || '',
@@ -53,12 +36,7 @@ const DEFAULT_CONFIG: ConnectionConfig = {
   migrationsFolder: process.env.DB_MIGRATIONS_FOLDER || './drizzle',
 };
 
-// Flag module-scope pour éviter l'enregistrement multiple des handlers OS
 let dbShutdownHandlersRegistered = false;
-
-// ============================================
-// 3. CONNECTION MANAGER (Serverless-Safe)
-// ============================================
 
 class LibSqlConnectionManager implements ConnectionManager {
   private db: DatabaseInstance | null = null;
@@ -72,13 +50,6 @@ class LibSqlConnectionManager implements ConnectionManager {
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
-  // ============================================
-  // PUBLIC API
-  // ============================================
-
-  /**
-   * Récupère l'instance de base de données
-   */
   getDb(): DatabaseInstance {
     if (this.isClosing) {
       throw new Error('Database connection is closing, cannot accept new requests');
@@ -91,9 +62,6 @@ class LibSqlConnectionManager implements ConnectionManager {
     return this.db!;
   }
 
-  /**
-   * Ferme proprement la connexion
-   */
   async close(): Promise<void> {
     const tracer = trace.getTracer('db-connection');
     const span = tracer.startSpan('db.close');
@@ -124,9 +92,6 @@ class LibSqlConnectionManager implements ConnectionManager {
     }
   }
 
-  /**
-   * Vérifie l'état de santé de la connexion
-   */
   async healthCheck(): Promise<boolean> {
     const tracer = trace.getTracer('db-connection');
     const span = tracer.startSpan('db.health-check');
@@ -156,9 +121,6 @@ class LibSqlConnectionManager implements ConnectionManager {
     }
   }
 
-  /**
-   * Récupère les statistiques de la base de données
-   */
   getStats(): DatabaseStats {
     return {
       isConnected: this.client !== null,
@@ -168,13 +130,6 @@ class LibSqlConnectionManager implements ConnectionManager {
     };
   }
 
-  // ============================================
-  // PRIVATE METHODS
-  // ============================================
-
-  /**
-   * Établit la connexion à la base de données
-   */
   private connect(): void {
     const tracer = trace.getTracer('db-connection');
     const span = tracer.startSpan('db.connect');
@@ -188,8 +143,6 @@ class LibSqlConnectionManager implements ConnectionManager {
       this.db = drizzle(this.client, { schema });
 
       if (this.config.autoMigrate) {
-        // En mode Turso/Serverless, c'est généralement déconseillé de migrer au runtime.
-        // Mais si config.autoMigrate est activé (ex: tests locaux), on le lance de manière asynchrone.
         this.runMigrations().catch((e) => {
           logger.error('Failed to run background migrations', { error: e });
         });
@@ -227,9 +180,6 @@ class LibSqlConnectionManager implements ConnectionManager {
     }
   }
 
-  /**
-   * Exécute les migrations Drizzle
-   */
   private async runMigrations(): Promise<void> {
     if (!this.db) return;
 
@@ -261,9 +211,6 @@ class LibSqlConnectionManager implements ConnectionManager {
     }
   }
 
-  /**
-   * Configure le graceful shutdown
-   */
   private setupGracefulShutdown(): void {
     const shutdown = async (signal: string) => {
       logger.info(`Received ${signal}, closing database connection gracefully...`);
@@ -290,10 +237,6 @@ class LibSqlConnectionManager implements ConnectionManager {
   }
 }
 
-// ============================================
-// 4. ERREURS PERSONNALISÉES
-// ============================================
-
 export class DatabaseConnectionError extends Error {
   public readonly code = 'DB_CONNECTION_ERROR';
 
@@ -317,10 +260,6 @@ export class DatabaseMigrationError extends Error {
     this.name = 'DatabaseMigrationError';
   }
 }
-
-// ============================================
-// 5. INSTANCE SINGLETON (Serverless-Safe)
-// ============================================
 
 let connectionManager: ConnectionManager | null = null;
 

@@ -19,7 +19,9 @@ export interface OnboardingStep extends Timestamps {
   readonly completedAt?: string | null;
 }
 
-export function createProgress(data: Omit<OnboardingProgress, keyof Timestamps | 'status'>): OnboardingProgress {
+export function createProgress(
+  data: Omit<OnboardingProgress, keyof Timestamps | 'status'>,
+): OnboardingProgress {
   const now = new Date().toISOString();
   return {
     ...data,
@@ -29,7 +31,9 @@ export function createProgress(data: Omit<OnboardingProgress, keyof Timestamps |
   };
 }
 
-export function createStep(data: Omit<OnboardingStep, keyof Timestamps | 'status'>): OnboardingStep {
+export function createStep(
+  data: Omit<OnboardingStep, keyof Timestamps | 'status'>,
+): OnboardingStep {
   const now = new Date().toISOString();
   return {
     ...data,
