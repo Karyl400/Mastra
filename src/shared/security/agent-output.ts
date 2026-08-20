@@ -428,6 +428,59 @@ function toSlackMrkdwn(text: string): string {
  * La purge PRIME sur la mise en forme : une réponse porteuse d'un marqueur
  * interne n'est pas « corrigée » puis affichée, elle est remplacée.
  */
+/**
+ * Le QUALIFICATIF que le produit ne peut pas savoir vrai.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * Troisième consigne mesurée en échec sur ce dépôt
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Réponse rendue en production, devant une adresse `gmail.com` :
+ *
+ *     Email professionnel : karylsoumaila1@gmail.com
+ *
+ * Le tool ne rend que `email`. Deux corrections ont été tentées, dans l'ordre :
+ *
+ *   1. **La cause dans le code** — neuf descriptions d'outils disaient « l'email
+ *      professionnel », alors qu'une adresse personnelle est explicitement acceptée depuis le
+ *      2026-08-19. Toutes retirées. Le modèle a continué.
+ *   2. **Une consigne** — « ne qualifie pas ce qu'il rend », ajoutée à la règle anti-invention
+ *      à plafond de tokens constant. Le modèle a continué.
+ *
+ * Vérifié en production APRÈS chacune. C'est le même verdict que pour la couverture des
+ * extraits, la rédaction du contenu et la citation du destinataire : **une consigne est
+ * PROBABLE, le code est GARANTI.** La consigne reste — elle réduit la fréquence et coûte zéro
+ * de plus — mais elle ne suffit pas, et il ne faut pas faire semblant qu'elle suffise.
+ *
+ * ⚠️ CE N'EST PAS DE LA MISE EN FORME, c'est une correction de FAIT. Le produit ne sait pas si
+ * une adresse est professionnelle : il accepte les deux, à dessein, parce que l'exiger
+ * professionnelle était une impasse sans sortie. Écrire « professionnel » devant une adresse
+ * qu'on n'a pas qualifiée est une affirmation sans donnée — la définition même de ce que la
+ * règle anti-invention interdit.
+ *
+ * ⚠️ ANCRÉ PAR LOOKBEHIND sur « mail » ou « adresse » — « mail » et non « email », parce que
+ * le lookbehind regarde le texte qui PRÉCÈDE immédiatement : « Email » et « e-mail » se
+ * terminent l'un et l'autre par « mail ». Deux alternatives de moins, et la même couverture.
+ *
+ * La forme compte : le qualificatif
+ * n'est retiré que là où il porte sur une adresse. « parcours professionnel », « il est très
+ * professionnel » sont des phrases justes, et les mutiler serait un défaut de plus. Le
+ * lookbehind est une simple alternation de littéraux, sans quantificateur imbriqué — le motif
+ * reste linéaire sur une entrée de modèle non bornée, exigence constante de ce fichier.
+ *
+ * ⚠️ L'ESPACE EST DANS LE MATCH, pas dans le lookbehind : le remplacer par rien laisserait
+ * « Email  : … » avec une double espace, trace visible d'un mécanisme qui s'est déclenché.
+ *
+ * ⚠️ On retire le QUALIFICATIF, jamais la phrase. Le contraire du choix fait pour un marqueur
+ * interne : là, la réponse entière est suspecte ; ici, elle est juste à un mot près, et jeter
+ * un profil correct pour un adjectif serait sans commune mesure avec le défaut.
+ */
+const UNKNOWN_QUALIFIER = /(?<=mails?|adresses?)[ \t]+(?:professionnel(?:le)?s?|pro)(?!\p{L})/giu;
+
+function dropUnknownQualifiers(text: string): string {
+  return text.replace(UNKNOWN_QUALIFIER, '');
+}
+
 export function sanitizeAgentOutput(raw: string | undefined | null): SanitizedAgentOutput {
   const text = (raw ?? '').trim();
 
@@ -450,7 +503,11 @@ export function sanitizeAgentOutput(raw: string | undefined | null): SanitizedAg
   // signal, lui, ne se perd pas : il part dans `strippedUrls`, donc dans les logs.
   const { text: withoutLinks, hostnames } = stripDisallowedLinks(text);
 
-  return { text: toSlackMrkdwn(withoutLinks), redacted: [], strippedUrls: hostnames };
+  return {
+    text: dropUnknownQualifiers(toSlackMrkdwn(withoutLinks)),
+    redacted: [],
+    strippedUrls: hostnames,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -542,7 +599,15 @@ export function sanitizeDocumentSource(raw: string | undefined | null): Sanitize
   const seen = new Set<string>();
   text = filterLinks(text.replace(MARKDOWN_LINK, '$1 $2'), seen);
 
-  return { text: stripEmojis(text).trim(), redacted, strippedUrls: [...seen] };
+  // ⚠️ Le même retrait que sur le canal Slack, et pour la même raison — voir
+  // `dropUnknownQualifiers`. Un document est PIRE que la réponse : il est téléchargeable,
+  // repartageable, et il porte le nom de la personne. Une affirmation sans donnée y survit
+  // bien plus longtemps qu'un message dans un fil.
+  return {
+    text: dropUnknownQualifiers(stripEmojis(text).trim()),
+    redacted,
+    strippedUrls: [...seen],
+  };
 }
 
 /**

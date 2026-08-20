@@ -34,17 +34,30 @@ le vocabulaire du modèle ne peut plus jamais produire un carré.
 - Le journal dit ce que le modèle écrit réellement. Rendu de contrôle :
   `codePoints: ["U+2192","U+21D2","U+202F"]`.
 
-### « Email professionnel » — le modèle n'inventait pas, il répétait
+### « Email professionnel » — trois corrections, et les deux premières enseignent
 
-L'adresse est un `gmail.com`. Le tool ne rend que `email`. Le mot venait de **neuf descriptions
-d'outils** disant « l'email professionnel », alors qu'une adresse personnelle est explicitement
-acceptée depuis le 2026-08-19. La cause était dans le code, pas dans le modèle.
+L'adresse est un `gmail.com`. Le tool ne rend que `email`. « Professionnel » est donc une
+affirmation SANS DONNÉE : le produit ne sait pas si une adresse est professionnelle, il accepte
+les deux à dessein depuis le 2026-08-19.
 
-`AGENT_ANTI_INVENTION_BLOCK` gagne au passage une clause — « ne qualifie pas ce qu'il rend » — et
-« demande-la » devient « **cherche-la avec un tool** ou demande-la ». **Le plafond du bloc n'a pas
-bougé** : la clause est payée par la compression de l'exemple historique et par deux entrées de
-liste devenues vides de sens (« prénom », redondant avec « nom » ; « score », qui désignait les
-questionnaires supprimés le 2026-08-14).
+1. **La cause dans le code.** Neuf descriptions d'outils disaient « l'email professionnel ».
+   Toutes retirées. → **Vérifié en production : le modèle a continué.**
+2. **Une consigne.** `AGENT_ANTI_INVENTION_BLOCK` gagne « ne qualifie pas ce qu'il rend », et
+   « demande-la » devient « cherche-la avec un tool ou demande-la ». **Le plafond du bloc n'a
+   pas bougé** — la clause est payée par la compression de l'exemple historique et par deux
+   entrées devenues vides de sens (« prénom », redondant avec « nom » ; « score », qui
+   désignait les questionnaires supprimés le 2026-08-14).
+   → **Vérifié en production : le modèle a continué.**
+3. **Le code, enfin.** Le qualificatif est retiré à la sortie, ancré par lookbehind sur
+   « mail » / « adresse » — donc « parcours professionnel » et « il est très professionnel »
+   restent intacts. Sur le canal Slack **et** dans le contenu des documents : un document est
+   pire, il est téléchargeable, repartageable, et il porte le nom de la personne.
+
+C'est la quatrième consigne d'agent mesurée en échec sur ce dépôt, après la couverture des
+extraits, la rédaction du contenu et la citation du destinataire. Les deux premières
+corrections RESTENT — elles réduisent la fréquence et ne coûtent rien de plus — mais elles ne
+closent rien, et il ne faut pas faire semblant du contraire. **Une consigne est PROBABLE, le
+code est GARANTI.**
 
 ### Un poste au sommet déclaré prévient le sommet
 
@@ -79,7 +92,7 @@ choisies déterministement, et tient en une phrase en italique, sans question ni
 ⚠️ Le point délicat est un ORDRE : l'état doit être relevé **avant** que l'accueil ne consomme le
 tour. Un test le verrouille, vérifié rouge.
 
-**1 919 tests verts, typecheck et lint propres.**
+**1 924 tests verts, typecheck et lint propres.**
 
 ## 2026-08-20 (nuit) — Une réponse relue par son destinataire, et six défauts
 

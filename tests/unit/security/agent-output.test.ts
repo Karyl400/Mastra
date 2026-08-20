@@ -251,8 +251,12 @@ describe('sanitizeAgentOutput — conversion vers le mrkdwn Slack', () => {
   it('convertit le gras GitHub en gras Slack', () => {
     // Observé en production malgré une interdiction explicite dans les
     // instructions des trois agents.
-    expect(sanitizeAgentOutput('Donne-moi son **email professionnel**.').text).toBe(
-      'Donne-moi son *email professionnel*.',
+    //
+    // ⚠️ La formule d'origine était « **email professionnel** », et elle ne convient plus :
+    // le retrait du qualificatif inconnu (2026-08-20) l'amputerait, et ce test-ci mesurerait
+    // alors deux mécanismes à la fois. Un test qui échoue doit désigner UNE cause.
+    expect(sanitizeAgentOutput('Donne-moi son **adresse de contact**.').text).toBe(
+      'Donne-moi son *adresse de contact*.',
     );
   });
 
@@ -475,8 +479,10 @@ describe('sanitizeDocumentText — texte feuille, balisage résiduel compris', (
   it('ne convertit PAS vers le mrkdwn Slack — un document n’est pas un message', () => {
     // `sanitizeAgentOutput` transforme `**gras**` en `*gras*`, qui est du gras
     // pour Slack et une paire d'astérisques imprimée pour un PDF.
-    expect(sanitizeDocumentText('Donne-moi son **email professionnel**.').text).toBe(
-      'Donne-moi son email professionnel.',
+    // Même raison qu'au-dessus : la formule d'origine portait « email professionnel », que le
+    // retrait du qualificatif inconnu amputerait — ce test-ci ne mesure QUE le mrkdwn.
+    expect(sanitizeDocumentText('Donne-moi son **adresse de contact**.').text).toBe(
+      'Donne-moi son adresse de contact.',
     );
   });
 
