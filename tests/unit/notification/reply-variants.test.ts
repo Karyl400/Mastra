@@ -6,7 +6,7 @@ import {
 } from '../../../src/features/notification/domain/services/deterministic-replies';
 import { pickVariant } from '../../../src/shared/reply-variants';
 import { detectUnsupportedCompletionClaim } from '../../../src/features/notification/domain/services/claim-reconciliation';
-import { DISTRESS_REPLY } from '../../../src/shared/distress';
+import { DISTRESS_REPLY, DISTRESS_REPLY_EN } from '../../../src/shared/distress';
 
 /**
  * Le ton, sans toucher au prompt.
@@ -86,6 +86,32 @@ describe('les variantes ne cassent aucune garantie existante', () => {
     expect(replyFor(distress!, { text: 'peu importe', messageTs: '1700000000.000100' })).toBe(
       DISTRESS_REPLY,
     );
+  });
+
+  it('la détresse répond dans la LANGUE de la détresse — même message, même numéros', () => {
+    // Une détresse écrite en anglais recevait un message en français. Les numéros sont
+    // identiques (SURPIN et le 112 sont des chiffres, ils ne se traduisent pas) ; c'est le
+    // texte qui l'entoure qui doit être lisible par la personne qui l'a écrit.
+    const distress = DETERMINISTIC_REPLIES.find((entry) => entry.name === 'distress');
+
+    expect(replyFor(distress!, { text: 'je veux mourir' })).toBe(DISTRESS_REPLY);
+    expect(replyFor(distress!, { text: 'I want to die' })).toBe(DISTRESS_REPLY_EN);
+  });
+
+  it('la détresse est JOURNALISÉE sans son texte — longueur et langue seulement', () => {
+    // ⚠️ Le DM au bot est le canal où se disent un salaire, un arrêt maladie ou un litige.
+    // On journalise donc qu'une détection a eu lieu, jamais ce qui a été confié.
+    const distress = DETERMINISTIC_REPLIES.find((entry) => entry.name === 'distress');
+    const text = 'I want to die and I have nobody to talk to';
+
+    const fields = distress!.logFields!({ text, isDirectMessage: true });
+
+    expect(fields).toEqual({
+      isDirectMessage: true,
+      textLength: text.length,
+      distressLanguage: 'en',
+    });
+    expect(JSON.stringify(fields)).not.toContain('die');
   });
 
   it('un court-circuit AGISSANT ne rend aucun texte figé', () => {

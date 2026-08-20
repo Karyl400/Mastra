@@ -36,6 +36,7 @@ export class SmtpAdapter implements EmailProvider {
         host,
         port,
         secure: secure ?? port === 465,
+        requireTLS: true,
         auth: { user, pass },
         connectionTimeout: SMTP_TIMEOUT_MS,
         greetingTimeout: SMTP_TIMEOUT_MS,

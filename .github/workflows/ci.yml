@@ -29,7 +29,18 @@ jobs:
       
     - name: Lint
       run: npm run lint
-      
+
+    # ⚠️ La portée est `src/**/*.ts`, PAS `.` — et l'écart est délibéré.
+    # `npm run format` lance `prettier --write .`, qui REFLOWERAIT la prose française
+    # de `docs/conception/` (75 fichiers du dépôt ne sont pas conformes, dont 33 sous
+    # `docs/`). Une CI calquée sur ce script serait donc rouge dès aujourd'hui et
+    # destructrice une fois « corrigée ». Ce qui est réellement tenu, c'est le code
+    # source : le hook `lint-staged` ne formate que `*.ts`, et `src/` est conforme.
+    # Restent hors garde `scripts/*.mts` / `*.mjs` (17 fichiers) et `tests/**` (14) —
+    # recensés, non couverts ici.
+    - name: Format check
+      run: npm run format:check
+
     - name: Typecheck
       run: npm run typecheck
       

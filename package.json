@@ -37,7 +37,8 @@
     "verify:bundle": "node scripts/verify-vercel-bundle.js --require pdfkit,pdfmake,js-md5,fontkit,docx",
     "prepare": "husky",
     "lint": "eslint src --ext .ts",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "format:check": "prettier --check \"src/**/*.ts\""
   },
   "dependencies": {
     "@ai-sdk/groq": "^4.0.24",

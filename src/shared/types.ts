@@ -97,45 +97,11 @@ export const TASK_STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   [TaskStatus.Archived]: [],
 };
 
-export enum TaskType {
-  Document = 'document',
-  Questionnaire = 'questionnaire',
-  Meeting = 'meeting',
-  Training = 'training',
-  Review = 'review',
-  Approval = 'approval',
-  Individual = 'individual',
-  Team = 'team',
-  Onboarding = 'onboarding',
-  Custom = 'custom',
-  Other = 'other',
-}
-
-export enum TaskPriority {
-  Low = 'low',
-  Medium = 'medium',
-  High = 'high',
-  Urgent = 'urgent',
-}
-
 export enum QuestionnaireStatus {
   Draft = 'draft',
   Published = 'published',
   Closed = 'closed',
   Archived = 'archived',
-}
-
-export enum QuestionType {
-  Text = 'text',
-  Paragraph = 'paragraph',
-  Choice = 'choice',
-  MultipleChoice = 'multiple_choice',
-  Scale = 'scale',
-  Boolean = 'boolean',
-  Date = 'date',
-  FileUpload = 'file_upload',
-  Rating = 'rating',
-  Matrix = 'matrix',
 }
 
 export enum ResponseStatus {
@@ -205,13 +171,6 @@ export enum NotificationStatus {
   Cancelled = 'cancelled',
 }
 
-export enum NotificationPriority {
-  Low = 'low',
-  Normal = 'normal',
-  High = 'high',
-  Urgent = 'urgent',
-}
-
 export enum RecipientType {
   Employee = 'employee',
   Hr = 'hr',
@@ -226,42 +185,6 @@ export interface Timestamps {
   updatedAt: string;
   deletedAt?: string | null;
 }
-
-export interface Question {
-  id: string;
-  type: QuestionType;
-  label: string;
-  description?: string;
-  required: boolean;
-  options?: string[];
-  min?: number;
-  max?: number;
-  minLabel?: string;
-  maxLabel?: string;
-  order?: number;
-  condition?: QuestionCondition;
-}
-
-export interface QuestionCondition {
-  questionId: string;
-  operator: 'equals' | 'not_equals' | 'contains' | 'greater_than' | 'less_than';
-  value: string | number | boolean;
-}
-
-export interface QuestionResponse {
-  questionId: string;
-  value?: string | string[] | number | boolean;
-  skipped?: boolean;
-  comment?: string;
-}
-
-export type EnumValues<T extends Record<string, string>> = T[keyof T];
-
-export type EmployeeId = string & { readonly __brand: 'EmployeeId' };
-export type TaskId = string & { readonly __brand: 'TaskId' };
-export type DocumentId = string & { readonly __brand: 'DocumentId' };
-export type QuestionnaireId = string & { readonly __brand: 'QuestionnaireId' };
-export type NotificationId = string & { readonly __brand: 'NotificationId' };
 
 export function isValidTaskTransition(from: TaskStatus, to: TaskStatus): boolean {
   return TASK_STATUS_TRANSITIONS[from]?.includes(to) ?? false;

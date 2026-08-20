@@ -2,8 +2,8 @@ import {
   htmlEmailBody,
   textEmailBody,
 } from '../../../src/features/notification/domain/services/email-body';
-import { describe, it, expect, vi } from 'vitest';
-import type { Transporter } from 'nodemailer';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import nodemailer, { type Transporter } from 'nodemailer';
 import { SmtpAdapter } from '../../../src/features/notification/infrastructure/providers/smtp.adapter';
 import { MAX_EMAIL_ATTACHMENTS_BYTES } from '../../../src/features/notification/domain/services/email-attachment-policy';
 
@@ -20,6 +20,76 @@ const baseConfig = {
 };
 
 describe('SmtpAdapter', () => {
+  describe('transport TLS', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    /**
+     * On n'injecte PAS de transporter ici : c'est justement `createTransport`
+     * qu'on veut observer. Le spy rend une doublure, aucune connexion n'est ouverte.
+     */
+    function captureTransportOptions(config: Partial<typeof baseConfig> & { secure?: boolean }) {
+      const createTransport = vi
+        .spyOn(nodemailer, 'createTransport')
+        .mockReturnValue(makeTransporter() as never);
+
+      new SmtpAdapter({ ...baseConfig, ...config });
+
+      return createTransport.mock.calls[0][0] as Record<string, unknown>;
+    }
+
+    it('exige STARTTLS sur le port 587 — sinon auth et corps partent en clair', () => {
+      // STARTTLS opportuniste : sans `requireTLS`, un serveur qui n'annonce pas
+      // l'extension fait envoyer identifiants et message en clair, sans erreur.
+      const options = captureTransportOptions({ port: 587 });
+
+      expect(options.requireTLS).toBe(true);
+      expect(options.secure).toBe(false);
+    });
+
+    it('garde `requireTLS` sur le port 465, où TLS est implicite', () => {
+      // nodemailer ne consulte `requireTLS` pour la bascule STARTTLS que si
+      // `secure` est faux (smtp-connection/index.js : `!this.secure && ...`),
+      // donc l'option est inoffensive ici — et elle protège une éventuelle
+      // erreur de configuration du port.
+      const options = captureTransportOptions({ port: 465 });
+
+      expect(options.secure).toBe(true);
+      expect(options.requireTLS).toBe(true);
+    });
+
+    it('respecte un `secure` explicite sans lâcher `requireTLS`', () => {
+      const options = captureTransportOptions({ port: 2525, secure: true });
+
+      expect(options.secure).toBe(true);
+      expect(options.requireTLS).toBe(true);
+    });
+
+    it('transmet hôte, port, identifiants et délais', () => {
+      const options = captureTransportOptions({ port: 587 });
+
+      expect(options).toMatchObject({
+        host: 'smtp.gmail.com',
+        port: 587,
+        auth: { user: 'bot@gmail.com', pass: 'abcd efgh ijkl mnop' },
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 10_000,
+      });
+    });
+
+    it("n'appelle pas `createTransport` quand un transporter est injecté", () => {
+      const createTransport = vi
+        .spyOn(nodemailer, 'createTransport')
+        .mockReturnValue(makeTransporter() as never);
+
+      new SmtpAdapter({ ...baseConfig, transporter: makeTransporter() });
+
+      expect(createTransport).not.toHaveBeenCalled();
+    });
+  });
+
   describe('configuration', () => {
     it('exige host, user et pass', () => {
       expect(() => new SmtpAdapter({ ...baseConfig, host: '' })).toThrow(/SMTP_HOST/);
