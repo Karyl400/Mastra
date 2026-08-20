@@ -7,6 +7,7 @@ import {
   BURST_RULE,
   DAILY_RULE,
   type RateLimitRule,
+  WORKSPACE_TOKEN_RULE,
 } from '../../../src/features/notification/domain/services/rate-limit-policy';
 
 const RULE: RateLimitRule = { name: 'burst', limit: 3, windowMs: 60_000 };
@@ -125,9 +126,24 @@ describe('les deux règles livrées', () => {
     expect(BURST_RULE.limit).toBeLessThan(DAILY_RULE.limit);
   });
 
-  it('le budget journalier reste sous le plafond de tokens du fournisseur', () => {
-    // ≈ 19 messages/jour tous canaux confondus (100 000 tokens/jour ÷ 5 168 par message).
-    // Un plafond PAR PERSONNE au-dessus de ce chiffre ne protégerait rien.
-    expect(DAILY_RULE.limit).toBeLessThan(19);
+  it('une SEULE personne ne peut pas épuiser le budget du workspace', () => {
+    // ⚠️ CETTE ASSERTION EST DÉRIVÉE, elle ne recopie plus un chiffre de fournisseur.
+    // Elle disait `DAILY_RULE.limit < 19`, décalque des 100 000 tokens/jour de Groq — vrai
+    // tant que Groq était le primaire, faux depuis que Gemini l'est (2026-08-20), et
+    // invisible : c'est une valeur écrite à la main, que rien ne recalcule.
+    //
+    // Ce qui doit rester vrai quel que soit le fournisseur : le plafond PAR PERSONNE laisse
+    // de la place aux autres. Le coût par message est celui mesuré en production.
+    const TOKENS_PER_MESSAGE = 5_168;
+
+    expect(DAILY_RULE.limit * TOKENS_PER_MESSAGE).toBeLessThan(WORKSPACE_TOKEN_RULE.limit);
+  });
+
+  it('la rafale n’a PAS été relevée avec les autres', () => {
+    // Elle ne protégeait pas un quota de fournisseur mais contre une BOUCLE — un automate
+    // ou une injection qui ferait parler le bot sans fin. Le changement de primaire n'y
+    // change rien : une rafale reste une rafale.
+    expect(BURST_RULE.limit).toBe(5);
+    expect(BURST_RULE.windowMs).toBe(60_000);
   });
 });

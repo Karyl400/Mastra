@@ -3,11 +3,29 @@ import { makeNotificationAgent } from '../../../src/features/notification/applic
 import {
   PRIMARY_MODEL_ID,
   FALLBACK_MODEL_ID,
+  LAST_RESORT_MODEL_ID,
+  GEMINI_MODEL_ID,
   GROQ_MODEL_ID,
   MISTRAL_MODEL_ID,
   LAST_RESORT_MAX_RETRIES,
 } from '../../../src/shared/llm/model-fallback';
 import { AGENT_STYLE_BLOCK } from '../../../src/shared/agent-style';
+
+/**
+ * ⚠️ Les clés LLM sont posées pour TOUT le fichier depuis le 2026-08-20 : `makeModelChain`
+ * LÈVE quand aucun fournisseur n'est configuré, et les tests unitaires ne chargent pas
+ * `.env`. Construire un agent sans clé, c'est construire un système non configuré — le
+ * dire à la construction vaut mieux que le découvrir au premier message.
+ */
+beforeEach(() => {
+  vi.stubEnv('GOOGLE_GEMINI_API_KEY', 'test-gemini-key');
+  vi.stubEnv('GROQ_API_KEY', 'test-groq-key');
+  vi.stubEnv('MISTRAL_API_KEY', 'test-mistral-key');
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('NotificationAgent Agent', () => {
   it('should create an agent with correct ID and name', () => {
@@ -33,7 +51,7 @@ describe('NotificationAgent Agent', () => {
     // agent.tools est privé dans Mastra 0.2
   });
 
-  describe('chaîne de modèles Groq → Mistral', () => {
+  describe('chaîne de modèles Gemini → Groq → Mistral', () => {
     beforeEach(() => {
       vi.stubEnv('GROQ_API_KEY', 'test-groq-key');
       vi.stubEnv('MISTRAL_API_KEY', 'test-mistral-key');
@@ -43,12 +61,20 @@ describe('NotificationAgent Agent', () => {
       vi.unstubAllEnvs();
     });
 
-    it('déclare Groq puis Mistral, avec reprise bornée sur le dernier maillon', async () => {
+    it('déclare Gemini, Groq puis Mistral, avec reprise bornée sur le dernier maillon', async () => {
       const list = await makeNotificationAgent({}).getModelList();
 
-      expect(list?.map((entry) => entry.id)).toEqual([PRIMARY_MODEL_ID, FALLBACK_MODEL_ID]);
-      expect(list?.map((entry) => entry.model.modelId)).toEqual([GROQ_MODEL_ID, MISTRAL_MODEL_ID]);
-      expect(list?.map((entry) => entry.maxRetries)).toEqual([0, LAST_RESORT_MAX_RETRIES]);
+      expect(list?.map((entry) => entry.id)).toEqual([
+        PRIMARY_MODEL_ID,
+        FALLBACK_MODEL_ID,
+        LAST_RESORT_MODEL_ID,
+      ]);
+      expect(list?.map((entry) => entry.model.modelId)).toEqual([
+        GEMINI_MODEL_ID,
+        GROQ_MODEL_ID,
+        MISTRAL_MODEL_ID,
+      ]);
+      expect(list?.map((entry) => entry.maxRetries)).toEqual([0, 0, LAST_RESORT_MAX_RETRIES]);
     });
 
     it('assemble le garde-fou de sécurité avec les placeholders réellement substitués', async () => {

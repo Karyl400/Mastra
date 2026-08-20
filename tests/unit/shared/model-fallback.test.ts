@@ -5,6 +5,8 @@ import {
   makeModelChain,
   PRIMARY_MODEL_ID,
   FALLBACK_MODEL_ID,
+  LAST_RESORT_MODEL_ID,
+  GEMINI_MODEL_ID,
   GROQ_MODEL_ID,
   MISTRAL_MODEL_ID,
   LAST_RESORT_MAX_RETRIES,
@@ -60,6 +62,7 @@ function makeFakeModel(options: {
 
 describe('makeModelChain — configuration de la chaîne de repli', () => {
   beforeEach(() => {
+    vi.stubEnv('GOOGLE_GEMINI_API_KEY', 'test-gemini-key');
     vi.stubEnv('GROQ_API_KEY', 'test-groq-key');
     vi.stubEnv('MISTRAL_API_KEY', 'test-mistral-key');
   });
@@ -68,35 +71,42 @@ describe('makeModelChain — configuration de la chaîne de repli', () => {
     vi.unstubAllEnvs();
   });
 
-  it('expose Groq en primaire puis Mistral en repli, dans cet ordre', () => {
-    const chain = makeModelChain({ groqApiKey: 'g', mistralApiKey: 'm' });
+  it('expose Gemini, puis Groq, puis Mistral — dans cet ordre', () => {
+    // ⚠️ L'ORDRE EST LE CONTRAT. Gemini est passé primaire le 2026-08-20 : son quota est
+    // sans commune mesure avec les 100 000 tokens/JOUR de Groq, qui bornaient tout ce
+    // dépôt à ≈ 19 messages quotidiens. Groq devient le repli, Mistral — plafonné en
+    // REQUÊTES (4/min), donc insensible à tout dégraissage — reste le dernier recours.
+    const chain = makeModelChain({ geminiApiKey: 'k', groqApiKey: 'g', mistralApiKey: 'm' });
 
-    expect(chain).toHaveLength(2);
+    expect(chain).toHaveLength(3);
     expect(chain[0]?.id).toBe(PRIMARY_MODEL_ID);
     expect(chain[1]?.id).toBe(FALLBACK_MODEL_ID);
+    expect(chain[2]?.id).toBe(LAST_RESORT_MODEL_ID);
   });
 
   it('donne des identifiants stables et déterministes (pas de randomUUID)', () => {
-    const a = makeModelChain({ groqApiKey: 'g', mistralApiKey: 'm' });
-    const b = makeModelChain({ groqApiKey: 'g', mistralApiKey: 'm' });
+    const a = makeModelChain({ geminiApiKey: 'k', groqApiKey: 'g', mistralApiKey: 'm' });
+    const b = makeModelChain({ geminiApiKey: 'k', groqApiKey: 'g', mistralApiKey: 'm' });
 
     expect(a.map((entry) => entry.id)).toEqual(b.map((entry) => entry.id));
   });
 
   it("n'accorde un budget de reprise qu'au DERNIER maillon", () => {
-    const chain = makeModelChain({ groqApiKey: 'g', mistralApiKey: 'm' });
+    const chain = makeModelChain({ geminiApiKey: 'k', groqApiKey: 'g', mistralApiKey: 'm' });
 
     // Basculer vers un autre fournisseur coûte moins cher que patienter sur
     // celui qui vient d'annoncer un quota épuisé.
     expect(chain[0]?.maxRetries).toBe(0);
+    expect(chain[1]?.maxRetries).toBe(0);
     // Plus rien vers quoi basculer : reprise bornée en dernière défense.
-    expect(chain[1]?.maxRetries).toBe(LAST_RESORT_MAX_RETRIES);
+    expect(chain[2]?.maxRetries).toBe(LAST_RESORT_MAX_RETRIES);
     expect(LAST_RESORT_MAX_RETRIES).toBeGreaterThan(0);
   });
 
-  it('omet Mistral sans MISTRAL_API_KEY et transfère le budget de reprise à Groq', () => {
+  it('omet tout maillon sans clé et transfère le budget de reprise au dernier restant', () => {
+    vi.stubEnv('GROQ_API_KEY', '');
     vi.stubEnv('MISTRAL_API_KEY', '');
-    const chain = makeModelChain({ groqApiKey: 'g' });
+    const chain = makeModelChain({ geminiApiKey: 'k' });
 
     // Un maillon sans identifiants masquerait l'erreur réelle du primaire,
     // puisque c'est l'erreur du DERNIER modèle qui est renvoyée au client.
@@ -105,10 +115,35 @@ describe('makeModelChain — configuration de la chaîne de repli', () => {
     expect(chain[0]?.maxRetries).toBe(LAST_RESORT_MAX_RETRIES);
   });
 
+  it('ne rend JAMAIS une chaîne vide, et le DIT quand rien n’est configuré', async () => {
+    // ⚠️ Contrat conservé de l'avant-2026-08-20 : Groq y était poussé sans regarder sa clé,
+    // donc la chaîne n'était jamais vide. Lever à la place ferait exploser la construction
+    // de tous les agents, y compris là où la configuration LLM n'est pas le sujet.
+    const { logger } = await import('../../../src/shared/logger');
+    const errorSpy = vi.spyOn(logger, 'error');
+
+    vi.stubEnv('GOOGLE_GEMINI_API_KEY', '');
+    vi.stubEnv('GROQ_API_KEY', '');
+    vi.stubEnv('MISTRAL_API_KEY', '');
+
+    const chain = makeModelChain({});
+
+    expect(chain).toHaveLength(1);
+    expect(chain[0]?.id).toBe(PRIMARY_MODEL_ID);
+    expect(errorSpy.mock.calls.some((c) => String(c[0]).includes('Aucun fournisseur LLM'))).toBe(
+      true,
+    );
+
+    errorSpy.mockRestore();
+  });
+
   it('lit les clés depuis process.env par défaut', () => {
-    expect(makeModelChain()).toHaveLength(2);
+    expect(makeModelChain()).toHaveLength(3);
 
     vi.stubEnv('MISTRAL_API_KEY', '');
+    expect(makeModelChain()).toHaveLength(2);
+
+    vi.stubEnv('GOOGLE_GEMINI_API_KEY', '');
     expect(makeModelChain()).toHaveLength(1);
   });
 
@@ -117,14 +152,22 @@ describe('makeModelChain — configuration de la chaîne de repli', () => {
       id: 'chainProbe',
       name: 'chainProbe',
       instructions: 'x',
-      model: makeModelChain({ groqApiKey: 'g', mistralApiKey: 'm' }),
+      model: makeModelChain({ geminiApiKey: 'k', groqApiKey: 'g', mistralApiKey: 'm' }),
     });
 
     const list = await agent.getModelList();
 
-    expect(list?.map((entry) => entry.id)).toEqual([PRIMARY_MODEL_ID, FALLBACK_MODEL_ID]);
-    expect(list?.map((entry) => entry.model.modelId)).toEqual([GROQ_MODEL_ID, MISTRAL_MODEL_ID]);
-    expect(list?.map((entry) => entry.maxRetries)).toEqual([0, LAST_RESORT_MAX_RETRIES]);
+    expect(list?.map((entry) => entry.id)).toEqual([
+      PRIMARY_MODEL_ID,
+      FALLBACK_MODEL_ID,
+      LAST_RESORT_MODEL_ID,
+    ]);
+    expect(list?.map((entry) => entry.model.modelId)).toEqual([
+      GEMINI_MODEL_ID,
+      GROQ_MODEL_ID,
+      MISTRAL_MODEL_ID,
+    ]);
+    expect(list?.map((entry) => entry.maxRetries)).toEqual([0, 0, LAST_RESORT_MAX_RETRIES]);
     expect(list?.every((entry) => entry.enabled)).toBe(true);
   });
 });

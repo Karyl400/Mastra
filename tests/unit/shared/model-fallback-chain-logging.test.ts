@@ -22,7 +22,8 @@ import { APICallError } from 'ai';
  */
 
 const calls: string[] = [];
-let groqFailTimes = Infinity;
+let geminiFailTimes = Infinity;
+let groqFailTimes = 0;
 let mistralFailTimes = 0;
 
 function makeControllableModel(modelId: string, provider: string, failTimesRef: () => number) {
@@ -57,6 +58,11 @@ function makeControllableModel(modelId: string, provider: string, failTimesRef: 
   };
 }
 
+vi.mock('@ai-sdk/google', () => ({
+  createGoogleGenerativeAI: () => (modelId: string) =>
+    makeControllableModel(modelId, 'google.generative-ai', () => geminiFailTimes),
+}));
+
 vi.mock('@ai-sdk/groq', () => ({
   createGroq: () => (modelId: string) =>
     makeControllableModel(modelId, 'groq.chat', () => groqFailTimes),
@@ -69,10 +75,12 @@ vi.mock('@ai-sdk/mistral', () => ({
 
 describe('makeModelChain — journalisation de la chaîne complète des échecs', () => {
   beforeEach(() => {
+    vi.stubEnv('GOOGLE_GEMINI_API_KEY', 'test-gemini-key');
     vi.stubEnv('GROQ_API_KEY', 'test-groq-key');
     vi.stubEnv('MISTRAL_API_KEY', 'test-mistral-key');
     calls.length = 0;
-    groqFailTimes = Infinity;
+    geminiFailTimes = Infinity;
+    groqFailTimes = 0;
     mistralFailTimes = 0;
   });
 
@@ -85,14 +93,14 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
     const { logger } = await import('../../../src/shared/logger');
     const errorSpy = vi.spyOn(logger, 'error');
 
-    const { makeModelChain, PRIMARY_MODEL_ID, GROQ_MODEL_ID, MISTRAL_MODEL_ID } =
+    const { makeModelChain, PRIMARY_MODEL_ID, GEMINI_MODEL_ID, GROQ_MODEL_ID } =
       await import('../../../src/shared/llm/model-fallback');
 
     const agent = new Agent({
       id: 'chainLoggingProbe',
       name: 'chainLoggingProbe',
       instructions: 'x',
-      model: makeModelChain({ groqApiKey: 'g', mistralApiKey: 'm' }),
+      model: makeModelChain({ geminiApiKey: 'k', groqApiKey: 'g', mistralApiKey: 'm' }),
     });
 
     const result = await agent.generate('bonjour');
@@ -100,66 +108,67 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
     // Les identifiants viennent des CONSTANTES, jamais de littéraux recopiés : c'est
     // exactement la duplication qui a laissé `llama-3.3-70b-versatile` survivre ici après son
     // retrait du compte Groq.
-    expect(calls).toEqual([GROQ_MODEL_ID, MISTRAL_MODEL_ID]);
-    expect(result.text).toBe(`ok:${MISTRAL_MODEL_ID}`);
+    expect(calls).toEqual([GEMINI_MODEL_ID, GROQ_MODEL_ID]);
+    expect(result.text).toBe(`ok:${GROQ_MODEL_ID}`);
 
-    // La panne Groq doit être journalisée avec l'identifiant du maillon qui a
+    // La panne Gemini doit être journalisée avec l'identifiant du maillon qui a
     // réellement échoué — pas celui d'un autre maillon de la chaîne.
     expect(errorSpy).toHaveBeenCalled();
-    const loggedGroqFailure = errorSpy.mock.calls.find(
+    const loggedPrimaryFailure = errorSpy.mock.calls.find(
       (call) =>
         JSON.stringify(call).includes(PRIMARY_MODEL_ID) &&
-        JSON.stringify(call).includes(GROQ_MODEL_ID),
+        JSON.stringify(call).includes(GEMINI_MODEL_ID),
     );
-    expect(loggedGroqFailure).toBeDefined();
+    expect(loggedPrimaryFailure).toBeDefined();
   });
 
   it('journalise la panne du DERNIER maillon aussi, quand toute la chaîne échoue', async () => {
+    geminiFailTimes = Infinity;
     groqFailTimes = Infinity;
     mistralFailTimes = Infinity;
 
     const { logger } = await import('../../../src/shared/logger');
     const errorSpy = vi.spyOn(logger, 'error');
 
-    const { makeModelChain, FALLBACK_MODEL_ID, MISTRAL_MODEL_ID } =
+    const { makeModelChain, LAST_RESORT_MODEL_ID, MISTRAL_MODEL_ID } =
       await import('../../../src/shared/llm/model-fallback');
 
     const agent = new Agent({
       id: 'chainLoggingExhaustedProbe',
       name: 'chainLoggingExhaustedProbe',
       instructions: 'x',
-      model: makeModelChain({ groqApiKey: 'g', mistralApiKey: 'm' }),
+      model: makeModelChain({ geminiApiKey: 'k', groqApiKey: 'g', mistralApiKey: 'm' }),
     });
 
     await expect(agent.generate('bonjour')).rejects.toThrow();
 
     const loggedMistralFailure = errorSpy.mock.calls.find(
       (call) =>
-        JSON.stringify(call).includes(FALLBACK_MODEL_ID) &&
+        JSON.stringify(call).includes(LAST_RESORT_MODEL_ID) &&
         JSON.stringify(call).includes(MISTRAL_MODEL_ID),
     );
     expect(loggedMistralFailure).toBeDefined();
   });
 
   it("n'appelle pas le logger d'échec quand le premier maillon réussit du premier coup", async () => {
-    groqFailTimes = 0;
+    geminiFailTimes = 0;
 
     const { logger } = await import('../../../src/shared/logger');
     const errorSpy = vi.spyOn(logger, 'error');
 
-    const { makeModelChain, GROQ_MODEL_ID } =
+    const { makeModelChain, GEMINI_MODEL_ID } =
       await import('../../../src/shared/llm/model-fallback');
 
     const agent = new Agent({
       id: 'chainLoggingHappyProbe',
       name: 'chainLoggingHappyProbe',
       instructions: 'x',
-      model: makeModelChain({ groqApiKey: 'g', mistralApiKey: 'm' }),
+      model: makeModelChain({ geminiApiKey: 'k', groqApiKey: 'g', mistralApiKey: 'm' }),
     });
 
     const result = await agent.generate('bonjour');
 
-    expect(result.text).toBe(`ok:${GROQ_MODEL_ID}`);
+    expect(result.text).toBe(`ok:${GEMINI_MODEL_ID}`);
     expect(errorSpy).not.toHaveBeenCalled();
   });
 });

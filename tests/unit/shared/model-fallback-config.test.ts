@@ -26,7 +26,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
  * surcharge d'environnement invérifiable.
  */
 
-const ENV_KEYS = ['GROQ_MODEL_ID', 'MISTRAL_MODEL_ID'] as const;
+const ENV_KEYS = [
+  'GEMINI_MODEL_ID',
+  'GROQ_MODEL_ID',
+  'MISTRAL_MODEL_ID',
+  'GOOGLE_GEMINI_API_KEY',
+  'GROQ_API_KEY',
+  'MISTRAL_API_KEY',
+] as const;
 
 const MODULE_PATH = '../../../src/shared/llm/model-fallback';
 
@@ -54,24 +61,29 @@ describe('identifiants de modèle', () => {
   describe('défauts', () => {
     it('retombe sur les littéraux actuels quand rien n’est configuré', async () => {
       const m = await load();
+      expect(m.GEMINI_MODEL_ID).toBe('gemini-3.7-flash');
       expect(m.GROQ_MODEL_ID).toBe('openai/gpt-oss-120b');
       expect(m.MISTRAL_MODEL_ID).toBe('mistral-large-latest');
     });
 
     it('ignore une variable vide ou faite d’espaces', async () => {
+      process.env.GEMINI_MODEL_ID = '  ';
       process.env.GROQ_MODEL_ID = '   ';
       process.env.MISTRAL_MODEL_ID = '';
       const m = await load();
+      expect(m.GEMINI_MODEL_ID).toBe('gemini-3.7-flash');
       expect(m.GROQ_MODEL_ID).toBe('openai/gpt-oss-120b');
       expect(m.MISTRAL_MODEL_ID).toBe('mistral-large-latest');
     });
   });
 
   describe('surcharge par l’environnement', () => {
-    it('lit GROQ_MODEL_ID et MISTRAL_MODEL_ID', async () => {
+    it('lit GEMINI_MODEL_ID, GROQ_MODEL_ID et MISTRAL_MODEL_ID', async () => {
+      process.env.GEMINI_MODEL_ID = 'gemini-3.6-flash';
       process.env.GROQ_MODEL_ID = 'openai/gpt-oss-20b';
       process.env.MISTRAL_MODEL_ID = 'mistral-small-latest';
       const m = await load();
+      expect(m.GEMINI_MODEL_ID).toBe('gemini-3.6-flash');
       expect(m.GROQ_MODEL_ID).toBe('openai/gpt-oss-20b');
       expect(m.MISTRAL_MODEL_ID).toBe('mistral-small-latest');
     });
@@ -84,32 +96,38 @@ describe('identifiants de modèle', () => {
   });
 
   describe('dérivation — étiquette et modèle demandé sortent d’une seule résolution', () => {
-    it('dérive PRIMARY_MODEL_ID / FALLBACK_MODEL_ID sur le défaut', async () => {
+    it('dérive les trois étiquettes sur le défaut', async () => {
       const m = await load();
-      expect(m.PRIMARY_MODEL_ID).toBe(`groq/${m.GROQ_MODEL_ID}`);
-      expect(m.FALLBACK_MODEL_ID).toBe(`mistral/${m.MISTRAL_MODEL_ID}`);
+      expect(m.PRIMARY_MODEL_ID).toBe(`google/${m.GEMINI_MODEL_ID}`);
+      expect(m.FALLBACK_MODEL_ID).toBe(`groq/${m.GROQ_MODEL_ID}`);
+      expect(m.LAST_RESORT_MODEL_ID).toBe(`mistral/${m.MISTRAL_MODEL_ID}`);
     });
 
-    it('dérive PRIMARY_MODEL_ID / FALLBACK_MODEL_ID sur une valeur surchargée', async () => {
+    it('dérive les trois étiquettes sur une valeur surchargée', async () => {
+      process.env.GEMINI_MODEL_ID = 'gemini-3.6-flash';
       process.env.GROQ_MODEL_ID = 'openai/gpt-oss-20b';
       process.env.MISTRAL_MODEL_ID = 'mistral-small-latest';
       const m = await load();
-      expect(m.PRIMARY_MODEL_ID).toBe('groq/openai/gpt-oss-20b');
-      expect(m.FALLBACK_MODEL_ID).toBe('mistral/mistral-small-latest');
+      expect(m.PRIMARY_MODEL_ID).toBe('google/gemini-3.6-flash');
+      expect(m.FALLBACK_MODEL_ID).toBe('groq/openai/gpt-oss-20b');
+      expect(m.LAST_RESORT_MODEL_ID).toBe('mistral/mistral-small-latest');
     });
 
     it('fait porter à la chaîne le modèle configuré, étiquette COMPRISE', async () => {
+      process.env.GEMINI_MODEL_ID = 'gemini-3.6-flash';
       process.env.GROQ_MODEL_ID = 'openai/gpt-oss-20b';
       process.env.MISTRAL_MODEL_ID = 'mistral-small-latest';
       const { makeModelChain } = await load();
 
-      const chain = makeModelChain({ groqApiKey: 'g', mistralApiKey: 'm' });
+      const chain = makeModelChain({ geminiApiKey: 'k', groqApiKey: 'g', mistralApiKey: 'm' });
 
       expect(chain.map((e: { id: string }) => e.id)).toEqual([
+        'google/gemini-3.6-flash',
         'groq/openai/gpt-oss-20b',
         'mistral/mistral-small-latest',
       ]);
       expect(chain.map((e: { model: { modelId: string } }) => e.model.modelId)).toEqual([
+        'gemini-3.6-flash',
         'openai/gpt-oss-20b',
         'mistral-small-latest',
       ]);
@@ -126,11 +144,11 @@ describe('identifiants de modèle', () => {
     it('relit l’environnement à l’appel, pas seulement à l’import', async () => {
       const { makeModelChain } = await load();
 
-      process.env.GROQ_MODEL_ID = 'openai/gpt-oss-20b';
-      const chain = makeModelChain({ groqApiKey: 'g', mistralApiKey: 'm' });
+      process.env.GEMINI_MODEL_ID = 'gemini-3.6-flash';
+      const chain = makeModelChain({ geminiApiKey: 'k', groqApiKey: 'g', mistralApiKey: 'm' });
 
-      expect(chain[0].id).toBe('groq/openai/gpt-oss-20b');
-      expect(chain[0].model.modelId).toBe('openai/gpt-oss-20b');
+      expect(chain[0].id).toBe('google/gemini-3.6-flash');
+      expect(chain[0].model.modelId).toBe('gemini-3.6-flash');
     });
   });
 });

@@ -1,9 +1,25 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { makeKnowledgeAgent } from '../../../src/features/knowledge/application/agents/knowledge-agent';
 import { makeRecruitmentAgent } from '../../../src/features/recruitment/application/agents/recruitment-agent';
 import { makeNotificationAgent } from '../../../src/features/notification/application/agents/notification-agent';
 import { makeGenerateDocument } from '../../../src/features/document/application/tools/generate-document';
+
+/**
+ * ⚠️ Les clés LLM sont posées pour TOUT le fichier depuis le 2026-08-20 : `makeModelChain`
+ * LÈVE quand aucun fournisseur n'est configuré, et les tests unitaires ne chargent pas
+ * `.env`. Construire un agent sans clé, c'est construire un système non configuré — le
+ * dire à la construction vaut mieux que le découvrir au premier message.
+ */
+beforeEach(() => {
+  vi.stubEnv('GOOGLE_GEMINI_API_KEY', 'test-gemini-key');
+  vi.stubEnv('GROQ_API_KEY', 'test-groq-key');
+  vi.stubEnv('MISTRAL_API_KEY', 'test-mistral-key');
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
