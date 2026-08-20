@@ -82,6 +82,8 @@ import {
   type ProfileSnapshot,
 } from '../../../onboarding/domain/services/profile-completion';
 import {
+  answersFromDirectory,
+  PROFILE_ALREADY_COMPLETE,
   PROFILE_CHAT_SAVE_FAILED,
   PROFILE_QUESTIONS,
   answersFromRecord,
@@ -1192,8 +1194,10 @@ export class SlackEventsHandler {
     channel: string;
     threadTs?: string;
     isDirectMessage: boolean;
+    conversationId: string;
+    user?: string;
   }): Promise<void> {
-    const { channel, threadTs, isDirectMessage } = ctx;
+    const { channel, threadTs, isDirectMessage, conversationId, user } = ctx;
     if (!isDirectMessage) {
       logger.info('Profile form requested in a channel — redirected to DM, no LLM call', {
         channel,
@@ -1208,7 +1212,23 @@ export class SlackEventsHandler {
 
     await this.chatProvider.sendBlocks(channel, PROFILE_FORM_INVITE, buildProfileInviteBlocks());
 
-    logger.info('Profile form posted — answered without any LLM call', { channel });
+    const known = await this.knownProfileAnswers(user);
+    const first = nextProfileStep(known);
+
+    if (!first) {
+      await this.sayAndRemember(
+        { channel, threadTs, conversationId, user },
+        PROFILE_ALREADY_COMPLETE,
+      );
+      return;
+    }
+
+    await this.sayAndRemember(
+      { channel, threadTs, conversationId, user },
+      PROFILE_QUESTIONS[first],
+    );
+
+    logger.info('Profile form posted — answered without any LLM call', { channel, first });
   }
 
   private async runAgentPipeline(ctx: {
@@ -1688,7 +1708,13 @@ export class SlackEventsHandler {
         case 'pin_fact':
           return this.runPinFact({ text, channel, threadTs, user });
         case 'profile_form':
-          return this.runProfileForm({ channel, threadTs, isDirectMessage });
+          return this.runProfileForm({
+            channel,
+            threadTs,
+            isDirectMessage,
+            conversationId,
+            user,
+          });
       }
     }
 
@@ -1848,12 +1874,15 @@ export class SlackEventsHandler {
   }
 
   private async knownProfileAnswers(user: string | undefined): Promise<ProfileAnswers> {
-    if (!user || !this.profileRepo) return {};
+    if (!user) return {};
     try {
       const member = await this.getDirectoryRepo()?.findBySlackUserId(user);
+      const fromDirectory = answersFromDirectory(member);
+
       const email = member?.email;
-      if (!email) return {};
-      return answersFromRecord(await this.profileRepo.findByEmail(email));
+      if (!email || !this.profileRepo) return fromDirectory;
+
+      return { ...fromDirectory, ...answersFromRecord(await this.profileRepo.findByEmail(email)) };
     } catch (error) {
       logger.warn('Dossier existant illisible — la conversation repart de zéro', {
         error: String(error),

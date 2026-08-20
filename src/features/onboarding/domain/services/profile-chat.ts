@@ -1,3 +1,5 @@
+import { unwrapSlackLinks } from '../../../../shared/slack-links';
+
 export type ProfileStep = 'firstName' | 'lastName' | 'email' | 'position';
 
 export const PROFILE_STEP_ORDER: readonly ProfileStep[] = [
@@ -58,7 +60,7 @@ export function pendingProfileStep(lastAssistantText: string | undefined): Profi
 }
 
 export function captureProfileAnswer(step: ProfileStep, text: string | undefined): string | null {
-  const trimmed = (text ?? '').trim().replace(/\s+/g, ' ');
+  const trimmed = unwrapSlackLinks(text).trim().replace(/\s+/g, ' ');
   if (!trimmed || isRefusal(trimmed)) return null;
   if (trimmed.length > MAX_ANSWER_CHARS[step]) return null;
 
@@ -105,8 +107,9 @@ export function nextProfileStep(answers: ProfileAnswers): ProfileStep | null {
 export function profileRetryReply(step: ProfileStep): string {
   if (step === 'email') {
     return (
-      'Il me faut une adresse complète, du genre `prenom.nom@kisso.com` ou ' +
-      '`prenom.nom@gmail.com` — une adresse personnelle convient très bien.' +
+      'Je n’ai pas reconnu d’adresse email — il m’en faut une avec un `@` et un domaine, ' +
+      'comme `…@kissohq.com` ou `…@gmail.com`. La forme avant le `@` n’a aucune importance, ' +
+      'et une adresse personnelle convient très bien.' +
       `\n\n${PROFILE_QUESTIONS.email}`
     );
   }
@@ -126,3 +129,31 @@ export function profileChatIntroMissing(missing: readonly string[]): string {
 export const PROFILE_CHAT_SAVE_FAILED =
   'Je n’ai pas réussi à enregistrer ton dossier. Ce n’est pas de ton fait — redis-moi ' +
   '« j’ai fini » dans un instant et je réessaie.';
+
+export interface DirectoryIdentity {
+  readonly firstName?: string | null;
+  readonly lastName?: string | null;
+  readonly email?: string | null;
+  readonly title?: string | null;
+}
+
+export function answersFromDirectory(
+  identity: DirectoryIdentity | null | undefined,
+): ProfileAnswers {
+  const answers: ProfileAnswers = {};
+  if (!identity) return answers;
+
+  const firstName = captureProfileAnswer('firstName', identity.firstName ?? undefined);
+  const lastName = captureProfileAnswer('lastName', identity.lastName ?? undefined);
+  const email = captureProfileAnswer('email', identity.email ?? undefined);
+
+  if (firstName) answers.firstName = firstName;
+  if (lastName) answers.lastName = lastName;
+  if (email) answers.email = email;
+
+  return answers;
+}
+
+export const PROFILE_ALREADY_COMPLETE =
+  'Ton dossier est déjà complet — je n’ai rien à te redemander. Si quelque chose y est ' +
+  'inexact, dis-le moi et je le corrige.';
