@@ -78,6 +78,23 @@ reste est une décision de propriétaire, et elle tient en deux lignes : corrige
 (l'adresse du profil Slack), ou déclarer `gmail.com` domaine de l'organisation — ce qui,
 sur un domaine public, revient à n'avoir plus de frontière.
 
+### Vérifié en production, et ce qui ne l'a pas été
+
+Déploiement `5wlfv0c77`. Périmètre intact — les quatre POST non signés en 401, `/internal/*`
+compris, `GET /api/agents` en 401 ; `url_verification` signé → `200` en 1,0 s.
+
+Le chemin RÉELLEMENT refactoré sur la voie nominale — `resolvePendingEmail` passant désormais
+par `pendingEmailVerdict` — a été rejoué de bout en bout : préparation (« lundi prochain à 10h »
+→ « **lundi 24 août 2026 à 10:00 (UTC+01:00)** »), puis « non » → « D'accord, je ne l'envoie pas.
+Rien n'est parti. » et `pending_interview_email` revenue à **0 ligne**. Aucun email envoyé.
+
+⚠️ **La levée de quota elle-même n'a PAS été vérifiée en production, et ce n'est pas un oubli** :
+l'observer exigerait d'atteindre le plafond, donc de brûler la journée de tout le workspace
+(≈ 19 messages, tous canaux confondus). Elle est couverte par 8 tests, chacun vérifié rouge dans
+les deux sens — y compris les quatre qui verrouillent que la levée ne DÉBORDE pas : un message
+ordinaire, un « oui » sans rien en attente, une rafale et une question posée au bot pendant le
+dossier restent tous refusés.
+
 **1 853 tests verts, typecheck et lint propres.**
 
 ## 2026-08-20 — La promesse d'envoi ne se détecte plus, elle se DÉDUIT du câblage
