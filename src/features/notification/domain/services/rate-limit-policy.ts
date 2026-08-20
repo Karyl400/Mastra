@@ -64,7 +64,7 @@ export function evaluateCount(rule: RateLimitRule, count: number): RateLimitEval
 
   return {
     allowed: count <= rule.limit,
-    shouldNotify: count === rule.limit + 1,
+    shouldNotify: count > rule.limit,
   };
 }
 

@@ -7771,6 +7771,32 @@ pour échouer vite plutôt que de bloquer l'appelant.
 
 Port 465 = TLS implicite ; 587 = STARTTLS (secure:false puis upgrade).
 
+**L.68 — avant `requireTLS: true,`**
+
+⚠️ SANS CETTE LIGNE, LE CHIFFREMENT EN TRANSIT ÉTAIT OPPORTUNISTE.
+Sur 587 (`secure: false`), nodemailer ne bascule en STARTTLS que si le serveur
+annonce l'extension dans sa réponse EHLO : `if (!this.secure && !ignoreTLS &&
+(/STARTTLS/.test(str) || this.options.requireTLS))`. Un serveur qui ne l'annonce
+pas — MITM en aval, relais mal configuré, dégradation de session — laissait donc
+partir `AUTH LOGIN` (identifiants en base64, c'est-à-dire en clair) puis le corps
+du message SANS AUCUNE ERREUR. Ce transport porte des noms, des adresses et des
+convocations d'entretien.
+Avec `requireTLS`, la commande STARTTLS est envoyée quoi qu'annonce le serveur, et
+un refus devient `ETLS: Error upgrading connection with STARTTLS` — un échec
+BRUYANT, jamais un envoi silencieusement dégradé. On ne pose pas `opportunisticTLS`,
+qui reprendrait explicitement le comportement qu'on ferme ici.
+
+Sur 465 (`secure: true`), l'option n'a AUCUN effet sur cette bascule — la garde
+`!this.secure` la court-circuite, TLS étant déjà établi dès la connexion. Elle n'y
+est pas pour autant purement décorative : dans `_actionEHLO`, un EHLO refusé fait
+échouer la connexion au lieu de retomber sur HELO. C'est le comportement souhaité
+(HELO est un dialecte pré-ESMTP), et cela vaut aussi comme filet si `SMTP_PORT`
+était un jour mal renseigné.
+
+Verrouillé par `tests/unit/infrastructure-providers/smtp.adapter.test.ts`
+(bloc « transport TLS »), qui espionne `createTransport` — les autres tests du
+fichier injectent un transport et ne peuvent donc rien dire de ces options.
+
 **L.70 — avant `connectionTimeout: SMTP_TIMEOUT_MS,`**
 
 Pas de `pool: false` ici : c'est déjà le défaut de nodemailer, et le typage
@@ -8712,3 +8738,41 @@ Il reçoit donc désormais la vidéo, le guide et « C'est fait », comme l'arri
 chez Kisso » adressé à quelqu'un qui est là depuis six mois sonne faux. Le reste est
 partagé — le dupliquer garantirait qu'un jour les deux ne disent plus la même chose.
 
+
+---
+
+## Le budget modèle est PRIS, plus seulement lu (2026-08-20)
+
+Depuis le 2026-08-15, le budget modèle n'est plus débité à l'ACK mais juste avant
+`agent.generate()`. La raison est bonne et ne doit pas être défaite : un fil abandonné en
+tâche de fond ne coûte alors rien à personne.
+
+Mais la conséquence n'avait pas été traitée. `check()` en mode `reserveOnly` LISAIT le
+compteur sans le poser, et le débit venait bien plus tard — tout le traitement les séparait.
+N messages en vol lisaient donc le même compteur, passaient tous, puis débitaient tous. Sur
+un système dont la contrainte dominante est un plafond de ≈ 19 messages par JOUR, c'est le
+garde-fou de coût lui-même qui sautait, et sans aucun log de refus pour le signaler.
+
+`claimModelBudget` remplace `consumeModelBudget` sur le chemin nominal. La prise est
+ATOMIQUE : on incrémente, on regarde ce que l'incrément a rendu, et si l'on vient de dépasser
+on REND la prise. Même forme que `clear()` sur l'email d'entretien — on prend d'abord, on agit
+si la prise a réussi. C'est ce qui distingue une garde d'une supposition.
+
+⚠️ La restitution couvre AUSSI la règle qui a causé le refus : elle avait incrémenté elle
+aussi. Sans cela le compteur dérivait à chaque refus, et le plafond serait devenu un compteur
+de TENTATIVES plutôt qu'un compteur de dépense — la personne aurait été pénalisée pour des
+messages qui n'ont jamais atteint le modèle. Vérifié rouge avant correctif.
+
+⚠️ Le refus réutilise `notifyRateLimited(channel, 'daily')`, jamais un texte neuf : les trois
+textes de refus vivent dans `RATE_LIMIT_REPLIES` et un quatrième aurait divergé.
+
+## La dégradation du compteur partagé se journalise à chaque fois (2026-08-20)
+
+Le fail-open reste délibéré : un message de trop est visible, un bot muet ne l'est pas. Ce
+qui ne l'était pas, c'est qu'il ne se journalisait qu'UNE FOIS PAR INSTANCE. Sur des
+instances serverless éphémères, cela vaut une ligne par démarrage à froid — noyée, donc
+invisible. Or dans cet état les règles se réduisent au compteur local, inopérant sur une
+instance froide : c'est la protection du quota journalier qui disparaît entièrement.
+
+La ligne porte désormais `firstInThisInstance`, ce qui permet de distinguer une panne
+naissante d'une panne installée sans perdre les occurrences suivantes.

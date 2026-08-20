@@ -158,6 +158,7 @@ const PII_KEYS = new Set([
   'text',
   'content',
   'body',
+  'subject',
   'fact',
   'dailywork',
   'daily_work',

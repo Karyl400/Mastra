@@ -65,6 +65,7 @@ import { createRequestContextGuard } from '../shared/security/request-context-gu
 import { createSecurityHeadersMiddleware } from '../shared/security/http-headers';
 import { createAgentApiGuard } from '../shared/security/agent-api-guard';
 import { logger } from '../shared/logger';
+import { reportMissingCriticalEnv } from '../shared/startup-env-check';
 import { DrizzlePendingInterviewEmailRepository } from '../features/recruitment/infrastructure/repositories/drizzle-pending-email.repository';
 
 void healthCheck().catch((error) => {
@@ -200,6 +201,8 @@ const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   throw new Error('CRITICAL: DATABASE_URL is required in production environment.');
 }
+
+reportMissingCriticalEnv(process.env, logger);
 
 export const mastra = new Mastra({
   deployer: new VercelDeployer(),

@@ -4066,3 +4066,74 @@ origine, donc aucun `access-control-allow-origin` n'est émis — et le produit 
 
 aucun client navigateur d'aucune origine, ce qui rend le refus total exact.
 
+
+---
+
+## La sauvegarde `.env.bak-*` a été supprimée (2026-08-20)
+
+Un fichier `.env.bak-1786128475` daté du 7 août portait 19 clés en clair —
+`SLACK_SIGNING_SECRET`, `DATABASE_AUTH_TOKEN`, `SMTP_PASS`, `GROQ_API_KEY`,
+`MASTRA_API_TOKEN` entre autres. Il était bien ignoré par git, donc jamais publié, mais
+lisible en `0644` par tout utilisateur de la machine.
+
+Le vrai danger n'était pas la lecture locale : c'est qu'il **survivait à toute rotation de
+clés**. Renouveler les secrets n'aurait pas touché ce fichier, qui aurait gardé les anciens
+en clair indéfiniment, sans que personne ne le surveille.
+
+Vérifié avant suppression : `.env` couvrait toutes les clés de la sauvegarde et aucune valeur
+ne différait — elle était strictement redondante. `.env` est passé en `0600`.
+
+---
+
+## `.env.example` est DÉRIVÉ de `src/`, il n'est plus tenu à la main (2026-08-20)
+
+Onze variables lues par `src/` n'y figuraient pas. La plus chère est `AUTHZ_ENFORCE` :
+quiconque provisionnait depuis cet exemple obtenait une frontière d'autorisation **inactive**
+— `SlackAccessGuard` rendant `full` à tout le monde — et l'absence de signal est la propriété
+même du défaut : une frontière inactive se comporte exactement comme une frontière qui
+marche, vue du côté de celui qui a le droit.
+
+Les dix autres : `SYSTEM_PROMPT_VAULT_SECRET`, `SLACK_DAILY_LIMIT`, `SLACK_BURST_LIMIT`,
+`SLACK_WORKSPACE_TOKEN_BUDGET`, `ONBOARDING_WELCOME_CHANNELS`, `ONBOARDING_VIDEO_URL`,
+`RECRUITMENT_TIMEZONE`, `DISPLAY_TIMEZONE`, plus `VERCEL` et
+`VERCEL_PROJECT_PRODUCTION_URL`.
+
+⚠️ **Ces deux dernières ne sont PAS déclarées, et c'est un choix.** Elles sont injectées par
+la plateforme. Les mettre dans l'exemple inviterait à poser `VERCEL=` en local, ce qui ferait
+croire à `scheduleBackgroundWork` qu'il dispose de `waitUntil` — un bot muet, et un symptôme
+qui ne désigne pas sa cause. Elles vivent dans un bloc « INJECTÉES PAR LA PLATEFORME » en pied
+de fichier, et dans l'allowlist du test.
+
+**Retiré** : `OPENAI_API_KEY` et `AWS_SECRET_ID`, orphelines depuis la suppression de
+`src/config/` — aucun lecteur nulle part dans `src/`, `scripts/` ni `tests/`.
+
+⚠️ **`SLACK_TEAM_ID` a été signalée comme morte par l'audit, et elle ne l'est pas.** Elle est
+lue par le contrôle de workspace du handler Slack (`slack-events.handler.ts`, fail-open
+délibéré quand elle est absente). Elle est CONSERVÉE. C'est précisément ce qu'une liste écrite
+à la main ne peut pas garantir, et ce que le test dérive.
+
+### Le test qui la verrouille
+
+`tests/unit/quality/env-example-completeness.test.ts`, deux sens de statut différent :
+
+- **DUR** — toute variable lue par `process.env.X` (les deux formes d'accès) dans `src/` doit
+  être DÉCLARÉE (`^KEY=`). C'est le sens qui a coûté quelque chose.
+- **SOUPLE** — toute variable déclarée doit être NOMMÉE quelque part dans `src/`, `scripts/`
+  ou `tests/`. Il ne cherche pas `process.env.X` : `MASTRA_API_TOKEN` est lu par indirection
+  (`API_TOKEN_ENV_VAR = 'MASTRA_API_TOKEN'`), et exiger la forme littérale ferait rougir un
+  test sur du code vivant. Une garde qui crie sur du texte juste finit désactivée.
+
+⚠️ **Le test s'EXCLUT lui-même des sources scannées, et sans cela il ne pouvait rien
+attraper.** Son propre docblock nomme les variables mortes qu'il dénonce : au premier run il
+passait au vert alors qu'`OPENAI_API_KEY` et `AWS_SECRET_ID` étaient bel et bien orphelines.
+Un détecteur qui se compte lui-même comme preuve est un détecteur désarmé — même famille que
+les deux détecteurs trouvés désarmés le 2026-08-19.
+
+Un dernier contrôle refuse toute VALEUR réelle dans le fichier (`xoxb-`, `sk-`, JWT…).
+
+## Le démarrage signale ce qui manque (2026-08-20)
+
+`reportMissingCriticalEnv(process.env, logger)` est appelé dans `src/mastra/index.ts` juste
+après le `throw` de `DATABASE_URL`. Il journalise en `error` une ligne par variable critique
+absente, avec sa conséquence concrète — et ne bloque rien. Arbitrage, table des variables et
+raisons : `docs/conception/shared.md`, section `shared/startup-env-check.ts`.

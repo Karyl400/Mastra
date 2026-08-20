@@ -70,13 +70,26 @@ describe('evaluateCount', () => {
     expect(evaluateCount(RULE, 4).allowed).toBe(false);
   });
 
-  it('ne demande de prévenir qu’UNE fois par fenêtre', () => {
-    // Le premier refus mérite un message : le silence est le défaut que ce dépôt a déjà payé
-    // plusieurs fois. Les suivants ne doivent RIEN poster, sinon la limitation de débit devient
-    // elle-même un amplificateur — un message Slack émis par message rejeté.
+  it('propose de prévenir à CHAQUE refus — le rationnement vit ailleurs', () => {
+    // ⚠️ CE TEST ATTENDAIT L'INVERSE (`4 → true`, `5 → false`, `99 → false`), et sa raison
+    // était juste mais placée à la MAUVAISE COUCHE — corrigé le 2026-08-20.
+    //
+    // Elle disait : « les suivants ne doivent RIEN poster, sinon la limitation de débit
+    // devient elle-même un amplificateur ». C'est vrai, et c'est exactement ce que fait
+    // `claimNotification` dans `SlackRateLimiter` : une notification par fenêtre et par
+    // règle, la clé portant le numéro de fenêtre. L'égalité stricte était donc un SECOND
+    // rationnement, plus faible, qui faisait perdre l'unique occasion de parler.
+    //
+    // Trois façons de la perdre, toutes réelles : deux messages simultanés portent le
+    // compteur de `limit` à `limit + 2` d'un coup ; le seul message à `limit + 1` tombe sur
+    // une instance dont la prise a déjà été consommée ; un refus survient après restitution
+    // d'une prise. Dans les trois cas la personne n'entend plus jamais parler de son quota,
+    // et le silence ne se distingue pas d'un bot en panne.
+    //
+    // Cette fonction dit « celui-ci mériterait d'être informé », pas « poste maintenant ».
     expect(evaluateCount(RULE, 4).shouldNotify).toBe(true);
-    expect(evaluateCount(RULE, 5).shouldNotify).toBe(false);
-    expect(evaluateCount(RULE, 99).shouldNotify).toBe(false);
+    expect(evaluateCount(RULE, 5).shouldNotify).toBe(true);
+    expect(evaluateCount(RULE, 99).shouldNotify).toBe(true);
   });
 
   it('traite un compte non exploitable comme une autorisation', () => {

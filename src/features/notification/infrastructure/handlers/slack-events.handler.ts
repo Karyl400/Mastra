@@ -6,6 +6,10 @@ import { wrapAgentInput } from '../../../../shared/security/llm-guardrail';
 import { sanitizeAgentOutput } from '../../../../shared/security/agent-output';
 import type { EmailBody } from '../../domain/services/email-body';
 import { AGENT_GENERATE_TIMEOUT_MS } from '../../../../shared/llm/model-fallback';
+import {
+  describeModelResponse,
+  MODEL_TRUNCATED_NOTICE,
+} from '../../../../shared/llm/model-response';
 import { SlackAdapter } from '../providers/slack.adapter';
 import { SlackWorkspaceService } from '../providers/slack-workspace.service';
 import type { SlackWorkspaceProvider } from '../../domain/ports/slack-workspace.port';
@@ -639,15 +643,20 @@ export class SlackEventsHandler {
     }
   }
 
-  private async chargeModelBudget(slackUserId: string | undefined): Promise<void> {
-    if (!slackUserId) return;
+  private async chargeModelBudget(slackUserId: string | undefined): Promise<boolean> {
+    if (!slackUserId) return true;
     const limiter = this.getRateLimiter();
-    if (!limiter) return;
+    if (!limiter) return true;
 
     try {
-      await limiter.consumeModelBudget(slackUserId);
+      const claim = await limiter.claimModelBudget(slackUserId);
+      if (!claim.allowed) {
+        logger.warn('Model budget exhausted at claim time — message not served', { slackUserId });
+      }
+      return claim.allowed;
     } catch (error) {
       logger.error('Could not charge the model budget — serving the message anyway', { error });
+      return true;
     }
   }
 
@@ -1297,9 +1306,18 @@ export class SlackEventsHandler {
       const durationMs = Date.now() - startedAt;
 
       phase = 'sanitize';
+      const shape = describeModelResponse(response);
       const safeOutput = sanitizeAgentOutput(response.text);
 
       this.logSanitizerVerdicts(safeOutput, { agentId, channel });
+
+      this.logResponseShape(shape, {
+        agentId,
+        channel,
+        durationMs,
+        steps: this.readSteps(response),
+        length: safeOutput.text.length,
+      });
 
       const toolCalls = readToolCallNames(response);
       const unsupportedClaim =
@@ -1349,7 +1367,12 @@ export class SlackEventsHandler {
           (unsupportedClaim ? UNSUPPORTED_CLAIM_NOTICE : '') +
           (registeredWithoutDelivery ? PROMISED_DELIVERY_NOTICE : '') +
           recipientNotice +
-          appendNotes([excerptCoverage, pendingEmailReminder, onboardingReminder]),
+          appendNotes([
+            shape.truncated ? MODEL_TRUNCATED_NOTICE : undefined,
+            excerptCoverage,
+            pendingEmailReminder,
+            onboardingReminder,
+          ]),
       );
 
       const inputTokens = this.readInputTokens(response);
@@ -1694,7 +1717,10 @@ export class SlackEventsHandler {
       details: { accessLevel: accessLevel ?? 'not_evaluated', isDirectMessage },
     });
 
-    await this.chargeModelBudget(user);
+    if (!(await this.chargeModelBudget(user))) {
+      await this.notifyRateLimited(channel, 'daily');
+      return;
+    }
 
     const progress = await startProgress(this.slack, { channel, threadTs });
     await this.runAgentPipeline({
@@ -2261,6 +2287,36 @@ export class SlackEventsHandler {
       .prune(new Date(Date.now() - this.conversationTtlMs))
       .then((removed) => logger.info('Pruned expired conversation turns', { removed }))
       .catch((error) => logger.warn('Conversation prune failed', { error }));
+  }
+
+  private logResponseShape(
+    shape: { empty: boolean; truncated: boolean },
+    context: {
+      agentId: string;
+      channel: string;
+      durationMs: number;
+      steps: number | null;
+      length: number;
+    },
+  ): void {
+    const { agentId, channel, durationMs, steps, length } = context;
+
+    if (shape.empty) {
+      logger.error('Le modèle n’a rien produit — refus neutre rendu par défaut', {
+        agentId,
+        channel,
+        durationMs,
+        steps,
+      });
+    }
+
+    if (shape.truncated) {
+      logger.warn('Réponse coupée par le plafond de sortie du fournisseur', {
+        agentId,
+        channel,
+        length,
+      });
+    }
   }
 
   private readSteps(response: unknown): number | null {

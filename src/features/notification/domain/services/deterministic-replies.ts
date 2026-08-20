@@ -1,5 +1,10 @@
 import { GREETING_REPLIES, GREETING_REPLY, isBareGreeting } from '../../../../shared/greeting';
-import { DISTRESS_REPLY, detectsDistress } from '../../../../shared/distress';
+import {
+  DISTRESS_REPLY,
+  detectsDistress,
+  distressLanguage,
+  distressReplyFor,
+} from '../../../../shared/distress';
 import { requestsErasure } from '../../../../shared/forget';
 import { extractPinnedFact } from '../../../../shared/pin-fact';
 import { requestsProfileForm } from '../../../../shared/profile-request';
@@ -31,6 +36,7 @@ export interface DeterministicReply {
   readonly name: string;
   readonly matches: (input: DeterministicReplyInput) => boolean;
   readonly reply: string | null;
+  readonly resolveReply?: (input: DeterministicReplyInput) => string;
   readonly variants?: readonly string[];
   readonly remembersTurn?: boolean;
   readonly action?: 'erasure' | 'pin_fact' | 'profile_form' | 'profile_done';
@@ -67,7 +73,12 @@ export const DETERMINISTIC_REPLIES: readonly DeterministicReply[] = [
     name: 'distress',
     matches: ({ text }) => detectsDistress(text),
     reply: DISTRESS_REPLY,
-    logFields: ({ isDirectMessage }) => ({ isDirectMessage }),
+    resolveReply: ({ text }) => distressReplyFor(text),
+    logFields: ({ text, isDirectMessage }) => ({
+      isDirectMessage,
+      textLength: text.length,
+      distressLanguage: distressLanguage(text),
+    }),
   },
   {
     name: 'profile_done',
@@ -105,6 +116,7 @@ export function findStaticReply(input: DeterministicReplyInput): DeterministicRe
 
 export function replyFor(entry: DeterministicReply, input: DeterministicReplyInput): string | null {
   if (entry.reply === null) return null;
+  if (entry.resolveReply) return entry.resolveReply(input);
   if (!entry.variants) return entry.reply;
   return pickVariant(entry.variants, input.messageTs);
 }
