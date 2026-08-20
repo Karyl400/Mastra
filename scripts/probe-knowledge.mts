@@ -42,10 +42,17 @@ const db = createClient({
   authToken: process.env.DATABASE_AUTH_TOKEN,
 });
 
-/** Un canal RÉEL où le bot est membre : sans cela l'appartenance du lecteur est indécidable. */
-async function firstMemberChannel(): Promise<{ id: string; name: string }> {
+/**
+ * Un canal RÉEL où le bot est membre — et, de préférence, LE DEMANDEUR AUSSI.
+ *
+ * ⚠️ Cette préférence n'est pas cosmétique. `searchKnowledge` filtre les résultats sur
+ * l'appartenance du demandeur au canal : une sonde qui tombe sur un canal dont il n'est pas
+ * membre rend `no_readable_channel` — verdict CORRECT, mais qui ne prouve pas que la
+ * recherche fonctionne. « Un refus généralisé est indiscernable d'une frontière qui marche. »
+ */
+async function targetChannel(): Promise<{ id: string; name: string; requesterIsMember: boolean }> {
   const res = await fetch(
-    'https://slack.com/api/users.conversations?types=public_channel&limit=200',
+    'https://slack.com/api/users.conversations?types=public_channel,private_channel&limit=200',
     { headers: { authorization: `Bearer ${botToken}` } },
   );
   const body = (await res.json()) as {
@@ -55,10 +62,32 @@ async function firstMemberChannel(): Promise<{ id: string; name: string }> {
   };
   if (!body.ok) throw new Error(`users.conversations: ${body.error}`);
 
-  const channel = body.channels?.find((c) => !c.is_archived);
-  if (!channel) throw new Error("Le bot n'est membre d'aucun canal public vivant.");
+  const alive = (body.channels ?? []).filter((c) => !c.is_archived);
+  if (alive.length === 0) throw new Error("Le bot n'est membre d'aucun canal vivant.");
 
-  return { id: channel.id, name: channel.name };
+  const forced = at('--channel');
+  if (forced) {
+    const picked = alive.find((c) => c.id === forced || c.name === forced.replace(/^#/, ''));
+    if (!picked) throw new Error(`Le bot n'est pas membre de ${forced}.`);
+    return { ...picked, requesterIsMember: await isMember(picked.id) };
+  }
+
+  for (const candidate of alive) {
+    if (await isMember(candidate.id)) {
+      return { id: candidate.id, name: candidate.name, requesterIsMember: true };
+    }
+  }
+
+  return { id: alive[0]!.id, name: alive[0]!.name, requesterIsMember: false };
+}
+
+async function isMember(channelId: string): Promise<boolean> {
+  const res = await fetch(
+    `https://slack.com/api/conversations.members?channel=${channelId}&limit=200`,
+    { headers: { authorization: `Bearer ${botToken}` } },
+  );
+  const body = (await res.json()) as { ok: boolean; members?: string[] };
+  return Boolean(body.ok && body.members?.includes(REQUESTER));
 }
 
 async function post(event: Record<string, unknown>): Promise<number> {
@@ -87,8 +116,17 @@ async function post(event: Record<string, unknown>): Promise<number> {
   return res.status;
 }
 
-const channel = await firstMemberChannel();
-console.log(`Canal cible : #${channel.name} (${channel.id})\n`);
+const channel = await targetChannel();
+console.log(
+  `Canal cible : #${channel.name} (${channel.id}) — demandeur membre : ${channel.requesterIsMember}`,
+);
+if (!channel.requesterIsMember) {
+  console.log(
+    "⚠️  Le demandeur n'est PAS membre : `searchKnowledge` rendra `no_readable_channel`.\n" +
+      '   Verdict correct, mais il ne prouve pas que la recherche fonctionne.',
+  );
+}
+console.log();
 
 const stamp = (Date.now() / 1000).toFixed(6);
 const probeText = `On a décidé de reporter la sonde de connaissance à jeudi (marqueur ${stamp})`;

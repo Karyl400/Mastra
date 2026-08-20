@@ -61,7 +61,7 @@ describe('identifiants de modèle', () => {
   describe('défauts', () => {
     it('retombe sur les littéraux actuels quand rien n’est configuré', async () => {
       const m = await load();
-      expect(m.GEMINI_MODEL_ID).toBe('gemini-3.7-flash');
+      expect(m.GEMINI_MODEL_ID).toBe('gemini-3.5-flash');
       expect(m.GROQ_MODEL_ID).toBe('openai/gpt-oss-120b');
       expect(m.MISTRAL_MODEL_ID).toBe('mistral-large-latest');
     });
@@ -71,7 +71,7 @@ describe('identifiants de modèle', () => {
       process.env.GROQ_MODEL_ID = '   ';
       process.env.MISTRAL_MODEL_ID = '';
       const m = await load();
-      expect(m.GEMINI_MODEL_ID).toBe('gemini-3.7-flash');
+      expect(m.GEMINI_MODEL_ID).toBe('gemini-3.5-flash');
       expect(m.GROQ_MODEL_ID).toBe('openai/gpt-oss-120b');
       expect(m.MISTRAL_MODEL_ID).toBe('mistral-large-latest');
     });

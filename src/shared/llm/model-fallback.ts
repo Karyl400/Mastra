@@ -4,7 +4,23 @@ import { createMistral } from '@ai-sdk/mistral';
 import type { ModelWithRetries } from '@mastra/core/agent';
 import { logger as sharedLogger } from '../logger';
 
-export const DEFAULT_GEMINI_MODEL_ID = 'gemini-3.7-flash';
+/**
+ * ⚠️ `gemini-3.7-flash` a été essayé PUIS ÉCARTÉ le 2026-08-21, sur mesure et non sur
+ * intuition : 2 réponses `503 high demand` sur 6 en local, et deux échecs réels en
+ * production dès la première campagne (« This model is currently experiencing high
+ * demand »). La chaîne rattrapait — Groq répondait — mais c'est exactement le mode de panne
+ * de `llama-3.3-70b-versatile` : le bot répond, et chaque message paie un aller-retour perdu.
+ *
+ * Relevé comparatif, 6 requêtes par modèle :
+ *   gemini-3.5-flash     6/6      ← retenu
+ *   gemini-3.6-flash     5/6      (1 dépassement de délai)
+ *   gemini-3.7-flash     4/6      (2× 503)
+ *   gemini-flash-latest  1/6      (3× 429, 2× 503)
+ *
+ * Les deux retenus appellent les outils, vérifié par une requête portant un vrai schéma —
+ * le test qui avait écarté `qwen/qwen3.6-27b` le 2026-08-15.
+ */
+export const DEFAULT_GEMINI_MODEL_ID = 'gemini-3.5-flash';
 
 export const DEFAULT_GROQ_MODEL_ID = 'openai/gpt-oss-120b';
 
