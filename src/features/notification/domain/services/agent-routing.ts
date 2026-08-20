@@ -57,10 +57,12 @@ const EXPERTISE_QUESTION_PATTERN = new RegExp(
  * ne se prononce que pour demander ce qui s'est dit.
  */
 const RECALL_QUESTION_PATTERN = new RegExp(
-  `${LB}(?:qu${APOS}?est-ce\\s+qu[ie]|qu${APOS}?a-t-on|qu${APOS}?avons-nous|de\\s+quoi)\\s+` +
+  // ⚠️ Le séparateur est `${APOS}?\\s*` et non `\\s+` : « qu'est-ce qu'ON a dit » n'a AUCUN
+  // espace après « qu », et cette seule exigence faisait échouer la formulation la plus
+  // courante des trois. Attrapé par un test, jamais à la lecture.
+  `${LB}(?:qu${APOS}?est-ce\\s+qu|qu${APOS}?a-t-on|qu${APOS}?avons-nous|de\\s+quoi)${APOS}?\\s*` +
     `(?:\\S+\\s+){0,3}(?:d[ié]cid|convenu|dit|parl|discut)` +
-    `|${LB}(?:ce\\s+)?qui\\s+(?:a|ont)\\s+[ée]t[ée]\\s+(?:d[ié]cid|convenu|dit|[ée]voqu)` +
-    `|${LB}on\\s+(?:avait|a)\\s+dit${RB}`,
+    `|${LB}(?:ce\\s+)?qui\\s+(?:a|ont)\\s+[ée]t[ée]\\s+(?:d[ié]cid|convenu|dit|[ée]voqu)`,
   'u',
 );
 
@@ -102,11 +104,17 @@ const TOPIC_BANDS: ReadonlyArray<{
     keywords: [],
     requiredTool: 'searchKnowledge',
     pattern: RECALL_QUESTION_PATTERN,
-    // ⚠️ `false`, et c'est une décision, pas une prudence molle. « c'est décidé, envoie-le »
-    // arrive au milieu d'une préparation de notification : déloger le fil là-dessus rejouerait
-    // exactement l'alternance A → B → A du 2026-08-11. La règle d'admission d'`overridesSticky`
-    // exige un terme qui OUVRE une tâche ; « décidé » peut aussi bien en continuer une.
-    overridesSticky: false,
+    // ⚠️ `true`, et il a fallu une mesure en production pour le trancher. Posé d'abord à
+    // `false` par prudence, la bande n'a JAMAIS tiré : en DM la clé de conversation est le
+    // canal, donc le palier collant verrouille tous les sujets pendant une heure — c'est l'état
+    // absorbant corrigé le 2026-08-11, et il rendait la base inatteignable dans le seul cas qui
+    // compte. Journal du 2026-08-20 : `agentId: onboardingOrchestrator, sticky: true`.
+    //
+    // La règle d'admission est respectée : `searchKnowledge` n'est porté que par UN agent, et
+    // le délogement n'a lieu que si le fil en cours ne l'a pas. Le motif est purement
+    // INTERROGATIF, donc il ouvre toujours une tâche neuve — c'est pour cela que
+    // « on avait dit jeudi », qui peut CONTINUER une discussion d'agenda, en a été retiré.
+    overridesSticky: true,
   },
 ];
 

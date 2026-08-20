@@ -266,7 +266,9 @@ describe('routage vers la base de connaissance', () => {
     ["Qu'est-ce qu'on a dit sur le déploiement ?", 'knowledgeAgent'],
     ['De quoi avez-vous parlé hier ?', 'knowledgeAgent'],
     ['Ce qui a été convenu pour jeudi ?', 'knowledgeAgent'],
-    ['On avait dit jeudi, non ?', 'knowledgeAgent'],
+    // ⚠️ « on avait dit jeudi » a été RETIRÉ du motif : il peut CONTINUER une discussion
+    // d'agenda au lieu d'ouvrir une question de rappel, et la bande déloge désormais un fil.
+    ['On avait dit jeudi, non ?', 'onboardingOrchestrator'],
     // ⚠️ Les non-régressions. « décision » nu a été essayé puis RETIRÉ : un test préexistant
     // l'a attrapé immédiatement sur cette phrase.
     ['je conteste cette décision', 'onboardingOrchestrator'],
@@ -278,9 +280,19 @@ describe('routage vers la base de connaissance', () => {
     expect(routeToAgent(text)).toBe(expected);
   });
 
-  it('ne DÉLOGE PAS un fil en cours — « décidé » peut continuer une tâche', () => {
+  it('DÉLOGE un fil tenu par un agent qui n’a pas la base', () => {
+    // ⚠️ Sans cela la feature est inatteignable dans le seul cas qui compte : en DM la clé de
+    // conversation est le CANAL, donc un échange d'il y a dix minutes sur tout autre sujet
+    // verrouille l'agent pendant une heure. Mesuré en production le 2026-08-20 avant correctif.
     expect(routeToAgent("Qu'est-ce qui a été décidé ?", 'notificationAgent')).toBe(
-      'notificationAgent',
+      'knowledgeAgent',
     );
+    expect(routeToAgent("Qu'est-ce qui a été décidé ?", 'onboardingOrchestrator')).toBe(
+      'knowledgeAgent',
+    );
+  });
+
+  it('ne l’arrache PAS à un agent qui sait répondre', () => {
+    expect(routeToAgent("Qu'est-ce qui a été décidé ?", 'knowledgeAgent')).toBe('knowledgeAgent');
   });
 });
