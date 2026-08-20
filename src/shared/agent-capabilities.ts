@@ -16,7 +16,12 @@ export const AGENT_TOOLS: Readonly<Record<string, readonly string[]>> = {
     'getEmployeeProfile',
     'findExpertise',
   ],
-  knowledgeAgent: ['getUserConversations', 'getChannelHistory', 'findExpertise'],
+  knowledgeAgent: [
+    'getUserConversations',
+    'getChannelHistory',
+    'findExpertise',
+    'findPersonByName',
+  ],
   recruitmentAgent: ['scheduleCandidateInterview'],
 };
 

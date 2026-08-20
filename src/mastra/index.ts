@@ -174,6 +174,7 @@ const knowledgeAgent = makeKnowledgeAgent({
   getUserConversations,
   getChannelHistory,
   findExpertise,
+  findPersonByName,
 });
 
 const pendingInterviewEmailRepo = new DrizzlePendingInterviewEmailRepository();
