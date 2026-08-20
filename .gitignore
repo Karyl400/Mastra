@@ -32,3 +32,4 @@ coverage
 # Le gabarit d'environnement EST versionné : il ne contient aucune valeur.
 # Sans cette exception, la règle `.env*` plus haut l'emporte.
 !.env.example
+/agent-marcel/

@@ -15,6 +15,9 @@ import { parseWelcomeChannelNames } from '../features/directory/domain/services/
 import { DrizzleOnboardingInterviewRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding-interview.repository';
 import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
 import { DrizzlePendingInterviewEmailRepository } from '../features/recruitment/infrastructure/repositories/drizzle-pending-email.repository';
+import { KnowledgeIngestionService } from '../features/knowledge/application/services/knowledge-ingestion.service';
+import { DrizzleMessageArchiveRepository } from '../features/knowledge/infrastructure/repositories/drizzle-message-archive.repository';
+import { DrizzleKnowledgeFactRepository } from '../features/knowledge/infrastructure/repositories/drizzle-knowledge-fact.repository';
 import { createEmailProvider } from '../features/notification/infrastructure/providers/email-provider.factory';
 
 export const SLACK_EVENTS_PATH = '/slack/events';
@@ -102,6 +105,10 @@ export function getSlackEventsHandler(mastra: Mastra): SlackEventsHandler {
       interviewRepository: new DrizzleOnboardingInterviewRepository(),
       profileRepository: new DrizzleEmployeeRepository(),
       pendingEmailRepository: new DrizzlePendingInterviewEmailRepository(),
+      knowledgeIngestion: new KnowledgeIngestionService({
+        archive: new DrizzleMessageArchiveRepository(),
+        facts: new DrizzleKnowledgeFactRepository(),
+      }),
       sendEmail: (to, subject, body) => getEventsEmailProvider().sendEmail(to, subject, body),
       ...handlerOptionsForTests,
     });
@@ -185,6 +192,18 @@ export async function handleSlackEventRequest(c: SlackRouteContext): Promise<Res
       });
     }
   } else {
+    // ⚠️ Écarté pour la RÉPONSE, pas pour la CONNAISSANCE. Un message de canal est écarté par
+    // `rejectMessage` (`not_a_dm`) — c'est le cas nominal, et c'est justement celui qu'il faut
+    // archiver. Le rejet protège le budget de modèle ; il ne dit rien de ce qui mérite d'être su.
+    scheduleBackgroundWork(
+      handler.ingest(body).catch((error) => {
+        logger.warn('Knowledge ingestion failed for an ignored Slack event', {
+          error,
+          eventId: body.event_id,
+        });
+      }),
+    );
+
     logger.debug('Slack event ignored', { reason: decision.reason, eventId: body.event_id });
   }
 

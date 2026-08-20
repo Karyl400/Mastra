@@ -22,6 +22,7 @@
     "db:push": "drizzle-kit push",
     "build:prod": "tsc --noEmit && mastra build && node scripts/fix-vercel-output.js && npm run verify:bundle",
     "start:prod": "node .mastra/index.mjs",
+    "db:fts": "npx tsx --env-file=.env scripts/apply-ddl.mts scripts/ddl-channel-messages.sql && npx tsx --env-file=.env scripts/apply-ddl.mts scripts/ddl-knowledge-facts.sql",
     "db:init": "npx drizzle-kit export --dialect=sqlite --schema=./src/infrastructure/database/schema.ts | sqlite3 data/kisso.db",
     "profile:invite": "npx tsx --env-file=.env scripts/invite-profile-completion.mts",
     "directory:sync": "npx tsx --env-file=.env scripts/sync-slack-directory.mts",

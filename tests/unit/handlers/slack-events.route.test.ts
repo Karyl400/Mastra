@@ -154,6 +154,11 @@ function resetRouteHandlerWithTestDoubles(): void {
     // construit un `DrizzleRateLimitRepository` et compte les messages de tous les tests
     // ensemble, dans un fichier qui survit au run.
     rateLimiter: null,
+    // ⚠️ NEUVIÈME dépendance à neutraliser (2026-08-20). Sans elle, la route fabrique un
+    // `DrizzleMessageArchiveRepository` et un `DrizzleKnowledgeFactRepository`, qui écrivent
+    // dans la VRAIE `data/kisso.db` à chaque événement de canal — y compris ceux qui sont
+    // écartés, puisque c'est précisément eux que l'ingestion existe pour retenir.
+    knowledgeIngestion: null,
   });
 }
 
@@ -478,16 +483,25 @@ describe('Route: prolongation du traitement de fond (waitUntil)', () => {
     expect(postMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('does not schedule anything for an ignored event', async () => {
+  it('n’APPELLE AUCUN AGENT sur un événement écarté — seule l’ingestion est planifiée', async () => {
+    // ⚠️ Ce test assertait « rien n'est planifié » jusqu'au 2026-08-20. C'était vrai, et
+    // c'était le défaut : un message de canal est écarté par `rejectMessage` (`not_a_dm`),
+    // donc il était jeté sans jamais entrer dans la base de connaissance. Écarter pour la
+    // RÉPONSE et écarter pour la CONNAISSANCE sont deux décisions différentes.
+    //
+    // Ce qui doit rester vrai, et que ce test garde : aucun appel de modèle. Le budget est de
+    // ≈ 19 messages par JOUR ; l'ingestion coûte zéro token, une réponse non.
     const waitUntil = vi.fn();
     installVercelContext(waitUntil);
 
-    const { mastra } = makeMastra();
+    const { mastra, getAgent } = makeMastra();
     await callRoute(
       eventCallback(dmEvent({ bot_id: 'B0BM9MK4G65', subtype: 'bot_message' }), 'Ev0NOSCHED'),
       { mastra },
     );
 
-    expect(waitUntil).not.toHaveBeenCalled();
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+    expect(getAgent).not.toHaveBeenCalled();
+    expect(postMessage).not.toHaveBeenCalled();
   });
 });

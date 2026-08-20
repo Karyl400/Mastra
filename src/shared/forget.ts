@@ -97,8 +97,9 @@ export function requestsErasure(text: string | undefined | null): boolean {
 
 export const ERASURE_SCOPE_NOTICE =
   'Ça ne touche que ce que je garde de nos échanges. Les documents déjà produits, les ' +
-  "notifications déjà envoyées, ta fiche dans l'annuaire et ce que tu m'as dit de ton métier " +
-  "lors de l'accueil ne passent pas par moi — pour ceux-là, adresse-toi à l'équipe RH.";
+  "notifications déjà envoyées, ta fiche dans l'annuaire, ce que tu m'as dit de ton métier " +
+  "lors de l'accueil et les messages que j'ai archivés dans les canaux ne passent pas par " +
+  "moi — pour ceux-là, adresse-toi à l'équipe RH.";
 
 export function erasureDoneReply(count: number): string {
   if (count === 0) {

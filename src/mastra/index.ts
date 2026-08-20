@@ -43,6 +43,9 @@ import { DrizzleBotMemoryRepository } from '../features/knowledge/infrastructure
 import { SlackChannelHistoryAdapter } from '../features/knowledge/infrastructure/providers/slack-channel-history.adapter';
 import { makeGetUserConversations } from '../features/knowledge/application/tools/get-user-conversations';
 import { makeGetChannelHistory } from '../features/knowledge/application/tools/get-channel-history';
+import { makeSearchKnowledge } from '../features/knowledge/application/tools/search-knowledge';
+import { DrizzleMessageArchiveRepository } from '../features/knowledge/infrastructure/repositories/drizzle-message-archive.repository';
+import { DrizzleKnowledgeFactRepository } from '../features/knowledge/infrastructure/repositories/drizzle-knowledge-fact.repository';
 import { makeFindExpertise } from '../features/knowledge/application/tools/find-expertise';
 
 import { SmtpAdapter } from '../features/notification/infrastructure/providers/smtp.adapter';
@@ -171,7 +174,18 @@ const getChannelHistory = makeGetChannelHistory({
   channels: channelHistory,
 });
 
+const messageArchive = new DrizzleMessageArchiveRepository();
+const knowledgeFactRepo = new DrizzleKnowledgeFactRepository();
+
+const searchKnowledge = makeSearchKnowledge({
+  directory: directoryRepo,
+  facts: knowledgeFactRepo,
+  archive: messageArchive,
+  channels: channelHistory,
+});
+
 const knowledgeAgent = makeKnowledgeAgent({
+  searchKnowledge,
   getUserConversations,
   getChannelHistory,
   findExpertise,

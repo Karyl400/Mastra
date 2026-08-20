@@ -5,6 +5,12 @@ import { logger } from '../../../../shared/logger';
 import { wrapAgentInput } from '../../../../shared/security/llm-guardrail';
 import { sanitizeAgentOutput } from '../../../../shared/security/agent-output';
 import type { EmailBody } from '../../domain/services/email-body';
+import {
+  archiveIdOf,
+  isArchivableChannelType,
+  postedAtOf,
+} from '../../../knowledge/domain/ports/message-archive.repository';
+import type { KnowledgeIngestionPort } from '../../../knowledge/application/services/knowledge-ingestion.service';
 import { AGENT_GENERATE_TIMEOUT_MS } from '../../../../shared/llm/model-fallback';
 import {
   describeModelResponse,
@@ -262,6 +268,7 @@ export interface SlackEventsHandlerOptions {
   auditSink?: (entry: Parameters<typeof writeAuditLog>[0]) => Promise<unknown>;
   pendingEmailRepository?: PendingInterviewEmailRepository | null;
   sendEmail?: (to: string, subject: string, body: EmailBody) => Promise<unknown>;
+  knowledgeIngestion?: KnowledgeIngestionPort | null;
   now?: () => Date;
 }
 
@@ -372,6 +379,7 @@ export class SlackEventsHandler {
 
   private readonly pendingEmailRepo: PendingInterviewEmailRepository | null | undefined;
   private readonly now: () => Date;
+  private readonly knowledgeIngestion: KnowledgeIngestionPort | null | undefined;
   private readonly sendEmail:
     ((to: string, subject: string, body: EmailBody) => Promise<unknown>) | undefined;
 
@@ -390,6 +398,7 @@ export class SlackEventsHandler {
     this.pendingEmailRepo = options.pendingEmailRepository;
     this.now = options.now ?? (() => new Date());
     this.sendEmail = options.sendEmail;
+    this.knowledgeIngestion = options.knowledgeIngestion;
     this.dedupRepo = options.dedupRepository;
     this.conversationTokenBudget = options.conversationTokenBudget ?? CONVERSATION_TOKEN_BUDGET;
     this.conversationTtlMs = options.conversationTtlMs ?? CONVERSATION_TTL_MS;
@@ -943,9 +952,16 @@ export class SlackEventsHandler {
     return resolved;
   }
 
+  async ingest(envelope: SlackEventEnvelope): Promise<void> {
+    const event = envelope.event;
+    if (!event) return;
+    await this.archiveChannelMessage(event);
+  }
+
   async handleEvent(envelope: SlackEventEnvelope): Promise<void> {
     const key = this.dedupKey(envelope);
     try {
+      await this.ingest(envelope);
       await this.processEvent(envelope);
       await this.markDedupDone(key);
     } catch (error) {
@@ -2367,6 +2383,34 @@ export class SlackEventsHandler {
       'No access guard is wired (directoryRepository missing) — authorization cannot be ' +
         "evaluated. Nobody will be able to read anyone else's record.",
     );
+  }
+
+  private async archiveChannelMessage(event: SlackEvent): Promise<void> {
+    const ingestion = this.knowledgeIngestion;
+    if (!ingestion || isTeamJoinEvent(event)) return;
+
+    const message = event as SlackMessageEvent;
+    if (!isArchivableChannelType(message.channel_type)) return;
+    if (message.bot_id || message.subtype === 'bot_message') return;
+
+    const text = (message.text ?? '').trim();
+    if (!text || !message.channel || !message.ts) return;
+
+    try {
+      await ingestion.ingest({
+        id: archiveIdOf(message.channel, message.ts),
+        channelId: message.channel,
+        slackUserId: message.user ?? null,
+        text,
+        threadTs: message.thread_ts ?? null,
+        postedAt: postedAtOf(message.ts),
+      });
+    } catch (error) {
+      logger.warn('Message non archivé — la connaissance dégrade, le bot répond', {
+        channel: message.channel,
+        error: String(error),
+      });
+    }
   }
 
   private async evaluateAccess(user: string | undefined): Promise<SlackAccessLevel | undefined> {

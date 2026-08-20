@@ -17,6 +17,7 @@ export const AGENT_TOOLS: Readonly<Record<string, readonly string[]>> = {
     'findExpertise',
   ],
   knowledgeAgent: [
+    'searchKnowledge',
     'getUserConversations',
     'getChannelHistory',
     'findExpertise',

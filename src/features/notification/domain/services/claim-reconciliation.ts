@@ -34,6 +34,7 @@ export const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
   'getNotificationHistory',
   'getUserConversations',
   'getChannelHistory',
+  'searchKnowledge',
 ]);
 
 export const ACTING_TOOL_NAMES: ReadonlySet<string> = new Set([

@@ -8,6 +8,96 @@
 
 ---
 
+## LA BASE DE CONNAISSANCE À DEUX NIVEAUX (2026-08-20)
+
+> Ajout postérieur à l'extraction des commentaires. Ce texte est la source, pas une copie.
+
+### Le problème
+
+`getChannelHistory` lit un canal **en direct, au moment de la question**. Trois conséquences :
+il ne retrouve rien de ce qui a été **supprimé** ; il ne voit que la fenêtre `KNOWLEDGE_LOOKBACK_MS` ;
+et il refait à chaque question le travail de sélection, pendant que quelqu'un attend.
+
+### La forme retenue
+
+Deux tables, alimentées par le MÊME événement, à l'ingestion.
+
+| | `channel_messages` (niveau 1) | `knowledge_facts` (niveau 2) |
+| --- | --- | --- |
+| Contenu | tout message de canal, mot pour mot | ce qui porte de l'information, déjà mis en forme |
+| Sert à | retrouver ce qui a été supprimé | répondre sans refaire le tri |
+| Clé | `${channel}:${ts}` | la MÊME — un message, un fait au plus |
+| Index | FTS5 `unicode61 remove_diacritics 2` | idem |
+| Vecteurs | colonne `F32_BLOB(1024)`, vide | idem |
+
+**La clé partagée est ce qui rend l'ingestion idempotente des deux côtés** : un rejeu Slack ne
+duplique rien, sans qu'aucun code n'ait à s'en occuper.
+
+### Ce qui n'y entre JAMAIS
+
+⚠️ **Les conversations personnelles.** La garde porte sur `channel_type` fourni par Slack —
+`channel` et `group` entrent, `im` et `mpim` non — jamais sur une heuristique de contenu. Une
+heuristique se trompe, et elle se trompe en silence : ici le silence signifierait qu'un DM est
+devenu interrogeable par le manager. Un canal PRIVÉ (`group`) entre parce que le bot y a été
+invité, et l'appartenance du DEMANDEUR est vérifiée à la lecture, pas à l'écriture.
+
+Sont également écartés : les messages du bot et des autres bots, et les messages sans texte.
+
+### Pourquoi la distillation est du CODE et non un appel de modèle
+
+Un appel de modèle par message ingéré est la proposition la plus coûteuse imaginable dans ce
+dépôt : le plafond réel est de ≈ 19 messages de MODÈLE par jour, et `message.channels` livre
+chaque phrase de chaque canal. `distillFact` réutilise `signalScore` — décision 5, engagement 4,
+blocage 4, échéance 3, question 2 — retient au-dessus de `KNOWLEDGE_FACT_MIN_SCORE = 3`, et
+classe par le premier signal qui tire. **Zéro token.**
+
+Le seuil exclut délibérément les messages qui ne portent qu'une mention ou qu'un lien : ils
+restent au niveau 1, qui les retrouve toujours.
+
+### Où vit l'ingestion, et pourquoi PAS dans `accept()`
+
+⚠️ Le premier câblage la posait dans `accept()`. C'était faux pour deux raisons, et l'une
+n'était visible qu'en test : `accept()` est appelé **avant l'ACK**, sur le chemin des 3 secondes
+que Slack accorde et que ce dépôt a déjà dû défendre avec un portier séparé ; et les tests qui
+appelaient `handleEvent` ne l'atteignaient jamais.
+
+`ingest()` est donc une entrée de **tâche de fond**, et la route l'ordonnance dans les DEUX
+branches. C'est le point important : un message de canal est écarté par `rejectMessage`
+(`not_a_dm`) — c'est le cas NOMINAL — donc l'ingestion ne tournerait jamais si elle ne vivait
+que sur le chemin accepté. **Écarter pour la RÉPONSE et écarter pour la CONNAISSANCE sont deux
+décisions différentes.** Le rejet garde toute sa raison d'être : il protège le budget de modèle.
+
+### `searchKnowledge` — deux frontières, qui ne se recouvrent pas
+
+1. **L'APPARTENANCE AU CANAL**, qui vaut pour tout le monde, **manager compris**. L'archive
+   contient les canaux privés ; sans ce filtre, une recherche rendrait `#engineer-karyl` à
+   quelqu'un qui n'y est pas, ce que `getChannelHistory` refuse déjà. L'appartenance est
+   tranchée **en direct auprès de Slack**, jamais sur l'inventaire local que rien ne dément.
+   Une appartenance indécidable écarte le canal : jamais de fail-open.
+2. **LA RECHERCHE NOMINATIVE**, réservée au manager. Chercher « ce que X a dit » est une
+   question sur une PERSONNE. La règle n'est pas réécrite : c'est `authorizeOtherMemoryRead`,
+   la même que `getUserConversations`, donc la même que `slack_directory.role = 'manager'`.
+
+⚠️ **Le verdict nominatif tombe AVANT toute lecture d'annuaire.** Sinon `person_not_found` et
+`insufficient_privilege` se distinguent, et l'annuaire s'énumère une adresse à la fois — le
+même oracle que le chemin email de `getEmployeeProfile` a dû fermer.
+
+### La dégradation
+
+Une panne de l'archive ne rend pas le bot muet : elle est journalisée en `warn` et le traitement
+continue. Une panne du niveau 2 laisse le niveau 1 intact, et `searchKnowledge` y retombe tout
+seul. Un `tier` est rendu dans le tool-result pour que la différence soit lisible.
+
+### Ce que l'effacement ne couvre PAS
+
+`forget()` n'emporte pas l'archive de canal, et le texte de réponse le DIT désormais. Le
+raisonnement : `forget` est un court-circuit dont un faux positif est irréversible, et il est
+déclenché par une phrase ; lui faire effacer un canal entier serait une portée sans commune
+mesure avec « oublie ce que je t'ai dit » en DM. Les deux dépôts exposent `forgetUser` et
+`prune` — la capacité existe, elle n'a simplement aucun déclencheur conversationnel.
+
+---
+
 ## `features/knowledge/application/agents/knowledge-agent.ts`
 
 **L.13 — avant `export function makeKnowledgeAgent(tools: ToolsInput) {`**
