@@ -43,6 +43,21 @@ export interface DirectoryMember {
   /** `employees.id`, quand la personne est un employé enregistré. */
   readonly employeeId: string | null;
 
+  /**
+   * Cette personne porte-t-elle le rôle `manager` ?
+   *
+   * ⚠️ **Absent de `DirectoryMemberFacts`, et ce n'est pas un oubli.** Slack ne connaît pas ce
+   * fait ; l'y faire figurer obligerait le synchroniseur à en inventer une valeur, c'est-à-dire
+   * à fabriquer un fait d'autorisation. La séparation des deux types existe précisément pour
+   * rendre cette erreur impossible — c'est elle qui protège déjà `dmChannelId` et `employeeId`
+   * d'être écrasés à chaque resynchronisation.
+   *
+   * ⚠️ Il ne dépend d'AUCUN dossier employé. Le General Manager de cette entreprise n'a pas de
+   * ligne dans `employees` : exiger un dossier aurait rendu la frontière indésignable sans en
+   * fabriquer un, c'est-à-dire sans inventer une date d'embauche.
+   */
+  readonly isManager: boolean;
+
   readonly firstSeenAt: Date;
   /** Dernière confirmation par Slack de ces valeurs. */
   readonly syncedAt: Date;

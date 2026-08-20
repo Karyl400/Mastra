@@ -38,8 +38,8 @@ import type { DirectoryRepository } from '../../../src/features/directory/domain
  * La clé étrangère `employee_id → employees.id` n'est volontairement pas émise : l'annuaire se
  * teste seul, et créer la table `employees` ici n'ajouterait aucune garantie sur ce contrat.
  */
-function createTableSql(): string {
-  const config = getTableConfig(slackDirectory);
+function createTableSql(table: Parameters<typeof getTableConfig>[0]): string {
+  const config = getTableConfig(table);
 
   const columns = config.columns.map((column) => {
     const parts = [`"${column.name}"`, column.getSQLType()];
@@ -55,7 +55,7 @@ let client: Client | null = null;
 
 async function makeDrizzleRepo(): Promise<DirectoryRepository> {
   client = createClient({ url: ':memory:' });
-  await client.execute(createTableSql());
+  await client.execute(createTableSql(slackDirectory));
   const db = drizzle(client, { schema });
   return new DrizzleDirectoryRepository(() => db);
 }
@@ -98,6 +98,31 @@ const T1 = new Date('2026-08-12T09:00:00.000Z');
 // ─────────────────────────────────────────────────────────────────────────────
 // Contrat commun aux deux implémentations
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Pose le rôle `manager` — DÉLIBÉRÉMENT hors du port.
+ *
+ * `DirectoryRepository` ne déclare AUCUNE écriture du rôle, parce qu'il n'en existe aucune dans
+ * le produit : la colonne se pose par `npm run role:set`, hors de portée de tout chemin exposé
+ * à un agent. La déclarer dans le port en ferait une capacité que n'importe quel câblage futur
+ * pourrait brancher sans la relire — la situation exacte de `discoverSlackWorkspace` avant sa
+ * suppression.
+ *
+ * Ce helper branche donc sur l'implémentation, et c'est le reflet fidèle de cette asymétrie :
+ * en base, un `UPDATE` ; dans la doublure, un utilitaire de test.
+ */
+async function setManager(repo: DirectoryRepository, slackUserId: string): Promise<void> {
+  const doublure = repo as Partial<InMemoryDirectoryRepository>;
+  if (typeof doublure.setRole === 'function') {
+    doublure.setRole(slackUserId, true);
+    return;
+  }
+
+  await client!.execute({
+    sql: 'UPDATE slack_directory SET role = ? WHERE slack_user_id = ?',
+    args: ['manager', slackUserId],
+  });
+}
 
 const implementations: Array<{ nom: string; make: () => Promise<DirectoryRepository> }> = [
   { nom: 'DrizzleDirectoryRepository', make: makeDrizzleRepo },
@@ -174,6 +199,48 @@ describe.each(implementations)('$nom — contrat DirectoryRepository', ({ make }
     expect(membre!.dmChannelId).toBe('D0AWA');
     expect(membre!.employeeId).toBe('emp-42');
     expect(membre!.firstSeenAt.getTime()).toBe(T0.getTime());
+  });
+
+  it('NI LE RÔLE — une resynchronisation ne rétrograde jamais le manager', async () => {
+    // ⚠️ Le plus coûteux des quatre, et le seul qui touche à un DROIT. Slack ne connaît pas ce
+    // fait : s'il figurait dans `DirectoryMemberFacts`, chaque synchronisation le remettrait à
+    // sa valeur par défaut et le manager perdrait sa portée — en silence, sans erreur, et sans
+    // que personne ne relie la panne (« le bot ne me laisse plus rien faire ») au script qu'on
+    // a lancé la veille. C'est la famille exacte de `documents.content`.
+    await repo.upsertFacts(faits(), T0);
+    await setManager(repo, 'U0AWA');
+
+    await repo.upsertFacts(faits({ realName: 'Awa Diop Ndiaye' }), T1);
+
+    expect((await repo.findBySlackUserId('U0AWA'))!.isManager).toBe(true);
+  });
+
+  it('un manager DÉSACTIVÉ ne compte pas comme manager', async () => {
+    // `hasManager()` autorise l'application de toute la frontière. S'il comptait un compte que
+    // la politique refuse par ailleurs (`deactivated_account`), il ouvrirait l'application au
+    // nom de quelqu'un qui n'a plus aucun droit — et rétrograderait tout le monde en croyant
+    // l'inverse.
+    await repo.upsertFacts(faits(), T0);
+    await setManager(repo, 'U0AWA');
+    expect(await repo.hasManager()).toBe(true);
+
+    await repo.upsertFacts(faits({ isDeleted: true }), T1);
+    expect(await repo.hasManager()).toBe(false);
+  });
+
+  it('un BOT porteur du rôle ne compte pas non plus', async () => {
+    await repo.upsertFacts(faits(), T0);
+    await setManager(repo, 'U0AWA');
+
+    await repo.upsertFacts(faits({ isBot: true }), T1);
+    expect(await repo.hasManager()).toBe(false);
+  });
+
+  it('rend `false` quand personne ne porte le rôle — l’état de DÉPART', async () => {
+    // La colonne naît vide : « aucun manager » n'est pas un accident, c'est le premier état du
+    // système. La garde qui refuse d'appliquer dans ce cas s'appuie sur ce contrat.
+    await repo.upsertFacts(faits(), T0);
+    expect(await repo.hasManager()).toBe(false);
   });
 
   it('met bien à jour les faits que Slack maintient, et la date de synchronisation', async () => {

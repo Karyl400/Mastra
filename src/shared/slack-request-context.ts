@@ -279,9 +279,45 @@ export function buildSlackRequestContext(context: SlackToolContext): RequestCont
  * atteignable par un invité externe, donc le seul où le risque existe ; les routes `/api/*`
  * sont déjà derrière un jeton (`createApiAuthConfig`).
  */
-export function canPerformSideEffects(requestContext: unknown): boolean {
-  const level = readSlackContext(requestContext)?.accessLevel;
-  return level === undefined || level === 'full';
+/**
+ * LA RÈGLE, écrite UNE FOIS : son propre dossier toujours, celui d'autrui au niveau `full`.
+ *
+ * ⚠️ Les deux fonctions publiques ci-dessous délèguent ici, et elles restent DEUX — c'est
+ * délibéré. Elles nomment deux droits distincts (lire un dossier / agir dessus) qui, à ce jour,
+ * se décident de la même façon ; leurs sites d'appel doivent continuer de dire lequel ils
+ * exercent. Ce qui ne doit pas exister en double, c'est la RÈGLE : deux copies d'une décision
+ * d'autorisation divergent, c'est une question de temps et non de discipline. Si l'une des deux
+ * doit un jour s'écarter de l'autre, ce sera une modification visible ici, pas un glissement.
+ *
+ * Trois propriétés, dans cet ordre :
+ *
+ *  1. **Pas de contexte ⇒ autorisé.** Playground, workflow, route `/api/*` (déjà derrière un
+ *     jeton), test : il n'y a pas de demandeur Slack à évaluer, et refuser y casserait le
+ *     parcours d'onboarding, qui envoie l'email de bienvenue sans aucun demandeur.
+ *  2. **Son propre dossier : toujours.** Comparaison sur `employees.id`, AVANT le niveau. Sans
+ *     elle, la frontière par RÔLE serait inactivable — depuis le 2026-08-20, `readonly` est le
+ *     cas nominal de TOUT LE MONDE sauf une personne.
+ *  3. **Celui d'autrui : `full` exigé**, c'est-à-dire le manager.
+ *
+ * ⚠️ Une cible absente ou vide ne peut PAS valoir « soi-même » : sans référent, la comparaison
+ * serait vraie par défaut, et omettre le paramètre à un site d'appel rendrait la rétrogradation
+ * inopérante en silence. Idem côté demandeur — un `employeeId` non résolu n'autorise rien.
+ */
+function mayTouchRecord(requestContext: unknown, targetEmployeeId: string | undefined | null) {
+  const context = readSlackContext(requestContext);
+  if (!context) return true;
+
+  const target = nonEmptyString(targetEmployeeId);
+  if (target && context.employeeId && context.employeeId === target) return true;
+
+  return context.accessLevel === undefined || context.accessLevel === 'full';
+}
+
+export function canPerformSideEffects(
+  requestContext: unknown,
+  targetEmployeeId?: string | null,
+): boolean {
+  return mayTouchRecord(requestContext, targetEmployeeId);
 }
 
 /**
@@ -321,11 +357,11 @@ export function canPerformSideEffects(requestContext: unknown): boolean {
  * casserait des usages légitimes (c'est le raisonnement déjà tranché dans `access-guard.ts`,
  * et l'inverse de celui de `disclosure-policy.ts`, dont la capacité était NEUVE).
  *
- * ⚠️ Corollaire de configuration : `resolveAccess` n'accorde `full` qu'à une adresse dont le
- * domaine figure dans `SLACK_ORG_EMAIL_DOMAINS`. Activer l'application sans y faire figurer le
- * domaine réel des personnes qui administrent l'onboarding les ferait basculer en `readonly`
- * — elles ne pourraient plus consulter le dossier de personne. À vérifier AVANT de poser
- * `AUTHZ_ENFORCE=true`, pas après.
+ * ⚠️ Corollaire, depuis le 2026-08-20 : `resolveAccess` n'accorde `full` qu'au porteur du rôle
+ * `manager` (`slack_directory.role`). **`readonly` est donc le cas NOMINAL de tout le monde
+ * sauf une personne** — d'où la comparaison au demandeur ci-dessus, sans laquelle activer la
+ * frontière couperait chacun de son propre dossier. Vérifier qui est désigné AVANT de poser
+ * `AUTHZ_ENFORCE=true` : `npm run probe:authz`.
  *
  * Rendre `true` sur un contexte absent est délibéré, même argument que `canPerformSideEffects`
  * mot pour mot : playground, workflows et tests n'ont pas de demandeur Slack, et l'absence de
@@ -335,16 +371,7 @@ export function canReadPersonRecord(
   requestContext: unknown,
   targetEmployeeId: string | undefined | null,
 ): boolean {
-  const context = readSlackContext(requestContext);
-  if (!context) return true;
-
-  const target = nonEmptyString(targetEmployeeId);
-  // Son propre dossier, toujours. La comparaison est faite AVANT le niveau : quelqu'un qui a
-  // été rétrogradé en `readonly` garde le droit de consulter son propre dossier, sans quoi
-  // activer l'application couperait chacun de son propre parcours d'intégration.
-  if (target && context.employeeId && context.employeeId === target) return true;
-
-  return context.accessLevel === undefined || context.accessLevel === 'full';
+  return mayTouchRecord(requestContext, targetEmployeeId);
 }
 
 /**

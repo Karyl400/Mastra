@@ -4,6 +4,7 @@ import { slackDirectory, type SlackDirectoryRow } from '../../../../infrastructu
 import type { DirectoryMember, DirectoryMemberFacts } from '../../domain/entities/directory-member';
 import type { DirectoryRepository } from '../../domain/ports/directory.repository';
 import { matchesName } from '../../../../shared/name-matching';
+import { EmployeeRole, isManagerRole } from '../../../../shared/types';
 
 /**
  * Annuaire des personnes du workspace, sur LibSQL/Turso.
@@ -149,6 +150,33 @@ export class DrizzleDirectoryRepository implements DirectoryRepository {
       .where(and(eq(slackDirectory.slackUserId, slackUserId), isNull(slackDirectory.dmChannelId)));
   }
 
+  /**
+   * `LIMIT 1` et non un `COUNT(*)` : la question est « existe-t-il », pas « combien ». Compter
+   * balaierait la table pour une réponse booléenne, et ce contrôle vit sur le chemin d'un
+   * message.
+   */
+  async hasManager(): Promise<boolean> {
+    const db = this.resolveDb();
+    // ⚠️ Les mêmes exclusions que la politique : un bot ou un compte désactivé est REFUSÉ
+    // quel que soit son rôle, donc un manager désactivé n'est pas un manager. Sans ces
+    // clauses, la garde autoriserait l'application au nom de quelqu'un que la politique
+    // refuse — et rétrograderait tout le monde en croyant l'inverse.
+    const row = await db
+      .select({ id: slackDirectory.slackUserId })
+      .from(slackDirectory)
+      .where(
+        and(
+          eq(slackDirectory.role, EmployeeRole.Manager),
+          eq(slackDirectory.isDeleted, false),
+          eq(slackDirectory.isBot, false),
+        ),
+      )
+      .limit(1)
+      .get();
+
+    return row !== undefined;
+  }
+
   /** Destructif à dessein, contrairement à `rememberDmChannel` : `null` DÉTACHE, c'est le port. */
   async linkEmployee(slackUserId: string, employeeId: string | null): Promise<number> {
     const db = this.resolveDb();
@@ -219,6 +247,7 @@ function toDomain(row: SlackDirectoryRow): DirectoryMember {
     isDeleted: row.isDeleted,
     dmChannelId: row.dmChannelId ?? null,
     employeeId: row.employeeId ?? null,
+    isManager: isManagerRole(row.role),
     firstSeenAt: row.firstSeenAt,
     syncedAt: row.syncedAt,
   };

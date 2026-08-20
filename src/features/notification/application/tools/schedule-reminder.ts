@@ -95,14 +95,14 @@ export function makeScheduleReminder(
       // ⚠️ Le refus tombe AVANT la résolution du destinataire : sans cela, « destinataire
       // inconnu » et « non autorisé » deviendraient deux verdicts distinguables, donc un
       // oracle d'annuaire — le défaut déjà fermé sur `getEmployeeProfile`.
-      if (!canPerformSideEffects(_ctx?.requestContext)) {
+      if (!canPerformSideEffects(_ctx?.requestContext, data.recipientId)) {
         logger.warn('scheduleReminder refusé : le demandeur n’a pas le niveau requis', {
           recipientId: data.recipientId,
         });
         return {
           stored: false as const,
           reason: 'not_authorized' as const,
-          hint: "Cette action est réservée aux membres de l'organisation. Dis-le simplement, ne réessaie pas.",
+          hint: 'Tu ne peux agir que sur ton propre dossier — celui de quelqu’un d’autre est réservé au manager. Dis-le simplement, ne réessaie pas.',
         };
       }
 

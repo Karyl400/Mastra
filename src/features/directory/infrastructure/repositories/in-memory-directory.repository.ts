@@ -67,6 +67,11 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
       // Faits que NOUS accumulons — jamais réécrits par une synchronisation.
       dmChannelId: previous?.dmChannelId ?? null,
       employeeId: previous?.employeeId ?? null,
+      // ⚠️ CONSERVÉ, jamais réécrit par une synchronisation — même contrat que `dmChannelId`
+      // et `employeeId` juste au-dessus. Slack ne connaît pas ce fait ; le laisser écrire par
+      // `upsertFacts` reviendrait à fabriquer une autorisation, et une resynchronisation
+      // rétrograderait le manager en silence.
+      isManager: previous?.isManager ?? false,
       firstSeenAt: previous?.firstSeenAt ?? now,
 
       syncedAt: now,
@@ -90,6 +95,40 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
     if (!row) return 0;
     this.rows.set(slackUserId, { ...row, employeeId });
     return 1;
+  }
+
+  /**
+   * Pose le rôle — HORS DU PORT, et c'est volontaire.
+   *
+   * `DirectoryRepository` ne déclare aucune écriture du rôle parce qu'il n'en existe aucune en
+   * production : la colonne se pose par `npm run role:set`, délibérément, hors de portée de
+   * tout chemin exposé à un agent. Déclarer un `setRole()` dans le port en ferait une capacité
+   * du produit, donc quelque chose qu'un futur câblage pourrait brancher sans le relire — la
+   * situation exacte de `discoverSlackWorkspace` avant sa suppression.
+   *
+   * Ici, c'est un utilitaire de doublure : il donne aux tests le moyen de fabriquer un manager
+   * sans passer par SQL.
+   */
+  /**
+   * ⚠️ Les MÊMES exclusions que l'implémentation Drizzle — un bot ou un compte désactivé est
+   * refusé par la politique quel que soit son rôle, donc il ne compte pas comme manager.
+   *
+   * La première version de cette doublure les omettait, et le contrat partagé l'a attrapée :
+   * elle aurait autorisé l'application de toute la frontière au nom de quelqu'un que la
+   * politique refuse par ailleurs. Une doublure plus permissive que son original rend vertes
+   * des campagnes qui décrivent un produit qui n'existe pas.
+   */
+  async hasManager(): Promise<boolean> {
+    for (const member of this.rows.values()) {
+      if (member.isManager && !member.isDeleted && !member.isBot) return true;
+    }
+    return false;
+  }
+
+  setRole(slackUserId: string, isManager: boolean): void {
+    const row = this.rows.get(slackUserId);
+    if (!row) return;
+    this.rows.set(slackUserId, { ...row, isManager });
   }
 
   /** Trié sur la clé, comme l'`ORDER BY` de l'implémentation Drizzle. */

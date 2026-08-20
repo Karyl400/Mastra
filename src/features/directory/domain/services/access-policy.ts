@@ -28,19 +28,38 @@
  * pour laquelle `agentToolBoundary(tools)` dérive de `Object.keys(tools)` plutôt que d'une
  * énumération rédigée — même exigence ici.
  *
- * La règle porte donc sur des faits que Slack maintient lui-même : `is_bot`, `is_restricted`,
- * `is_ultra_restricted`, `deleted`, et le domaine de l'adresse professionnelle. Ajouter un
- * invité au workspace le rétrograde AUTOMATIQUEMENT, sans qu'aucune variable d'environnement
- * n'ait à être touchée ni qu'aucun humain n'ait à y penser.
+ * La règle porte donc sur des faits que le SYSTÈME maintient : `is_bot`, `is_restricted`,
+ * `is_ultra_restricted`, `deleted` — que Slack tient à jour — et le RÔLE porté par le dossier
+ * employé. Ajouter un invité au workspace le rétrograde AUTOMATIQUEMENT, sans qu'aucune
+ * variable d'environnement n'ait à être touchée ni qu'aucun humain n'ait à y penser.
+ *
+ * ----------------------------------------------------------------------------
+ * ⚠️ LE DOMAINE EMAIL N'ACCORDE PLUS RIEN — changement du 2026-08-20
+ * ----------------------------------------------------------------------------
+ * `full` était accordé à toute adresse dont le domaine figurait dans
+ * `SLACK_ORG_EMAIL_DOMAINS`. Deux défauts, et le second est le plus grave :
+ *
+ *  1. **La portée était collective.** Les six personnes de l'organisation obtenaient la MÊME
+ *     portée : chacune pouvait lire le dossier RH des cinq autres. « Membre de la maison » et
+ *     « habilité à consulter le dossier de tout le monde » avaient été confondus, alors que
+ *     ce sont deux affirmations distinctes — la première ne fonde pas la seconde.
+ *  2. **Le fait décisif était contrôlé par le bénéficiaire.** L'adresse vient du profil Slack,
+ *     que son porteur édite. Et, mesuré en production, elle rétrogradait l'administratrice de
+ *     l'onboarding (adresse `gmail.com`) tout en accordant `full` à trois personnes sans
+ *     aucun dossier employé : la frontière refusait celle qui en avait le plus besoin.
+ *
+ * `full` ⟺ **le demandeur porte le rôle `manager`**. Tous les autres gardent leur PROPRE
+ * dossier — `canReadPersonRecord` compare sur `employees.id` AVANT de regarder le niveau, et
+ * `canPerformSideEffects` fait désormais de même. `readonly` ne coupe donc personne de
+ * soi-même ; il ferme l'accès aux AUTRES.
  *
  * ----------------------------------------------------------------------------
  * CE QUE CE MODULE NE FAIT PAS
  * ----------------------------------------------------------------------------
- * Il n'implémente PAS le RBAC Employé / RH / Manager annoncé par `CONTEXT.md`. Trois niveaux,
- * pas davantage : c'est le découpage que les capacités réelles du système savent honorer
- * aujourd'hui. Inventer un palier « RH » sans tool qui en dépende produirait exactement le
- * défaut que ce dépôt combat — un composant enregistré qui promet plus qu'il ne tient. Le RBAC
- * complet est P10, et il dépend d'abord de la circulation de l'identité jusqu'aux tools.
+ * Il n'implémente PAS les TROIS rôles Employé / RH / Manager annoncés par `CONTEXT.md`, mais
+ * DEUX. Inventer un palier « RH » sans tool qui en dépende produirait exactement le défaut que
+ * ce dépôt combat — un composant enregistré qui promet plus qu'il ne tient. On ajoutera le
+ * troisième le jour où un outil saura en faire quelque chose de différent des deux autres.
  *
  * Il ne DÉCIDE pas non plus si la décision est appliquée : le mode observation vit chez
  * l'appelant. Cette fonction dit ce qui *devrait* se passer, toujours, même quand rien n'est
@@ -63,14 +82,7 @@ export type AccessLevel = 'denied' | 'readonly' | 'full';
  * défaut corrigé sur `[SECURITY_BLOCK]`.
  */
 export type AccessReason =
-  | 'org_member'
-  | 'guest'
-  | 'no_email'
-  | 'foreign_domain'
-  | 'unknown_actor'
-  | 'policy_not_configured'
-  | 'bot_actor'
-  | 'deactivated_account';
+  'manager' | 'not_a_manager' | 'guest' | 'unknown_actor' | 'bot_actor' | 'deactivated_account';
 
 export interface AccessDecision {
   readonly level: AccessLevel;
@@ -94,52 +106,19 @@ export interface AccessSubject {
   /** Invité mono-canal (`is_ultra_restricted` chez Slack). */
   readonly isUltraRestricted: boolean;
   readonly isDeleted: boolean;
-}
-
-export interface AccessPolicyConfig {
   /**
-   * Domaines email de l'organisation, en minuscules et sans `@`.
+   * Cette personne porte-t-elle le rôle `manager` ?
    *
-   * Vide = politique non configurée : personne n'obtient `full`. Une absence de configuration
-   * ne se lit pas « tout le monde est de la maison » — ce serait fabriquer un privilège à
-   * partir d'un oubli.
+   * ⚠️ Un BOOLÉEN et non la chaîne brute : ce module est pur, il n'a pas à connaître le
+   * vocabulaire de la base. La lecture tolérante — toute valeur inconnue vaut `employee`,
+   * jamais `manager` — vit dans `isManagerRole`, au bord où la valeur entre.
+   *
+   * ⚠️ Il ne dépend d'AUCUN dossier employé, et c'est la donnée réelle qui l'a imposé : le
+   * General Manager de cette entreprise n'a pas de ligne dans `employees`, et 5 des 6
+   * personnes vivantes non plus. Exiger un dossier aurait rendu la frontière indésignable
+   * sans en fabriquer un — c'est-à-dire sans inventer une date d'embauche.
    */
-  readonly orgEmailDomains: readonly string[];
-}
-
-/** Lit `SLACK_ORG_EMAIL_DOMAINS` (`kissohq.com,exemple.fr`). */
-export function readOrgEmailDomains(raw: string | undefined): string[] {
-  return (raw ?? '')
-    .split(',')
-    .map((d) => d.trim().toLowerCase().replace(/^@/, ''))
-    .filter(Boolean);
-}
-
-/**
- * Extrait le domaine d'une adresse, ou `null` si l'adresse n'en porte pas un exploitable.
- *
- * On prend la partie après le DERNIER `@` : `"a@b"@evil.com` est une adresse syntaxiquement
- * valide dont le domaine réel est `evil.com`, et découper sur le premier `@` rendrait ici
- * `b"@evil.com` — une chaîne qui ne correspond à rien et pourrait, selon la comparaison,
- * passer pour un domaine interne.
- */
-function extractDomain(email: string): string | null {
-  const at = email.lastIndexOf('@');
-  if (at <= 0 || at === email.length - 1) return null;
-  return email.slice(at + 1).toLowerCase();
-}
-
-/**
- * `true` si le domaine EST un domaine de l'organisation ou un de ses sous-domaines.
- *
- * ⚠️ Le point du `.` n'est pas cosmétique. Un `domain.endsWith(org)` nu accorderait `full` à
- * `notkissohq.com`, que n'importe qui enregistre pour quelques euros. On exige donc soit
- * l'égalité stricte, soit une frontière de label — `mail.kissohq.com` passe, `notkissohq.com`
- * non. C'est le même défaut de classe que celui corrigé sur le routage par mots-clés, où
- * `String.includes('test')` capturait « contestation ».
- */
-function belongsToOrg(domain: string, orgDomains: readonly string[]): boolean {
-  return orgDomains.some((org) => domain === org || domain.endsWith(`.${org}`));
+  readonly isManager: boolean;
 }
 
 /**
@@ -149,16 +128,22 @@ function belongsToOrg(domain: string, orgDomains: readonly string[]): boolean {
  * L'ORDRE DES RÈGLES EST LE FOND DU CORRECTIF, pas un détail de lecture :
  *
  *   1. Les refus durs d'abord (bot, compte désactivé) — ils ne se négocient contre rien.
- *   2. Le statut d'invité AVANT le domaine. L'inverse rendrait `full` à un invité porteur
- *      d'une adresse interne, c'est-à-dire précisément au cas que ce contrôle vise.
- *   3. Le domaine en dernier — la seule règle qui puisse ACCORDER quelque chose.
+ *   2. Le statut d'invité AVANT le rôle. L'inverse accorderait `full` à un invité externe
+ *      porteur d'un dossier marqué `manager`, c'est-à-dire précisément au cas que ce contrôle
+ *      vise. Le rôle est un fait interne ; l'invitation est un fait de Slack, et c'est celui
+ *      qui doit primer.
+ *   3. Le rôle en dernier — la seule règle qui puisse ACCORDER quelque chose.
  *
- * Un sujet inconnu (`null`) est rétrogradé, jamais refusé : voir le test correspondant.
+ * Un sujet inconnu (`null`) est rétrogradé, jamais refusé : un événement parvenu jusqu'ici a
+ * déjà franchi la signature HMAC et le contrôle de `team_id`, son origine n'est pas en doute ;
+ * seul son privilège l'est.
+ *
+ * ⚠️ `readonly` NE COUPE PERSONNE DE SOI-MÊME. C'est la propriété qui rend cette politique
+ * activable : `canReadPersonRecord` et `canPerformSideEffects` comparent sur `employees.id`
+ * AVANT de regarder le niveau. Une personne sans dossier ne perd rien non plus — elle n'a
+ * rien à perdre. Ce que `readonly` ferme, c'est l'accès aux dossiers des AUTRES.
  */
-export function resolveAccess(
-  subject: AccessSubject | null,
-  policy: AccessPolicyConfig,
-): AccessDecision {
+export function resolveAccess(subject: AccessSubject | null): AccessDecision {
   if (!subject) return { level: 'readonly', reason: 'unknown_actor' };
 
   if (subject.isBot) return { level: 'denied', reason: 'bot_actor' };
@@ -168,17 +153,7 @@ export function resolveAccess(
     return { level: 'readonly', reason: 'guest' };
   }
 
-  if (policy.orgEmailDomains.length === 0) {
-    return { level: 'readonly', reason: 'policy_not_configured' };
-  }
-
-  const email = subject.email?.trim().toLowerCase();
-  if (!email) return { level: 'readonly', reason: 'no_email' };
-
-  const domain = extractDomain(email);
-  if (!domain) return { level: 'readonly', reason: 'no_email' };
-
-  return belongsToOrg(domain, policy.orgEmailDomains)
-    ? { level: 'full', reason: 'org_member' }
-    : { level: 'readonly', reason: 'foreign_domain' };
+  return subject.isManager
+    ? { level: 'full', reason: 'manager' }
+    : { level: 'readonly', reason: 'not_a_manager' };
 }

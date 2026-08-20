@@ -21,8 +21,6 @@ const PRIVATE_CHANNEL = 'C0BJGBVB5HP'; // #engineer-karyl, privé, le bot y est
 const HR = 'U_HR';
 const GUEST = 'U_GUEST';
 
-const POLICY = { orgEmailDomains: ['kissohq.com'] };
-
 function facts(overrides: Partial<DirectoryMemberFacts> & { slackUserId: string }) {
   return {
     teamId: 'TMLKC4EPP',
@@ -91,7 +89,7 @@ type Result = {
 };
 
 function tool() {
-  return makeGetChannelHistory({ directory, channels, policy: POLICY });
+  return makeGetChannelHistory({ directory, channels });
 }
 
 async function run(channelId: string, requesterId?: string): Promise<Result> {
@@ -160,7 +158,6 @@ describe('getChannelHistory — autorisation', () => {
     const result = (await makeGetChannelHistory({
       directory,
       channels: failing,
-      policy: POLICY,
     }).execute!(
       { channelId: PRIVATE_CHANNEL } as never,
       {

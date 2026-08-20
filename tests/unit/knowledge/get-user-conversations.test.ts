@@ -23,7 +23,6 @@ const TARGET = 'U0AWA1234';
 const HR_DM = 'D_HR';
 const TARGET_DM = 'D_AWA';
 
-const POLICY = { orgEmailDomains: ['kissohq.com'] };
 const NOW = new Date('2026-08-12T09:00:00.000Z');
 
 function facts(overrides: Partial<DirectoryMemberFacts> & { slackUserId: string }) {
@@ -65,6 +64,11 @@ beforeEach(async () => {
     NOW,
   );
   await directory.rememberDmChannel(HR, HR_DM);
+  // ⚠️ Depuis le 2026-08-20, lire la mémoire d'un TIERS est réservé au MANAGER — ce n'est plus
+  // « un membre de l'organisation ». La personne qui tient ce rôle dans ces scénarios doit
+  // donc le porter explicitement : sans cela ces tests vérifieraient un refus généralisé, ce
+  // qui ressemble à s'y méprendre à une frontière qui fonctionne.
+  directory.setRole(HR, true);
 
   await directory.upsertFacts(
     facts({
@@ -109,7 +113,7 @@ async function run(
 
   const input = person === undefined ? {} : { person };
 
-  return (await makeGetUserConversations({ directory, memory, policy: POLICY }).execute!(
+  return (await makeGetUserConversations({ directory, memory }).execute!(
     input as never,
     ctx as never,
   )) as Result;
@@ -232,7 +236,6 @@ describe("getUserConversations — l'oracle d'annuaire", () => {
     const result = (await makeGetUserConversations({
       directory: counting,
       memory,
-      policy: POLICY,
     }).execute!(
       { person: 'awa@kissohq.com' } as never,
       {
@@ -314,7 +317,6 @@ describe('getUserConversations — restitution', () => {
     const result = (await makeGetUserConversations({
       directory,
       memory: broken,
-      policy: POLICY,
     }).execute!(
       { person: 'awa@kissohq.com' } as never,
       {

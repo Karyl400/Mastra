@@ -1,10 +1,8 @@
 import { logger } from '../../../../shared/logger';
 import {
   resolveAccess,
-  readOrgEmailDomains,
   type AccessDecision,
   type AccessLevel,
-  type AccessPolicyConfig,
   type AccessSubject,
 } from '../../domain/services/access-policy';
 
@@ -29,13 +27,20 @@ import {
  * qu'on activerait — et l'on n'aurait rien mesuré du tout.
  *
  * ----------------------------------------------------------------------------
- * ⚠️ ACTIVER SANS CONFIGURER NE PEUT PAS ARRIVER
+ * ⚠️ ACTIVER SANS DÉSIGNER DE MANAGER NE PEUT PAS ARRIVER
  * ----------------------------------------------------------------------------
- * `AUTHZ_ENFORCE=true` avec `SLACK_ORG_EMAIL_DOMAINS` vide donnerait `readonly` à TOUT LE
- * MONDE : la politique, correctement, n'accorde `full` à personne quand elle ne sait pas ce
- * qu'est un domaine interne. Appliquer cela rétrograderait l'organisation entière sur une
- * variable oubliée, et le symptôme (« le bot ne sait plus rien faire ») ne désignerait pas sa
- * cause. On refuse donc d'appliquer, on journalise en `error`, et on reste en observation.
+ * `AUTHZ_ENFORCE=true` sans qu'aucun dossier ne porte le rôle `manager` donnerait `readonly` à
+ * TOUT LE MONDE : la politique, correctement, n'accorde `full` qu'au manager. Appliquer cela
+ * rétrograderait l'organisation entière sur une désignation oubliée, et le symptôme (« le bot
+ * ne sait plus rien faire ») ne désignerait pas sa cause. On refuse donc d'appliquer, on
+ * journalise en `error`, et on reste en observation.
+ *
+ * ⚠️ Cette garde portait auparavant sur `SLACK_ORG_EMAIL_DOMAINS` vide. Elle a suivi le fait
+ * qui décide : depuis le 2026-08-20 c'est le RÔLE, plus le domaine email. Une garde laissée sur
+ * l'ancien fait aurait été strictement décorative — elle aurait laissé passer exactement la
+ * panne qu'elle existe pour empêcher, en donnant l'impression contraire.
+ * Et l'inversion est ici plus probable qu'avant : la colonne `role` naît VIDE, donc l'état
+ * « aucun manager » est l'état de départ, pas un accident.
  *
  * C'est la même doctrine que `checkTeamId` : fail-open, mais BRUYANT. Ce dépôt a déjà payé le
  * prix des échecs silencieux trois fois — `emailSent: false` sous `status: 'success'`,
@@ -56,9 +61,27 @@ export type SubjectResolver = (slackUserId: string) => Promise<AccessSubject | n
 
 export interface SlackAccessGuardOptions {
   readonly resolveSubject: SubjectResolver;
-  readonly policy?: AccessPolicyConfig;
   readonly enforce?: boolean;
+  /**
+   * « Existe-t-il au moins un dossier portant le rôle `manager` ? »
+   *
+   * OBLIGATOIRE pour que l'application ait lieu : sans ce moyen de vérifier, on ne peut pas
+   * distinguer « la politique est configurée » de « personne n'a été désigné », et le second
+   * cas rétrograde tout le monde. Absent ⇒ on reste en observation, bruyamment.
+   *
+   * NE DOIT JAMAIS LEVER : une panne de lecture n'est pas une preuve d'absence. L'appelant
+   * rend `false` en dernier recours, ce qui suspend l'application au lieu de couper l'équipe.
+   */
+  readonly hasManager?: () => Promise<boolean>;
 }
+
+/**
+ * Intervalle entre deux vérifications « existe-t-il un manager ? » quand la réponse est NON.
+ *
+ * Une minute : assez court pour qu'une désignation prenne effet sans redéploiement, assez long
+ * pour qu'un état mal configuré ne coûte pas une lecture par message.
+ */
+const MANAGER_RECHECK_MS = 60_000;
 
 /** Lit `AUTHZ_ENFORCE`. Tout ce qui n'est pas explicitement « vrai » vaut observation. */
 export function readAuthzEnforce(raw: string | undefined): boolean {
@@ -68,17 +91,26 @@ export function readAuthzEnforce(raw: string | undefined): boolean {
 
 export class SlackAccessGuard {
   private readonly resolveSubject: SubjectResolver;
-  private readonly policy: AccessPolicyConfig;
   private readonly enforceRequested: boolean;
+  private readonly hasManager?: () => Promise<boolean>;
   /** Un avertissement de configuration, pas un par message. */
   private misconfigurationLogged = false;
+  /**
+   * Mémorisation du contrôle « existe-t-il un manager ? ».
+   *
+   * ⚠️ ASYMÉTRIQUE, et l'asymétrie est le point. Un `true` est définitif : un manager désigné
+   * ne se dé-désigne pas en cours de vie d'instance, et re-vérifier coûterait une lecture par
+   * message. Un `false` est RÉÉVALUÉ, avec un intervalle : sans cela, désigner un manager
+   * n'aurait d'effet qu'au prochain démarrage à froid, et le diagnostic serait « j'ai fait ce
+   * qu'on m'a dit et rien n'a changé » — la classe de panne la plus coûteuse de ce dépôt.
+   */
+  private managerSeen = false;
+  private lastManagerCheck = 0;
 
   constructor(options: SlackAccessGuardOptions) {
     this.resolveSubject = options.resolveSubject;
-    this.policy = options.policy ?? {
-      orgEmailDomains: readOrgEmailDomains(process.env.SLACK_ORG_EMAIL_DOMAINS),
-    };
     this.enforceRequested = options.enforce ?? readAuthzEnforce(process.env.AUTHZ_ENFORCE);
+    this.hasManager = options.hasManager;
   }
 
   /**
@@ -102,8 +134,8 @@ export class SlackAccessGuard {
       });
     }
 
-    const decision = resolveAccess(subject, this.policy);
-    const enforced = this.canEnforce();
+    const decision = resolveAccess(subject);
+    const enforced = await this.canEnforce();
 
     if (!enforced && decision.level !== 'full') {
       // LA ligne à lire avant d'activer. Elle répond exactement à la question qu'on se pose
@@ -131,23 +163,53 @@ export class SlackAccessGuard {
   }
 
   /**
-   * Applique-t-on réellement ? Non si la politique n'a pas de domaine déclaré — voir
-   * l'avertissement en tête de fichier.
+   * Applique-t-on réellement ? Non tant qu'aucun manager n'est désigné — voir l'avertissement
+   * en tête de fichier.
    */
-  private canEnforce(): boolean {
+  private async canEnforce(): Promise<boolean> {
     if (!this.enforceRequested) return false;
 
-    if (this.policy.orgEmailDomains.length === 0) {
-      if (!this.misconfigurationLogged) {
-        this.misconfigurationLogged = true;
-        logger.error(
-          'AUTHZ_ENFORCE is on but SLACK_ORG_EMAIL_DOMAINS is empty — refusing to enforce, ' +
-            'which would downgrade the entire organization. Staying in observation mode.',
-        );
-      }
+    if (!this.hasManager) {
+      this.warnOnce(
+        'AUTHZ_ENFORCE is on but the guard was built without a way to check for a manager — ' +
+          'refusing to enforce. Staying in observation mode.',
+      );
       return false;
     }
 
+    if (this.managerSeen) return true;
+
+    // Ni `Date.now()` en boucle serrée ni une lecture par message : l'intervalle borne le coût
+    // du seul état où ce contrôle échoue, c'est-à-dire un état transitoire de configuration.
+    const now = Date.now();
+    if (now - this.lastManagerCheck < MANAGER_RECHECK_MS) return false;
+    this.lastManagerCheck = now;
+
+    // NE LÈVE PAS : une panne de lecture n'est pas une preuve d'absence, et refuser
+    // d'appliquer est le sens le moins coûteux — c'est l'état d'avant l'activation.
+    const found = await this.hasManager().catch((error) => {
+      logger.warn('Could not check whether a manager exists — staying in observation mode', {
+        error,
+      });
+      return false;
+    });
+
+    if (!found) {
+      this.warnOnce(
+        'AUTHZ_ENFORCE is on but NO employee carries the manager role — refusing to enforce, ' +
+          'which would downgrade the entire organization. Designate one with `npm run role:set`.',
+      );
+      return false;
+    }
+
+    this.managerSeen = true;
     return true;
+  }
+
+  /** Un avertissement de configuration pour la vie de l'instance, pas un par message. */
+  private warnOnce(message: string): void {
+    if (this.misconfigurationLogged) return;
+    this.misconfigurationLogged = true;
+    logger.error(message);
   }
 }

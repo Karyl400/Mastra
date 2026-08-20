@@ -3,10 +3,7 @@ import { z } from 'zod';
 
 import { logger } from '../../../../shared/logger';
 import { readSlackContext, writeExcerptCoverage } from '../../../../shared/slack-request-context';
-import {
-  readOrgEmailDomains,
-  type AccessPolicyConfig,
-} from '../../../directory/domain/services/access-policy';
+import {} from '../../../directory/domain/services/access-policy';
 import type { ConversationExcerpt } from '../../domain/entities/conversation-excerpt';
 import {
   ChannelUnavailableError,
@@ -64,7 +61,6 @@ export interface GetChannelHistoryDeps {
   readonly directory: PersonDirectoryPort;
   readonly channels: ChannelHistoryPort;
   /** Voir `get-user-conversations.ts` : lue à chaque appel, jamais figée au câblage. */
-  readonly policy?: AccessPolicyConfig;
 }
 
 /**
@@ -104,10 +100,6 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
         .describe('Identifiant du canal, pas son nom (ex. CMLKC4S5T).'),
     }),
     execute: async (data, ctx) => {
-      const policy: AccessPolicyConfig = deps.policy ?? {
-        orgEmailDomains: readOrgEmailDomains(process.env.SLACK_ORG_EMAIL_DOMAINS),
-      };
-
       const slack = readSlackContext(ctx?.requestContext);
       if (!slack?.slackUserId) {
         logger.warn('Knowledge — récupération refusée : aucun demandeur identifié', {
@@ -152,7 +144,7 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
         return refuse('unavailable');
       }
 
-      const verdict = authorizeChannelRead(requester, isMember, policy);
+      const verdict = authorizeChannelRead(requester, isMember);
       if (!verdict.allowed) {
         logger.warn('Knowledge — récupération refusée par la politique de divulgation', {
           scope: 'channel',

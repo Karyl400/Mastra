@@ -1,6 +1,5 @@
 import {
   resolveAccess,
-  type AccessPolicyConfig,
   type AccessSubject,
 } from '../../../directory/domain/services/access-policy';
 
@@ -64,10 +63,10 @@ import {
  * politique est appliquée dès le premier appel, sans variable d'environnement,
  * et son défaut en l'absence de configuration est le REFUS.
  *
- * Conséquence assumée, à connaître avant de câbler : `SLACK_ORG_EMAIL_DOMAINS`
- * vide ⇒ personne n'atteint `full` ⇒ **chacun ne lit que ses propres échanges
- * avec le bot**. Les canaux, eux, restent lisibles par leurs membres : cette
- * porte-là ne dépend pas de la configuration, mais de l'ACL Slack elle-même.
+ * Conséquence assumée, à connaître avant de câbler : aucun manager désigné ⇒
+ * personne n'atteint `full` ⇒ **chacun ne lit que ses propres échanges avec le
+ * bot**. Les canaux, eux, restent lisibles par leurs membres : cette porte-là ne
+ * dépend d'aucune désignation, mais de l'ACL Slack elle-même.
  *
  * TypeScript pur.
  */
@@ -83,7 +82,7 @@ import {
  */
 export type DisclosureReason =
   | 'ok_self'
-  | 'ok_org_member'
+  | 'ok_manager'
   | 'ok_channel_member'
   | 'no_requester'
   | 'requester_denied'
@@ -116,9 +115,9 @@ export interface Requester {
 const DENIED_LEVEL = 'denied';
 
 /** Refus durs, communs aux deux portes : un bot ou un compte désactivé ne demande rien. */
-function hardDenial(requester: Requester, policy: AccessPolicyConfig): DisclosureVerdict | null {
+function hardDenial(requester: Requester): DisclosureVerdict | null {
   if (!requester.subject) return null;
-  const decision = resolveAccess(requester.subject, policy);
+  const decision = resolveAccess(requester.subject);
   return decision.level === DENIED_LEVEL ? { allowed: false, reason: 'requester_denied' } : null;
 }
 
@@ -136,8 +135,9 @@ function isSamePerson(a: string, b: string): boolean {
  *  2. **Soi-même : toujours autorisé**, y compris pour un invité mono-canal.
  *     C'est sa propre conversation avec le bot ; la lui refuser au nom de la
  *     protection des données serait un contresens sur ce que ces données sont.
- *  3. Autrui : réservé à `full`, c'est-à-dire à un membre de l'organisation
- *     porteur d'une adresse d'un domaine déclaré. Un invité — `is_restricted` ou
+ *  3. Autrui : réservé à `full`, c'est-à-dire au seul porteur du rôle `manager`
+ *     (depuis le 2026-08-20 ; c'était « membre de l'organisation » auparavant,
+ *     ce qui donnait à chacun la mémoire de tous). Un invité — `is_restricted` ou
  *     `is_ultra_restricted` — ne lit JAMAIS la conversation d'un tiers. C'est
  *     très exactement le scénario de §4.1, transposé de la porte « canal » à la
  *     porte « mémoire », par laquelle il serait autrement passé intact.
@@ -153,7 +153,6 @@ function isSamePerson(a: string, b: string): boolean {
 export function authorizeMemoryRead(
   requester: Requester | null,
   targetSlackUserId: string,
-  policy: AccessPolicyConfig,
 ): DisclosureVerdict {
   // Hors Slack (playground, route HTTP, workflow, test), `readSlackContext` rend
   // `undefined`. Les autres tools DÉGRADENT dans ce cas — celui-ci REFUSE, et
@@ -162,14 +161,14 @@ export function authorizeMemoryRead(
   // playground, c'est-à-dire depuis un chemin sans authentification.
   if (!requester) return { allowed: false, reason: 'no_requester' };
 
-  const denial = hardDenial(requester, policy);
+  const denial = hardDenial(requester);
   if (denial) return denial;
 
   if (isSamePerson(requester.slackUserId, targetSlackUserId)) {
     return { allowed: true, reason: 'ok_self' };
   }
 
-  return authorizeOtherMemoryRead(requester, policy);
+  return authorizeOtherMemoryRead(requester);
 }
 
 /**
@@ -196,20 +195,17 @@ export function authorizeMemoryRead(
  * est strictement plus fort que « lire soi-même ». Un appelant qui l'obtient
  * n'a plus rien à vérifier sur l'identité de la cible.
  */
-export function authorizeOtherMemoryRead(
-  requester: Requester | null,
-  policy: AccessPolicyConfig,
-): DisclosureVerdict {
+export function authorizeOtherMemoryRead(requester: Requester | null): DisclosureVerdict {
   if (!requester) return { allowed: false, reason: 'no_requester' };
 
-  const denial = hardDenial(requester, policy);
+  const denial = hardDenial(requester);
   if (denial) return denial;
 
   if (!requester.subject) return { allowed: false, reason: 'insufficient_privilege' };
 
-  const decision = resolveAccess(requester.subject, policy);
+  const decision = resolveAccess(requester.subject);
   return decision.level === 'full'
-    ? { allowed: true, reason: 'ok_org_member' }
+    ? { allowed: true, reason: 'ok_manager' }
     : { allowed: false, reason: 'insufficient_privilege' };
 }
 
@@ -285,11 +281,10 @@ export function mayDiscloseBotUtterances(
 export function authorizeChannelRead(
   requester: Requester | null,
   requesterIsChannelMember: boolean,
-  policy: AccessPolicyConfig,
 ): DisclosureVerdict {
   if (!requester) return { allowed: false, reason: 'no_requester' };
 
-  const denial = hardDenial(requester, policy);
+  const denial = hardDenial(requester);
   if (denial) return denial;
 
   return requesterIsChannelMember

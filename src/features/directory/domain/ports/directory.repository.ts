@@ -44,6 +44,19 @@ export interface DirectoryRepository {
    */
   rememberDmChannel(slackUserId: string, dmChannelId: string): Promise<void>;
 
+  /**
+   * Existe-t-il au moins un dossier employé portant le rôle `manager` ?
+   *
+   * ⚠️ Une QUESTION, jamais une liste. La frontière n'a besoin que de savoir si la politique
+   * est désignable ; rendre les identifiants exposerait qui décide, ce qui n'est utile à
+   * personne sur ce chemin et renseignerait un attaquant sur la cible à viser.
+   *
+   * Lecture seule. Aucun chemin de ce dépôt n'ÉCRIT le rôle : il se pose délibérément, par
+   * `npm run role:set`. Déclarer ici une écriture en ferait une capacité du produit, donc
+   * quelque chose qu'un futur câblage pourrait brancher sans le relire.
+   */
+  hasManager(): Promise<boolean>;
+
   /** Rattache une personne à un employé enregistré. `null` détache. */
   /**
    * Rattache une ligne d'annuaire à un dossier, et rend le NOMBRE de lignes réellement

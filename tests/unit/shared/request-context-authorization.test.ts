@@ -4,6 +4,7 @@ import {
   buildSlackRequestContext,
   readSlackContext,
   canPerformSideEffects,
+  canReadPersonRecord,
   SLACK_ACCESS_LEVEL_KEY,
 } from '../../../src/shared/slack-request-context';
 import { makeSendNotification } from '../../../src/features/notification/application/tools/send-notification';
@@ -67,13 +68,67 @@ describe('canPerformSideEffects — l’absence de contexte n’est pas un refus
     expect(canPerformSideEffects({})).toBe(true);
   });
 
-  it('autorise `full`, refuse `readonly` et `denied`', () => {
+  it('autorise `full`, refuse `readonly` et `denied` sur le dossier d’AUTRUI', () => {
     const at = (accessLevel: 'full' | 'readonly' | 'denied') =>
-      canPerformSideEffects(buildSlackRequestContext({ channel: 'D0MOCKDM01', accessLevel }));
+      canPerformSideEffects(
+        buildSlackRequestContext({
+          channel: 'D0MOCKDM01',
+          accessLevel,
+          employeeId: 'emp-moi',
+        }),
+        'emp-quelqu-un-d-autre',
+      );
 
     expect(at('full')).toBe(true);
     expect(at('readonly')).toBe(false);
     expect(at('denied')).toBe(false);
+  });
+});
+
+describe('canPerformSideEffects — agir sur SOI-MÊME survit à la rétrogradation', () => {
+  const self = (accessLevel: 'full' | 'readonly' | 'denied') =>
+    buildSlackRequestContext({ channel: 'D0MOCKDM01', accessLevel, employeeId: 'emp-moi' });
+
+  it('autorise un `readonly` à agir sur son propre dossier', () => {
+    // La moitié ÉCRITURE de « chacun ses propres données ». Depuis que `full` vaut
+    // « manager », `readonly` est le cas nominal de tout le monde : sans cette comparaison,
+    // plus personne ne pourrait se programmer un rappel ni faire avancer son parcours.
+    expect(canPerformSideEffects(self('readonly'), 'emp-moi')).toBe(true);
+  });
+
+  it('vaut aussi pour `denied` — mais ce niveau n’atteint jamais un tool', () => {
+    // `denied` est tranché par le handler, bien avant qu'un outil ne s'exécute. On vérifie la
+    // cohérence de la fonction, pas un chemin réel.
+    expect(canPerformSideEffects(self('denied'), 'emp-moi')).toBe(true);
+  });
+
+  it('n’autorise RIEN quand la cible est absente — pas de « soi » sans comparaison', () => {
+    // Un appel sans cible ne peut pas prétendre viser son propre dossier. Sans cette garde,
+    // omettre le paramètre rendrait la rétrogradation inopérante partout où on l'oublierait.
+    expect(canPerformSideEffects(self('readonly'))).toBe(false);
+    expect(canPerformSideEffects(self('readonly'), null)).toBe(false);
+    expect(canPerformSideEffects(self('readonly'), '   ')).toBe(false);
+  });
+
+  it('n’autorise RIEN quand le demandeur n’a pas de dossier connu', () => {
+    // Sans `employeeId` côté demandeur, « son propre dossier » n'a pas de référent : la
+    // comparaison ne peut pas être vraie par défaut, sans quoi une identité non résolue
+    // vaudrait une autorisation.
+    const anonymous = buildSlackRequestContext({
+      channel: 'D0MOCKDM01',
+      accessLevel: 'readonly',
+    });
+
+    expect(canPerformSideEffects(anonymous, 'emp-moi')).toBe(false);
+  });
+
+  it('applique la MÊME règle que `canReadPersonRecord` — lire et agir ne divergent pas', () => {
+    // Les deux moitiés d'un même droit ne doivent pas répondre selon deux règles différentes :
+    // c'est la divergence que ce dépôt corrige partout ailleurs.
+    const ctx = self('readonly');
+
+    expect(canPerformSideEffects(ctx, 'emp-moi')).toBe(canReadPersonRecord(ctx, 'emp-moi'));
+    expect(canPerformSideEffects(ctx, 'emp-autre')).toBe(canReadPersonRecord(ctx, 'emp-autre'));
   });
 });
 

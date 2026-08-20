@@ -86,7 +86,7 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
       // ce tool un oracle d'existence, journaliserait une consultation qui n'aurait pas dû
       // avoir lieu, et fuirait par la latence. Un test vérifie que le dépôt n'est jamais
       // touché.
-      if (!canPerformSideEffects(_ctx?.requestContext)) {
+      if (!canPerformSideEffects(_ctx?.requestContext, data.employeeId)) {
         logger.warn('updateOnboardingStatus refusé : le demandeur n’a pas le niveau requis', {
           employeeId: data.employeeId,
         });
@@ -96,7 +96,7 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
         return {
           updated: false as const,
           reason: 'not_authorized' as const,
-          hint: "Cette action est réservée aux membres de l'organisation. Dis-le simplement, ne réessaie pas.",
+          hint: 'Tu ne peux agir que sur ton propre dossier — celui de quelqu’un d’autre est réservé au manager. Dis-le simplement, ne réessaie pas.',
         };
       }
 

@@ -23,6 +23,49 @@ export enum EmployeeStatus {
   Terminated = 'terminated',
 }
 
+/**
+ * RÔLE d'un collaborateur — la seule chose qui accorde une portée au-delà de soi-même.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * Pourquoi le rôle, et pas le poste
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * `position` (« Backend Developer », « Manager ») est un champ DÉCLARATIF : la personne le
+ * saisit elle-même dans l'échange de complétion de dossier, et `title` côté annuaire vient de
+ * son profil Slack, qu'elle édite aussi. Faire dépendre une autorisation de l'un ou de l'autre
+ * offrirait l'élévation de privilège la plus simple qui soit — taper « Manager » dans son
+ * propre profil. Ce dépôt refuse déjà, pour la même raison, de décider d'un droit sur une
+ * valeur produite par le modèle : on ne décide pas d'un droit sur une valeur que le
+ * bénéficiaire écrit.
+ *
+ * Le rôle, lui, n'est écrit par AUCUN chemin en libre-service. Il se pose délibérément
+ * (`npm run role:set`), et c'est cette asymétrie qui en fait un fait d'autorisation.
+ *
+ * ⚠️ Deux valeurs, pas davantage. `CONTEXT.md` annonçait un RBAC Employé / RH / Manager ;
+ * inventer un palier « RH » dont aucun outil ne dépendrait produirait exactement le défaut que
+ * ce dépôt combat — un composant enregistré qui promet plus qu'il ne tient. On ajoutera le
+ * troisième le jour où un outil saura en faire quelque chose.
+ */
+export enum EmployeeRole {
+  /** Voit et agit sur SON dossier. Le défaut, et il l'est pour tout le monde. */
+  Employee = 'employee',
+  /** Voit et agit sur le dossier de TOUT LE MONDE. */
+  Manager = 'manager',
+}
+
+/**
+ * Lecture TOLÉRANTE d'un rôle venu de la base.
+ *
+ * Toute valeur inconnue vaut `employee`, jamais `manager` : une colonne corrompue, une valeur
+ * écrite par une version future, ou un `NULL` sur une ligne antérieure à la migration ne
+ * doivent pas pouvoir ACCORDER quoi que ce soit. Le défaut sûr est celui qui ne donne rien —
+ * même arbitrage que `readSlackContext`, où un niveau d'accès inconnu est ignoré plutôt
+ * qu'interprété.
+ */
+export function isManagerRole(raw: string | null | undefined): boolean {
+  return raw === EmployeeRole.Manager;
+}
+
 /** Statut du processus d'onboarding */
 export enum OnboardingStatus {
   /** N'a pas encore commencé */

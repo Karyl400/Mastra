@@ -96,23 +96,14 @@
       ⚠️ Aucun prédicat n'est réécrit dans le miroir — `pendingEmailVerdict` et
       `answersOnboardingQuestion` sont ceux-là mêmes qu'exécute le handler. C'était la condition :
       un miroir qui approxime son objet finit par refuser ce qu'il devait épargner.
-- [ ] **`AUTHZ_ENFORCE` — le blocage tient désormais à UNE ligne d'annuaire, et c'est mesuré.**
-      `npm run probe:authz` évalue TOUT l'annuaire à travers `resolveAccess` (importé, jamais
-      réimplémenté) et rend le verdict avant qu'on touche à la variable. Relevé le 2026-08-20 sur
-      la Turso de production, avec le `SLACK_ORG_EMAIL_DOMAINS` déjà posé
-      (`kissohq.com, design.kisso.xyz`) : **3 personnes sur 7 garderaient `full`**.
-      ⚠️ **Une seule perdrait quelque chose qu'elle possède** : Karyl SOUMAILA — seule ligne
-      d'annuaire LIÉE à un dossier actif, et seule dont l'adresse Slack soit un `gmail.com`.
-      Les quatre autres rétrogradées n'ont AUCUN dossier : `readonly` ne leur retire rien
-      qu'elles aient, puisque `canReadPersonRecord` compare sur `employees.id` et qu'elles n'en
-      ont pas. La formule « 1 ligne sur 41 est reliée » était donc vraie et TROMPEUSE — elle
-      donnait à croire à un blocage général là où il n'y a qu'un seul cas.
-      Deux issues, et elles ne se valent pas : **(1)** l'adresse du profil Slack de
-      l'administratrice pointe vers le domaine de l'organisation — rien à configurer, la règle
-      reste dérivée d'un fait que Slack tient à jour ; **(2)** `gmail.com` entre dans
-      `SLACK_ORG_EMAIL_DOMAINS`, ce qui accorde `full` à toute personne portant ce domaine,
-      aujourd'hui et demain — sur un domaine public, c'est n'avoir plus de frontière.
-      **Décision de propriétaire**, et c'est la seule qui reste : le code, lui, est prêt.
+- [x] ~~**`AUTHZ_ENFORCE` reste inactivable**~~ **FERMÉE le 2026-08-20** — mais pas comme prévu.
+      Le blocage était réel (l'administratrice serait passée en `readonly` sur son domaine
+      email), et il a disparu en changeant le FAIT qui décide : `full` ⟺ rôle `manager`, plus
+      domaine email. Voir `CLAUDE.md` et le CHANGELOG.
+      ⚠️ **Ce qui reste, et c'est une décision de propriétaire** : le manager a DEUX comptes
+      Slack (`nazer@kissohq.com`, désigné, et `nazer@trellix.io`, non désigné). Depuis le
+      second il est en lecture seule. Désigner aussi : `npm run role:set -- --slack-user-id
+      U0BRWGZ21B2 --apply`.
 - [ ] Le suivi de `notifications` et `documents` n'a toujours aucun chemin d'effacement.
 
 ---

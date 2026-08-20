@@ -198,10 +198,11 @@ describe('l’adresse email — une adresse personnelle est explicitement accept
       'karylsoumaila1@gmail.com',
     );
     expect(captureProfileAnswer('email', 'karyl@kisso.com')).toBe('karyl@kisso.com');
-    // ⚠️ On ne pose PAS de liste blanche de domaines. `.env` porte
-    // `SLACK_ORG_EMAIL_DOMAINS=kissohq.com,design.kisso.xyz` : restreindre à `gmail.com` et
-    // `kisso.com` rejetterait les domaines réels de l'entreprise et créerait une SECONDE
-    // impasse à la place de celle qu'on ferme.
+    // ⚠️ On ne pose PAS de liste blanche de domaines. L'entreprise en a plusieurs
+    // (`kissohq.com`, `design.kisso.xyz`, `trellix.io` relevés en production) et plusieurs
+    // personnes utilisent une adresse personnelle : restreindre créerait une SECONDE impasse à
+    // la place de celle qu'on ferme. Aucune autorisation ne dépend plus du domaine depuis le
+    // 2026-08-20 — elle dépend du RÔLE.
     expect(captureProfileAnswer('email', 'pamela@kissohq.com')).toBe('pamela@kissohq.com');
     expect(captureProfileAnswer('email', 'nazer@design.kisso.xyz')).toBe('nazer@design.kisso.xyz');
   });

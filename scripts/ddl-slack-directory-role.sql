@@ -1,0 +1,49 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- slack_directory.role — le RÔLE, à côté des autres faits d'autorisation
+-- ═══════════════════════════════════════════════════════════════════════════
+--
+-- Avant cette colonne, `full` (l'accès aux données de tout le monde) était accordé sur le
+-- DOMAINE de l'adresse email. Deux défauts, et le second est le plus grave :
+--
+--   1. il accordait la même portée à TOUS les membres de l'organisation — six personnes
+--      pouvaient lire le dossier RH des cinq autres ;
+--   2. il dépendait d'une donnée que la personne contrôle : l'adresse de son profil Slack.
+--
+-- ── POURQUOI ICI ET NON SUR `employees` ─────────────────────────────────────
+--
+-- Première tentative, le 2026-08-20 : la colonne a été posée sur `employees`, l'idée étant que
+-- « manager » est un fait RH. La donnée réelle l'a réfutée en une requête — **le General
+-- Manager de l'entreprise n'a AUCUNE ligne dans `employees`**, et 5 des 6 personnes vivantes
+-- non plus. Cette table ne contient que les dossiers créés par le parcours d'accueil.
+--
+-- Lui en fabriquer un aurait exigé d'inventer `start_date` (NOT NULL) et `position` pour
+-- quelqu'un qui n'a jamais été intégré par ce produit — soit exactement la famille de mensonge
+-- que ce dépôt traque (« en tant que N/A » dans une lettre de bienvenue, « vous recevrez
+-- prochainement les accès » dans un email qui ne promettait rien de réel).
+--
+-- Le sujet d'une décision d'autorisation n'est pas un DOSSIER RH, c'est un MEMBRE DU WORKSPACE.
+-- La colonne rejoint donc `is_bot`, `is_restricted`, `is_ultra_restricted` et `is_deleted` —
+-- les autres faits sur lesquels la même fonction se prononce, dans la même ligne.
+--
+-- ⚠️ `upsertFacts` énumère ses colonnes UNE PAR UNE (voir son commentaire) : `role` n'y figure
+-- pas, donc une synchronisation Slack ne peut pas l'écraser. C'est la même garantie que celle
+-- qui protège déjà `dm_channel_id`, `employee_id` et `first_seen_at`. Slack ne connaît pas ce
+-- fait ; le lui laisser écrire reviendrait à fabriquer une autorisation.
+--
+-- ⚠️ ORDRE IMPOSÉ — DDL D'ABORD, DÉPLOIEMENT ENSUITE. Une fois la colonne déclarée dans
+-- `schema.ts`, Drizzle la NOMME dans l'INSERT d'`upsertFacts` : toute synchronisation échoue en
+-- `no such column: role` tant que ce fichier n'est pas appliqué. Échec bruyant plutôt que perte
+-- muette — c'est la leçon de `documents.content`, où l'inverse a coûté 6 lignes.
+--
+-- ⚠️ `ALTER TABLE … ADD COLUMN` n'a pas de forme `IF NOT EXISTS` en SQLite : rejouer ce fichier
+-- échoue avec `duplicate column name: role`. Erreur BÉNIGNE — elle signifie que c'est fait.
+--
+-- ⚠️ Le défaut `'employee'` est posé sur toutes les lignes : personne ne devient manager par
+-- migration. La désignation est un geste délibéré — `npm run role:set`.
+
+ALTER TABLE slack_directory ADD COLUMN role TEXT NOT NULL DEFAULT 'employee';
+
+-- Le seul balayage jamais fait sur cette colonne est « existe-t-il un manager ? », le contrôle
+-- qui autorise l'application de la frontière. La lecture par personne, elle, passe par la
+-- PRIMARY KEY.
+CREATE INDEX IF NOT EXISTS idx_slack_directory_role ON slack_directory(role);

@@ -892,6 +892,31 @@ export const slackDirectory = sqliteTable(
     // employé enregistré, et tout employé n'a pas forcément de compte Slack.
     employeeId: text('employee_id').references(() => employees.id),
 
+    /**
+     * RÔLE — la seule colonne de ce dépôt dont dépende une autorisation.
+     *
+     * `employee` par défaut, et le défaut est le bon : n'accorde rien au-delà de son propre
+     * dossier. Seul `manager` ouvre la portée aux données de tout le monde (`resolveAccess`).
+     *
+     * ⚠️ **ICI et non sur `employees`**, et c'est la donnée réelle qui l'a imposé : le General
+     * Manager de l'entreprise n'a AUCUNE ligne dans `employees`, et 5 des 6 personnes vivantes
+     * non plus — cette table-là ne contient que les dossiers créés par le parcours d'accueil.
+     * Lui en fabriquer un aurait exigé d'inventer `start_date` et `position` pour quelqu'un que
+     * ce produit n'a jamais intégré. Le sujet d'une décision d'autorisation n'est pas un
+     * dossier RH, c'est un MEMBRE DU WORKSPACE : la colonne rejoint donc `is_bot`,
+     * `is_restricted` et `is_deleted`, les autres faits sur lesquels la même fonction tranche.
+     *
+     * ⚠️ Elle n'est écrite par AUCUN chemin en libre-service, ni par la synchronisation Slack :
+     * `upsertFacts` énumère ses colonnes une par une et ne la nomme pas, exactement comme pour
+     * `dm_channel_id` et `employee_id`. C'est ce qui la distingue de `title`, que son porteur
+     * édite dans son profil — une autorisation dérivée d'un champ déclaratif s'obtiendrait en
+     * le déclarant. Et `title` porte ici « Product Manager » sur quelqu'un qui n'est pas LE
+     * manager : la chaîne ne décide rien.
+     *
+     * ⚠️ DDL : `scripts/ddl-slack-directory-role.sql`, à appliquer AVANT le déploiement.
+     */
+    role: text('role').notNull().default('employee'), // EmployeeRole
+
     // Même écart assumé que `conversation_turns` : entier en millisecondes plutôt que
     // `datetime('now')` en text. `syncedAt` gouverne la fraîcheur, `firstSeenAt` n'est écrit
     // qu'à l'INSERT — une seule fois dans la vie de la ligne.

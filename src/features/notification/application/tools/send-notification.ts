@@ -114,7 +114,7 @@ export function makeSendNotification(
       // ⚠️ L'ABSENCE de niveau vaut autorisation : hors Slack (workflow, playground, test,
       // route `/api/*` déjà derrière un jeton) il n'y a pas de demandeur à évaluer, et
       // refuser y casserait le parcours d'onboarding qui envoie l'email de bienvenue.
-      if (!canPerformSideEffects(_ctx?.requestContext)) {
+      if (!canPerformSideEffects(_ctx?.requestContext, data.recipientId)) {
         logger.warn('sendNotification refusé : le demandeur n’a pas le niveau requis', {
           recipientId: data.recipientId,
         });
@@ -124,7 +124,7 @@ export function makeSendNotification(
         return {
           sent: false,
           reason: 'not_authorized',
-          hint: "Cette action est réservée aux membres de l'organisation. Dis-le simplement, ne réessaie pas.",
+          hint: 'Tu ne peux agir que sur ton propre dossier — celui de quelqu’un d’autre est réservé au manager. Dis-le simplement, ne réessaie pas.',
         };
       }
 

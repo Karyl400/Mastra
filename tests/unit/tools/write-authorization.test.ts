@@ -38,6 +38,17 @@ import { OnboardingStatus } from '../../../src/shared/types';
  * ⚠️ Rappel de portée : cette frontière hérite du mode observation. Tant qu'`AUTHZ_ENFORCE`
  * n'est pas posé, `SlackAccessGuard` rend `full` à tout le monde et ces refus ne se
  * produiront pas en production. Le câblage est là ; c'est son activation qui reste à décider.
+ *
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⚠️ 2026-08-20 — LA MOITIÉ MANQUANTE : AGIR SUR SOI-MÊME
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Tant que `full` valait « membre de l'organisation », `readonly` ne visait qu'un invité
+ * externe. Depuis que `full` vaut « manager », **`readonly` est le cas NOMINAL de tout le
+ * monde** : sans comparaison au demandeur, chacun perdrait le droit de programmer un rappel
+ * POUR LUI-MÊME ou de faire avancer son PROPRE parcours. Ce serait « chacun ses propres
+ * données » rendu faux par la moitié ÉCRITURE — et un refus généralisé ressemble, dans les
+ * logs comme dans les tests, à une frontière qui fonctionne.
  */
 
 const SOMEONE_ELSE = 'd36b78dc-a039-4160-b86a-bd3d2a722b6c';
@@ -51,6 +62,9 @@ const restricted = {
     accessLevel: 'readonly',
   }),
 };
+
+/** Le MÊME demandeur, agissant sur SON dossier : `employeeId` du contexte == cible. */
+const SELF = 'd20df236-5c24-42a5-b205-d0d738d34fb4';
 
 describe('updateOnboardingStatus — frontière d’autorisation', () => {
   it('REFUSE sans jamais lire ni écrire le suivi', async () => {
@@ -67,6 +81,21 @@ describe('updateOnboardingStatus — frontière d’autorisation', () => {
     expect(result.reason).toBe('not_authorized');
     expect(findByEmployee).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it('LAISSE un `readonly` faire avancer SON PROPRE parcours', async () => {
+    const findByEmployee = vi.fn().mockResolvedValue(null);
+    const tool = makeUpdateOnboardingStatus({ findByEmployee, update: vi.fn() } as never);
+
+    const result = (await tool.execute!(
+      { employeeId: SELF, status: OnboardingStatus.InProgress } as never,
+      restricted as never,
+    )) as { updated: boolean; reason?: string };
+
+    // Le refus n'a PAS eu lieu : le tool est allé jusqu'à la lecture, et n'a échoué que
+    // faute de ligne de suivi — un motif de DONNÉE, pas de droit.
+    expect(findByEmployee).toHaveBeenCalled();
+    expect(result.reason).not.toBe('not_authorized');
   });
 
   it('laisse passer un appel HORS Slack — workflow, playground, test', async () => {
@@ -109,6 +138,20 @@ describe('scheduleReminder — frontière d’autorisation', () => {
     // Le destinataire n'est pas même RÉSOLU : sans cela le refus deviendrait un oracle
     // d'existence, exactement le défaut fermé sur `getEmployeeProfile`.
     expect(findById).not.toHaveBeenCalled();
+  });
+
+  it('LAISSE un `readonly` se programmer un rappel À LUI-MÊME', async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const findById = vi.fn().mockResolvedValue({ id: SELF, email: 'karyl@kisso.com' });
+    const tool = makeScheduleReminder({ save } as never, { findById } as never);
+
+    const result = (await tool.execute!(
+      { ...reminder, recipientId: SELF } as never,
+      restricted as never,
+    )) as { stored: boolean; reason?: string };
+
+    expect(result.stored).toBe(true);
+    expect(save).toHaveBeenCalled();
   });
 
   it('laisse passer un appel HORS Slack', async () => {

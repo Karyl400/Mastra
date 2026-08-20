@@ -858,8 +858,25 @@ export class SlackEventsHandler {
                 }),
               );
 
-              return facts;
+              // ⚠️ On COMPLÈTE explicitement les deux faits d'autorisation que Slack ignore,
+              // au lieu de rendre `facts` tel quel. La personne vient d'être apprise : elle
+              // n'a par construction aucun dossier rattaché, donc aucun rôle. Les écrire
+              // plutôt que de les laisser au hasard d'un élargissement de type est le point —
+              // un `isManager` absent qui deviendrait `undefined` puis `truthy` quelque part
+              // accorderait `full` à un inconnu, et c'est précisément le chemin qui apprend
+              // les inconnus.
+              return { ...facts, employeeId: null, isManager: false };
             },
+            /**
+             * Le contrôle qui autorise l'APPLICATION — voir `access-guard.ts`. `false` en
+             * dernier recours : une panne de lecture n'est pas une preuve d'absence, et
+             * suspendre l'application vaut mieux que couper l'équipe sur une erreur SQL.
+             */
+            hasManager: () =>
+              repo.hasManager().catch((error) => {
+                logger.warn('Could not check for a designated manager', { error });
+                return false;
+              }),
           })
         : null;
     }

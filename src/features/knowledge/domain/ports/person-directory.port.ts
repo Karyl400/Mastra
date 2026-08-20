@@ -53,6 +53,16 @@ export interface DirectoryPerson {
   readonly isRestricted: boolean;
   readonly isUltraRestricted: boolean;
   readonly isDeleted: boolean;
+
+  /**
+   * Le rôle `manager` — le seul fait qui accorde `full`.
+   *
+   * ⚠️ Il figure ici parce que ce port alimente `Requester.subject`, donc `resolveAccess`.
+   * Sans lui, ce tool construirait un sujet d'autorisation INCOMPLET, et le compilateur ne le
+   * dirait pas : il rendrait `readonly` à tout le monde, manager compris. Une frontière qui
+   * refuse tout ressemble à une frontière qui marche.
+   */
+  readonly isManager: boolean;
 }
 
 export interface PersonDirectoryPort {

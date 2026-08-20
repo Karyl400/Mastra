@@ -31,6 +31,7 @@
     "probe:replies": "npx tsx --env-file=.env scripts/probe-deterministic-replies.mts",
     "probe:erasure": "npx tsx --env-file=.env scripts/probe-erasure.mts",
     "probe:authz": "npx tsx --env-file=.env scripts/probe-authz.mts",
+    "role:set": "npx tsx --env-file=.env scripts/set-role.mts",
     "smoke:slack": "node --env-file=.env scripts/smoke-slack.mjs",
     "smoke:email": "node --env-file=.env scripts/smoke-email.mjs",
     "verify:bundle": "node scripts/verify-vercel-bundle.js --require pdfkit,pdfmake,js-md5,fontkit,docx",

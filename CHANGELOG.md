@@ -1,5 +1,100 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## 2026-08-20 (soir) — Le Manager, et lui seul, voit les données de tout le monde
+
+Demande du propriétaire : *« le Manager doit avoir une portée d'action que les autres n'ont pas ;
+seul lui a accès aux données de tout le monde, les autres à leurs propres données. »*
+
+### Ce que la frontière disait avant, et pourquoi c'était deux erreurs
+
+`resolveAccess` accordait `full` — l'accès au dossier de n'importe qui, plus tous les outils à
+effet de bord — sur le **domaine de l'adresse email** (`SLACK_ORG_EMAIL_DOMAINS`) :
+
+1. **La portée était collective.** Les six personnes de l'organisation obtenaient la MÊME :
+   chacune pouvait lire le dossier RH des cinq autres. « Membre de la maison » et « habilité à
+   consulter le dossier de tout le monde » avaient été confondus, alors que la première
+   affirmation ne fonde pas la seconde.
+2. **Le fait décisif était contrôlé par le bénéficiaire.** L'adresse vient du profil Slack, que
+   son porteur édite.
+
+`full` ⟺ **`slack_directory.role = 'manager'`**. Le domaine n'accorde plus rien, et
+`SLACK_ORG_EMAIL_DOMAINS` rejoint la liste de la config morte à purger.
+
+### La donnée réelle a réfuté ma première implémentation
+
+La colonne a d'abord été posée sur `employees` — « manager » est un fait RH, l'endroit paraissait
+évident. Une requête l'a démentie : **le General Manager de l'entreprise n'a AUCUNE ligne dans
+`employees`**, et 5 des 6 personnes vivantes non plus. Cette table ne contient que les dossiers
+créés par le parcours d'accueil.
+
+Lui en fabriquer un aurait exigé d'inventer `start_date` (NOT NULL) et `position` pour quelqu'un
+que ce produit n'a jamais intégré — soit exactement la famille de mensonge que ce dépôt traque
+(« en tant que N/A » dans une lettre de bienvenue, « vous recevrez prochainement les accès »).
+
+**Le sujet d'une décision d'autorisation n'est pas un dossier RH, c'est un membre du workspace.**
+La colonne a donc rejoint `is_bot`, `is_restricted`, `is_ultra_restricted` et `is_deleted` — les
+autres faits sur lesquels la même fonction se prononce, dans la même ligne. Elle a été retirée
+d'`employees` avant tout déploiement ; la jointure qu'elle imposait a disparu avec elle.
+
+### ⚠️ Le titre ne décide rien, et le relevé de production dit pourquoi
+
+| personne | `title` Slack | rôle |
+| --- | --- | --- |
+| Nazer A. | **General Manager** | `manager` |
+| Pamela Fourn | Product Manager | `employee` |
+| Karyl SOUMAILA | Software Engineer | `employee` |
+
+Deux titres contiennent « Manager » ; un seul désigne le manager. Et `title` est **déclaratif** —
+son porteur l'édite dans son profil Slack. Une autorisation qui en dériverait s'obtiendrait en la
+déclarant. C'est le même refus que celui déjà opposé à `SLACK_ADMIN_USER_IDS`, et il est
+verrouillé par un test : `isManagerRole('General Manager')` rend `false`.
+
+### La moitié qu'on oublie : agir sur soi-même
+
+Tant que `full` valait « membre de l'organisation », `readonly` ne visait qu'un invité externe.
+Depuis qu'il vaut « manager », **`readonly` est le cas NOMINAL de tout le monde sauf une
+personne** — et `canPerformSideEffects` ne regardait que le niveau, jamais la cible. Chacun
+aurait perdu le droit de se programmer un rappel ou de faire avancer son propre parcours : « les
+autres auront accès à leurs propres données » rendu faux par la moitié ÉCRITURE.
+
+Elle compare donc au demandeur, comme `canReadPersonRecord` depuis le 2026-08-13 — et les deux
+délèguent désormais à une règle écrite **une seule fois** (`mayTouchRecord`). C'est le lint qui
+l'a exigé en signalant deux corps identiques ; il avait raison, mais la conclusion n'était pas
+d'en supprimer une : deux droits distincts qui se décident aujourd'hui pareil doivent garder
+leurs deux noms, et ne partager que la règle.
+
+### Trois garde-fous, chacun contre une panne nommée
+
+- **Le garde REFUSE d'appliquer tant qu'aucun manager n'est désigné.** La colonne naît vide :
+  « aucun manager » est l'état de DÉPART, pas un accident. Appliquer rétrograderait l'organisation
+  entière, et le symptôme (« le bot ne sait plus rien faire ») ne désignerait pas sa cause. La
+  garde portait auparavant sur une liste de domaines vide ; elle a suivi le fait qui décide —
+  laissée sur l'ancien, elle aurait été strictement décorative.
+- **`upsertFacts` ne nomme jamais `role`.** Une synchronisation Slack ne peut donc pas rétrograder
+  le manager. Même garantie que pour `dm_channel_id` et `employee_id`, et le contrat partagé la
+  verrouille sur les DEUX implémentations. Le test a d'ailleurs attrapé une doublure plus
+  permissive que son original : son `hasManager()` comptait les bots et les comptes désactivés.
+- **`role:set` signale les homonymes vivants.** Le manager a deux comptes Slack ; la frontière
+  porte sur le COMPTE. Sans cet avertissement, le symptôme serait « ça marche depuis un compte et
+  pas depuis l'autre » — la forme exacte du défaut du 2026-08-19, où une feature marchait pour
+  son testeur.
+
+### Constaté en production après désignation
+
+```
+★ Nazer A.            General Manager       full      manager           aucun
+· Karyl SOUMAILA      Software Engineer     readonly  not_a_manager     lié
+· Mistourath IDI      —                     readonly  not_a_manager     aucun
+· Nazer A.            —                     readonly  not_a_manager     aucun
+· Pamela Fourn        Product Manager       readonly  not_a_manager     aucun
+· ridwanenico77       Software Engineer     readonly  not_a_manager     aucun
+```
+
+**1 sur 7 en `full`.** Des 6 rétrogradés, 5 n'ont aucun dossier employé : `readonly` ne leur
+retire rien qu'ils aient, il ferme l'accès à celui des autres.
+
+**1 878 tests verts, typecheck et lint propres.**
+
 ## 2026-08-20 — Le quota refusait des gestes qui ne coûtent rien, et il refusait deux fois
 
 Deux limites étaient écrites dans `TODO.md` comme indépassables. La première ne l'était pas :

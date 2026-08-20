@@ -156,6 +156,7 @@ npm run smoke:slack      # node --env-file=.env scripts/smoke-slack.mjs
 npm run smoke:email      # ⚠️ ENVOIE un vrai email — pas un dry-run
 npm run test:scenarios   # node --env-file=.env scripts/production-scenarios.mjs
 npm run probe:authz      # qui perdrait quoi si AUTHZ_ENFORCE était posé (LECTURE SEULE)
+npm run role:set         # inventaire des rôles ; --email <x> --apply pour désigner
 
 npm run verify:bundle    # audit du bundle Vercel (inclus dans `build`)
 npm run db:generate      # drizzle-kit generate
@@ -780,14 +781,64 @@ notifications. Les deux refus tombent AVANT toute lecture, pour ne pas devenir d
 d'existence. ⚠️ Comme toute cette frontière, ils héritent du mode observation : sans
 `AUTHZ_ENFORCE`, ils ne refusent rien.
 
-**Une lecture de données RH exige désormais de savoir QUI demande** (2026-08-13).
+**LE MANAGER, ET LUI SEUL, VOIT LES DONNÉES DE TOUT LE MONDE** (2026-08-20).
+
+`resolveAccess` accordait `full` sur le DOMAINE de l'adresse email
+(`SLACK_ORG_EMAIL_DOMAINS`). Deux défauts, et le second est le plus grave :
+1. **La portée était collective** — les six personnes de l'organisation obtenaient la même,
+   donc chacune pouvait lire le dossier RH des cinq autres. « Membre de la maison » et
+   « habilité à consulter le dossier de tout le monde » avaient été confondus.
+2. **Le fait décisif était contrôlé par le bénéficiaire** — l'adresse vient du profil Slack,
+   que son porteur édite.
+
+`full` ⟺ **`slack_directory.role = 'manager'`**. Tous les autres gardent leur PROPRE dossier
+et le droit d'agir dessus. `SLACK_ORG_EMAIL_DOMAINS` n'accorde plus rien : config morte à purger.
+
+- ⚠️ **LA COLONNE EST SUR `slack_directory`, PAS SUR `employees`**, et c'est la donnée réelle
+  qui l'a imposé après une première tentative dans l'autre sens. **Le General Manager de
+  l'entreprise n'a AUCUNE ligne dans `employees`**, et 5 des 6 personnes vivantes non plus —
+  cette table ne contient que les dossiers créés par le parcours d'accueil. Lui en fabriquer un
+  aurait exigé d'inventer `start_date` (NOT NULL) et `position` pour quelqu'un que ce produit
+  n'a jamais intégré. Le sujet d'une décision d'autorisation n'est pas un dossier RH, c'est un
+  MEMBRE DU WORKSPACE : la colonne rejoint `is_bot`, `is_restricted`, `is_deleted`.
+- ⚠️ **`title` NE DÉCIDE RIEN**, et le relevé de production dit pourquoi : « Product Manager »
+  y désigne quelqu'un qui n'est pas LE manager, « Software Engineer » l'administratrice de
+  l'onboarding, et « General Manager » celui qui l'est. C'est un champ DÉCLARATIF, édité par son
+  porteur — une autorisation qui en dériverait s'obtiendrait en la déclarant.
+- ⚠️ **`upsertFacts` ne nomme jamais `role`** : une synchronisation Slack ne peut pas
+  rétrograder le manager. Même garantie que pour `dm_channel_id` et `employee_id`, et un test du
+  contrat partagé la verrouille sur les DEUX implémentations.
+- ⚠️ **`canPerformSideEffects` compare désormais au DEMANDEUR**, comme `canReadPersonRecord`
+  depuis le 2026-08-13 — les deux délèguent à une règle écrite une seule fois. Sans cela la
+  frontière serait inactivable : `readonly` étant devenu le cas NOMINAL de tout le monde, chacun
+  aurait perdu le droit de se programmer un rappel ou de faire avancer son propre parcours.
+- ⚠️ **Le garde REFUSE d'appliquer tant qu'aucun manager n'est désigné** — la colonne naît vide,
+  donc « aucun manager » est l'état de DÉPART, pas un accident. Appliquer rétrograderait
+  l'organisation entière, et le symptôme (« le bot ne sait plus rien faire ») ne désignerait pas
+  sa cause. Le contrôle est re-tenté toutes les 60 s tant qu'il échoue : une désignation prend
+  effet sans redéploiement.
+- ⚠️ **La frontière porte sur le COMPTE, pas sur la personne.** Le manager a DEUX comptes Slack
+  (`nazer@kissohq.com` et `nazer@trellix.io`) ; seul le premier est désigné. `role:set` signale
+  les homonymes vivants — sans quoi le symptôme serait « ça marche depuis un compte et pas
+  depuis l'autre », défaut de la même famille que celui du 2026-08-19 (« la feature marchait
+  pour son testeur »).
+- **Désigner** : `npm run role:set` (inventaire), `npm run role:set -- --email <adresse> --apply`.
+  Dry-run par défaut, refuse un bot, un compte désactivé et une adresse ambiguë, RELIT après
+  écriture. Aucun port ne déclare cette écriture : la déclarer en ferait une capacité du produit,
+  qu'un futur câblage pourrait brancher sans la relire.
+- **Constater** : `npm run probe:authz` (lecture seule). Relevé du 2026-08-20 après désignation :
+  **1 personne sur 7 en `full`** (Nazer A., General Manager), 6 en `readonly`, dont 5 sans aucun
+  dossier — elles ne perdent donc rien qu'elles aient.
+
+**Une lecture de données RH exige de savoir QUI demande** (2026-08-13).
 `canReadPersonRecord` (`src/shared/slack-request-context.ts`) garde **trois** outils :
 `getEmployeeProfile`, `getNotificationHistory` et `generateDocument` — ils étaient QUATRE
 jusqu'au retrait de `getTaskList` le 2026-08-14. Aucun d'eux ne regardait le demandeur : la chaîne « email d'un collègue → UUID via
 `findEmployeeByEmail` → dossier complet » était ouverte en deux messages, et `generateDocument`
 livrait même ce dossier en PDF **dans le canal du demandeur**.
 - Règle : son propre dossier toujours (comparaison sur `employees.id`, AVANT le niveau), celui
-  d'autrui au niveau `full` — la même que `getUserConversations` et `canPerformSideEffects`.
+  d'autrui au niveau `full` — la même que `getUserConversations` et `canPerformSideEffects`,
+  et depuis le 2026-08-20 elle n'est plus écrite qu'UNE fois (`mayTouchRecord`).
 - L'`employeeId` du demandeur descend par le `requestContext` (clé `slackEmployeeId`), jamais
   par la fenêtre du modèle : on ne décide pas d'un droit sur une valeur qu'un attaquant écrit.
 - Le refus est rendu **avant toute lecture en base**, et les tests le vérifient en assertant
@@ -801,12 +852,6 @@ livrait même ce dossier en PDF **dans le canal du demandeur**.
   script évalue tout l'annuaire d'un coup, en LECTURE SEULE, **en important `resolveAccess`** —
   une seconde copie de la règle dirait un jour autre chose que la première, et ce serait le jour
   où quelqu'un s'en sert pour décider.
-  Relevé du 2026-08-20 : **3 des 7 personnes vivantes garderaient `full`**, et **une seule
-  perdrait quelque chose qu'elle possède** — l'administratrice, seule ligne LIÉE à un dossier
-  actif et seule dont l'adresse Slack soit un `gmail.com`. Les quatre autres rétrogradées n'ont
-  aucun dossier, donc `readonly` ne leur retire rien. La formule « 1 ligne d'annuaire sur 41 est
-  reliée » était vraie et TROMPEUSE : elle faisait croire à un blocage général là où il n'y a
-  qu'un seul cas.
 
 ⚠️ **LE MODÈLE NE SAVAIT PAS QUEL JOUR ON EST — corrigé le 2026-08-19.** Sonde signée :
 « Prépare un entretien … **lundi prochain à 9h** » → « **samedi 22 août 2026 à 08:00** ».
@@ -1195,6 +1240,7 @@ réussi le 2026-08-11 ; l'ancienne mention « ABSENT » était fausse).
 | `BREVO_API_KEY`         | Envoi email — **repli** uniquement (compte non activé, voir Pièges) |
 | `NOTIFICATION_FROM`     | Expéditeur email                                 |
 | `ONBOARDING_WELCOME_CHANNELS` | Noms de canaux publics (séparés par des virgules) où tout nouvel arrivant est invité au `team_join`. Vide ou absente ⇒ aucune invitation, et une ligne en `warn` |
+| `AUTHZ_ENFORCE`         | `true` applique la frontière d'autorisation. Sans elle, la décision est calculée et journalisée mais jamais appliquée. ⚠️ Le garde REFUSE d'appliquer tant qu'aucun manager n'est désigné — voir `npm run role:set` |
 | `ONBOARDING_VIDEO_URL`  | **Facultative depuis le 2026-08-19.** La vidéo d'accueil est un actif STATIQUE du déploiement (`public/onboarding/` → `.vercel/output/static/`, servi par le CDN, jamais par la fonction) et son URL est DÉDUITE de `VERCEL_PROJECT_PRODUCTION_URL`. Cette variable ne sert plus qu'à héberger la vidéo ailleurs ; elle prime quand elle est posée. ⚠️ Le build **échoue** si l'actif manque — sans configuration à poser, plus rien d'autre ne signalerait sa disparition, et le premier message de l'entreprise à un arrivant pointerait vers un 404 |
 | `LOG_LEVEL`, `NODE_ENV` | `debug\|info\|warn\|error`, `development\|staging\|production\|test` |
 
@@ -1216,7 +1262,9 @@ action `inviteToChannel` **sans aucune garde d'autorisation**, dans un fichier q
 recâblage aurait pu rebrancher sans relire.
 
 Config morte, encore présente dans `.env` / Vercel et à purger : `RESEND_API_KEY`
-(adaptateur supprimé), `GOOGLE_GEMINI_API_KEY`, `SLACK_USER_TOKEN`, `OPENAI_API_KEY`.
+(adaptateur supprimé), `GOOGLE_GEMINI_API_KEY`, `SLACK_USER_TOKEN`, `OPENAI_API_KEY`, et
+depuis le 2026-08-20 **`SLACK_ORG_EMAIL_DOMAINS`** — aucune autorisation n'en dépend plus, elle
+est décidée par `slack_directory.role`.
 
 ## Pièges connus
 

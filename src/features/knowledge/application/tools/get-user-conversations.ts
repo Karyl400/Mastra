@@ -3,10 +3,7 @@ import { z } from 'zod';
 
 import { logger } from '../../../../shared/logger';
 import { readSlackContext, writeExcerptCoverage } from '../../../../shared/slack-request-context';
-import {
-  readOrgEmailDomains,
-  type AccessPolicyConfig,
-} from '../../../directory/domain/services/access-policy';
+import {} from '../../../directory/domain/services/access-policy';
 import type { ConversationExcerpt } from '../../domain/entities/conversation-excerpt';
 import type { BotMemoryReadPort } from '../../domain/ports/bot-memory.repository';
 import type {
@@ -71,13 +68,6 @@ import { wrapRetrievedContent } from '../services/untrusted-excerpt.service';
 export interface GetUserConversationsDeps {
   readonly directory: PersonDirectoryPort;
   readonly memory: BotMemoryReadPort;
-  /**
-   * Injectable pour les tests. En production, lue depuis `SLACK_ORG_EMAIL_DOMAINS`
-   * À CHAQUE APPEL — et non figée à la construction : le câblage a lieu à
-   * l'import de `src/mastra/index.ts`, or une variable absente donnerait alors
-   * une politique vide gelée pour la vie du processus.
-   */
-  readonly policy?: AccessPolicyConfig;
 }
 
 /** Un `U…`. Slack les écrit en majuscules ; on tolère la saisie humaine. */
@@ -206,10 +196,6 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
         .describe('Email ou identifiant Slack. Vide = la personne qui te parle.'),
     }),
     execute: async (data, ctx) => {
-      const policy: AccessPolicyConfig = deps.policy ?? {
-        orgEmailDomains: readOrgEmailDomains(process.env.SLACK_ORG_EMAIL_DOMAINS),
-      };
-
       const slack = readSlackContext(ctx?.requestContext);
       if (!slack?.slackUserId) {
         logger.warn('Knowledge — récupération refusée : aucun demandeur identifié', {
@@ -240,8 +226,8 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
       const targetsRequester = !asked || designatesRequester(asked, requesterId, requesterPerson);
 
       const verdict = targetsRequester
-        ? authorizeMemoryRead(requester, requesterId, policy)
-        : authorizeOtherMemoryRead(requester, policy);
+        ? authorizeMemoryRead(requester, requesterId)
+        : authorizeOtherMemoryRead(requester);
 
       if (!verdict.allowed) {
         logger.warn('Knowledge — récupération refusée par la politique de divulgation', {
