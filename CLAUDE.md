@@ -155,6 +155,7 @@ npm run test:all         # unit puis integration
 npm run smoke:slack      # node --env-file=.env scripts/smoke-slack.mjs
 npm run smoke:email      # ⚠️ ENVOIE un vrai email — pas un dry-run
 npm run test:scenarios   # node --env-file=.env scripts/production-scenarios.mjs
+npm run probe:authz      # qui perdrait quoi si AUTHZ_ENFORCE était posé (LECTURE SEULE)
 
 npm run verify:bundle    # audit du bundle Vercel (inclus dans `build`)
 npm run db:generate      # drizzle-kit generate
@@ -511,6 +512,34 @@ une garantie : seul un cron en serait une, et ce projet n'en a aucun.
 - La borne de longueur double celle de `wrapUserInput` **sans la déplacer**, et sur la même
   constante. Elle existe parce qu'une `SecurityBlockError` ressort en `NEUTRAL_REFUSAL` : un
   copier-coller trop long recevait un refus de POLITIQUE là où le problème est une TAILLE.
+- ⚠️ **Le miroir textuel a un ANGLE MORT structurel, fermé le 2026-08-20 par un SECOND
+  miroir.** `isAnsweredWithoutModel` est évalué pour chaque message sur le chemin de l'ACK,
+  donc il ne peut rien lire — et les deux court-circuits dont la reconnaissance dépend d'un
+  ÉTAT lui sont invisibles : le « oui » / « non » qui tranche un email d'entretien en attente,
+  et la réponse à une question du parcours d'accueil. Tous deux coûtent ZÉRO token. Au quota,
+  on ne pouvait donc ni ANNULER un envoi, ni terminer son propre dossier : le garde-fou du
+  budget bloquait des gestes qui ne consomment pas de budget — troisième occurrence après
+  « bonjour » (2026-08-13) et `profile_done` (2026-08-19).
+  - **La prémisse renversée** : « l'ACK n'a pas le droit de lire en base » est faux. Il le fait
+    déjà DEUX fois par message — la prise de clé de déduplication et le compteur partagé sont
+    l'un et l'autre des allers-retours Turso. Ce qui n'a pas le droit de grossir, c'est le
+    chemin NOMINAL. `settlesWithoutModel` vit donc APRÈS un refus, chemin rare, et ne coûte
+    rien à personne d'autre qu'à celui qui allait de toute façon être refusé.
+  - ⚠️ **Réservé aux règles qui RATIONNENT LE MODÈLE** (`decision.rationsModelBudget`, lu sur
+    l'objet `RateLimitRule` qui vient de refuser, jamais par correspondance de nom chez
+    l'appelant). Un refus de RAFALE s'applique à tout : une rafale reste une rafale.
+  - ⚠️ **Aucun prédicat n'y est réécrit.** `pendingEmailVerdict` est extrait de
+    `resolvePendingEmail`, qui l'exécute désormais ; `answersOnboardingQuestion` porte les trois
+    gardes qui étaient déjà écrites DEUX fois à l'identique dans les deux machines à états.
+    Un miroir qui approxime son objet finit par refuser ce qu'il devait épargner.
+  - ⚠️ Il ÉCHOUE VERS LE REFUS, à l'inverse du fail-open qui gouverne le reste du fichier : il
+    n'accorde pas un droit, il lève une restriction. Sur une panne de lecture, le « oui »
+    partirait de toute façon chez un agent et coûterait des tokens.
+- ⚠️ **La limitation était devenue SON PROPRE SPAM** (même date). Depuis que le budget modèle
+  est RÉSERVÉ à l'ACK et débité seulement avant `agent.generate()`, un message refusé
+  n'incrémente rien : le compteur lu reste figé, l'égalité `count === limit + 1` de
+  `evaluateCount` reste vraie, et « une fois, puis silence » était devenu « à chaque message ».
+  `claimNotification` est désormais la CONDITION et non plus un simple repli.
 - ⚠️ **La limite de débit les ÉPARGNE, et c'est un correctif trouvé en production.** Elle vit
   dans `accept()`, donc AVANT eux : une personne ayant atteint ses 12 messages du jour recevait
   « J'ai atteint mon quota » pour un simple « bonjour » — et l'aurait reçu pour « je ne vais pas
@@ -764,10 +793,20 @@ livrait même ce dossier en PDF **dans le canal du demandeur**.
 - Le refus est rendu **avant toute lecture en base**, et les tests le vérifient en assertant
   que le repository n'est jamais appelé.
 - ⚠️ **Cette frontière hérite du mode observation** : tant que `AUTHZ_ENFORCE` n'est pas posé,
-  `SlackAccessGuard` rend `full` à tout le monde et elle **ne refuse rien**. Et avant de
-  l'activer, vérifier `SLACK_ORG_EMAIL_DOMAINS` : l'adresse d'annuaire de l'administratrice de
-  l'onboarding est `karylsoumaila1@gmail.com`, domaine étranger, donc `readonly` — l'activer en
-  l'état la couperait du dossier de tout le monde.
+  `SlackAccessGuard` rend `full` à tout le monde et elle **ne refuse rien**.
+- ⚠️ **AVANT de l'activer : `npm run probe:authz`** (2026-08-20). Le mode observation ne
+  journalise QUE les gens qui écrivent au bot — or c'est celui qui ne lui a jamais parlé qu'on
+  cassera le jour de l'activation. Sur un workspace de six personnes dont le bot en voit deux ou
+  trois par semaine, « lire les logs, puis activer » ne peut PAS rendre la réponse complète. Le
+  script évalue tout l'annuaire d'un coup, en LECTURE SEULE, **en important `resolveAccess`** —
+  une seconde copie de la règle dirait un jour autre chose que la première, et ce serait le jour
+  où quelqu'un s'en sert pour décider.
+  Relevé du 2026-08-20 : **3 des 7 personnes vivantes garderaient `full`**, et **une seule
+  perdrait quelque chose qu'elle possède** — l'administratrice, seule ligne LIÉE à un dossier
+  actif et seule dont l'adresse Slack soit un `gmail.com`. Les quatre autres rétrogradées n'ont
+  aucun dossier, donc `readonly` ne leur retire rien. La formule « 1 ligne d'annuaire sur 41 est
+  reliée » était vraie et TROMPEUSE : elle faisait croire à un blocage général là où il n'y a
+  qu'un seul cas.
 
 ⚠️ **LE MODÈLE NE SAVAIT PAS QUEL JOUR ON EST — corrigé le 2026-08-19.** Sonde signée :
 « Prépare un entretien … **lundi prochain à 9h** » → « **samedi 22 août 2026 à 08:00** ».

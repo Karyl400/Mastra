@@ -83,14 +83,36 @@
 
 ### Limites CONNUES, écrites plutôt que découvertes
 
-- [ ] **À quota atteint, on ne peut pas ANNULER un email en attente ce jour-là.** Le prédicat
-      « oui / non » n'est pas textuel — il exige de lire `pending_interview_email` — donc il ne
-      peut pas entrer dans `isAnsweredWithoutModel`, qui tourne à l'ACK sans droit de lecture.
-      Rien n'est envoyé pour autant (« oui » est refusé de la même façon) et la préparation
-      expire en 24 h. L'exempter au vu du seul texte rouvrirait un contournement du quota.
-- [ ] **`AUTHZ_ENFORCE` reste inactivable** : 1 ligne d'annuaire sur 41 est reliée à un dossier,
-      et l'adresse de l'administratrice est d'un domaine étranger (`gmail.com`), donc
-      `readonly`. Décision de propriétaire — voir `SLACK_ORG_EMAIL_DOMAINS`.
+- [x] ~~**À quota atteint, on ne peut pas ANNULER un email en attente ce jour-là.**~~ **FERMÉE
+      le 2026-08-20**, en renversant la prémisse qui la déclarait indépassable : « l'ACK n'a pas
+      le droit de lire en base » est faux — il le fait DÉJÀ deux fois par message (prise de clé
+      de déduplication, compteur partagé). Ce qui n'a pas le droit de grossir, c'est le chemin
+      NOMINAL. Le miroir TEXTUEL reste donc seul sur ce chemin ; un miroir EXACT, qui lit, ne
+      s'exécute qu'APRÈS un refus — donc jamais pour personne d'autre que celui qui allait de
+      toute façon être refusé — et seulement pour les règles qui rationnent le MODÈLE (une
+      rafale reste une rafale). Il couvrait au passage un second cas de la même famille, plus
+      coûteux : une personne au quota ne pouvait pas non plus répondre aux questions de son
+      PROPRE dossier, donc son accueil était bloqué par le garde-fou du budget.
+      ⚠️ Aucun prédicat n'est réécrit dans le miroir — `pendingEmailVerdict` et
+      `answersOnboardingQuestion` sont ceux-là mêmes qu'exécute le handler. C'était la condition :
+      un miroir qui approxime son objet finit par refuser ce qu'il devait épargner.
+- [ ] **`AUTHZ_ENFORCE` — le blocage tient désormais à UNE ligne d'annuaire, et c'est mesuré.**
+      `npm run probe:authz` évalue TOUT l'annuaire à travers `resolveAccess` (importé, jamais
+      réimplémenté) et rend le verdict avant qu'on touche à la variable. Relevé le 2026-08-20 sur
+      la Turso de production, avec le `SLACK_ORG_EMAIL_DOMAINS` déjà posé
+      (`kissohq.com, design.kisso.xyz`) : **3 personnes sur 7 garderaient `full`**.
+      ⚠️ **Une seule perdrait quelque chose qu'elle possède** : Karyl SOUMAILA — seule ligne
+      d'annuaire LIÉE à un dossier actif, et seule dont l'adresse Slack soit un `gmail.com`.
+      Les quatre autres rétrogradées n'ont AUCUN dossier : `readonly` ne leur retire rien
+      qu'elles aient, puisque `canReadPersonRecord` compare sur `employees.id` et qu'elles n'en
+      ont pas. La formule « 1 ligne sur 41 est reliée » était donc vraie et TROMPEUSE — elle
+      donnait à croire à un blocage général là où il n'y a qu'un seul cas.
+      Deux issues, et elles ne se valent pas : **(1)** l'adresse du profil Slack de
+      l'administratrice pointe vers le domaine de l'organisation — rien à configurer, la règle
+      reste dérivée d'un fait que Slack tient à jour ; **(2)** `gmail.com` entre dans
+      `SLACK_ORG_EMAIL_DOMAINS`, ce qui accorde `full` à toute personne portant ce domaine,
+      aujourd'hui et demain — sur un domaine public, c'est n'avoir plus de frontière.
+      **Décision de propriétaire**, et c'est la seule qui reste : le code, lui, est prêt.
 - [ ] Le suivi de `notifications` et `documents` n'a toujours aucun chemin d'effacement.
 
 ---

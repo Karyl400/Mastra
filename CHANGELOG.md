@@ -1,5 +1,85 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## 2026-08-20 — Le quota refusait des gestes qui ne coûtent rien, et il refusait deux fois
+
+Deux limites étaient écrites dans `TODO.md` comme indépassables. La première ne l'était pas :
+elle reposait sur une prémisse fausse.
+
+### « L'ACK n'a pas le droit de lire en base » — il le fait déjà deux fois par message
+
+C'est la phrase qui déclarait le problème insoluble. Elle est fausse : la prise de clé de
+déduplication et le compteur de débit partagé sont l'un et l'autre des allers-retours Turso, sur
+ce chemin, à chaque message. Ce qui n'a pas le droit de grossir, ce n'est pas « l'ACK » — c'est
+le chemin NOMINAL.
+
+Conséquence de cette confusion : `isAnsweredWithoutModel` étant purement TEXTUEL, les deux
+court-circuits dont la reconnaissance dépend d'un ÉTAT lui étaient structurellement invisibles.
+Or tous deux coûtent **zéro token** :
+
+- le « oui » / « non » qui tranche un email d'entretien en attente ;
+- la réponse à une question du parcours d'accueil.
+
+Une personne ayant atteint son quota ne pouvait donc **ni annuler un envoi, ni terminer son
+propre dossier** — le garde-fou du budget bloquait des gestes qui ne consomment pas de budget.
+C'est la **troisième** occurrence de cette famille, après « bonjour » refusé (2026-08-13) et
+`profile_done` facturé (2026-08-19). Le second cas est le plus cher des deux : l'accueil d'un
+arrivant s'arrêtait net, et le message qu'il recevait désignait une cause sans rapport.
+
+**Le correctif est un SECOND miroir, exact celui-là, qui a le droit de lire — parce qu'il ne
+s'exécute qu'APRÈS un refus.** Chemin rare par construction : il ne coûte rien à personne
+d'autre qu'à celui qui allait de toute façon être refusé.
+
+- ⚠️ **Réservé aux règles qui RATIONNENT LE MODÈLE.** `RateLimitDecision` porte désormais
+  `rationsModelBudget`, lu sur l'objet `RateLimitRule` qui vient de refuser — jamais par une
+  table `nom → rationne` recopiée chez l'appelant, ce dépôt ayant déjà vu trois listes tenues à
+  la main se désynchroniser en silence. Un refus de RAFALE continue de s'appliquer à tout :
+  une rafale reste une rafale, et attendre douze secondes n'a jamais empêché d'annuler un email.
+- ⚠️ **Aucun prédicat n'est réécrit dans le miroir**, et c'était la condition. `pendingEmailVerdict`
+  est EXTRAIT de `resolvePendingEmail`, qui l'exécute désormais ; `answersOnboardingQuestion`
+  porte les trois gardes qui étaient déjà écrites DEUX fois à l'identique dans les deux machines
+  à états — DM, court-circuit agissant prioritaire, question posée au bot. Une troisième copie
+  aurait garanti la divergence, et son symptôme aurait été muet.
+- ⚠️ **Il échoue vers le REFUS**, à l'inverse du fail-open qui gouverne tout le reste de ce
+  fichier. Ce n'est pas une inconséquence : il n'accorde pas un droit, il lève une restriction.
+  Sur une panne de lecture, le « oui » repartirait de toute façon chez un agent et coûterait des
+  tokens ; laisser passer reviendrait à ouvrir le quota sur une panne de base.
+
+### Second défaut, trouvé en écrivant le premier : la limitation était son propre spam
+
+`evaluateCount` fonde `shouldNotify` sur une égalité exacte, `count === limit + 1` — juste pour
+un compteur qui avance de 1 en 1. Mais depuis que le budget modèle est **réservé** à l'ACK et
+débité seulement avant `agent.generate()`, **un message refusé n'incrémente rien** : le compteur
+lu reste figé, l'égalité reste vraie, et « une fois par fenêtre, puis silence » était devenu « à
+chaque message ». La protection s'était transformée en ce qu'elle existe pour empêcher — et
+chaque avertissement est lui-même un appel à l'API Slack. `claimNotification` est désormais la
+CONDITION, plus un repli.
+
+### `AUTHZ_ENFORCE` : le blocage tient à UNE ligne, et c'est maintenant mesuré
+
+`access-guard.ts` prescrit « journaliser ce qui serait refusé, lire les logs, PUIS activer ».
+La méthode a un angle mort : le mode observation ne journalise **que les gens qui écrivent au
+bot**, or c'est celui qui ne lui a jamais parlé qu'on cassera le jour de l'activation. Sur six
+personnes réelles dont le bot en voit deux ou trois par semaine, cette méthode ne peut pas
+rendre une réponse complète.
+
+**`npm run probe:authz`** (lecture seule) évalue tout l'annuaire d'un coup, **en important
+`resolveAccess`** — une seconde copie de la règle d'autorisation dirait un jour autre chose que
+la première, et ce serait précisément le jour où quelqu'un s'en sert pour décider d'activer.
+
+Relevé sur la Turso de production, avec le `SLACK_ORG_EMAIL_DOMAINS` déjà posé : **3 des 7
+personnes vivantes garderaient `full`**, et **une seule perdrait quelque chose qu'elle possède**
+— l'administratrice, seule ligne d'annuaire liée à un dossier actif, et seule dont l'adresse
+Slack soit un `gmail.com`. Les quatre autres rétrogradées n'ont aucun dossier : `readonly` ne
+leur retire rien, `canReadPersonRecord` comparant sur `employees.id`.
+
+La formule répétée jusqu'ici — « 1 ligne d'annuaire sur 41 est reliée » — était vraie et
+**trompeuse** : elle faisait croire à un blocage général là où il n'y a qu'un seul cas. Ce qui
+reste est une décision de propriétaire, et elle tient en deux lignes : corriger la DONNÉE
+(l'adresse du profil Slack), ou déclarer `gmail.com` domaine de l'organisation — ce qui,
+sur un domaine public, revient à n'avoir plus de frontière.
+
+**1 853 tests verts, typecheck et lint propres.**
+
 ## 2026-08-20 — La promesse d'envoi ne se détecte plus, elle se DÉDUIT du câblage
 
 Sonde en production : « Enregistre un rappel pour Karyl : relire le guide d'accueil avant
