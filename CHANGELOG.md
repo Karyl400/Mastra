@@ -84,6 +84,22 @@ d'imprimer « destiné à  ».
 `position` : « Developer » → « Software Engineer ». Suivi d'intégration : `in_progress 1/5` →
 `completed 1/1`, `completed_at` posé.
 
+### Vérifié en production
+
+La même question, reposée après déploiement :
+
+> Prénom : Karyl · Nom : SOUMAILA · Email : … · Poste : **Software Engineer**
+> Statut d'intégration : **terminé** (étape 1 sur 1).
+
+Plus d'identifiant, plus de département, plus de date de début, plus de « pending ». Un guide
+demandé dans la foulée est bien parti dans le fil (`guide-d-accueil.pdf`), et le rendu réel du
+même gabarit imprime en tête : « **Document destiné à Karyl SOUMAILA.** » — sans le
+département, vérifié en décodant le fichier produit.
+
+⚠️ Un reste, non corrigé et signalé plutôt que tu : le modèle a intitulé le champ « Email
+**professionnel** » alors que l'adresse est personnelle. Le tool ne rend que `email` ; c'est le
+modèle qui a qualifié. Petit, mais c'est la famille « il ajoute ce qu'il ne sait pas ».
+
 **1 888 tests verts, typecheck et lint propres.**
 
 ## 2026-08-20 (soir) — Le Manager, et lui seul, voit les données de tout le monde
