@@ -726,8 +726,8 @@ mais de MÉTADONNÉES — un GET suffit, sans injection ni appel de modèle.
   `containsInternalMarkers`, pour que les deux chemins ne divergent jamais.
 - ⚠️ **Rédaction INCONDITIONNELLE, développement compris** : un développeur a le SOURCE, seul
   quelqu'un qui n'a pas le dépôt a besoin de cette route pour lire le prompt. Une protection
-  sous `NODE_ENV` serait un interrupteur qu'on oublie — ce dépôt en a déjà un (`AUTHZ_ENFORCE`)
-  jamais activé.
+  sous `NODE_ENV` serait un interrupteur qu'on oublie — ce dépôt en a eu un (`AUTHZ_ENFORCE`)
+  resté inactif dix jours, faute d'un fait sur lequel décider.
 - Monté sur `/api/*` et non `/api/agents/*` : un joker Hono ne couvre pas `/api/agents` SANS
   segment suivant, or c'est la pire des quatre surfaces. Le garde teste le chemin lui-même.
 
@@ -843,8 +843,12 @@ livrait même ce dossier en PDF **dans le canal du demandeur**.
   par la fenêtre du modèle : on ne décide pas d'un droit sur une valeur qu'un attaquant écrit.
 - Le refus est rendu **avant toute lecture en base**, et les tests le vérifient en assertant
   que le repository n'est jamais appelé.
-- ⚠️ **Cette frontière hérite du mode observation** : tant que `AUTHZ_ENFORCE` n'est pas posé,
-  `SlackAccessGuard` rend `full` à tout le monde et elle **ne refuse rien**.
+- ✅ **`AUTHZ_ENFORCE=true` EST POSÉ en production depuis le 2026-08-20**, et la frontière
+  refuse réellement. Vérifié par deux sondes signées depuis un compte NON manager :
+  « le profil de l'employé dont l'email est … » → « Je n'ai pas accès au profil de cet
+  employé. » ; « mon propre profil » → dossier complet rendu. **Les deux moitiés**, parce
+  qu'un refus généralisé est indiscernable d'une frontière qui marche.
+  ⚠️ Sans cette variable, `SlackAccessGuard` rend `full` à tout le monde et rien n'est refusé.
 - ⚠️ **AVANT de l'activer : `npm run probe:authz`** (2026-08-20). Le mode observation ne
   journalise QUE les gens qui écrivent au bot — or c'est celui qui ne lui a jamais parlé qu'on
   cassera le jour de l'activation. Sur un workspace de six personnes dont le bot en voit deux ou

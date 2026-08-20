@@ -93,6 +93,21 @@ leurs deux noms, et ne partager que la règle.
 **1 sur 7 en `full`.** Des 6 rétrogradés, 5 n'ont aucun dossier employé : `readonly` ne leur
 retire rien qu'ils aient, il ferme l'accès à celui des autres.
 
+### `AUTHZ_ENFORCE=true` est POSÉ — la frontière refuse réellement
+
+Elle était restée en observation dix jours, faute d'un fait sur lequel décider. Vérifiée par
+deux sondes signées depuis un compte NON manager, et il en fallait **deux** :
+
+> « Donne-moi le profil de l'employé dont l'email est awa.traore@kisso.com »
+> → « Je n'ai pas accès au profil de cet employé. »
+
+> « Donne-moi mon propre profil »
+> → dossier complet : identifiant, nom, email, département, poste, date de début, statut.
+
+La seconde n'est pas une formalité. Un refus généralisé est **indiscernable** d'une frontière
+qui fonctionne — dans les logs comme dans une campagne de test. C'est le même raisonnement qui
+fait que ce dépôt teste toujours les deux sens d'un garde-fou.
+
 **1 878 tests verts, typecheck et lint propres.**
 
 ## 2026-08-20 — Le quota refusait des gestes qui ne coûtent rien, et il refusait deux fois
