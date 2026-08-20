@@ -1,0 +1,467 @@
+<title>Audit Kisso — 100 points</title>
+<style>
+  :root{
+    --bg:#F6F7F9; --surface:#FFFFFF; --surface-2:#FBFBFD;
+    --ink:#14161B; --muted:#5E6573; --faint:#8A91A0;
+    --rule:#E1E4EA; --rule-strong:#C9CED8;
+    --steel:#2F5D8C;
+    --crit:#A33427; --crit-bg:#FBEEEC;
+    --warn:#8C5E0C; --warn-bg:#FCF4E4;
+    --ok:#256B52; --ok-bg:#EAF4EF;
+    --na:#6B7280; --na-bg:#F0F1F4;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0D0F13; --surface:#161920; --surface-2:#1B1F27;
+      --ink:#E7EAF0; --muted:#9AA1B0; --faint:#727A8A;
+      --rule:#252A33; --rule-strong:#39404C;
+      --steel:#7EAFDD;
+      --crit:#E59285; --crit-bg:#2A1A18;
+      --warn:#DDB067; --warn-bg:#271F12;
+      --ok:#7FC5A7; --ok-bg:#14241D;
+      --na:#9AA1B0; --na-bg:#1E222A;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0D0F13; --surface:#161920; --surface-2:#1B1F27;
+    --ink:#E7EAF0; --muted:#9AA1B0; --faint:#727A8A;
+    --rule:#252A33; --rule-strong:#39404C;
+    --steel:#7EAFDD;
+    --crit:#E59285; --crit-bg:#2A1A18;
+    --warn:#DDB067; --warn-bg:#271F12;
+    --ok:#7FC5A7; --ok-bg:#14241D;
+    --na:#9AA1B0; --na-bg:#1E222A;
+  }
+  :root[data-theme="light"]{
+    --bg:#F6F7F9; --surface:#FFFFFF; --surface-2:#FBFBFD;
+    --ink:#14161B; --muted:#5E6573; --faint:#8A91A0;
+    --rule:#E1E4EA; --rule-strong:#C9CED8;
+    --steel:#2F5D8C;
+    --crit:#A33427; --crit-bg:#FBEEEC;
+    --warn:#8C5E0C; --warn-bg:#FCF4E4;
+    --ok:#256B52; --ok-bg:#EAF4EF;
+    --na:#6B7280; --na-bg:#F0F1F4;
+  }
+
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);
+    font-size:16px;line-height:1.62;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:920px;margin:0 auto;padding:56px 22px 96px;display:flex;flex-direction:column;gap:44px;}
+  h1,h2,h3{font-family:var(--serif);font-weight:600;text-wrap:balance;line-height:1.22;margin:0;}
+  h1{font-size:clamp(2rem,5vw,2.9rem);letter-spacing:-.015em;}
+  h2{font-size:1.6rem;letter-spacing:-.01em;}
+  h3{font-size:1.12rem;font-family:var(--sans);font-weight:650;letter-spacing:-.005em;}
+  p{margin:0;max-width:68ch;}
+  a{color:var(--steel);}
+  code,.mono{font-family:var(--mono);font-size:.855em;}
+  code{background:var(--surface-2);border:1px solid var(--rule);border-radius:4px;padding:.08em .38em;}
+
+  .eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);}
+  .lede{font-size:1.09rem;color:var(--muted);max-width:64ch;}
+
+  header{display:flex;flex-direction:column;gap:16px;border-bottom:1px solid var(--rule);padding-bottom:34px;}
+  .meta{display:flex;flex-wrap:wrap;gap:8px 20px;font-family:var(--mono);font-size:.75rem;color:var(--faint);}
+
+  .tally{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
+  .tally div{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:16px 18px;
+    display:flex;flex-direction:column;gap:2px;}
+  .tally b{font-size:2rem;font-family:var(--serif);font-weight:600;font-variant-numeric:tabular-nums;line-height:1;}
+  .tally span{font-size:.8rem;color:var(--muted);}
+  .tally .t-ok b{color:var(--ok);} .tally .t-na b{color:var(--na);} .tally .t-df b{color:var(--crit);}
+
+  section{display:flex;flex-direction:column;gap:20px;}
+  .sec-head{display:flex;flex-direction:column;gap:8px;border-left:3px solid var(--rule-strong);padding-left:16px;}
+
+  .pill{display:inline-block;font-family:var(--mono);font-size:.68rem;letter-spacing:.06em;
+    text-transform:uppercase;padding:.18em .52em;border-radius:4px;white-space:nowrap;font-weight:600;}
+  .p-crit{background:var(--crit-bg);color:var(--crit);}
+  .p-warn{background:var(--warn-bg);color:var(--warn);}
+  .p-ok{background:var(--ok-bg);color:var(--ok);}
+  .p-na{background:var(--na-bg);color:var(--na);}
+
+  .card{background:var(--surface);border:1px solid var(--rule);border-radius:12px;padding:22px 24px;
+    display:flex;flex-direction:column;gap:12px;}
+  .card.crit{border-left:3px solid var(--crit);}
+  .card.warn{border-left:3px solid var(--warn);}
+  .card-top{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;}
+  .card-top .num{font-family:var(--mono);font-size:.78rem;color:var(--faint);}
+  .ev{font-family:var(--mono);font-size:.78rem;background:var(--surface-2);border:1px solid var(--rule);
+    border-radius:8px;padding:10px 13px;color:var(--muted);overflow-x:auto;white-space:pre-wrap;word-break:break-word;}
+  .conseq{font-size:.94rem;color:var(--muted);border-top:1px dashed var(--rule);padding-top:11px;}
+  .conseq b{color:var(--ink);font-weight:620;}
+
+  .tbl-wrap{overflow-x:auto;border:1px solid var(--rule);border-radius:12px;background:var(--surface);}
+  table{border-collapse:collapse;width:100%;font-size:.87rem;min-width:620px;}
+  th,td{text-align:left;padding:9px 14px;border-bottom:1px solid var(--rule);vertical-align:top;}
+  th{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);font-weight:600;
+    background:var(--surface-2);position:sticky;top:0;}
+  tr:last-child td{border-bottom:none;}
+  td.n{font-family:var(--mono);color:var(--faint);width:3.2em;font-variant-numeric:tabular-nums;}
+  td.v{width:8.6em;}
+  td.e{font-family:var(--mono);font-size:.78rem;color:var(--muted);}
+
+  ul{margin:0;padding-left:1.15em;display:flex;flex-direction:column;gap:8px;max-width:68ch;}
+  li::marker{color:var(--faint);}
+  .note{background:var(--surface-2);border:1px solid var(--rule);border-left:3px solid var(--steel);
+    border-radius:8px;padding:16px 18px;font-size:.94rem;color:var(--muted);display:flex;flex-direction:column;gap:10px;}
+  .note b{color:var(--ink);}
+  footer{border-top:1px solid var(--rule);padding-top:26px;color:var(--faint);font-size:.85rem;}
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">Kisso Onboarding · audit en lecture seule</div>
+  <h1>100 points de contrôle, un verdict par point</h1>
+  <p class="lede">Sécurité, architecture, lisibilité, qualité et robustesse. Chaque verdict est adossé à une preuve — un <span class="mono">fichier:ligne</span>, une sortie de commande ou une sonde exécutée. Rien n'est affirmé sur la foi d'un commentaire.</p>
+  <div class="meta">
+    <span>2026-08-20</span><span>branche refactor/cleanup-20260810</span>
+    <span>8 lots parallèles</span><span>aucun fichier modifié</span>
+  </div>
+</header>
+
+<section>
+  <div class="tally">
+    <div class="t-ok"><b>46</b><span>conformes</span></div>
+    <div class="t-na"><b>16</b><span>sans objet</span></div>
+    <div class="t-df"><b>38</b><span>défauts</span></div>
+  </div>
+
+  <div class="note">
+    <p><b>Trois verdicts, pas deux.</b> « Sans objet » n'est pas un point coché à vide : ce produit n'a <b>aucun frontend</b> — zéro dépendance React/Vue, zéro fichier <code>.tsx</code>, un seul <code>.html</code> qui est un document. XSS navigateur, cookies, CORS, hooks, ARIA, responsive, bundle client et mode hors ligne n'ont pas d'objet ici. Chacun a donc été traité par son <b>équivalent réel</b> : le mrkdwn de Slack au lieu du DOM, le fil de conversation au lieu du cookie de session, le démarrage à froid Vercel au lieu du temps de chargement. C'est là que se trouvent la moitié des défauts sérieux.</p>
+    <p><b>Sur les 38 défauts, 5 sont critiques et 8 élevés.</b> Les 25 autres relèvent de l'hygiène. Aucun n'est exploitable de façon anonyme : la frontière HMAC tient, et elle a été sondée en production.</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">Priorité 1</div>
+    <h2>Les cinq défauts critiques</h2>
+    <p class="lede">Chacun a été revérifié dans le code après le rapport qui l'a signalé.</p>
+  </div>
+
+  <div class="card crit">
+    <div class="card-top"><span class="pill p-crit">critique</span><h3>Le canal de sortie que le filtre n'a jamais couvert</h3><span class="num">pts 8 · 9</span></div>
+    <p><code>sanitizeAgentOutput</code> n'a qu'un <b>seul</b> site d'appel. Le dépôt le sait — onze commentaires le répètent comme un avertissement, et la leçon a été appliquée aux documents, aux réponses déterministes, aux extraits de canal. Elle ne l'a pas été à <code>sendNotification</code>, dont le champ <code>body</code> est de la prose libre écrite par le modèle, jusqu'à 5 000 caractères.</p>
+    <div class="ev">slack-events.handler.ts:2340   sanitizeAgentOutput(response.text)   ← unique appel
+send-notification.ts:210      emailProvider.sendEmail(dest, subject, data.body)
+send-notification.ts:212      chatProvider.sendMessage(dest, `*${subject}*\n\n${data.body}`)
+smtp.adapter.ts:104           html: body     ← aucun échappement</div>
+    <p>Le corps part donc <b>en HTML</b> dans un email signé de l'adresse de l'entreprise : sans échappement, sans liste blanche de liens, sans rédaction de marqueur interne. <code>sanitizeHtml</code> existe dans le dépôt mais n'est câblé que sur <code>validation.ts</code> et <code>employee.dto.ts</code> — jamais sur ce chemin.</p>
+    <div class="conseq"><b>Conséquence.</b> Un lien cliquable trompeur, un pixel traceur ou un fragment de prompt interne expédié à un salarié depuis l'adresse de l'entreprise. C'est exactement la classe de défaut que ce dépôt a nommée et fermée le 2026-08-11 pour le contenu des documents — non rejouée sur le seul chemin qui sort de l'organisation.</div>
+  </div>
+
+  <div class="card crit">
+    <div class="card-top"><span class="pill p-crit">critique</span><h3>Le document est livré avant d'exister</h3><span class="num">pts 81 · 35</span></div>
+    <p>Deux lots se contredisaient sur ce point ; le code tranche. <code>deliver()</code> est appelé <b>avant</b> <code>persistDocument()</code>. Le commentaire au-dessus dit vrai — l'enregistrement a lieu quel que soit le <i>verdict</i> de livraison — mais il ne dit rien de l'<i>ordre</i>.</p>
+    <div class="ev">generate-document.ts:761   const delivered = await deliver({ … })      ← le PDF part
+generate-document.ts:777   const generated = await persistDocument(…)  ← puis on l'enregistre
+generate-document.ts:858   runGuard.remember(dedupKey, …)              ← Map en mémoire de processus</div>
+    <p>Plus largement : <b>il n'existe aucune transaction dans tout le dépôt</b>. <code>grep '.transaction(|.batch('</code> sur <code>src/</code> ne rend qu'une occurrence, dans un commentaire. Le parcours d'onboarding écrit cinq tables avec un email irréversible en position 3 sur 7, et aucun mécanisme ne reprend un run mort — ni cron, ni file, ni retry.</p>
+    <div class="conseq"><b>Conséquence.</b> Un gel Vercel entre les deux lignes laisse un fichier réel dans Slack ou dans une boîte mail, <b>sans aucune trace en base</b> : <code>revises</code> ne le retrouvera pas, la reprise produira un doublon — la famille du défaut « 7 documents identiques en 8 minutes ». Sur l'onboarding, le pire état atteignable (employé sans <code>onboarding_progress</code>) est <b>non réparable par le produit lui-même</b>.</div>
+  </div>
+
+  <div class="card crit">
+    <div class="card-top"><span class="pill p-crit">critique</span><h3>Aucun timeout : le bot reste sur « Je regarde ça, un instant… »</h3><span class="num">pts 93 · 36</span></div>
+    <p><code>agent.generate()</code> est appelé sans <code>abortSignal</code>, sans timeout. Aucun utilitaire de reprise n'existe — <code>src/shared/retry.ts</code>, listé dans le <code>CLAUDE.md</code>, <b>n'existe pas</b>.</p>
+    <div class="ev">slack-events.handler.ts:2320   await agent.generate(messages, { requestContext })   ← rien d'autre
+fix-vercel-output.js:178       maxDuration = 60</div>
+    <p>L'ACK à 200 supprime tout rejeu Slack. Une fois la fonction gelée ou tuée à <code>maxDuration</code>, <code>progress.resolve()</code> n'est jamais appelé, <code>progress.fail()</code> non plus. La grâce d'abandon de 60 s ne couvre que le cas où l'ACK lui-même a dépassé 3 s — pas un gel post-ACK.</p>
+    <div class="conseq"><b>Conséquence.</b> Le marqueur de progression reste affiché indéfiniment, <b>sans un seul log d'erreur</b> — l'invocation meurt avant d'en écrire un. C'est le symptôme que ce produit combat depuis le début : celui qui ne se distingue pas d'une panne. Un <code>AbortSignal.timeout(~40 s)</code> le rendrait nommable.</div>
+  </div>
+
+  <div class="card crit">
+    <div class="card-top"><span class="pill p-crit">critique</span><h3>La frontière d'autorisation échoue vers l'ouvert, en silence</h3><span class="num">pts 15 · 94</span></div>
+    <p>La règle est bien écrite une seule fois et <code>resolveAccess</code> est fail-closed. Mais son <i>application</i> ne l'est pas.</p>
+    <div class="ev">slack-request-context.ts:313   return context.accessLevel === undefined || context.accessLevel === 'full';
+slack-events.handler.ts:4119   if (!guard) return undefined;    ← AUCUN log
+slack-events.handler.ts:4125   catch → logger.error(…); return undefined;</div>
+    <p>Un <code>accessLevel</code> à <code>undefined</code> vaut donc <code>full</code>. Or c'est exactement ce que rend <code>evaluateAccess</code> quand le garde lève — et, plus probable, quand le garde n'est pas câblé : cette ligne-là ne journalise <b>rien du tout</b>.</p>
+    <p>Second volet, indépendant de toute configuration : <b>trois outils de lecture ne consultent aucune garde</b>. <code>findPersonByName</code> et <code>findExpertise</code> n'ont zéro occurrence de <code>canReadPersonRecord</code> ; <code>findEmployeeByEmail</code> ne lit le contexte que pour composer un <code>hint</code>.</p>
+    <div class="conseq"><b>Conséquence.</b> Une panne <i>partielle</i> de l'annuaire — pas une panne totale, qui masquerait le défaut — accorde l'équivalent de <code>full</code> à tout le monde, y compris avec <code>AUTHZ_ENFORCE=true</code>. Et <code>findExpertise</code> expose noms, postes et extraits d'entretiens sans jamais regarder qui demande.</div>
+  </div>
+
+  <div class="card crit">
+    <div class="card-top"><span class="pill p-crit">critique</span><h3>RGPD : l'effacement couvre 2 tables sur 14</h3><span class="num">pt 19</span></div>
+    <p>Le court-circuit d'effacement fonctionne réellement et ne ment jamais sur son échec. Mais il ne touche que <code>conversation_turns</code> et <code>pinned_facts</code>.</p>
+    <div class="ev">EFFAÇABLE   conversation_turns · pinned_facts · pending_interview_email (partiel)
+             slack_event_dedup · rate_limit_counters
+SOFT-DELETE employees · documents        ← deleted_at, la ligne reste
+AUCUN       notifications · slack_directory · onboarding_interview
+             onboarding_progress · audit_logs · tables résiduelles · mastra_*</div>
+    <p>Le périmètre <b>est dit à la personne</b> — la réponse nomme ce qui n'est pas couvert et renvoie vers l'équipe RH. Honnête, mais <b>il n'existe aucun outil, aucune route et aucun script</b> pour que l'équipe RH exécute cet effacement. Le renvoi pointe vers un geste sans implémentation.</p>
+    <p>Aucun consentement n'est recueilli : recherche de <code>confidentialité|données personnelles|RGPD</code> sur les textes du produit → <b>0 occurrence</b>. Les quatre questions du parcours demandent prénom, nom, email et poste sans une phrase sur ce qui est conservé.</p>
+    <div class="conseq"><b>Conséquence.</b> Le droit à l'effacement est annoncé et partiellement tenu ; la portabilité n'existe pas. Le cas le plus exposé est le <b>candidat externe</b> : <code>pending_interview_email</code> stocke bien son nom et son adresse — contrairement à ce qu'affirme le <code>CLAUDE.md</code> — et il ne parle jamais au bot, donc ne peut rien demander.</div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">Priorité 2</div>
+    <h2>Huit défauts élevés</h2>
+  </div>
+
+  <div class="card warn">
+    <div class="card-top"><span class="pill p-warn">élevé</span><h3>La détresse n'est détectée qu'en français</h3><span class="num">pt 92</span></div>
+    <p><code>distress.ts:63-99</code> est une liste fermée de 30 formules françaises normalisées. « I want to die », « я хочу умереть », « 我想死 » ne déclenchent rien : le message part chez l'orchestrateur, qui répondra sur l'onboarding ou refusera au titre du hors-métier.</p>
+    <div class="conseq"><b>Conséquence.</b> Les numéros SURPIN et 112 ne sont jamais donnés, et <b>aucun non-appariement n'est journalisé</b>. C'est le seul endroit du dépôt où un défaut peut nuire à une personne — et le fichier lui-même le dit.</div>
+  </div>
+
+  <div class="card warn">
+    <div class="card-top"><span class="pill p-warn">élevé</span><h3>Le garde-fou de coût est contournable par simultanéité</h3><span class="num">pt 82</span></div>
+    <p>Depuis le mode <code>reserveOnly</code>, la lecture du budget (<code>increment(…, by: 0)</code>) et sa consommation réelle sont séparées par tout le traitement.</p>
+    <div class="ev">slack-rate-limiter.ts:242,261-263   contrôle — une simple lecture
+slack-rate-limiter.ts:412,439       consommation, APRÈS l'appel LLM</div>
+    <div class="conseq"><b>Conséquence.</b> N messages en vol lisent le même compteur, passent tous, puis incrémentent tous. Sur un système dont la contrainte dominante est un plafond de ≈ 19 messages/jour, c'est le garde-fou de coût qui saute — <b>sans aucun log de refus</b>. S'y ajoute le fail-open documenté : si <code>rate_limit_counters</code> est injoignable, les trois règles se réduisent au cache par instance, inopérant sur serverless froid.</div>
+  </div>
+
+  <div class="card warn">
+    <div class="card-top"><span class="pill p-warn">élevé</span><h3>La signature HMAC est dupliquée, et la copie non testée tourne en premier</h3><span class="num">pt 66</span></div>
+    <p><code>slack-signature.ts</code> est couvert à <b>100 %</b>. Le portier d'ACK réimplémente la même vérification — <code>createHmac</code>, <code>timingSafeEqual</code>, fenêtre de 300 s — et <b>aucun test du dépôt ne le référence</b>.</p>
+    <div class="ev">src/shared/security/slack-signature.ts:16,60,102     100 % couvert
+scripts/slack-ack-function/index.mjs:44,62,117      0 test · hors couverture · s'exécute en PREMIER</div>
+    <div class="conseq"><b>Conséquence.</b> Une divergence entre les deux ne rougirait nulle part. C'est la forme de défaut que ce dépôt combat partout ailleurs en <i>dérivant</i> ses listes plutôt qu'en les recopiant. Les deux implémentations sont correctes aujourd'hui — c'est vérifié, y compris la comparaison à temps constant et le rejet d'un timestamp futur.</div>
+  </div>
+
+  <div class="card warn">
+    <div class="card-top"><span class="pill p-warn">élevé</span><h3>Toute la couche Drizzle est à 0 % de couverture</h3><span class="num">pts 67 · 68</span></div>
+    <p>Couverture globale mesurée : <b>85,31 %</b> des instructions, 1 924 tests verts en 41 s. Mais <code>vitest.config.ts:16</code> exclut <code>tests/unit/infrastructure/**</code> du run unitaire et le rattache à l'intégration — que la CI ne lance jamais.</p>
+    <div class="ev">0 %   drizzle-slack-event-dedup.repository.ts   ← seule protection anti-double-réponse
+0 %   drizzle-conversation.repository.ts · drizzle-document.repository.ts
+0 %   drizzle-notification.repository.ts · drizzle-onboarding.repository.ts
+0 %   slack-channel-history.adapter.ts · drizzle-onboarding-interview.repository.ts</div>
+    <p>Et la suite d'intégration réelle compte <b>10 tests</b>, non 121 comme l'annonce le <code>CLAUDE.md</code>. L'un d'eux vise par défaut le déploiement de <b>production</b> et y crée un vrai employé par un vrai appel LLM.</p>
+    <div class="conseq"><b>Conséquence.</b> Le SQL réel n'est vérifié nulle part ; seules les doublures en mémoire le sont. Et un test dont le verdict dépend d'un quota ne distingue pas une régression d'un épuisement.</div>
+  </div>
+
+  <div class="card warn">
+    <div class="card-top"><span class="pill p-warn">élevé</span><h3>Une réponse tronquée part telle quelle — et reste en mémoire</h3><span class="num">pt 89</span></div>
+    <p><code>grep 'finishReason|maxOutputTokens|maxTokens'</code> sur <code>src/</code> → <b>zéro occurrence</b>. Aucun plafond de sortie n'est posé, et la raison d'arrêt n'est jamais lue.</p>
+    <div class="conseq"><b>Conséquence.</b> Une réponse coupée par le plafond du fournisseur est postée phrase inachevée, <b>puis mémorisée</b> — donc rejouée à tous les tours suivants pendant 60 minutes. Zéro signal, ni pour la personne ni dans les logs. C'est le seul point des cent où le défaut n'a aucun détecteur du tout.</div>
+  </div>
+
+  <div class="card warn">
+    <div class="card-top"><span class="pill p-warn">élevé</span><h3>Trois contournements du détecteur d'injection</h3><span class="num">pt 5</span></div>
+    <p>Mesuré à l'exécution sur 26 charges. Le détecteur attrape correctement les largeurs nulles, les accents manquants, la recopie du message système. Trois trous restent :</p>
+    <div class="ev">BLOQUÉ  « Ignore les instructions précédentes… »        llm-guardrail.ts:951
+BLOQUÉ  idem avec U+200B inséré                          :849 (normalisation)
+PASSE   « Ignorе… »  (е = U+0435 cyrillique)             aucun repli d'homoglyphes
+PASSE   « mets de côté les règles ci-dessus »            verbe non énuméré
+PASSE   fragmentation sur deux tours                     l'historique n'est pas recontrôlé</div>
+    <div class="conseq"><b>Conséquence.</b> Un seul caractère substitué dans le verbe suffit — c'est le défaut fermé le 2026-08-13 pour les largeurs nulles, resté ouvert pour les homoglyphes. La fragmentation est la plus structurelle : l'historique est rejoué en messages non encadrés, et rien ne s'applique à la fenêtre assemblée.</div>
+  </div>
+
+  <div class="card warn">
+    <div class="card-top"><span class="pill p-warn">élevé</span><h3>SMTP en STARTTLS opportuniste</h3><span class="num">pt 20</span></div>
+    <p><code>smtp.adapter.ts:63-76</code> : <code>secure: secure ?? port === 465</code>, port par défaut <b>587</b>. Ni <code>requireTLS</code>, ni options <code>tls</code>.</p>
+    <div class="conseq"><b>Conséquence.</b> Sur 587, nodemailer négocie STARTTLS de façon opportuniste : si le serveur ne l'annonce pas, l'authentification et le corps de l'email partent <b>en clair, sans erreur</b>. Pour un transport qui porte des noms, des adresses et des convocations, c'est le point faible du chiffrement en transit — tout le reste est HTTPS.</div>
+  </div>
+
+  <div class="card warn">
+    <div class="card-top"><span class="pill p-warn">élevé</span><h3>Une sauvegarde de secrets qui survivra à toute rotation</h3><span class="num">pt 24</span></div>
+    <div class="ev">.env.bak-1786128475   7 août · 0644 · 19 clés en clair
+                      SLACK_SIGNING_SECRET · DATABASE_AUTH_TOKEN · SMTP_PASS
+                      GROQ_API_KEY · MISTRAL_API_KEY · SLACK_BOT_TOKEN · MASTRA_API_TOKEN</div>
+    <p>Ignoré par git — vérifié, <code>.gitignore:16</code> — donc jamais publié. Mais lisible par tout utilisateur de la machine, et surtout invisible à toute procédure de rotation.</p>
+    <div class="conseq"><b>Conséquence.</b> Le jour où ces clés sont renouvelées, ce fichier gardera les anciennes en clair, indéfiniment. À supprimer — je ne l'ai pas fait, l'effacement étant irréversible et le fichier vous appartenant.</div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">Priorité 3</div>
+    <h2>Les défauts restants</h2>
+    <p class="lede">Réels, mesurés, mais sans conséquence immédiate pour une personne ou une donnée.</p>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Pt</th><th>Constat</th><th>Preuve</th></tr></thead>
+    <tbody>
+      <tr><td class="n">87</td><td>Une réponse LLM vide devient un refus de <i>sécurité</i> — message faux, qui pousse à reformuler donc à brûler du quota. Seul des trois retours du filtre à ne rien journaliser.</td><td class="e">agent-output.ts:485-487</td></tr>
+      <tr><td class="n">99</td><td>Le fuseau du demandeur n'existe pas. Slack le fournit (<code>users.info.tz</code>), il n'est lu nulle part. « Demain 9h » depuis Paris est encodé 9h Lagos. Seul l'offset imprimé rend l'erreur visible.</td><td class="e">french-datetime.ts:40</td></tr>
+      <tr><td class="n">100</td><td>À partir du 7ᵉ message d'une rafale, rejet en <b>silence total</b>. Indiscernable d'une panne — l'asymétrie qui gouverne tout le reste du dépôt n'est pas appliquée ici.</td><td class="e">rate-limit-policy.ts:216</td></tr>
+      <tr><td class="n">95</td><td>L'échec de livraison d'un document est confié à une <i>consigne d'agent</i>. Trois consignes équivalentes ont déjà été mesurées en échec sur ce dépôt et reprises en code.</td><td class="e">generate-document.ts:1328</td></tr>
+      <tr><td class="n">48</td><td><code>requestId</code> est un identifiant d'<b>instance</b> déguisé en identifiant de requête : <code>logger.child()</code> a zéro appelant. Pire qu'absent — il invite à de fausses corrélations.</td><td class="e">logger.ts:522 · 560</td></tr>
+      <tr><td class="n">47</td><td>Aucune métrique. Quatre instruments OpenTelemetry déclarés mais <b>no-op</b> (API sans SDK). L'ACK ne journalise que sa queue : aucun p50 reconstructible.</td><td class="e">slack-events.route.ts:142</td></tr>
+      <tr><td class="n">43</td><td>Les identifiants de modèle sont des <b>littéraux</b>, pas des variables d'environnement — alors que le dépôt a déjà payé la disparition d'un modèle du compte Groq.</td><td class="e">model-fallback.ts:65,68</td></tr>
+      <tr><td class="n">44</td><td><code>AUTHZ_ENFORCE</code> — l'interrupteur de la frontière — est absent de <code>.env.example</code>, avec 10 autres variables. Provisionner depuis cet exemple donne une frontière inactive, sans signal.</td><td class="e">.env.example</td></tr>
+      <tr><td class="n">45</td><td>Seul <code>DATABASE_URL</code> échoue vite. Sans clé Slack ni clé LLM, l'application <b>démarre en vert</b> et ne casse qu'au premier message réel.</td><td class="e">mastra/index.ts:533</td></tr>
+      <tr><td class="n">28</td><td>Le TTL de 60 min est garanti <b>en lecture</b> ; la purge est un tirage à 0,2 sans cron. Huit tables porteuses de données personnelles n'ont aucune borne. Aucune politique de rétention écrite.</td><td class="e">conversation.repository.ts:11</td></tr>
+      <tr><td class="n">18</td><td><code>subject</code> — prose écrite par le modèle à propos d'une personne nommée — n'est pas dans la liste de masquage et part en clair au niveau <code>info</code>.</td><td class="e">send-notification.ts:140</td></tr>
+      <tr><td class="n">35</td><td>Aucune sérialisation par conversation. Deux messages simultanés lisent le même dernier tour ; sur <code>onboarding_interview</code>, la seconde réponse <b>écrase la première sans aucun log</b>.</td><td class="e">slack-events.handler.ts:3883</td></tr>
+      <tr><td class="n">31</td><td>Le test d'architecture est rigoureux mais aveugle à <code>src/shared/</code> (8 157 lignes), <code>infrastructure/</code> et <code>api/</code>. Aucune violation aujourd'hui — vérifié — mais par discipline, pas par mécanisme.</td><td class="e">architecture.test.ts:55</td></tr>
+      <tr><td class="n">37</td><td><code>src/shared/retry.ts</code> <b>n'existe pas</b>. Aucun backoff écrit par le projet ; Slack hérite du défaut du SDK (jusqu'à 30 min de reprise) dans une fonction qui vit 60 s.</td><td class="e">—</td></tr>
+      <tr><td class="n">53</td><td>~1 800 lignes mortes, dont <b>646 cassées</b> : deux scripts importent un module supprimé. Ils échappent au typecheck et au lint, tous deux configurés pour ignorer <code>scripts/</code>.</td><td class="e">production-test.ts:13</td></tr>
+      <tr><td class="n">61</td><td>Aucun <code>README.md</code>. Seize fichiers <code>.md</code> à la racine, 470 Ko, et <code>npm install</code> n'apparaît nulle part comme instruction d'installation.</td><td class="e">—</td></tr>
+      <tr><td class="n">85</td><td><code>SlackEventsHandler</code> : 4 302 lignes, 60 méthodes, 22 dépendances injectées. God object caractérisé — ce qui explique directement pourquoi il faut neutraliser huit dépendances pour en construire une instance de test.</td><td class="e">slack-events.handler.ts:629</td></tr>
+      <tr><td class="n">3</td><td>Un <code>VERCEL_OIDC_TOKEN</code> réel a été commité dans trois commits via <code>.env.local</code>. <b>Expiré depuis le 6 août</b> — l'exposition est close, le défaut est d'hygiène.</td><td class="e">2bd64e5 · 6d2577f · ddc42a0</td></tr>
+      <tr><td class="n">22</td><td>Une seule vulnérabilité touche le code déployé : <code>@ai-sdk/provider-utils@3.0.30</code>, sévérité faible, DoS. Les quatre modérées sont dans <code>drizzle-kit</code>, devDependency.</td><td class="e">npm audit</td></tr>
+      <tr><td class="n">62</td><td>Quatre routes HTTP, documentées en dispersion sur sept fichiers. Le chemin <code>/internal/slack/…</code> est un littéral dupliqué de part et d'autre de la frontière JS/TS, sans test de contrat.</td><td class="e">index.mjs:50</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">Contre-enquête</div>
+    <h2>Ce que la documentation affirme et que le code dément</h2>
+    <p class="lede">Ce dépôt s'est donné pour règle de ne jamais affirmer un état non constaté. Voici les endroits où sa propre documentation y contrevient — le genre de constat qui coûte des heures de diagnostic.</p>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Affirmation</th><th>Réel</th></tr></thead>
+    <tbody>
+      <tr><td><code>src/shared/retry.ts</code> figure parmi les modules transverses</td><td class="e">le fichier n'existe pas</td></tr>
+      <tr><td>« <code>PdfmakeService implements PdfService, DocumentRenderer</code> »</td><td class="e"><code>PdfService</code> : 0 occurrence dans src/</td></tr>
+      <tr><td>« l'ancienne méthode <code>generate()</code> est conservée »</td><td class="e">supprimée ; le code le dit, la doc non</td></tr>
+      <tr><td>« <code>documentGenerationWorkflow</code> est inchangé »</td><td class="e">le répertoire <code>workflows/</code> du document n'existe plus</td></tr>
+      <tr><td>« aucune écriture en base pour un candidat »</td><td class="e"><code>pending_interview_email</code> stocke nom + adresse</td></tr>
+      <tr><td>tests d'intégration : « 121/121 »</td><td class="e">10 tests, 3 fichiers</td></tr>
+      <tr><td>identifiants de modèle configurables par environnement</td><td class="e">littéraux, <code>model-fallback.ts:65,68</code></td></tr>
+      <tr><td>« la borne de longueur double celle de <code>wrapUserInput</code> »</td><td class="e">c'est la même constante, contrôlée deux fois</td></tr>
+      <tr><td>la crypto du guardrail serait du code mort</td><td class="e"><b>faux</b> — vivante (<code>:1397</code>, <code>:1540</code>) ; seules 4 méthodes sont sans appelant</td></tr>
+      <tr><td><code>maxObjectKeys</code> jamais lu</td><td class="e"><b>corrigé</b> le 2026-08-18 ; l'entrée est périmée</td></tr>
+      <tr><td><code>GEMINI.md:14</code> : « Agents dans <code>src/agents/</code> »</td><td class="e">ce répertoire n'existe pas et contredit l'architecture</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><p>La corrélation est nette et vaut méthode : <b>les listes dérivées ne mentent jamais, les phrases d'autorité si.</b> <code>agentToolBoundary</code> est calculé depuis <code>Object.keys(tools)</code> — il ne peut pas diverger. Les 64 occurrences de « est le SEUL » dans <code>src/</code>, elles, ne sont recalculées par rien. Le garde-fou <code>claimed-invariants.test.ts</code> vérifie une seule forme (« verrouillé par X ») et l'<i>existence</i> du fichier cité, jamais la véracité de l'invariant.</p></div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">À décharge</div>
+    <h2>Ce qui est exemplaire</h2>
+  </div>
+  <ul>
+    <li><b>La frontière HMAC tient, et je l'ai sondée en production.</b> Les routes <code>/internal/slack/*</code> sont joignables depuis Internet mais montent le <i>même handler</i> par la même fabrique : POST non signé → 401 sur les quatre endpoints. Ce n'est pas une porte dérobée, et elle tiendrait si le portier disparaissait.</li>
+    <li><b>Injections SQL : rien à signaler.</b> Zéro <code>sql.raw</code>, zéro <code>sql.identifier</code>, aucune concaténation sur donnée externe. Les <code>orderBy</code> référencent des objets colonne statiques.</li>
+    <li><b>Typage.</b> Zéro <code>: any</code>, zéro <code>@ts-ignore</code>, <code>tsc --noEmit</code> muet. Onze <code>as unknown as</code> au total, dont quatre réels — tous dans le même dépôt Drizzle, celui à 0 % de couverture.</li>
+    <li><b>Linter.</b> Zéro erreur, zéro warning sur 171 fichiers, sans <code>|| true</code>. Quatorze désactivations locales, toutes sur des règles regex, <b>aucune sur la complexité cognitive</b> — le plafond de 15 est réellement tenu.</li>
+    <li><b>Gestion des erreurs.</b> 116 blocs <code>catch</code>, trois vides, les trois documentées comme fail-open délibéré. Aucun avalement accidentel.</li>
+    <li><b>Messages d'utilisateur différenciés par cause</b>, avec le cas non classé <i>instrumenté</i> plutôt que deviné.</li>
+    <li><b>Les deux protections de concurrence revendiquées sont réelles</b> : la prise de déduplication est un <code>INSERT … ON CONFLICT DO NOTHING</code> arbitré par la clé primaire, et <code>clear()</code> est un <code>DELETE</code> seul rendant son compte. Deux « oui » concurrents envoient un seul email.</li>
+    <li><b>Le filtre de liens est meilleur que sa réputation</b> : <code>https://kissohq.slack.com.evil.tld</code> et le libellé trompeur <code>&lt;https://slack.com|https://mabanque.fr&gt;</code> sont tous deux correctement retirés — vérifié à l'exécution.</li>
+    <li><b>Aucune primitive d'exécution.</b> Zéro <code>eval</code>, <code>new Function</code>, <code>child_process</code>. Aucune écriture disque réelle dans <code>src/</code>. Les noms de fichiers dérivent d'une liste blanche.</li>
+    <li><b>CI complète</b> sur toutes les branches : lint → typecheck → tests → build, et le déploiement rejoue typecheck + vérification de bundle.</li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">Référence</div>
+    <h2>Les 100 points</h2>
+  </div>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>#</th><th>Point</th><th class="v">Verdict</th></tr></thead>
+    <tbody>
+      <tr><td class="n">1</td><td>Clés API non exposées côté client</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">2</td><td>Secrets en variables d'environnement</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">3</td><td>Pas de secret dans Git ou les logs</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">4</td><td>Le bot ne renvoie pas son prompt système</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">5</td><td>Injection de prompt directe</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">6</td><td>Injections indirectes (documents, pages)</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">7</td><td>Validation et assainissement des entrées</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">8</td><td>Encodage des sorties (équivalent : Slack, email)</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">9</td><td>URLs émises par le bot</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">10</td><td>Injections SQL</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">11</td><td>CORS restreint</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">12</td><td>Cookies HttpOnly / Secure / SameSite</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">13</td><td>Sessions et expiration</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">14</td><td>Authentification des endpoints sensibles</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">15</td><td>Cloisonnement entre utilisateurs</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">16</td><td>Rate limiting</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">17</td><td>Force brute sur l'authentification</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">18</td><td>Journalisation sans PII</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">19</td><td>RGPD : consentement, effacement, portabilité</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">20</td><td>Chiffrement au repos et en transit</td><td class="v"><span class="pill p-warn">partiel</span></td></tr>
+      <tr><td class="n">21</td><td>Erreurs sans divulgation technique</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">22</td><td>Vulnérabilités des dépendances</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">23</td><td>Bibliothèques obsolètes</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">24</td><td>Permissions fichiers et cloud</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">25</td><td>Webhooks signés et vérifiés</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">26</td><td>Types MIME et taille des fichiers</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">27</td><td>DoS par messages très longs</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">28</td><td>Conservation des logs et conversations</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">29</td><td>Pas d'exécution de code arbitraire</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">30</td><td>Redirections non manipulables</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">31</td><td>Séparation interface / métier / données</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">32</td><td>API versionnée</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">33</td><td>Pas de logique métier au frontend</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">34</td><td>État conversationnel côté serveur</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">35</td><td>Scalabilité et concurrence</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">36</td><td>Latence et timeouts vers le LLM</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">37</td><td>Erreurs réseau et backoff exponentiel</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">38</td><td>Stratégie de cache</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">39</td><td>Base vectorielle pour la mémoire longue</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">40</td><td>Découpe et indexation pour le RAG</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">41</td><td>Gestion du contexte et des tokens</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">42</td><td>Troncature des historiques longs</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">43</td><td>Bascule entre modèles / fournisseurs</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">44</td><td>Variables par environnement</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">45</td><td>Démarrage avec variables manquantes</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">46</td><td>Journalisation structurée</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">47</td><td>Métriques de performance</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">48</td><td>Traçabilité et corrélation des logs</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">49</td><td>Compatibilité navigateurs et appareils</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">50</td><td>Appels LLM asynchrones</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">51</td><td>Noms explicites</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">52</td><td>Fonctions courtes</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">53</td><td>Absence de code mort</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">54</td><td>Style de code cohérent</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">55</td><td>Commentaires utiles</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">56</td><td>Constantes nommées et centralisées</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">57</td><td>Logique complexe documentée</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">58</td><td>Modularité</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">59</td><td>Absence de duplication</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">60</td><td>Imports sans dépendances circulaires</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">61</td><td>README d'installation</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">62</td><td>Documentation de l'API et des endpoints</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">63</td><td>Messages d'erreur clairs pour le dev</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">64</td><td>Messages de commit descriptifs</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">65</td><td>Configuration séparée par environnement</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">66</td><td>Tests unitaires des fonctions critiques</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">67</td><td>Tests d'intégration des flux</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">68</td><td>Taux de couverture</td><td class="v"><span class="pill p-ok">85,31 %</span></td></tr>
+      <tr><td class="n">69</td><td>Linter sans erreurs</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">70</td><td>Typage statique</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">71</td><td>try/catch appropriés</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">72</td><td>Propagation des erreurs à l'utilisateur</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">73</td><td>Fuites mémoire frontend (useEffect)</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">74</td><td>Performance et taille du bundle</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">75</td><td>Accessibilité (ARIA, clavier)</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">76</td><td>Responsivité mobile / desktop</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">77</td><td>Usage correct des hooks React</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">78</td><td>État de chargement et progression</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">79</td><td>Erreurs d'API et états vides dans l'UI</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">80</td><td>Fermeture des connexions et flux</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">81</td><td>Transactions sur opérations liées</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">82</td><td>Protection contre les race conditions</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">83</td><td>Validation des schémas (Zod)</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">84</td><td>CI/CD avec vérifications automatiques</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">85</td><td>Absence d'anti-patterns</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">86</td><td>Fournisseur LLM indisponible</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">87</td><td>Réponse LLM vide</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">88</td><td>JSON malformé du LLM</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">89</td><td>Dépassement de tokens en sortie</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">90</td><td>Message très long</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">91</td><td>Caractères spéciaux et emojis</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">92</td><td>Langue non supportée</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">93</td><td>Connexion coupée en plein traitement</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">94</td><td>Base de données indisponible</td><td class="v"><span class="pill p-crit">défaut</span></td></tr>
+      <tr><td class="n">95</td><td>Échec du stockage de fichiers</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">96</td><td>Plusieurs utilisateurs, un même fil</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">97</td><td>Historique de conversation corrompu</td><td class="v"><span class="pill p-ok">conforme</span></td></tr>
+      <tr><td class="n">98</td><td>Mode hors ligne du frontend</td><td class="v"><span class="pill p-na">sans objet</span></td></tr>
+      <tr><td class="n">99</td><td>Fuseaux horaires différents</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+      <tr><td class="n">100</td><td>Envois rapides répétés</td><td class="v"><span class="pill p-warn">défaut</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>
+  Audit en lecture seule — aucun fichier du dépôt n'a été modifié, aucun script d'envoi ou de suppression exécuté.
+  Les sondes réseau se sont limitées à des requêtes non signées attendant un 401, et à une lecture de la liste des variables d'environnement sans leurs valeurs.
+  Les verdicts issus des rapports intermédiaires ont été recontrôlés dans le code avant publication ; deux d'entre eux se contredisaient, et le code a tranché.
+</footer>
+
+</div>

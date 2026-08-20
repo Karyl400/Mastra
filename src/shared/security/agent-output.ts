@@ -585,7 +585,19 @@ export interface SanitizedDocumentText {
  * dans un document d'accueil une trace de filtrage, là où l'absence se lit comme
  * une phrase normale.
  */
-export function sanitizeDocumentSource(raw: string | undefined | null): SanitizedDocumentText {
+// ─────────────────────────────────────────────────────────────────────────────
+// Noyau partagé DOCUMENT / NOTIFICATION
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Les deux canaux appliquent le MÊME contrat de fond — retirer le marqueur sur place
+// plutôt que jeter le livrable, aplatir les liens markdown pour les exposer au filtre,
+// n'autoriser que les domaines de la liste blanche — et ne divergent que sur les emojis
+// (un PDF n'a pas les glyphes, un email et Slack les rendent parfaitement).
+//
+// Une troisième copie de ce corps aurait divergé : ce dépôt l'a déjà mesuré sur le
+// formatage des dates et sur le décodage des codes d'erreur Slack. `sonarjs/no-identical-
+// functions` l'aurait d'ailleurs refusée.
+function redactAndFilter(raw: string | undefined | null): SanitizedDocumentText {
   const redacted: string[] = [];
   let text = (raw ?? '').replace(/\r\n?/g, '\n');
 
@@ -599,6 +611,53 @@ export function sanitizeDocumentSource(raw: string | undefined | null): Sanitize
   const seen = new Set<string>();
   text = filterLinks(text.replace(MARKDOWN_LINK, '$1 $2'), seen);
 
+  return { text, redacted, strippedUrls: [...seen] };
+}
+
+/**
+ * Corps d'une notification vidé de sa substance par l'assainissement.
+ *
+ * Un corps VIDE part quand même : l'email est expédié, illisible, et le destinataire ne
+ * peut ni comprendre ni réagir. C'est la famille `emailSent: false` sous
+ * `status: 'success'` — l'envoi réussit, le message ne dit rien. On préfère une phrase
+ * qui admet le retrait.
+ */
+export const NOTIFICATION_BODY_PLACEHOLDER =
+  "(Le contenu de cette notification a été retiré : il n'a pas passé le contrôle de sortie.)";
+
+/**
+ * Canal NOTIFICATION — le troisième, et celui qui n'avait AUCUN filtre jusqu'au 2026-08-20.
+ *
+ * `sendNotification.body` est de la prose libre écrite par le modèle (5 000 caractères), et
+ * elle sortait par TROIS chemins non filtrés : l'email, le message Slack, et la ligne
+ * `notifications.body` en base — que `getNotificationHistory` relit ensuite.
+ *
+ * Contrat identique à celui du DOCUMENT, pour la même raison : une notification amputée de
+ * son lien reste utile, une notification remplacée par un refus ne dit plus rien à
+ * personne. C'est l'inverse du canal Slack, où `NEUTRAL_REFUSAL` remplace toute la réponse.
+ *
+ * ⚠️ Les emojis sont CONSERVÉS, contrairement au document : ils y étaient retirés parce que
+ * Roboto n'a pas leurs glyphes et les imprimait en carrés. Un email et un message Slack les
+ * rendent normalement — les retirer serait une mutilation sans cause.
+ *
+ * ⚠️ N'ÉCHAPPE PAS le HTML, et ce n'est pas un oubli : le corps peut partir vers Slack, où
+ * `&lt;` s'afficherait littéralement. L'échappement appartient au transport qui en a besoin,
+ * et il est porté par le type `EmailBody` (`notification/domain/services/email-body.ts`).
+ */
+export function sanitizeNotificationBody(raw: string | undefined | null): SanitizedDocumentText {
+  const { text, redacted, strippedUrls } = redactAndFilter(raw);
+  const clean = dropUnknownQualifiers(text).trim();
+
+  return {
+    text: clean.length > 0 ? clean : NOTIFICATION_BODY_PLACEHOLDER,
+    redacted,
+    strippedUrls,
+  };
+}
+
+export function sanitizeDocumentSource(raw: string | undefined | null): SanitizedDocumentText {
+  const { text, redacted, strippedUrls } = redactAndFilter(raw);
+
   // ⚠️ Le même retrait que sur le canal Slack, et pour la même raison — voir
   // `dropUnknownQualifiers`. Un document est PIRE que la réponse : il est téléchargeable,
   // repartageable, et il porte le nom de la personne. Une affirmation sans donnée y survit
@@ -606,7 +665,7 @@ export function sanitizeDocumentSource(raw: string | undefined | null): Sanitize
   return {
     text: dropUnknownQualifiers(stripEmojis(text).trim()),
     redacted,
-    strippedUrls: [...seen],
+    strippedUrls,
   };
 }
 

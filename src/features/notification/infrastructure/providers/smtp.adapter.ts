@@ -1,5 +1,6 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import type { EmailAttachment, EmailProvider } from '../../domain/ports/providers';
+import type { EmailBody } from '../../domain/services/email-body';
 import { assertEmailAttachmentsFit } from '../../domain/services/email-attachment-policy';
 
 /**
@@ -88,7 +89,7 @@ export class SmtpAdapter implements EmailProvider {
   async sendEmail(
     to: string,
     subject: string,
-    body: string,
+    body: EmailBody,
     attachments?: EmailAttachment[],
   ): Promise<void> {
     // Vérifié AVANT d'ouvrir la connexion : sur une fonction serverless, laisser
@@ -101,16 +102,15 @@ export class SmtpAdapter implements EmailProvider {
         from: this.from,
         to,
         subject,
-        html: body,
-        // Repli texte brut : certains clients refusent un message uniquement HTML,
-        // et cela améliore le score anti-spam.
-        text: body
-          // `[^>]+` ne peut pas reculer devant `>`, qu'il exclut : 0,02 ms mesurées sur
-          // 8 000 caractères adverses.
-          // eslint-disable-next-line sonarjs/super-linear-regex
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim(),
+        html: body.html,
+        // Repli texte brut : certains clients refusent un message uniquement HTML, et cela
+        // améliore le score anti-spam.
+        //
+        // ⚠️ Il était DÉRIVÉ du HTML par retrait de balises, ce qui mutilait tout corps de
+        // texte brut contenant `<…>` — second symptôme du contrat implicite corrigé le
+        // 2026-08-20. C'est désormais le producteur du corps qui rend les deux formes, la
+        // seule place où l'on sache laquelle est l'original.
+        text: body.text,
         // La clé n'est posée que s'il y a réellement quelque chose à joindre :
         // les appelants historiques doivent produire un message strictement
         // identique à l'existant. `content` doit être un Buffer — nodemailer ne

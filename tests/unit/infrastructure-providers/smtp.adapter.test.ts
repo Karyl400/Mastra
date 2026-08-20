@@ -1,3 +1,7 @@
+import {
+  htmlEmailBody,
+  textEmailBody,
+} from '../../../src/features/notification/domain/services/email-body';
 import { describe, it, expect, vi } from 'vitest';
 import type { Transporter } from 'nodemailer';
 import { SmtpAdapter } from '../../../src/features/notification/infrastructure/providers/smtp.adapter';
@@ -27,7 +31,7 @@ describe('SmtpAdapter', () => {
       const sendMail = vi.fn().mockResolvedValue({});
       const adapter = new SmtpAdapter({ ...baseConfig, transporter: makeTransporter(sendMail) });
 
-      await adapter.sendEmail('dest@example.com', 'Sujet', '<p>Corps</p>');
+      await adapter.sendEmail('dest@example.com', 'Sujet', htmlEmailBody('<p>Corps</p>'));
 
       expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ from: 'bot@gmail.com' }));
     });
@@ -41,7 +45,7 @@ describe('SmtpAdapter', () => {
         transporter: makeTransporter(sendMail),
       });
 
-      await adapter.sendEmail('dest@example.com', 'Sujet', '<p>Corps</p>');
+      await adapter.sendEmail('dest@example.com', 'Sujet', htmlEmailBody('<p>Corps</p>'));
 
       expect(sendMail).toHaveBeenCalledWith(
         expect.objectContaining({ from: '"Kisso Onboarding" <noreply@kisso.com>' }),
@@ -54,7 +58,7 @@ describe('SmtpAdapter', () => {
       const sendMail = vi.fn().mockResolvedValue({});
       const adapter = new SmtpAdapter({ ...baseConfig, transporter: makeTransporter(sendMail) });
 
-      await adapter.sendEmail('dest@example.com', 'Bienvenue', '<p>Bonjour</p>');
+      await adapter.sendEmail('dest@example.com', 'Bienvenue', htmlEmailBody('<p>Bonjour</p>'));
 
       expect(sendMail).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -69,7 +73,11 @@ describe('SmtpAdapter', () => {
       const sendMail = vi.fn().mockResolvedValue({});
       const adapter = new SmtpAdapter({ ...baseConfig, transporter: makeTransporter(sendMail) });
 
-      await adapter.sendEmail('dest@example.com', 'Sujet', '<h1>Titre</h1>\n<p>Ligne</p>');
+      await adapter.sendEmail(
+        'dest@example.com',
+        'Sujet',
+        htmlEmailBody('<h1>Titre</h1>\n<p>Ligne</p>'),
+      );
 
       expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ text: 'Titre Ligne' }));
     });
@@ -80,7 +88,7 @@ describe('SmtpAdapter', () => {
       const sendMail = vi.fn().mockResolvedValue({});
       const adapter = new SmtpAdapter({ ...baseConfig, transporter: makeTransporter(sendMail) });
 
-      await adapter.sendEmail('dest@example.com', 'Guide', '<p>Ci-joint</p>', [
+      await adapter.sendEmail('dest@example.com', 'Guide', htmlEmailBody('<p>Ci-joint</p>'), [
         { filename: 'guide.pdf', bytes: new Uint8Array([1, 2, 3]), mimeType: 'application/pdf' },
       ]);
 
@@ -99,8 +107,8 @@ describe('SmtpAdapter', () => {
       const sendMail = vi.fn().mockResolvedValue({});
       const adapter = new SmtpAdapter({ ...baseConfig, transporter: makeTransporter(sendMail) });
 
-      await adapter.sendEmail('dest@example.com', 'Sujet', '<p>Corps</p>');
-      await adapter.sendEmail('dest@example.com', 'Sujet', '<p>Corps</p>', []);
+      await adapter.sendEmail('dest@example.com', 'Sujet', htmlEmailBody('<p>Corps</p>'));
+      await adapter.sendEmail('dest@example.com', 'Sujet', htmlEmailBody('<p>Corps</p>'), []);
 
       expect(sendMail.mock.calls[0][0]).not.toHaveProperty('attachments');
       expect(sendMail.mock.calls[1][0]).not.toHaveProperty('attachments');
@@ -116,7 +124,7 @@ describe('SmtpAdapter', () => {
       const half = new Uint8Array(Math.ceil(MAX_EMAIL_ATTACHMENTS_BYTES * 0.6));
 
       await expect(
-        adapter.sendEmail('dest@example.com', 'Guide', '<p>x</p>', [
+        adapter.sendEmail('dest@example.com', 'Guide', htmlEmailBody('<p>x</p>'), [
           { filename: 'a.pdf', bytes: half, mimeType: 'application/pdf' },
           { filename: 'b.pdf', bytes: half, mimeType: 'application/pdf' },
         ]),
@@ -129,7 +137,7 @@ describe('SmtpAdapter', () => {
       const sendMail = vi.fn().mockResolvedValue({});
       const adapter = new SmtpAdapter({ ...baseConfig, transporter: makeTransporter(sendMail) });
 
-      await adapter.sendEmail('dest@example.com', 'Guide', '<p>x</p>', [
+      await adapter.sendEmail('dest@example.com', 'Guide', htmlEmailBody('<p>x</p>'), [
         {
           filename: 'guide.pdf',
           bytes: new Uint8Array(MAX_EMAIL_ATTACHMENTS_BYTES),
@@ -150,7 +158,7 @@ describe('SmtpAdapter', () => {
         );
       const adapter = new SmtpAdapter({ ...baseConfig, transporter: makeTransporter(sendMail) });
 
-      await expect(adapter.sendEmail('dest@example.com', 'S', 'B')).rejects.toThrow(
+      await expect(adapter.sendEmail('dest@example.com', 'S', textEmailBody('B'))).rejects.toThrow(
         /mot de passe d'application/i,
       );
     });
@@ -161,7 +169,7 @@ describe('SmtpAdapter', () => {
         .mockRejectedValue(Object.assign(new Error('connect ETIMEDOUT'), { code: 'ETIMEDOUT' }));
       const adapter = new SmtpAdapter({ ...baseConfig, transporter: makeTransporter(sendMail) });
 
-      await expect(adapter.sendEmail('dest@example.com', 'S', 'B')).rejects.toThrow(
+      await expect(adapter.sendEmail('dest@example.com', 'S', textEmailBody('B'))).rejects.toThrow(
         /Failed to send email via SMTP: ETIMEDOUT/,
       );
     });
@@ -170,7 +178,9 @@ describe('SmtpAdapter', () => {
       const sendMail = vi.fn().mockRejectedValue(new Error('boom'));
       const adapter = new SmtpAdapter({ ...baseConfig, transporter: makeTransporter(sendMail) });
 
-      await expect(adapter.sendEmail('dest@example.com', 'S', 'B')).rejects.toThrow();
+      await expect(
+        adapter.sendEmail('dest@example.com', 'S', textEmailBody('B')),
+      ).rejects.toThrow();
     });
   });
 });

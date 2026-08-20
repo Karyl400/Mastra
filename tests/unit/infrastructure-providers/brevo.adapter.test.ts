@@ -1,3 +1,7 @@
+import {
+  htmlEmailBody,
+  textEmailBody,
+} from '../../../src/features/notification/domain/services/email-body';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { BrevoAdapter } from '../../../src/features/notification/infrastructure/providers/brevo.adapter';
 import { MAX_EMAIL_ATTACHMENTS_BYTES } from '../../../src/features/notification/domain/services/email-attachment-policy';
@@ -34,7 +38,7 @@ describe('BrevoAdapter', () => {
     const fetchMock = stubFetch();
     const adapter = new BrevoAdapter('key', 'noreply@kisso.com');
 
-    await adapter.sendEmail('dest@example.com', 'Sujet', '<p>Corps</p>');
+    await adapter.sendEmail('dest@example.com', 'Sujet', htmlEmailBody('<p>Corps</p>'));
 
     expect(bodyOf(fetchMock)).not.toHaveProperty('attachment');
   });
@@ -45,7 +49,7 @@ describe('BrevoAdapter', () => {
     const fetchMock = stubFetch();
     const adapter = new BrevoAdapter('key', 'noreply@kisso.com');
 
-    await adapter.sendEmail('dest@example.com', 'Guide', '<p>Ci-joint</p>', [
+    await adapter.sendEmail('dest@example.com', 'Guide', htmlEmailBody('<p>Ci-joint</p>'), [
       { filename: 'guide.pdf', bytes: new Uint8Array([1, 2, 3]), mimeType: 'application/pdf' },
     ]);
 
@@ -59,7 +63,7 @@ describe('BrevoAdapter', () => {
     const adapter = new BrevoAdapter('key', 'noreply@kisso.com');
 
     await expect(
-      adapter.sendEmail('dest@example.com', 'Guide', '<p>x</p>', [
+      adapter.sendEmail('dest@example.com', 'Guide', htmlEmailBody('<p>x</p>'), [
         {
           filename: 'guide.pdf',
           bytes: new Uint8Array(MAX_EMAIL_ATTACHMENTS_BYTES + 1),

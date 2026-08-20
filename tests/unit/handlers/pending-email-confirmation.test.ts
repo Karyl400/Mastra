@@ -1,3 +1,4 @@
+import type { EmailBody } from '../../../src/features/notification/domain/services/email-body';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { WebClient } from '@slack/web-api';
 import type { Mastra } from '@mastra/core';
@@ -46,7 +47,7 @@ function futureIso(): string {
 
 function makeHandler(options?: {
   lastAssistant?: string;
-  sendEmail?: (to: string, subject: string, body: string) => Promise<unknown>;
+  sendEmail?: (to: string, subject: string, body: EmailBody) => Promise<unknown>;
   requesterUserId?: string;
   startsAt?: string;
   seed?: boolean;

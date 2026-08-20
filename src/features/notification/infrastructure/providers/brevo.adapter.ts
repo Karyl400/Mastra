@@ -1,4 +1,5 @@
 import type { EmailAttachment, EmailProvider } from '../../domain/ports/providers';
+import type { EmailBody } from '../../domain/services/email-body';
 import { assertEmailAttachmentsFit } from '../../domain/services/email-attachment-policy';
 
 /**
@@ -26,7 +27,7 @@ export class BrevoAdapter implements EmailProvider {
   async sendEmail(
     to: string,
     subject: string,
-    body: string,
+    body: EmailBody,
     attachments?: EmailAttachment[],
   ): Promise<void> {
     // Même borne que SMTP, et pour la même raison : ici le binaire est en plus
@@ -45,7 +46,12 @@ export class BrevoAdapter implements EmailProvider {
         sender: { email: this.from },
         to: [{ email: to }],
         subject,
-        htmlContent: body,
+        htmlContent: body.html,
+        // Le repli texte accompagne désormais le HTML ici aussi. Les deux transports
+        // doivent livrer le MÊME message : un basculement de fournisseur ne peut pas
+        // changer ce que reçoit le destinataire — même exigence que la borne de pièces
+        // jointes, posée dans le domaine pour cette raison exacte.
+        textContent: body.text,
         // L'API Brevo attend `attachment` (singulier), avec `content` en base64 et
         // `name` — ce n'est ni le nom ni la forme de la clé nodemailer. Absente
         // quand il n'y a rien à joindre, pour ne pas modifier les envois existants.

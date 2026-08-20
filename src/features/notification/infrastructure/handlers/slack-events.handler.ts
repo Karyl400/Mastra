@@ -4,6 +4,7 @@ import type { Mastra } from '@mastra/core';
 import { logger } from '../../../../shared/logger';
 import { wrapAgentInput } from '../../../../shared/security/llm-guardrail';
 import { sanitizeAgentOutput } from '../../../../shared/security/agent-output';
+import type { EmailBody } from '../../domain/services/email-body';
 import { SlackAdapter } from '../providers/slack.adapter';
 import { SlackWorkspaceService } from '../providers/slack-workspace.service';
 import type { SlackWorkspaceProvider } from '../../domain/ports/slack-workspace.port';
@@ -423,7 +424,7 @@ export interface SlackEventsHandlerOptions {
    * du workspace. Le laisser construire son propre fournisseur ferait partir un vrai email
    * depuis un test unitaire — la faute que `smoke:email` documente déjà en toutes lettres.
    */
-  sendEmail?: (to: string, subject: string, body: string) => Promise<unknown>;
+  sendEmail?: (to: string, subject: string, body: EmailBody) => Promise<unknown>;
   /**
    * L'horloge, injectable.
    *
@@ -701,7 +702,7 @@ export class SlackEventsHandler {
   private readonly pendingEmailRepo: PendingInterviewEmailRepository | null | undefined;
   private readonly now: () => Date;
   private readonly sendEmail:
-    ((to: string, subject: string, body: string) => Promise<unknown>) | undefined;
+    ((to: string, subject: string, body: EmailBody) => Promise<unknown>) | undefined;
 
   constructor(botToken: string, mastra: Mastra, options: SlackEventsHandlerOptions = {}) {
     this.botToken = botToken;

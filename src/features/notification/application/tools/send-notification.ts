@@ -27,6 +27,11 @@ import { z } from 'zod';
 import type { NotificationRepository } from '../../domain/ports/notification.repository';
 import type { EmployeeRepository } from '../../domain/ports/employee.repository';
 import type { EmailProvider, ChatProvider } from '../../domain/ports/providers';
+import { textEmailBody } from '../../domain/services/email-body';
+import {
+  sanitizeNotificationBody,
+  type SanitizedDocumentText,
+} from '../../../../shared/security/agent-output';
 import type { SlackWorkspaceProvider } from '../../domain/ports/slack-workspace.port';
 import { createNotification } from '../../domain/entities/notification';
 import { uuidSchema } from '../../../../shared/validation';
@@ -58,6 +63,44 @@ const TRANSPORTED_CHANNELS = ['email', 'slack'] as const;
  * proposer au modèle un chemin dont la seule issue est un `NotFoundError`.
  */
 const RECIPIENT_TYPES = ['employee', 'manager', 'hr', 'admin'] as const;
+
+/**
+ * Assainit le corps d'une notification et JOURNALISE tout retrait.
+ *
+ * ⚠️ Extrait du corps de l'outil, mais pas seulement pour la complexité cognitive : c'est
+ * ici que se ferme le troisième canal de sortie du produit, et il mérite d'être nommé.
+ *
+ * `body` est de la prose LIBRE écrite par le modèle (5 000 caractères) et elle sortait par
+ * TROIS chemins sans passer par le moindre filtre : l'email, le message Slack, et la ligne
+ * `notifications.body` en base — que `getNotificationHistory` relit ensuite pour la rendre
+ * au modèle. `sanitizeAgentOutput` n'a qu'un seul site d'appel, `response.text` : les
+ * ARGUMENTS DE TOOL n'y passent jamais. C'est exactement le défaut constaté puis fermé
+ * pour le contenu des documents le 2026-08-11, jamais rejoué ici.
+ *
+ * Le contrat est celui du DOCUMENT et non celui de Slack : on retire le marqueur et le lien
+ * sur place, on GARDE le message. Une notification amputée de son lien reste utile ; une
+ * notification remplacée par un refus ne dit plus rien à personne.
+ *
+ * Le retrait part en `error` et non en `warn` : il signifie qu'un modèle a produit un lien
+ * fabriqué ou récité un marqueur interne à destination d'un HUMAIN, par un canal qui sort
+ * de l'organisation. C'est le même niveau que sur le canal Slack, pour la même raison.
+ */
+function safeNotificationBody(
+  raw: string,
+  context: { recipientId: string; channel: string },
+): SanitizedDocumentText {
+  const safe = sanitizeNotificationBody(raw);
+
+  if (safe.redacted.length > 0 || safe.strippedUrls.length > 0) {
+    logger.error('Notification assainie avant envoi', {
+      ...context,
+      redacted: safe.redacted,
+      strippedUrls: safe.strippedUrls,
+    });
+  }
+
+  return safe;
+}
 
 export function makeSendNotification(
   repo: NotificationRepository,
@@ -205,11 +248,16 @@ export function makeSendNotification(
       // atteindre `Sent` sans qu'un fournisseur ait réellement rendu la main.
       let status: NotificationStatus;
 
+      const safe = safeNotificationBody(data.body, { recipientId: data.recipientId, channel });
+
       try {
         if (channel === 'email') {
-          await emailProvider.sendEmail(destination, data.subject, data.body);
+          // `textEmailBody` ÉCHAPPE : le corps part dans un slot HTML chez les deux
+          // fournisseurs, et l'assainissement ci-dessus ne couvre pas ce risque-là — retirer
+          // un lien n'empêche pas une balise d'être interprétée.
+          await emailProvider.sendEmail(destination, data.subject, textEmailBody(safe.text));
         } else {
-          await chatProvider.sendMessage(destination, `*${data.subject}*\n\n${data.body}`);
+          await chatProvider.sendMessage(destination, `*${data.subject}*\n\n${safe.text}`);
         }
         status = NotificationStatus.Sent;
       } catch (e: unknown) {
@@ -228,7 +276,11 @@ export function makeSendNotification(
         recipientType,
         channel: channel as NotificationChannel,
         subject: data.subject,
-        body: data.body,
+        // Le corps ASSAINI, jamais celui du modèle : une ligne enregistrée avec un marqueur
+        // ou un lien fabriqué ressortirait telle quelle au premier code qui la relirait —
+        // ici `getNotificationHistory`, qui la rend au modèle. Même arbitrage que pour la
+        // persistance d'un document.
+        body: safe.text,
       });
 
       const sent = {

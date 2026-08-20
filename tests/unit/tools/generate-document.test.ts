@@ -1,3 +1,4 @@
+import type { EmailBody } from '../../../src/features/notification/domain/services/email-body';
 /**
  * `generateDocument` — rendu, livraison et REDDITION DE COMPTES.
  *
@@ -94,7 +95,7 @@ class FakeEmail implements EmailProvider {
   readonly calls: Array<{
     to: string;
     subject: string;
-    body: string;
+    body: EmailBody;
     attachments?: EmailAttachment[];
   }> = [];
 
@@ -103,7 +104,7 @@ class FakeEmail implements EmailProvider {
   async sendEmail(
     to: string,
     subject: string,
-    body: string,
+    body: EmailBody,
     attachments?: EmailAttachment[],
   ): Promise<void> {
     this.calls.push({ to, subject, body, attachments });

@@ -16,6 +16,7 @@ import type { EmployeeRepository } from '../../../employee/domain/ports/employee
 import type { OnboardingRepository } from '../../domain/ports/onboarding.repository';
 import type { NotificationRepository } from '../../../notification/domain/ports/notification.repository';
 import type { EmailProvider } from '../../../notification/domain/ports/providers';
+import { htmlEmailBody } from '../../../notification/domain/services/email-body';
 import type { SlackWorkspaceProvider } from '../../../notification/domain/ports/slack-workspace.port';
 import { createNotification } from '../../../notification/domain/entities/notification';
 import {
@@ -370,7 +371,11 @@ export function createEmployeeOnboardingWorkflow(deps: {
       }
 
       try {
-        await deps.emailProvider.sendEmail(inputData.email, subject, body);
+        // `htmlEmailBody` et non `textEmailBody` : `welcome-email.ts` produit
+        // délibérément du HTML et échappe déjà ses valeurs interpolées avec `esc()`.
+        // Échapper une seconde fois afficherait `<p>` littéralement dans le tout premier
+        // message que l'entreprise envoie à un arrivant.
+        await deps.emailProvider.sendEmail(inputData.email, subject, htmlEmailBody(body));
         emailSent = true;
         logger.info('Email de bienvenue envoyé', { email: inputData.email });
       } catch (err) {

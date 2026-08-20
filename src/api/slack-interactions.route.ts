@@ -66,6 +66,7 @@ import { parseInterviewSchedule } from '../features/recruitment/domain/value-obj
 import { buildInterviewEmail } from '../features/recruitment/domain/services/interview-email';
 import { createEmailProvider } from '../features/notification/infrastructure/providers/email-provider.factory';
 import type { EmailProvider } from '../features/notification/domain/ports/providers';
+import { textEmailBody } from '../features/notification/domain/services/email-body';
 import { type NewcomerIdentity } from '../features/onboarding/domain/services/newcomer-identity';
 import { scheduleBackgroundWork } from './slack-events.route';
 import { verifySlackSignature } from '../shared/security/slack-signature';
@@ -536,7 +537,7 @@ async function handleInterviewSend(
   });
 
   try {
-    await getEmailProvider().sendEmail(confirm.to, email.subject, email.body);
+    await getEmailProvider().sendEmail(confirm.to, email.subject, textEmailBody(email.body));
   } catch (error) {
     // ⚠️ On ne prétend JAMAIS avoir envoyé. Troisième occurrence de cette discipline dans ce
     // dépôt, après `emailSent: false` sous `status: 'success'` et `status = Sent` avant le try.

@@ -1,3 +1,4 @@
+import { textEmailBody, type EmailBody } from '../../../notification/domain/services/email-body';
 import { readsAsNo, readsAsYes } from '../../../../shared/confirmation';
 import { logger } from '../../../../shared/logger';
 import { buildInterviewEmail } from '../../domain/services/interview-email';
@@ -35,7 +36,12 @@ export interface ConfirmPendingEmailDeps {
     save(pending: PendingInterviewEmail): Promise<void>;
     clear(conversationId: string): Promise<number>;
   };
-  readonly sendEmail: (to: string, subject: string, body: string) => Promise<unknown>;
+  /**
+   * ⚠️ `EmailBody` et non `string` depuis le 2026-08-20 : `interview-email.ts` produit du
+   * TEXTE BRUT, et les deux adaptateurs le plaçaient dans un slot HTML. Le nom d'un
+   * candidat contenant un chevron y était interprété plutôt qu'affiché.
+   */
+  readonly sendEmail: (to: string, subject: string, body: EmailBody) => Promise<unknown>;
   readonly now?: () => Date;
 }
 
@@ -147,7 +153,7 @@ export async function confirmPendingEmail(
   });
 
   try {
-    await deps.sendEmail(pending.to, email.subject, email.body);
+    await deps.sendEmail(pending.to, email.subject, textEmailBody(email.body));
   } catch (error) {
     // ⚠️ On ne prétend JAMAIS avoir envoyé, et on REND la prise : rien n'est parti, donc
     // réessayer est légitime. Même discipline que `emailSent: false` sous `status: 'success'`.

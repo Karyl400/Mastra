@@ -1,3 +1,4 @@
+import { textEmailBody } from '../../../src/features/notification/domain/services/email-body';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { makeSendNotification } from '../../../src/features/notification/application/tools/send-notification';
 import type { NotificationRepository } from '../../../src/features/notification/domain/ports/notification.repository';
@@ -133,10 +134,14 @@ describe('SendNotification Tool', () => {
 
       expect(result).toBeDefined();
       expect(result.status).toBe(NotificationStatus.Sent);
+      // ⚠️ Le corps est un `EmailBody`, plus une chaîne — contrat rendu EXPLICITE le
+      // 2026-08-20. Les deux adaptateurs placent le corps dans un slot HTML, donc il est
+      // interprété ; `textEmailBody` échappe, `htmlEmailBody` ne touche à rien. Ce test
+      // vérifie au passage que la prose du modèle emprunte bien la première voie.
       expect(deps.emailProvider.sendEmail).toHaveBeenCalledWith(
         EMPLOYEE_EMAIL,
         'Bienvenue',
-        'Voici vos accès.',
+        textEmailBody('Voici vos accès.'),
       );
       expect(await deps.notificationRepo.findByRecipient(EMPLOYEE_ID)).toHaveLength(1);
     });
@@ -285,7 +290,7 @@ describe('SendNotification Tool', () => {
       expect(deps.emailProvider.sendEmail).toHaveBeenCalledWith(
         EMPLOYEE_EMAIL,
         expect.any(String),
-        expect.any(String),
+        expect.objectContaining({ html: expect.any(String), text: expect.any(String) }),
       );
       expect(deps.emailProvider.sendEmail).not.toHaveBeenCalledWith(
         ATTACKER_EMAIL,
@@ -402,7 +407,7 @@ describe('SendNotification Tool', () => {
       expect(deps.emailProvider.sendEmail).toHaveBeenCalledWith(
         MANAGER_EMAIL,
         'Rapport onboarding',
-        'Votre nouvelle recrue a terminé son parcours.',
+        textEmailBody('Votre nouvelle recrue a terminé son parcours.'),
       );
     });
 

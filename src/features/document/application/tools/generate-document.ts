@@ -1,3 +1,4 @@
+import { textEmailBody } from '../../../notification/domain/services/email-body';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
@@ -1320,7 +1321,7 @@ async function deliverByEmail(
   }
 
   try {
-    await emailProvider.sendEmail(to, title, `Voici le document « ${title} ».`, [
+    await emailProvider.sendEmail(to, title, textEmailBody(`Voici le document « ${title} ».`), [
       { filename: rendered.filename, bytes: rendered.bytes, mimeType: rendered.mimeType },
     ]);
     logger.info('Document livré par email', { filename: rendered.filename });

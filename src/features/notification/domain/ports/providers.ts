@@ -1,3 +1,5 @@
+import type { EmailBody } from '../services/email-body';
+
 /**
  * Pièce jointe d'un email, exprimée dans les termes du domaine.
  *
@@ -20,10 +22,23 @@ export interface EmailProvider {
    *
    * La taille totale est bornée — voir `domain/services/email-attachment-policy.ts`.
    */
+  /**
+   * ⚠️ `body` est un {@link EmailBody}, jamais une chaîne — corrigé le 2026-08-20.
+   *
+   * Le contrat était IMPLICITE : les deux adaptateurs placent le corps dans un slot HTML
+   * (`html:` chez SMTP, `htmlContent:` chez Brevo), donc il est INTERPRÉTÉ. Trois appelants
+   * sur quatre y passaient du texte brut, dont `sendNotification` — 5 000 caractères de
+   * prose écrite par le modèle, atteignable depuis un message Slack arbitraire. Un
+   * `<a href>` vers un domaine tiers partait en lien cliquable DEPUIS L'ADRESSE DE
+   * L'ENTREPRISE.
+   *
+   * Le type force chaque appelant à déclarer ce qu'il produit, et un futur appelant qui
+   * passerait une chaîne nue ne compilera pas. Voir `domain/services/email-body.ts`.
+   */
   sendEmail(
     to: string,
     subject: string,
-    body: string,
+    body: EmailBody,
     attachments?: EmailAttachment[],
   ): Promise<void>;
 }
