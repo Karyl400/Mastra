@@ -98,6 +98,12 @@ describe('Blocs partagés STYLE / ANTI-INVENTION', () => {
     // Le lot « espace négatif » AJOUTE une frontière à chaque agent. Elle doit être
     // FINANCÉE, pas empilée : les blocs partagés ne doivent donc pas grossir.
     // Références mesurées avant le lot : STYLE 86 tokens, ANTI-INVENTION 88.
+    //
+    // ⚠️ ANTI-INVENTION a GAGNÉ une clause le 2026-08-20 — « ne qualifie pas une valeur qu'un
+    // tool rend », après « Email professionnel : … » affiché devant une adresse `gmail.com` —
+    // et le plafond N'A PAS BOUGÉ. Le lot est autofinancé : l'exemple historique
+    // `emailSent: false` et deux entrées de la liste de champs ont payé la clause. C'est la
+    // règle du dépôt pour tout ajout au préfixe, qui est repayé à CHAQUE étape.
     expect(tok(AGENT_STYLE_BLOCK), 'bloc STYLE').toBeLessThanOrEqual(86);
     expect(tok(AGENT_ANTI_INVENTION_BLOCK), 'bloc ANTI-INVENTION').toBeLessThanOrEqual(88);
   });
@@ -174,9 +180,15 @@ describe('Blocs partagés STYLE / ANTI-INVENTION', () => {
     // Trou par lequel est passé le faux lien https://kisso.internal/docs/<uuid>/download.
     expect(AGENT_ANTI_INVENTION_BLOCK).toContain('URL');
     expect(AGENT_ANTI_INVENTION_BLOCK).toContain('lien');
-    expect(AGENT_ANTI_INVENTION_BLOCK).toContain('chemin de fichier');
-    // Sans régresser sur la liste d'origine.
-    for (const champ of ['prénom', 'nom', 'email', 'identifiant', 'date', 'score']) {
+    // « chemin » et non « chemin de fichier » depuis le 2026-08-20 : trois tokens rendus au
+    // budget pour un mot qui ne restreignait rien de plus.
+    expect(AGENT_ANTI_INVENTION_BLOCK).toContain('chemin');
+    // ⚠️ La liste a été RESSERRÉE le 2026-08-20 pour financer la clause « ne qualifie pas ce
+    // qu'il rend » — le plafond du bloc n'a pas bougé. Deux entrées sont parties, et aucune
+    // ne couvrait plus rien : « prénom » est redondant avec « nom » pour un lecteur français,
+    // et « score » désignait les questionnaires, supprimés du dépôt le 2026-08-14. Les trois
+    // entrées ci-dessus, elles, nomment un incident réel et ne bougent pas.
+    for (const champ of ['nom', 'email', 'identifiant', 'date']) {
       expect(AGENT_ANTI_INVENTION_BLOCK).toContain(champ);
     }
     expect(AGENT_ANTI_INVENTION_BLOCK).toContain('emailSent: false');

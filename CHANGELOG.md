@@ -1,5 +1,86 @@
 # CHANGELOG.md — Kisso Onboarding
 
+## 2026-08-20 (tard) — Cinq demandes, et un caractère qu'on ne pouvait pas voir
+
+### « Des caractères indésirables sont apparus dans les documents »
+
+Le dépôt s'en protégeait par une **liste de plages écrite à la main**. Question posée à Roboto —
+la seule police du VFS de pdfmake — sur 151 caractères qu'un modèle écrit réellement en
+français : **quatre passaient au travers.**
+
+| | |
+| --- | --- |
+| `→` U+2192, `⇒` U+21D2, `↦` U+21A6 | hors de toutes les plages, et un modèle en écrit dès qu'il décrit une séquence |
+| **U+202F, l'espace fine insécable** | celui qui compte |
+
+U+202F est ce que la typographie française insère devant `!`, `?`, `;`, `:` et ce qu'`Intl` émet
+dans les heures. Elle est **invisible** dans un `console.log`, dans un diff, dans une revue — et
+elle s'imprime en carré. Un caractère qu'on ne peut pas voir à la source et qu'on voit dans le
+PDF : c'est la définition du défaut signalé.
+
+**On n'a pas rallongé la liste.** Ce serait la quatrième liste tenue à la main de ce dépôt, et
+les trois précédentes ont toutes divergé du réel. La question est INVERSÉE : au lieu d'énumérer
+ce qui casse, on demande à la police ce qu'elle sait rendre. Un caractère exotique de plus dans
+le vocabulaire du modèle ne peut plus jamais produire un carré.
+
+- Les flèches sont **remplacées** (`->`), pas supprimées : « étape 1 étape 2 » a perdu son sens.
+- L'espace fine devient une espace ordinaire : la supprimer collerait les mots.
+- Le reste disparaît — le dépôt a déjà tranché pour les emojis, « [emoji] » rendrait visible une
+  trace de filtrage dans un document d'accueil.
+- ⚠️ Le filtre est posé dans le renderer **PDF** et nulle part ailleurs : c'est une limitation
+  de Roboto, pas du produit. Word rend `→` parfaitement, et appauvrir le DOCX pour un défaut qui
+  ne le concerne pas serait le raisonnement à l'envers.
+- ⚠️ Il échoue **ouvert** : police illisible ⇒ on retombe exactement sur le comportement d'avant.
+- Le journal dit ce que le modèle écrit réellement. Rendu de contrôle :
+  `codePoints: ["U+2192","U+21D2","U+202F"]`.
+
+### « Email professionnel » — le modèle n'inventait pas, il répétait
+
+L'adresse est un `gmail.com`. Le tool ne rend que `email`. Le mot venait de **neuf descriptions
+d'outils** disant « l'email professionnel », alors qu'une adresse personnelle est explicitement
+acceptée depuis le 2026-08-19. La cause était dans le code, pas dans le modèle.
+
+`AGENT_ANTI_INVENTION_BLOCK` gagne au passage une clause — « ne qualifie pas ce qu'il rend » — et
+« demande-la » devient « **cherche-la avec un tool** ou demande-la ». **Le plafond du bloc n'a pas
+bougé** : la clause est payée par la compression de l'exemple historique et par deux entrées de
+liste devenues vides de sens (« prénom », redondant avec « nom » ; « score », qui désignait les
+questionnaires supprimés le 2026-08-14).
+
+### Un poste au sommet déclaré prévient le sommet
+
+Un arrivant qui se déclare « Général Manager » déclenche un DM au manager en place : qui, ce
+qu'elle a écrit, et la question — es-tu au courant, approuves-tu ?
+
+⚠️ **Ce chemin n'accorde rien**, et le message le DIT : « rien n'a changé de son côté ; un
+intitulé de poste n'accorde aucun droit ici ». Sans cette phrase il se lirait comme une alerte de
+sécurité, alors que le seul fait qui ouvre la portée est `slack_directory.role`. Annoncer un
+danger qui n'existe pas est la même famille de mensonge que d'en taire un. Il nomme aussi le
+geste exact à faire si la réponse est oui — un message qui demande d'approuver sans dire comment
+laisse chercher, et c'est ainsi qu'une approbation n'arrive jamais.
+
+L'asymétrie fixe la largeur du filet : un faux positif coûte un DM lu en trois secondes, un faux
+négatif laisse une déclaration au sommet passer inaperçue. Mais « Product Manager » et
+« Engineering Manager » n'y entrent pas — trois personnes sur six de ce workspace portent un
+titre contenant « manager », et le signal se déclencherait à chaque arrivée, donc s'ignorerait.
+
+### Le dossier laissé en plan revient
+
+Une question d'accueil attend, la personne demande autre chose. Le message ne ressemble pas à une
+réponse, il part chez un agent, qui répond — **et le fil d'accueil est abandonné sans un mot**.
+
+Ce n'est pas un défaut de mémoire mais de **structure** : l'état de la machine à états EST le
+dernier tour `assistant`, et répondre vient de le remplacer. Sans rappel accolé, l'accueil ne
+peut pas reprendre, et personne ne sait pourquoi le dossier n'a jamais été terminé.
+
+Le rappel est **accolé** à la réponse, jamais posté à part — même forme que celui de l'email en
+attente. Il nomme le champ qui manque plutôt que « ton profil », varie sur trois formulations
+choisies déterministement, et tient en une phrase en italique, sans question ni injonction.
+
+⚠️ Le point délicat est un ORDRE : l'état doit être relevé **avant** que l'accueil ne consomme le
+tour. Un test le verrouille, vérifié rouge.
+
+**1 919 tests verts, typecheck et lint propres.**
+
 ## 2026-08-20 (nuit) — Une réponse relue par son destinataire, et six défauts
 
 La personne concernée a lu sa propre fiche et l'a démontée ligne par ligne. Rien de ce qui suit

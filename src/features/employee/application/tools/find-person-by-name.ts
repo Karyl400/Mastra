@@ -64,7 +64,7 @@ const MIN_NAME_LENGTH = 2;
 
 const NO_MATCH_HINT =
   "Ce nom ne correspond à personne, ni parmi les employés enregistrés ni dans l'annuaire " +
-  "Slack. N'invente ni identifiant ni adresse : demande l'email professionnel de la " +
+  "Slack. N'invente ni identifiant ni adresse : demande l'email de la " +
   'personne, ou son orthographe exacte.';
 
 /**

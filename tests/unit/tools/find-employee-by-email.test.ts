@@ -136,7 +136,7 @@ describe('Tool: findEmployeeByEmail', () => {
       const result = await call('votre_email@example.com');
 
       expect(String(result.hint)).toMatch(/n'invente|demande/i);
-      expect(String(result.hint)).toMatch(/professionnel/i);
+      expect(String(result.hint)).toMatch(/réel/i);
     });
 
     it("n'a pas touché la base — le refus précède toute E/S", async () => {

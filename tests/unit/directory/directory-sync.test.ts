@@ -95,6 +95,7 @@ describe('Directory: synchronisation', () => {
     const repo = new InMemoryDirectoryRepository();
     const failing: DirectoryRepository = {
       hasManager: async () => false,
+      findManagers: async () => [],
       upsertFacts: vi.fn(async (f: DirectoryMemberFacts, now: Date) => {
         if (f.slackUserId === 'U-KO')
           throw new Error('SQLITE_ERROR: no such table: slack_directory');
@@ -127,6 +128,7 @@ describe('Directory: synchronisation', () => {
     const repo = new InMemoryDirectoryRepository();
     const always: DirectoryRepository = {
       hasManager: async () => false,
+      findManagers: async () => [],
       upsertFacts: vi.fn(async () => {
         throw new Error('no such table: slack_directory');
       }),
@@ -275,6 +277,7 @@ describe('Directory: synchronisation', () => {
     const repo = new InMemoryDirectoryRepository();
     const broken: DirectoryRepository = {
       hasManager: async () => false,
+      findManagers: async () => [],
       upsertFacts: (f: DirectoryMemberFacts, now: Date) => repo.upsertFacts(f, now),
       findBySlackUserId: (id: string) => repo.findBySlackUserId(id),
       findByEmail: (e: string) => repo.findByEmail(e),

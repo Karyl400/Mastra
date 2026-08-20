@@ -57,6 +57,19 @@ export interface DirectoryRepository {
    */
   hasManager(): Promise<boolean>;
 
+  /**
+   * Les personnes VIVANTES qui portent le rôle `manager`.
+   *
+   * ⚠️ Distinct de `hasManager()`, qui ne rend qu'un booléen. Les deux existent parce qu'ils
+   * répondent à deux questions différentes : « la frontière est-elle applicable ? » (une
+   * garde, appelée à chaque message) et « à qui écrire ? » (un envoi, rare). Faire porter les
+   * deux par la même lecture ferait payer une liste à un chemin qui n'a besoin que d'un oui.
+   *
+   * Mêmes exclusions que la politique — ni bot, ni compte désactivé : écrire à un compte que
+   * `resolveAccess` refuse serait écrire dans le vide.
+   */
+  findManagers(): Promise<DirectoryMember[]>;
+
   /** Rattache une personne à un employé enregistré. `null` détache. */
   /**
    * Rattache une ligne d'annuaire à un dossier, et rend le NOMBRE de lignes réellement

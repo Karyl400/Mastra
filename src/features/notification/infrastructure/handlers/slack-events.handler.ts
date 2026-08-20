@@ -89,6 +89,14 @@ import {
   type ProfileAnswers,
   type ProfileStep,
 } from '../../../onboarding/domain/services/profile-chat';
+import {
+  declaresTopRole,
+  topRoleClaimNotice,
+} from '../../../onboarding/domain/services/top-role-claim';
+import {
+  onboardingNudge,
+  type PendingOnboardingStep,
+} from '../../../onboarding/domain/services/onboarding-nudge';
 import { runOnboarding } from '../../../onboarding/application/services/run-onboarding';
 import type {
   PendingInterviewEmailRepository,
@@ -2181,6 +2189,7 @@ export class SlackEventsHandler {
     accessLevel: SlackAccessLevel | undefined;
     progress: Awaited<ReturnType<typeof startProgress>>;
     pendingEmailReminder?: string;
+    onboardingReminder?: string;
   }): Promise<void> {
     const {
       event,
@@ -2194,6 +2203,7 @@ export class SlackEventsHandler {
       accessLevel,
       progress,
       pendingEmailReminder,
+      onboardingReminder,
     } = ctx;
 
     // Phase courante du traitement. Le catch générique ci-dessous couvrait cinq points
@@ -2472,9 +2482,12 @@ export class SlackEventsHandler {
         safeOutput.text +
           (unsupportedClaim ? UNSUPPORTED_CLAIM_NOTICE : '') +
           (registeredWithoutDelivery ? PROMISED_DELIVERY_NOTICE : '') +
-          (excerptCoverage ? `\n\n${excerptCoverage}` : '') +
           recipientNotice +
-          (pendingEmailReminder ? `\n\n${pendingEmailReminder}` : ''),
+          // ⚠️ L'ORDRE compte, et il va du plus lié au moins lié à la réponse : la couverture
+          // qualifie ce qui vient d'être dit, les deux rappels parlent d'autre chose. Un
+          // rappel glissé entre la réponse et sa couverture ferait lire celle-ci comme une
+          // note de bas de page du rappel.
+          appendNotes([excerptCoverage, pendingEmailReminder, onboardingReminder]),
       );
 
       // Ce que le log ne disait pas et qu'il fallait deviner : combien d'étapes le run a
@@ -2962,6 +2975,11 @@ export class SlackEventsHandler {
     // Placé APRÈS les réponses figées (la détresse et la forme d'un message priment sur tout)
     // et AVANT les court-circuits qui agissent : effacer ses données reste prioritaire sur
     // répondre à une question d'accueil.
+    // ⚠️ RELEVÉ AVANT que l'accueil ne consomme le tour : `maybeAdvanceOnboarding` répond et
+    // remplace le dernier tour `assistant`, donc l'état de la machine à états. Le lire après
+    // rendrait toujours `undefined`, et le rappel ne partirait jamais.
+    const pendingStep = pendingOnboardingStep(history, isDirectMessage);
+
     if (
       await this.maybeAdvanceOnboarding({
         history,
@@ -3109,6 +3127,11 @@ export class SlackEventsHandler {
       // paraître le bot bavard là où il ne fait que ne pas oublier. Et il ne bloque rien —
       // la personne a changé de sujet, on lui répond d'abord.
       pendingEmailReminder: pendingEmail.reminder,
+      // Même forme, même raison, autre objet : une question d'accueil est restée sans réponse
+      // parce que la personne a parlé d'autre chose. Répondre EFFACE l'état de la machine
+      // (il vit dans le dernier tour `assistant`), donc sans ce rappel l'accueil ne peut pas
+      // reprendre — et personne ne sait pourquoi le dossier n'a jamais été terminé.
+      onboardingReminder: onboardingNudge(pendingStep, event.ts),
     });
   }
 
@@ -3393,6 +3416,11 @@ export class SlackEventsHandler {
           // d'avoir relié rejouerait le défaut un tour plus tard.
           onRecordReady: async (employeeId) => {
             await this.linkRequesterToRecord(input.user, employeeId);
+            // ⚠️ NON ATTENDU, et journalisé sur échec : prévenir le manager est une COURTOISIE
+            // envers un tiers, pas une étape du parcours de l'arrivant. La faire attendre —
+            // ou pire, la laisser échouer — retarderait la question suivante d'un aller-retour
+            // Slack pour un message qui ne le concerne pas.
+            void this.warnManagersOfTopRoleClaim(input.user, answers.position);
             await this.sayAndRemember(input, INTERVIEW_QUESTION_DAILY);
           },
         },
@@ -3415,6 +3443,78 @@ export class SlackEventsHandler {
         error: String(error),
       });
       await this.sayAndRemember(input, PROFILE_CHAT_SAVE_FAILED);
+    }
+  }
+
+  /**
+   * Quelqu'un vient de se déclarer au SOMMET — le dire au sommet.
+   *
+   * ════════════════════════════════════════════════════════════════════════════
+   * Ce que ce chemin ne fait PAS
+   * ════════════════════════════════════════════════════════════════════════════
+   *
+   * Il n'accorde rien, ne refuse rien, ne bloque rien. Un intitulé de poste est DÉCLARATIF —
+   * la personne le tape elle-même — et le seul fait qui ouvre la portée est
+   * `slack_directory.role`, écrit hors du produit. Ce chemin produit un SIGNAL adressé à un
+   * humain : « es-tu au courant, approuves-tu ? »
+   *
+   * C'est aussi pour cela qu'un faux positif est sans gravité (un DM lu en trois secondes) et
+   * qu'un faux négatif l'est davantage (une déclaration au sommet passée inaperçue).
+   *
+   * ⚠️ ON N'ÉCRIT PAS À QUELQU'UN AU SUJET DE LUI-MÊME. Le manager qui refait son propre
+   * dossier recevrait sinon un message lui demandant s'il s'approuve.
+   *
+   * ⚠️ AUCUN MANAGER DÉSIGNÉ ⇒ on le journalise en `warn` plutôt que de se taire. C'est un
+   * état réel — la colonne naît vide — et c'est exactement le moment où quelqu'un aurait dû
+   * être prévenu. Un silence ici serait indiscernable d'un envoi réussi.
+   *
+   * ZÉRO token : prédicat pur et texte écrit en dur, aucun modèle sur ce chemin.
+   */
+  private async warnManagersOfTopRoleClaim(
+    slackUserId: string | undefined,
+    position: string,
+  ): Promise<void> {
+    if (!slackUserId || !declaresTopRole(position)) return;
+
+    try {
+      const repo = this.getDirectoryRepo();
+      if (!repo) return;
+
+      const managers = (await repo.findManagers()).filter((m) => m.slackUserId !== slackUserId);
+
+      if (managers.length === 0) {
+        logger.warn('Poste au sommet déclaré, mais AUCUN manager à prévenir', {
+          slackUserId,
+          position,
+        });
+        return;
+      }
+
+      const identity = await this.resolveRequesterIdentity(slackUserId);
+      const notice = topRoleClaimNotice({
+        // Le nom résolu, jamais celui que la personne vient de taper : c'est l'annuaire qui
+        // dit qui elle est, et le destinataire du message la connaît sous ce nom-là.
+        newcomerName: identity.displayName ?? slackUserId,
+        declaredPosition: position,
+        slackUserId,
+      });
+
+      for (const manager of managers) {
+        // `chat.postMessage` sur un `U…` ouvre le DM : le canal `D…` de l'annuaire n'est
+        // connu que si la personne a déjà écrit au bot, et un manager qui ne lui a jamais
+        // parlé est précisément celui qu'il faut pouvoir joindre.
+        await this.slack.chat.postMessage({ channel: manager.slackUserId, text: notice });
+        logger.info('Manager prévenu d’une déclaration de poste au sommet', {
+          managerId: manager.slackUserId,
+        });
+      }
+    } catch (error) {
+      // AVALÉ : l'arrivant vient d'enregistrer son dossier et attend la question suivante.
+      // Lui montrer l'échec d'un message qui ne lui était pas destiné n'a aucun sens, et
+      // faire échouer son parcours pour cela en aurait encore moins.
+      logger.error('Impossible de prévenir le manager d’une déclaration de poste', {
+        error: String(error),
+      });
     }
   }
 
@@ -4100,6 +4200,49 @@ export { buildProfileInviteBlocks, buildWelcomeBlocks };
  * symptôme aurait été muet — quelqu'un qui répond à une question d'accueil et reçoit « quota
  * atteint », c'est-à-dire l'accueil bloqué par le garde-fou censé protéger l'accueil.
  */
+/**
+ * Quelle question d'accueil attend une réponse dans ce fil, s'il y en a une ?
+ *
+ * ⚠️ DM uniquement, même raison qu'`answersOnboardingQuestion` : en canal, le dernier tour
+ * `assistant` peut être une question posée à quelqu'un d'AUTRE, et le rappel s'adresserait au
+ * mauvais témoin.
+ *
+ * ⚠️ Dérivé des DEUX machines à états, jamais d'une liste recopiée. L'ordre reprend celui de
+ * `maybeAdvanceOnboarding` : le dossier avant l'entretien.
+ */
+/**
+ * Accole les notes non vides, séparées d'une ligne blanche.
+ *
+ * ⚠️ Fonction plutôt que trois ternaires en ligne, et pas seulement pour le plafond de
+ * complexité : chaque note ajoutée au fil des mois rallongeait la même expression, et une
+ * chaîne de ternaires est exactement l'endroit où l'on finit par oublier un `\n\n` ou par
+ * intervertir deux notes sans que rien ne le signale.
+ *
+ * Rend `''` quand tout est vide : accoler une chaîne vide laisserait deux sauts de ligne en
+ * fin de message, trace visible d'un mécanisme qui ne s'est pas déclenché.
+ */
+function appendNotes(notes: readonly (string | undefined)[]): string {
+  const present = notes.filter((note): note is string => Boolean(note));
+  return present.length === 0 ? '' : `\n\n${present.join('\n\n')}`;
+}
+
+export function pendingOnboardingStep(
+  history: readonly ConversationTurn[],
+  isDirectMessage: boolean,
+): PendingOnboardingStep | undefined {
+  if (!isDirectMessage) return undefined;
+
+  const last = lastAssistantText(history);
+
+  const profile = pendingProfileStep(last);
+  if (profile) return { kind: 'profile', step: profile };
+
+  const interview = pendingInterviewStep(last);
+  if (interview) return { kind: 'interview', step: interview };
+
+  return undefined;
+}
+
 export function answersOnboardingQuestion(input: {
   readonly history: readonly ConversationTurn[];
   readonly isDirectMessage: boolean;

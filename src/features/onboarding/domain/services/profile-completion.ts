@@ -77,9 +77,14 @@ const NEXT_STEP =
   `pas plus.\n\n${INTERVIEW_QUESTION_DAILY}`;
 
 /**
- * Nom LISIBLE de chaque champ. Le guide écrit dit « ton adresse email professionnelle » ; la
- * réponse doit employer les mêmes mots, sans quoi la personne cherche un champ qui n'existe
- * pas sous ce nom.
+ * Nom LISIBLE de chaque champ — les MÊMES mots que la question posée, sans quoi la personne
+ * cherche un champ qui n'existe pas sous ce nom.
+ *
+ * ⚠️ « professionnelle » a été retiré le 2026-08-20. Une adresse personnelle est explicitement
+ * acceptée depuis le 2026-08-19 (c'était une impasse sans sortie), et le mot survivait dans
+ * NEUF descriptions d'outils — c'est de là que le modèle a tiré « Email professionnel : … »
+ * devant une adresse `gmail.com`, dans une fiche relue par sa propriétaire. Le modèle
+ * n'inventait pas : il répétait ce que le schéma lui disait.
  */
 const FIELD_LABELS: Readonly<Record<keyof ProfileSnapshot, string>> = {
   firstName: 'ton prénom',

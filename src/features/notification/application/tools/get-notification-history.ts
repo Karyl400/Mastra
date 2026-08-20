@@ -153,7 +153,7 @@ export function makeGetNotificationHistory(
           total: 0,
           shown: 0,
           reason: 'missing_identifier' as const,
-          hint: "Précise QUI : l'email professionnel ou l'identifiant du destinataire.",
+          hint: "Précise QUI : l'email ou l'identifiant du destinataire.",
         };
       }
 

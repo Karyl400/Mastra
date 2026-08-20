@@ -125,6 +125,12 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
     return false;
   }
 
+  async findManagers(): Promise<DirectoryMember[]> {
+    return [...this.rows.values()]
+      .filter((m) => m.isManager && !m.isDeleted && !m.isBot)
+      .sort((a, b) => a.slackUserId.localeCompare(b.slackUserId));
+  }
+
   setRole(slackUserId: string, isManager: boolean): void {
     const row = this.rows.get(slackUserId);
     if (!row) return;

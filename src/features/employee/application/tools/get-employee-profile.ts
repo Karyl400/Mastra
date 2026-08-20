@@ -21,7 +21,7 @@ import { reconcileProgress } from '../../../onboarding/domain/services/onboardin
  */
 const NOT_FOUND_HINT =
   "Aucun employé ne porte cet identifiant. Ne l'invente pas et n'en déduis rien : demande " +
-  "l'email professionnel et passe par findEmployeeByEmail.";
+  "l'email de la personne et passe par findEmployeeByEmail.";
 
 /**
  * Consigne rendue quand l'employé existe mais n'a pas de suivi d'intégration.
@@ -61,7 +61,7 @@ const NOT_AUTHORIZED_HINT =
  * comble le vide.
  */
 const MISSING_IDENTIFIER_HINT =
-  "Précise QUI : soit l'email professionnel, soit l'identifiant de l'employé. N'en invente " +
+  "Précise QUI : soit l'email, soit l'identifiant de l'employé. N'en invente " +
   'aucun — si tu ne les as pas, demande-les.';
 
 export function makeGetEmployeeProfile(

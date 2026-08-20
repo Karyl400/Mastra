@@ -93,7 +93,7 @@ export const AGENT_STYLE_BLOCK = `STYLE : collègue, français, phrases courtes,
  * Seule la PREMIÈRE phrase a été resserrée (2026-08-11), sans rien perdre : le
  * verdict d'échec prime toujours sur un `status: 'success'` de façade.
  */
-export const AGENT_ANTI_INVENTION_BLOCK = `RÈGLE ANTI-INVENTION : n'affirme un succès que si le tool le confirme ; \`emailSent: false\` ou tout échec vaut ÉCHEC même sous \`status: 'success'\` — dis-le. N'invente jamais une donnée absente (prénom, nom, email, identifiant, date, score, URL, lien, chemin de fichier) : demande-la.`;
+export const AGENT_ANTI_INVENTION_BLOCK = `RÈGLE ANTI-INVENTION : un succès n'est vrai que si le tool le confirme ; \`emailSent: false\` ou tout échec vaut ÉCHEC, même sous \`status: 'success'\`. N'invente aucune donnée absente (nom, email, identifiant, date, URL, lien, chemin) : cherche-la avec un tool ou demande-la. Ne qualifie pas ce qu'il rend.`;
 
 /**
  * Bloc FRONTIÈRE — l'espace négatif, DÉRIVÉ du câblage et jamais rédigé.

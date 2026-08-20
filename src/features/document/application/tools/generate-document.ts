@@ -117,7 +117,7 @@ const HINTS = {
     'en produire un.',
   employee_not_found:
     "Aucun employé ne porte cet identifiant : rien n'a été généré. Ne l'invente pas, demande " +
-    "l'email professionnel et passe par findEmployeeByEmail.",
+    "l'email de la personne et passe par findEmployeeByEmail.",
   no_slack_context:
     "Aucun canal Slack connu ici : le document est enregistré mais n'a été envoyé nulle part. " +
     'Dis-le, ne promets aucun envoi.',

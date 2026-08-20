@@ -121,7 +121,7 @@ export function makeFindEmployeeByEmail(repo: EmployeeRepository, directory?: Di
       "Retrouve une personne par son email : son dossier d'onboarding si elle en a un, " +
       "sinon l'annuaire Slack. Renvoie found=false (jamais une exception) si l'email est inconnu.",
     inputSchema: z.object({
-      email: emailSchema.describe("Email professionnel de l'employé à rechercher"),
+      email: emailSchema.describe("Email de l'employé à rechercher"),
     }),
     execute: async (data, ctx) => {
       const normalizedEmail = String(data.email).trim().toLowerCase();
@@ -161,7 +161,7 @@ export function makeFindEmployeeByEmail(repo: EmployeeRepository, directory?: Di
           reason: 'placeholder_email' as const,
           hint:
             "Cette adresse est un exemple générique, pas celle d'un employé. " +
-            "Ne l'invente pas : demande à l'utilisateur son email professionnel réel.",
+            "Ne l'invente pas : demande à l'utilisateur son email réel.",
         };
       }
 

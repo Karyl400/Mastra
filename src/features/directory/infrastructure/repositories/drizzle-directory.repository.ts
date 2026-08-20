@@ -177,6 +177,24 @@ export class DrizzleDirectoryRepository implements DirectoryRepository {
     return row !== undefined;
   }
 
+  /** Tri sur la clé : deux appels identiques doivent rendre le même ordre. */
+  async findManagers(): Promise<DirectoryMember[]> {
+    const db = this.resolveDb();
+    const rows = await db
+      .select()
+      .from(slackDirectory)
+      .where(
+        and(
+          eq(slackDirectory.role, EmployeeRole.Manager),
+          eq(slackDirectory.isDeleted, false),
+          eq(slackDirectory.isBot, false),
+        ),
+      )
+      .orderBy(slackDirectory.slackUserId);
+
+    return rows.map(toDomain);
+  }
+
   /** Destructif à dessein, contrairement à `rememberDmChannel` : `null` DÉTACHE, c'est le port. */
   async linkEmployee(slackUserId: string, employeeId: string | null): Promise<number> {
     const db = this.resolveDb();
