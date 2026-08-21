@@ -110,7 +110,7 @@ const SERIES: Record<string, readonly Step[]> = {
     {
       id: 'C6',
       text: `programme un rappel pour lundi 9h à ${AWA}`,
-      verifies: 'willBeSentAutomatically: false — aucun automate ne reprend Scheduled',
+      verifies: 'willBeSentAutomatically: true depuis le cron du 2026-08-21 ; le libellé ne porte AUCUNE heure',
     },
   ],
   D: [

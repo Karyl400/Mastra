@@ -83,20 +83,39 @@ describe('P7 — le recruitmentAgent recopiait un FAUX aperçu au-dessus de la c
   });
 });
 
-describe('P4 — « Le rappel a bien été enregistré » laisse croire à un envoi', () => {
+describe('P4 — « Le rappel a bien été enregistré » laissait croire à un envoi', () => {
   /**
-   * Le tool est honnête : il rend `willBeSentAutomatically: false`. Le modèle ne l'a pas
-   * relayé — et c'est exactement la leçon déjà payée DEUX FOIS sur la couverture des
-   * extraits : **un champ séparé se lit comme une métadonnée, quel que soit son nom**.
+   * ════════════════════════════════════════════════════════════════════════
+   * ⚠️ CE TEST A ÉTÉ RETOURNÉ LE 2026-08-21, ET LE RETOURNEMENT EST LA LEÇON
+   * ════════════════════════════════════════════════════════════════════════
    *
-   * La personne lit « enregistré pour vendredi » et attend un rappel vendredi. Il n'existe
-   * ni cron, ni poller, et `findPending()` n'a aucun site d'appel : rien ne partira jamais.
-   * Même famille que `emailSent: false` sous `status: 'success'`.
+   * Il exigeait que les instructions contiennent « aucun automate ». C'était juste tant que
+   * rien ne partait : ni cron, ni poller, `findPending()` sans site d'appel.
+   *
+   * Le cron quotidien existe depuis le 2026-08-21. La consigne demandait donc à Marcel
+   * d'affirmer quelque chose de FAUX — la faute que tout ce dépôt est construit pour éviter,
+   * retournée contre lui. **Un invariant encode un état du monde ; quand le monde change, il
+   * ne devient pas inoffensif, il devient faux.** Même famille que `onlyNonDeliveringTools`,
+   * retirée le même jour, et que `READ_ONLY_TOOL_NAMES` gardant `getTaskList`.
+   *
+   * ⚠️ La consigne n'est remplacée par RIEN, et c'est délibéré. Elle avait déjà été mesurée
+   * en échec le 2026-08-19 : la réponse suivante en production a EMPIRÉ, gagnant une date et
+   * une heure d'envoi précises. Le moment de remise vient désormais du tool (`deliveredOn`,
+   * sans heure) et du handler. Une consigne est PROBABLE, le code est GARANTI.
    */
-  it('impose de dire qu’aucun automate n’enverra le rappel', () => {
+  it('ne demande PLUS de nier un envoi qui a bel et bien lieu', () => {
     const text = instructionsOf(makeNotificationAgent({}));
 
-    expect(text).toMatch(/aucun automate/i);
+    expect(text).not.toMatch(/aucun automate/i);
+    expect(text).not.toMatch(/rien ne part/i);
+  });
+
+  it('ne promet pas non plus une HEURE dans le prompt — la remise est quotidienne', () => {
+    // Le garde-fou a changé de côté : ce qu'il faut empêcher n'est plus d'annoncer un envoi,
+    // c'est d'en annoncer l'heure. Et cela ne se joue pas ici : le tool ne rend plus l'heure.
+    const text = instructionsOf(makeNotificationAgent({}));
+
+    expect(text).not.toMatch(/\bà \d{1,2}\s?h/i);
   });
 });
 
