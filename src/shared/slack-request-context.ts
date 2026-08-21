@@ -151,6 +151,39 @@ function mayTouchRecord(requestContext: unknown, targetEmployeeId: string | unde
   return context.accessLevel === 'full';
 }
 
+/**
+ * ⚠️ **PEUT-ON CONFIER L'IDENTIFIANT INTERNE DE CETTE PERSONNE AU DEMANDEUR ?**
+ *
+ * Les résolveurs de personne (`findPersonByName`, `findEmployeeByEmail`) s'en servent pour
+ * décider ce qu'ils rendent. Ils ne REFUSENT jamais — un agent qui ne sait pas résoudre une
+ * personne ne peut rien faire — ils rendent le NOM sans la CLÉ.
+ *
+ * ⚠️ **IL DÉLÈGUE À `mayTouchRecord`, FAIL-OPEN HORS SLACK COMPRIS, et c'est une décision
+ * prise puis REVENUE SUR.** La première version répondait NON sans contexte Slack, au motif
+ * qu'on ne rend pas une clé à un appelant qu'on ne connaît pas. Elle a cassé 19 tests — et ces
+ * tests encodaient une décision délibérée du dépôt : ces outils restent utilisables depuis le
+ * playground, un workflow et un test, où `readSlackContext` rend `undefined` par conception.
+ *
+ * Inverser ce fail-open aurait dépassé ce que l'audit demandait, et aurait pu couper la
+ * résolution de SOI-MÊME pendant la fenêtre d'accueil, quand `slack_directory.employee_id`
+ * n'est pas encore écrite — la famille exacte du défaut du 2026-08-19.
+ *
+ * ⚠️ **Ce qui rend ce fail-open sûr est ailleurs** : `createToolExecutionGuard` ferme depuis le
+ * 2026-08-21 les routes d'exécution d'outil de l'API, c'est-à-dire la seule porte par laquelle un
+ * appelant sans contexte Slack atteignait ces outils en production. On ferme la ROUTE, pas la
+ * règle — même arbitrage que pour la frontière elle-même.
+ *
+ * Il reste donc un alias de `mayTouchRecord`, et il existe pour NOMMER l'intention : « peut-on
+ * confier la clé » se relit autrement que « peut-on lire le dossier », alors même que la
+ * réponse est la même. Le jour où l'une des deux doit bouger, elle bougera seule.
+ */
+export function mayHoldKeyFor(
+  requestContext: unknown,
+  targetEmployeeId: string | undefined | null,
+): boolean {
+  return mayTouchRecord(requestContext, targetEmployeeId);
+}
+
 export function canPerformSideEffects(
   requestContext: unknown,
   targetEmployeeId?: string | null,

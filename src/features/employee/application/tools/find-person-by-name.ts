@@ -5,6 +5,16 @@ import type { DirectoryRepository } from '../../../directory/domain/ports/direct
 import { logger } from '../../../../shared/logger';
 import { fullName } from '../../../../shared/name-matching';
 import { sanitizeDisplayName } from '../../../notification/domain/services/context-preamble';
+import { mayHoldKeyFor } from '../../../../shared/slack-request-context';
+
+/**
+ * ⚠️ Le hint dit au modèle ce qu'il PEUT faire, pas ce qui lui est refusé — un refus détaillé
+ * l'inviterait à contourner, et ce dépôt a mesuré cinq consignes en échec. Il ne nomme donc ni
+ * la garde, ni le niveau, ni ce qui manque.
+ */
+const WITHHELD_HINT =
+  'Tu as le nom, pas son identifiant interne. Poursuis la conversation avec le nom ; pour ' +
+  'agir sur son dossier, la personne concernée ou le General Manager doit le demander.';
 
 export const MAX_NAME_CANDIDATES = 5;
 
@@ -23,6 +33,29 @@ const DIRECTORY_ONLY_HINT =
   "et les rappels ne fonctionneront pas pour elle. N'invente aucun identifiant interne ; " +
   'dis-le simplement.';
 
+/**
+ * ⚠️ **LA CLÉ NE SORT QUE POUR QUI PEUT S'EN SERVIR — 2026-08-21.**
+ *
+ * Ce résolveur n'a jamais consulté de garde : il rendait l'UUID interne, le poste et le statut
+ * de n'importe qui, à n'importe qui, depuis n'importe quel message Slack — invité mono-canal
+ * compris. Sur treize outils, dix consultaient une frontière ; celui-ci et son voisin par email
+ * étaient les deux exceptions qui rendent un IDENTIFIANT.
+ *
+ * ⚠️ **ON NE BLOQUE PAS, ON RÉDUIT.** La contrepartie est écrite noir sur blanc dans ce dépôt :
+ * « un agent qui ne sait pas résoudre une personne ne peut RIEN faire », et le câblage manquant
+ * a déjà produit une boucle sans sortie le 2026-08-10. Une garde bloquante casserait le produit
+ * pour fermer une fuite modeste.
+ *
+ * L'UUID est la CLÉ : c'est lui qui rend l'appel SUIVANT possible. Un demandeur non autorisé
+ * garde donc de quoi poursuivre le dialogue (le nom) et perd de quoi agir. Il ne perd rien
+ * d'utile au passage : `getEmployeeProfile`, `generateDocument`, `sendNotification` et
+ * `scheduleReminder` lui refuseraient déjà cet identifiant. Ce qu'on retire, c'est l'illusion
+ * qu'il pourrait s'en servir — et l'énumération qui va avec.
+ *
+ * ⚠️ **Hors contexte Slack, on retient AUSSI.** `mayTouchRecord` répond `true` sans contexte,
+ * par conception (playground, workflow, test). On ne renverse pas ce fail-open — mais un
+ * résolveur n'a aucune raison de rendre un UUID à un appelant dont on ignore l'identité.
+ */
 export function makeFindPersonByName(repo: EmployeeRepository, directory?: DirectoryRepository) {
   return createTool({
     id: 'findPersonByName',
@@ -50,16 +83,18 @@ export function makeFindPersonByName(repo: EmployeeRepository, directory?: Direc
 
       if (employees.length === 1) {
         const found = employees[0]!;
+        const identified = mayHoldKeyFor(_ctx?.requestContext, found.id);
+
         return {
           found: true as const,
           source: 'employees' as const,
           employee: {
-            id: found.id,
+            ...(identified ? { id: found.id, status: found.status } : {}),
             firstName: sanitizeDisplayName(found.firstName),
             lastName: sanitizeDisplayName(found.lastName),
             position: found.position,
-            status: found.status,
           },
+          ...(identified ? {} : { hint: WITHHELD_HINT }),
         };
       }
 
@@ -80,6 +115,8 @@ export function makeFindPersonByName(repo: EmployeeRepository, directory?: Direc
           linked: Boolean(member.employeeId),
         });
 
+        const identified = mayHoldKeyFor(_ctx?.requestContext, member.employeeId);
+
         return {
           found: true as const,
           source: 'slack_directory' as const,
@@ -88,9 +125,11 @@ export function makeFindPersonByName(repo: EmployeeRepository, directory?: Direc
             firstName: sanitizeDisplayName(member.firstName),
             lastName: sanitizeDisplayName(member.lastName),
             title: sanitizeDisplayName(member.title),
-            employeeId: member.employeeId,
+            ...(identified ? { employeeId: member.employeeId } : {}),
           },
-          ...(member.employeeId ? {} : { hint: DIRECTORY_ONLY_HINT }),
+          ...(identified && member.employeeId
+            ? {}
+            : { hint: identified ? DIRECTORY_ONLY_HINT : WITHHELD_HINT }),
         };
       }
 

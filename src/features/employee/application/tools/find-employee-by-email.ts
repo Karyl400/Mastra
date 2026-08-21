@@ -4,7 +4,7 @@ import type { EmployeeRepository } from '../../domain/ports/employee.repository'
 import type { DirectoryRepository } from '../../../directory/domain/ports/directory.repository';
 import { emailSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
-import { readSlackContext } from '../../../../shared/slack-request-context';
+import { mayHoldKeyFor, readSlackContext } from '../../../../shared/slack-request-context';
 
 const RESERVED_DOMAINS = ['example.com', 'example.org', 'example.net', 'example.edu', 'localhost'];
 const RESERVED_TLDS = ['.test', '.example', '.invalid', '.localhost', '.local'];
@@ -75,6 +75,33 @@ export function makeFindEmployeeByEmail(repo: EmployeeRepository, directory?: Di
       logger.info('Recherche employé par email', { email: normalizedEmail });
 
       const employee = await repo.findByEmail(normalizedEmail);
+      const memberEarly = employee
+        ? null
+        : directory
+          ? await directory.findByEmail(normalizedEmail)
+          : null;
+
+      /**
+       * ⚠️ **ANTI-ORACLE — le verdict est le MÊME que l'adresse désigne quelqu'un ou personne.**
+       *
+       * Sans cela, ce tool répond `found: true/false` sur une adresse arbitraire, à n'importe
+       * qui : c'est l'énumération de l'annuaire une adresse à la fois. `getEmployeeProfile` a
+       * été retravaillé pour ne pas être cet oracle — « il passe l'identifiant RÉSOLU **ou
+       * `null`** » — et la même précaution n'avait pas été portée ici.
+       *
+       * ⚠️ **On résout D'ABORD, on décide ENSUITE.** L'ordre inverse (refuser avant de lire)
+       * serait plus économe mais rouvrirait l'oracle : il faut connaître la cible pour savoir
+       * si le demandeur y a droit, et c'est précisément pour cela que le refus ne peut pas
+       * tomber avant la lecture sur CE chemin — contrairement au chemin par identifiant, où il
+       * le peut et où il le fait.
+       */
+      const resolvedId = employee?.id ?? memberEarly?.employeeId ?? null;
+      if (!mayHoldKeyFor(ctx?.requestContext, resolvedId)) {
+        logger.info('Résolution par email refusée — verdict neutre', {
+          authorised: false,
+        });
+        return unresolvable(readSlackContext(ctx?.requestContext)?.employeeId);
+      }
 
       if (employee) {
         return {
@@ -89,7 +116,7 @@ export function makeFindEmployeeByEmail(repo: EmployeeRepository, directory?: Di
         };
       }
 
-      const member = directory ? await directory.findByEmail(normalizedEmail) : null;
+      const member = memberEarly;
 
       if (member && !member.isBot && !member.isDeleted) {
         logger.info("Employé absent de la base, résolu par l'annuaire Slack", {
@@ -132,4 +159,30 @@ export function makeFindEmployeeByEmail(repo: EmployeeRepository, directory?: Di
       };
     },
   });
+}
+
+/**
+ * Le verdict rendu quand le demandeur n'a pas à tenir cet identifiant.
+ *
+ * ⚠️ **Il n'affirme PAS que l'adresse ne désigne personne** — ce serait un mensonge dans la
+ * moitié des cas, et ce dépôt ne fabrique pas de faux négatifs pour se protéger. Il dit
+ * seulement qu'il ne peut pas résoudre, ce qui est exactement vrai : la résolution est refusée.
+ *
+ * ⚠️ Il porte le MÊME `hint` d'auto-résolution que le vrai « non trouvé », sans quoi la
+ * différence de forme rouvrirait l'oracle qu'on vient de fermer.
+ */
+function unresolvable(requesterEmployeeId: string | undefined) {
+  return {
+    found: false as const,
+    reason: 'not_resolvable' as const,
+    ...(requesterEmployeeId
+      ? {
+          hint:
+            'Je ne peux pas résoudre cette adresse — et ne la réessaie pas en la modifiant. ' +
+            'Si la demande concerne la personne qui te parle, son identifiant interne est ' +
+            `${requesterEmployeeId} : utilise-le directement, ne lui redemande pas son email. ` +
+            'Sinon, dis simplement que tu ne peux pas.',
+        }
+      : {}),
+  };
 }
