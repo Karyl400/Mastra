@@ -51,6 +51,28 @@ export class InMemoryMessageArchiveRepository implements MessageArchiveRepositor
     return removed;
   }
 
+  // ⚠️ La marque vit à côté des lignes, jamais dedans : `ArchivedMessage` est le contrat du
+  // domaine, et y ajouter un champ d'intendance le ferait fuir dans tout ce qui le lit.
+  private readonly distilled = new Map<string, number>();
+
+  async pendingDistillation(sinceMs: number, limit: number): Promise<readonly ArchivedMessage[]> {
+    const floor = Date.now() - sinceMs;
+    return [...this.rows.values()]
+      .filter((row) => !this.distilled.has(row.id) && row.postedAt >= floor)
+      .sort((a, b) => a.postedAt - b.postedAt)
+      .slice(0, limit);
+  }
+
+  async markDistilled(ids: readonly string[], at: number): Promise<number> {
+    let marked = 0;
+    for (const id of ids) {
+      if (!this.rows.has(id)) continue;
+      this.distilled.set(id, at);
+      marked += 1;
+    }
+    return marked;
+  }
+
   get size(): number {
     return this.rows.size;
   }

@@ -714,9 +714,17 @@ export const channelMessages = sqliteTable(
     threadTs: text('thread_ts'),
     postedAt: integer('posted_at').notNull(),
     createdAt: integer('created_at').notNull(),
+    /**
+     * ⚠️ NULL = le SECOND RIDEAU n'a pas encore regardé ce message. Le distillateur
+     * déterministe, lui, tourne à l'arrivée : quand il produit un fait, la colonne est posée
+     * dans la foulée. Sans cette marque, un lot que le modèle juge sans intérêt serait relu à
+     * chaque nouveau message — un appel de modèle par message, exactement ce qu'on évite.
+     */
+    distilledAt: integer('distilled_at'),
   },
   (table) => ({
     channelIdx: index('idx_channel_messages_channel').on(table.channelId, table.postedAt),
+    pendingIdx: index('idx_channel_messages_pending').on(table.distilledAt, table.postedAt),
     userIdx: index('idx_channel_messages_user').on(table.slackUserId, table.postedAt),
     createdIdx: index('idx_channel_messages_created').on(table.createdAt),
   }),

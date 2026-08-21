@@ -12,6 +12,22 @@ export interface MessageArchiveRepository {
   search(query: string, options?: MessageSearchOptions): Promise<readonly ArchivedMessage[]>;
   forgetUser(slackUserId: string): Promise<number>;
   prune(before: number): Promise<number>;
+
+  /**
+   * Les messages qu'AUCUN rideau n'a encore examinés, du plus ancien au plus récent.
+   *
+   * ⚠️ La fenêtre (`sinceMs`) borne le rattrapage : sans elle, allumer le second rideau
+   * exhumerait tout l'historique d'un coup — la leçon payée le même jour sur les rappels, où
+   * la première exécution du cron a réveillé des lignes écrites des semaines plus tôt.
+   */
+  pendingDistillation(sinceMs: number, limit: number): Promise<readonly ArchivedMessage[]>;
+
+  /**
+   * ⚠️ **ON MARQUE TOUT LE LOT, y compris ce dont le modèle n'a rien tiré.** Sans cela, cinq
+   * messages sans intérêt seraient relus à chaque nouveau message : un appel de modèle par
+   * message, c'est-à-dire l'inverse exact de ce que le lot de 5 existe pour éviter.
+   */
+  markDistilled(ids: readonly string[], at: number): Promise<number>;
 }
 
 export interface MessageSearchOptions {

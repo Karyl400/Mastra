@@ -1,4 +1,4 @@
-import { eq, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 
 import { getDb } from '../../../../infrastructure/database/connection';
 import { channelMessages } from '../../../../infrastructure/database/schema';
@@ -90,6 +90,36 @@ export class DrizzleMessageArchiveRepository implements MessageArchiveRepository
     const result = await db
       .delete(channelMessages)
       .where(lt(channelMessages.postedAt, before))
+      .run();
+
+    return result.rowsAffected;
+  }
+
+  async pendingDistillation(sinceMs: number, limit: number): Promise<readonly ArchivedMessage[]> {
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(channelMessages)
+      .where(
+        and(
+          isNull(channelMessages.distilledAt),
+          gte(channelMessages.postedAt, Date.now() - sinceMs),
+        ),
+      )
+      .orderBy(asc(channelMessages.postedAt))
+      .limit(limit);
+
+    return (rows as unknown as Row[]).map(toDomain);
+  }
+
+  async markDistilled(ids: readonly string[], at: number): Promise<number> {
+    if (ids.length === 0) return 0;
+
+    const db = getDb();
+    const result = await db
+      .update(channelMessages)
+      .set({ distilledAt: at })
+      .where(inArray(channelMessages.id, [...ids]))
       .run();
 
     return result.rowsAffected;

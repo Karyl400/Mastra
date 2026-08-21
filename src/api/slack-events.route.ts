@@ -16,6 +16,7 @@ import { DrizzleOnboardingInterviewRepository } from '../features/onboarding/inf
 import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
 import { DrizzlePendingInterviewEmailRepository } from '../features/recruitment/infrastructure/repositories/drizzle-pending-email.repository';
 import { KnowledgeIngestionService } from '../features/knowledge/application/services/knowledge-ingestion.service';
+import { ModelFactSummarizer } from '../features/knowledge/infrastructure/services/model-fact-summarizer.service';
 import { DrizzleMessageArchiveRepository } from '../features/knowledge/infrastructure/repositories/drizzle-message-archive.repository';
 import { DrizzleKnowledgeFactRepository } from '../features/knowledge/infrastructure/repositories/drizzle-knowledge-fact.repository';
 import { createEmailProvider } from '../features/notification/infrastructure/providers/email-provider.factory';
@@ -108,6 +109,10 @@ export function getSlackEventsHandler(mastra: Mastra): SlackEventsHandler {
       knowledgeIngestion: new KnowledgeIngestionService({
         archive: new DrizzleMessageArchiveRepository(),
         facts: new DrizzleKnowledgeFactRepository(),
+        // ⚠️ Le SECOND RIDEAU. Il ne tourne que sur les messages que le code déterministe n'a
+        // pas su classer, et seulement par lots de cinq : sur le chemin nominal, il ne coûte
+        // pas un seul appel de modèle. Voir `fact-curtain.service.ts`.
+        summarizer: new ModelFactSummarizer(),
       }),
       sendEmail: (to, subject, body) => getEventsEmailProvider().sendEmail(to, subject, body),
       ...handlerOptionsForTests,

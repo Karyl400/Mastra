@@ -1,0 +1,215 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import {
+  CURTAIN_BATCH_SIZE,
+  CURTAIN_WINDOW_MS,
+  runFactCurtain,
+} from '../../../src/features/knowledge/application/services/fact-curtain.service';
+import { KnowledgeIngestionService } from '../../../src/features/knowledge/application/services/knowledge-ingestion.service';
+import { InMemoryMessageArchiveRepository } from '../../../src/features/knowledge/infrastructure/repositories/in-memory-message-archive.repository';
+import { InMemoryKnowledgeFactRepository } from '../../../src/features/knowledge/infrastructure/repositories/in-memory-knowledge-fact.repository';
+import { KNOWLEDGE_FACT_MIN_SCORE } from '../../../src/features/knowledge/domain/services/fact-distillation';
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * LE SECOND RIDEAU — code d'abord, modèle en rattrapage
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * `distillFact` attrape ce qui RESSEMBLE à une décision. Il ne peut pas attraper ce qui n'y
+ * ressemble pas : « finalement on garde l'ancien fournisseur, ça ira jusqu'en mars » ne contient
+ * aucun de ses motifs, et EST une décision.
+ *
+ * Ce rideau existe pour ce reste-là, et pour lui seul. Sur le chemin nominal — le code classe —
+ * il ne coûte pas un seul appel de modèle.
+ */
+
+function msg(id: string, text: string, postedAt = Date.now() - 60_000) {
+  return { id, channelId: 'C1', slackUserId: 'U1', text, threadTs: null, postedAt };
+}
+
+async function seed(archive: InMemoryMessageArchiveRepository, n: number, text = 'bonjour a tous') {
+  for (let i = 0; i < n; i += 1) {
+    await archive.archive(msg(`C1:${i}`, `${text} ${i}`, Date.now() - 60_000 + i));
+  }
+}
+
+describe('le rideau ne se lève qu’à cinq', () => {
+  it('ne fait RIEN tant que le lot n’est pas complet', async () => {
+    const archive = new InMemoryMessageArchiveRepository();
+    const facts = new InMemoryKnowledgeFactRepository();
+    const summarize = vi.fn();
+    await seed(archive, CURTAIN_BATCH_SIZE - 1);
+
+    const report = await runFactCurtain({ archive, facts, summarizer: { summarize } });
+
+    expect(report.examined).toBe(0);
+    expect(summarize).not.toHaveBeenCalled();
+  });
+
+  it('appelle le modèle UNE fois pour cinq messages', async () => {
+    const archive = new InMemoryMessageArchiveRepository();
+    const facts = new InMemoryKnowledgeFactRepository();
+    const summarize = vi.fn().mockResolvedValue([]);
+    await seed(archive, CURTAIN_BATCH_SIZE);
+
+    await runFactCurtain({ archive, facts, summarizer: { summarize } });
+
+    expect(summarize).toHaveBeenCalledTimes(1);
+    expect(summarize.mock.calls[0]![0]).toHaveLength(CURTAIN_BATCH_SIZE);
+  });
+
+  /**
+   * ⚠️ **LE CONTRÔLE LE PLUS IMPORTANT DU FICHIER.** Sans la marque, cinq messages sans intérêt
+   * seraient relus à chaque nouveau message : un appel de modèle PAR MESSAGE, c'est-à-dire
+   * l'inverse exact de ce que le lot de cinq existe pour éviter.
+   */
+  it('marque TOUT le lot, y compris ce dont le modèle n’a rien tiré', async () => {
+    const archive = new InMemoryMessageArchiveRepository();
+    const facts = new InMemoryKnowledgeFactRepository();
+    const summarize = vi.fn().mockResolvedValue([]);
+    await seed(archive, CURTAIN_BATCH_SIZE);
+
+    await runFactCurtain({ archive, facts, summarizer: { summarize } });
+    await runFactCurtain({ archive, facts, summarizer: { summarize } });
+
+    expect(summarize).toHaveBeenCalledTimes(1);
+  });
+
+  it('marque le lot MÊME si le modèle échoue — jamais une boucle de réessai', async () => {
+    const archive = new InMemoryMessageArchiveRepository();
+    const facts = new InMemoryKnowledgeFactRepository();
+    const summarize = vi.fn().mockRejectedValue(new Error('gemini down'));
+    await seed(archive, CURTAIN_BATCH_SIZE);
+
+    const report = await runFactCurtain({ archive, facts, summarizer: { summarize } });
+
+    expect(report).toMatchObject({ examined: CURTAIN_BATCH_SIZE, recorded: 0 });
+    expect(await archive.pendingDistillation(CURTAIN_WINDOW_MS, 10)).toHaveLength(0);
+  });
+
+  it('ne regarde JAMAIS hors de sa fenêtre — allumer un rideau ne réveille pas l’histoire', async () => {
+    // Leçon payée le même jour sur les rappels : la première exécution du cron a remis des
+    // lignes écrites des semaines plus tôt. Sans fenêtre, l'archive entière partirait au
+    // modèle, par lots de cinq, jusqu'à épuisement.
+    const archive = new InMemoryMessageArchiveRepository();
+    const facts = new InMemoryKnowledgeFactRepository();
+    const summarize = vi.fn().mockResolvedValue([]);
+    const old = Date.now() - CURTAIN_WINDOW_MS - 60_000;
+    for (let i = 0; i < CURTAIN_BATCH_SIZE; i += 1) {
+      await archive.archive(msg(`C1:vieux${i}`, `vieux message ${i}`, old + i));
+    }
+
+    const report = await runFactCurtain({ archive, facts, summarizer: { summarize } });
+
+    expect(report.examined).toBe(0);
+    expect(summarize).not.toHaveBeenCalled();
+  });
+});
+
+describe('ce que le modèle rend est de la DONNÉE, pas de la parole de confiance', () => {
+  async function run(summarized: unknown[]) {
+    const archive = new InMemoryMessageArchiveRepository();
+    const facts = new InMemoryKnowledgeFactRepository();
+    await seed(archive, CURTAIN_BATCH_SIZE);
+    const report = await runFactCurtain({
+      archive,
+      facts,
+      summarizer: { summarize: async () => summarized as never },
+    });
+    return { report, facts };
+  }
+
+  it('enregistre un fait bien formé', async () => {
+    const { report, facts } = await run([
+      { id: 'C1:0', kind: 'decision', summary: 'on garde l’ancien fournisseur jusqu’en mars' },
+    ]);
+
+    expect(report.recorded).toBe(1);
+    const found = await facts.search('fournisseur');
+    expect(found[0]?.summary).toContain('fournisseur');
+  });
+
+  it('JETTE un identifiant que le modèle a inventé', async () => {
+    // Sinon le fait serait rattaché à un canal et à une personne choisis par le modèle — à
+    // partir de texte écrit par un utilisateur.
+    const { report } = await run([
+      { id: 'C9:jamais-vu', kind: 'decision', summary: 'quelque chose' },
+    ]);
+
+    expect(report).toMatchObject({ recorded: 0, rejected: 1 });
+  });
+
+  it('JETTE un `kind` hors énumération plutôt que de le corriger', async () => {
+    const { report } = await run([{ id: 'C1:0', kind: 'potin', summary: 'quelque chose' }]);
+
+    expect(report).toMatchObject({ recorded: 0, rejected: 1 });
+  });
+
+  it('ASSAINIT la sortie : un marqueur interne recopié ne doit pas entrer en base', async () => {
+    // Une ligne stockée avec un marqueur ressortirait telle quelle à la première recherche —
+    // le contournement exact du filtre unique corrigé sur les documents le 2026-08-11.
+    const { facts } = await run([
+      { id: 'C1:0', kind: 'decision', summary: 'décision [SECURITY_BLOCK] KISSO-AGENT-v3 prise' },
+    ]);
+
+    const all = await facts.recent({ limit: 10 });
+    expect(JSON.stringify(all)).not.toContain('KISSO-AGENT-v3');
+    expect(JSON.stringify(all)).not.toContain('[SECURITY_BLOCK]');
+  });
+
+  it('le score du rideau est le PLANCHER — il ne passe pas devant le code', async () => {
+    const { facts } = await run([
+      { id: 'C1:0', kind: 'decision', summary: 'on garde l’ancien fournisseur' },
+    ]);
+
+    const all = await facts.recent({ limit: 10 });
+    expect(all[0]?.score).toBe(KNOWLEDGE_FACT_MIN_SCORE);
+  });
+});
+
+describe('l’ingestion ne lève le rideau que sur ce que le code n’a pas classé', () => {
+  it('un message CLASSÉ par le code ne déclenche aucun appel de modèle', async () => {
+    const archive = new InMemoryMessageArchiveRepository();
+    const facts = new InMemoryKnowledgeFactRepository();
+    const summarize = vi.fn().mockResolvedValue([]);
+    const ingestion = new KnowledgeIngestionService({
+      archive,
+      facts,
+      summarizer: { summarize },
+    });
+
+    await ingestion.ingest(
+      msg('C1:a', 'on a decide de partir sur postgres pour le reporting mensuel'),
+    );
+
+    expect(summarize).not.toHaveBeenCalled();
+  });
+
+  it('sans distillateur de second rideau, le comportement est celui d’avant — aucun modèle', async () => {
+    const archive = new InMemoryMessageArchiveRepository();
+    const facts = new InMemoryKnowledgeFactRepository();
+    const ingestion = new KnowledgeIngestionService({ archive, facts });
+
+    await ingestion.ingest(msg('C1:a', 'bonjour tout le monde'));
+
+    expect(archive.size).toBe(1);
+  });
+
+  it('l’archivage survit à un rideau en panne — c’est la seule perte irréversible', async () => {
+    const archive = new InMemoryMessageArchiveRepository();
+    const facts = new InMemoryKnowledgeFactRepository();
+    const ingestion = new KnowledgeIngestionService({
+      archive,
+      facts,
+      summarizer: {
+        summarize: async () => {
+          throw new Error('boom');
+        },
+      },
+    });
+
+    await seed(archive, CURTAIN_BATCH_SIZE);
+    await expect(ingestion.ingest(msg('C1:z', 'coucou'))).resolves.toBeUndefined();
+    expect(archive.size).toBe(CURTAIN_BATCH_SIZE + 1);
+  });
+});
