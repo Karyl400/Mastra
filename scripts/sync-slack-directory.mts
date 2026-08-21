@@ -89,15 +89,35 @@ const slack = new SlackWorkspaceService(token);
  * neutralisées, et elles le sont au plus près du port — un `if (apply)` semé dans le service
  * ferait diverger le chemin mesuré du chemin exécuté, exactement ce que le mode observation de
  * la politique d'autorisation évite.
+ *
+ * ⚠️ **CETTE DOUBLURE AVAIT TROIS MÉTHODES DE RETARD, et le type le dit maintenant.**
+ * `findByName`, `hasManager` et `findManagers` ont été ajoutées à `DirectoryRepository` après
+ * son écriture. Les appeler ici aurait levé `x is not a function` — en production, puisque ce
+ * script ne tourne que là. Rien ne l'a signalé parce que `scripts/` était hors de
+ * `tsconfig.include` jusqu'au 2026-08-21.
+ *
+ * ⚠️ **Une doublure écrite à la main se désynchronise de son port au premier ajout**, et c'est
+ * exactement la famille de défaut que ce dépôt combat en DÉRIVANT ses listes. Ici, le
+ * compilateur est le mécanisme de dérivation : il refuse un objet incomplet. Il ne pouvait
+ * simplement pas faire son travail sur un fichier qu'il ne lisait pas.
+ *
+ * Les trois nouvelles sont des LECTURES : elles délèguent, comme les trois premières.
  */
 function readOnly(repository: DirectoryRepository): DirectoryRepository {
   return {
     findBySlackUserId: (id) => repository.findBySlackUserId(id),
     findByEmail: (email) => repository.findByEmail(email),
+    findByName: (name, limit) => repository.findByName(name, limit),
     listAll: () => repository.listAll(),
+    hasManager: () => repository.hasManager(),
+    findManagers: () => repository.findManagers(),
     upsertFacts: async () => {},
     rememberDmChannel: async () => {},
-    linkEmployee: async () => {},
+    // ⚠️ `linkEmployee` rend un COMPTE de lignes reliées, pas `void`. La doublure rendait
+    // `undefined` — invisible en JavaScript, mais elle mentait sur le contrat : un appelant qui
+    // teste `if (await linkEmployee(...))` aurait lu « aucune ligne » là où le vrai dépôt en
+    // rend une. Zéro est la réponse HONNÊTE d'un dry-run : rien n'a été relié.
+    linkEmployee: async () => 0,
   };
 }
 

@@ -11,6 +11,7 @@ import {
   postedAtOf,
 } from '../../../knowledge/domain/ports/message-archive.repository';
 import type { KnowledgeIngestionPort } from '../../../knowledge/application/services/knowledge-ingestion.service';
+import type { KnowledgeErasurePort } from '../../../knowledge/application/services/knowledge-erasure.service';
 import { AGENT_GENERATE_TIMEOUT_MS } from '../../../../shared/llm/model-fallback';
 import {
   describeModelResponse,
@@ -275,6 +276,15 @@ export interface SlackEventsHandlerOptions {
   pendingEmailRepository?: PendingInterviewEmailRepository | null;
   sendEmail?: (to: string, subject: string, body: EmailBody) => Promise<unknown>;
   knowledgeIngestion?: KnowledgeIngestionPort | null;
+  /**
+   * ⚠️ **INJECTÉ, comme l'ingestion, et JAMAIS fabriqué ici.** Ce handler fabrique déjà six
+   * dépôts Drizzle en interne, ce qui est la cause racine documentée du piège de tests
+   * (« HUIT dépendances à neutraliser », la suite rouge un run sur trois par lenteur). On
+   * n'en ajoute pas un septième.
+   *
+   * Absent ou `null` ⇒ l'archive n'est pas touchée et la réponse ne prétend RIEN à son sujet.
+   */
+  knowledgeErasure?: KnowledgeErasurePort | null;
   now?: () => Date;
 }
 
@@ -442,6 +452,7 @@ export class SlackEventsHandler {
   private readonly pendingEmailRepo: PendingInterviewEmailRepository | null | undefined;
   private readonly now: () => Date;
   private readonly knowledgeIngestion: KnowledgeIngestionPort | null | undefined;
+  private readonly knowledgeErasure: KnowledgeErasurePort | null | undefined;
   private readonly sendEmail:
     ((to: string, subject: string, body: EmailBody) => Promise<unknown>) | undefined;
 
@@ -461,6 +472,7 @@ export class SlackEventsHandler {
     this.now = options.now ?? (() => new Date());
     this.sendEmail = options.sendEmail;
     this.knowledgeIngestion = options.knowledgeIngestion;
+    this.knowledgeErasure = options.knowledgeErasure;
     this.dedupRepo = options.dedupRepository;
     this.conversationTokenBudget = options.conversationTokenBudget ?? CONVERSATION_TOKEN_BUDGET;
     this.conversationTtlMs = options.conversationTtlMs ?? CONVERSATION_TTL_MS;
@@ -1197,15 +1209,48 @@ export class SlackEventsHandler {
         }
       }
 
+      /**
+       * ⚠️ **L'ARCHIVE PART AUSSI, MAIS SEULEMENT EN DM ET SEULEMENT POUR CE CANAL.**
+       *
+       * Depuis le 2026-08-21 les DM sont archivés (`channel_messages`, `ARCHIVED_CHANNEL_TYPES`
+       * inclut `im`) et le manager peut les relire. Dire « c'est effacé » en laissant l'archive
+       * du DM intacte serait un mensonge par omission sur la donnée la plus sensible du lot.
+       *
+       * ⚠️ **En fil de CANAL, on ne touche à rien**, et ce n'est pas de la prudence : le
+       * demandeur y agit sur ses propres tours, pas sur la mémoire collective du canal. Un
+       * `forgetUser` global effacerait, sur une phrase en passant, un an de décisions d'équipe
+       * qu'une autre personne lira demain. Même règle que `ConversationRepository.forget` —
+       * « une portée indéterminée sur une suppression, c'est le fil entier ».
+       *
+       * L'effacement GLOBAL existe, et c'est un geste d'administration explicite :
+       * `npm run knowledge:forget -- --user <U…>` (dry-run par défaut).
+       */
+      let removedArchive = 0;
+      let archivePartial = false;
+      if (isDirectMessage && user && this.knowledgeErasure) {
+        const report = await this.knowledgeErasure.forget({
+          slackUserId: user,
+          channelId: channel,
+        });
+        removedArchive = report.messages + report.facts;
+        archivePartial = report.partial;
+      }
+
       logger.info('Erasure request honoured — answered without any LLM call', {
         channel,
         isDirectMessage,
         removed,
         removedFacts,
+        removedArchive,
+        archivePartial,
       });
       await this.slack.chat.postMessage({
         channel,
-        text: erasureDoneReply(removed + removedFacts),
+        // ⚠️ Sur un effacement PARTIEL, on ne dit jamais « c'est effacé » : le contrat de ce
+        // court-circuit est qu'il ne prétend jamais avoir effacé quand il a échoué.
+        text: archivePartial
+          ? ERASURE_FAILED_REPLY
+          : erasureDoneReply(removed + removedFacts + removedArchive),
         ...(threadTs ? { thread_ts: threadTs } : {}),
       });
     } catch (error) {

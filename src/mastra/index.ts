@@ -65,6 +65,7 @@ import {
 } from '../api/slack-interactions.route';
 import { createApiAuthConfig } from '../shared/security/api-auth';
 import { createCallerErrorMiddleware } from '../shared/security/caller-error-mapping';
+import { createToolExecutionGuard } from '../shared/security/tool-execution-guard';
 import { createRequestContextGuard } from '../shared/security/request-context-guard';
 import { createSecurityHeadersMiddleware } from '../shared/security/http-headers';
 import { createAgentApiGuard } from '../shared/security/agent-api-guard';
@@ -247,6 +248,20 @@ export const mastra = new Mastra({
     ],
     middleware: [
       { path: '*', handler: createSecurityHeadersMiddleware() },
+      /**
+       * ⚠️ **EN PREMIER APRÈS LES EN-TÊTES, et avant le garde de contexte.**
+       *
+       * `createRequestContextGuard` refuse qu'un appelant SE DÉCLARE quelqu'un ; celui-ci
+       * refuse qu'il exécute un outil SANS se déclarer personne — la moitié de la brèche du
+       * 2026-08-14 restée ouverte, et la plus puissante des deux. Le placer avant évite de
+       * lire et parser le corps d'une requête qu'on va de toute façon refuser.
+       */
+      {
+        path: '/api/*',
+        handler: createToolExecutionGuard({
+          onReject: (path) => logger.error("Exécution d'outil par HTTP refusée", { path }),
+        }),
+      },
       {
         path: '/api/*',
         handler: createRequestContextGuard({

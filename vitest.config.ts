@@ -9,6 +9,28 @@ export default defineConfig({
     // Vitest 4 a REMONTÉ ces options au niveau racine : `poolOptions.forks.singleFork` y était
     // silencieusement ignoré, donc l'isolation que ce fichier prétendait imposer n'existait pas.
     singleFork: true,
+    /**
+     * ⚠️ **`include` EST POSÉ, et ce n'est pas une précaution de style.**
+     *
+     * Sans lui, Vitest part de son motif par défaut depuis la RACINE du projet, et
+     * ramasse tout ce qui traîne dans l'arborescence. L'audit du 2026-08-21 a trouvé
+     * `agent-marcel/` — une COPIE COMPLÈTE du projet figée au 2026-08-20, gitignorée — dont
+     * **152 fichiers de test** s'exécutaient à chaque `npm run test:unit` :
+     *
+     *   affiché : 315 fichiers / 4 612 tests / 138 s
+     *   réel    : 163 fichiers / 2 426 tests /  85 s
+     *
+     * Le chiffre gonflé n'était pas le pire. `agent-marcel/` étant gitignoré, il n'existe pas
+     * sur le runner : **la même commande mesurait deux choses différentes selon l'endroit**, et
+     * c'est le local qui mentait pendant que la CI restait verte. Le jour où la copie figée
+     * serait devenue rouge, un développeur aurait vu une suite rouge désignant des fichiers
+     * absents de son dépôt.
+     *
+     * Un `include` ANCRÉ ferme la classe entière : aucun répertoire futur, quel que soit son
+     * nom, ne pourra plus entrer par la porte du défaut. Une ligne d'`exclude` de plus n'aurait
+     * fermé que ce cas-ci.
+     */
+    include: ['tests/**/*.{test,spec}.?(c|m)[jt]s?(x)'],
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
@@ -34,8 +56,14 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text-summary', 'json-summary'],
-      include: ['src/**/*.ts'],
-      exclude: ['src/**/*.d.ts', 'src/mastra/index.ts'],
+      /**
+       * ⚠️ **`src/**` n'est PAS ancré** — le glob matche aussi `agent-marcel/src/**`. La
+       * couverture affichée agrégeait donc 5 468 statements de la copie figée sur 11 780, soit
+       * **46 % du chiffre**. Réel : 85,63 % au lieu des 86,76 % annoncés. Le préfixe `./`
+       * ancre à la racine du projet.
+       */
+      include: ['./src/**/*.ts'],
+      exclude: ['**/agent-marcel/**', 'src/**/*.d.ts', 'src/mastra/index.ts'],
       thresholds: {
         'src/shared/security/**': {
           statements: 85,

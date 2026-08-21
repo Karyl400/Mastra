@@ -1,4 +1,4 @@
-import { eq, lt, sql } from 'drizzle-orm';
+import { and, eq, lt, sql } from 'drizzle-orm';
 
 import { getDb } from '../../../../infrastructure/database/connection';
 import { knowledgeFacts } from '../../../../infrastructure/database/schema';
@@ -9,6 +9,7 @@ import type {
 } from '../../domain/ports/knowledge-fact.repository';
 import type { FactKind } from '../../domain/services/fact-distillation';
 import { toMatchQuery } from '../../domain/services/fts-query';
+import type { ForgetScope } from '../../domain/ports/message-archive.repository';
 
 const DEFAULT_LIMIT = 12;
 
@@ -95,12 +96,16 @@ export class DrizzleKnowledgeFactRepository implements KnowledgeFactRepository {
     return rows.map(toDomain);
   }
 
-  async forgetUser(slackUserId: string): Promise<number> {
+  async forgetUser(scope: ForgetScope): Promise<number> {
     const db = getDb();
-    const result = await db
-      .delete(knowledgeFacts)
-      .where(eq(knowledgeFacts.slackUserId, slackUserId))
-      .run();
+    const where =
+      scope.channelId === undefined
+        ? eq(knowledgeFacts.slackUserId, scope.slackUserId)
+        : and(
+            eq(knowledgeFacts.slackUserId, scope.slackUserId),
+            eq(knowledgeFacts.channelId, scope.channelId),
+          );
+    const result = await db.delete(knowledgeFacts).where(where).run();
 
     return result.rowsAffected;
   }

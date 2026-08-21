@@ -8,6 +8,9 @@ import { SlackWorkspaceService } from '../features/notification/infrastructure/p
 import { createEmailProvider } from '../features/notification/infrastructure/providers/email-provider.factory';
 import { REMINDER_DISPATCH_PATH } from '../features/notification/domain/services/reminder-dispatch';
 import { logger } from '../shared/logger';
+import { pruneKnowledge } from '../features/knowledge/application/services/prune-knowledge';
+import { DrizzleMessageArchiveRepository } from '../features/knowledge/infrastructure/repositories/drizzle-message-archive.repository';
+import { DrizzleKnowledgeFactRepository } from '../features/knowledge/infrastructure/repositories/drizzle-knowledge-fact.repository';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -92,7 +95,25 @@ export const remindersDispatchRoute = registerApiRoute(REMINDER_DISPATCH_PATH, {
         slackWorkspace: new SlackWorkspaceService(botToken),
       });
 
-      return c.json({ ok: true, ...report });
+      /**
+       * ⚠️ **LA RÉTENTION PARTAGE CETTE HORLOGE, et c'est un choix assumé.**
+       *
+       * Ce produit n'a QU'UNE horloge — un cron quotidien — et la purge de la base de
+       * connaissance en a besoin exactement comme la remise des rappels. Un second cron aurait
+       * été plus propre à lire ; il aurait aussi rouvert la classe de panne qui a fait échouer
+       * un déploiement le 2026-08-21 (« A duplicated cron job with the same schedule and path
+       * was found » — Vercel FUSIONNE `vercel.json` et `config.json`).
+       *
+       * La purge passe APRÈS la remise et ne propage jamais : un échec de purge est réparable
+       * demain, un rappel non remis ne l'est pas.
+       */
+      const retention = await pruneKnowledge({
+        archive: new DrizzleMessageArchiveRepository(),
+        facts: new DrizzleKnowledgeFactRepository(),
+        retentionDays: process.env.KNOWLEDGE_RETENTION_DAYS,
+      });
+
+      return c.json({ ok: true, ...report, retention });
     } catch (error) {
       logger.error('Remise des rappels interrompue', { error: String(error) });
       return c.json({ ok: false, reason: 'dispatch_failed' }, 500);

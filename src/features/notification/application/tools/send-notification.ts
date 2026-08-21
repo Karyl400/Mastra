@@ -4,10 +4,7 @@ import type { NotificationRepository } from '../../domain/ports/notification.rep
 import type { EmployeeRepository } from '../../domain/ports/employee.repository';
 import type { EmailProvider, ChatProvider } from '../../domain/ports/providers';
 import { textEmailBody } from '../../domain/services/email-body';
-import {
-  sanitizeNotificationBody,
-  type SanitizedDocumentText,
-} from '../../../../shared/security/agent-output';
+import { safeOutboundText } from '../services/outbound-text';
 import type { SlackWorkspaceProvider } from '../../domain/ports/slack-workspace.port';
 import { createNotification } from '../../domain/entities/notification';
 import { uuidSchema } from '../../../../shared/validation';
@@ -19,23 +16,6 @@ import { canPerformSideEffects } from '../../../../shared/slack-request-context'
 const TRANSPORTED_CHANNELS = ['email', 'slack'] as const;
 
 const RECIPIENT_TYPES = ['employee', 'manager', 'hr', 'admin'] as const;
-
-function safeNotificationBody(
-  raw: string,
-  context: { recipientId: string; channel: string },
-): SanitizedDocumentText {
-  const safe = sanitizeNotificationBody(raw);
-
-  if (safe.redacted.length > 0 || safe.strippedUrls.length > 0) {
-    logger.error('Notification assainie avant envoi', {
-      ...context,
-      redacted: safe.redacted,
-      strippedUrls: safe.strippedUrls,
-    });
-  }
-
-  return safe;
-}
 
 export function makeSendNotification(
   repo: NotificationRepository,
@@ -116,13 +96,23 @@ export function makeSendNotification(
 
       let status: NotificationStatus;
 
-      const safe = safeNotificationBody(data.body, { recipientId: data.recipientId, channel });
+      /**
+       * ⚠️ **LE SUJET AUSSI — trouvé par l'audit du 2026-08-21.** Le `body` était filtré depuis
+       * la veille, le `subject` partait BRUT à deux caractères de là, sur les deux transports.
+       * C'est pourtant la partie la plus visible d'un email et la ligne en gras d'un message
+       * Slack, et son `.describe()` ORDONNE au modèle de le rédiger. Une asymétrie dans une
+       * défense délibérément construite, pas une défense absente.
+       */
+      const safe = safeOutboundText(
+        { subject: data.subject, body: data.body },
+        { recipientId: data.recipientId, channel, tool: 'sendNotification' },
+      );
 
       try {
         if (channel === 'email') {
-          await emailProvider.sendEmail(destination, data.subject, textEmailBody(safe.text));
+          await emailProvider.sendEmail(destination, safe.subject, textEmailBody(safe.body));
         } else {
-          await chatProvider.sendMessage(destination, `*${data.subject}*\n\n${safe.text}`);
+          await chatProvider.sendMessage(destination, `*${safe.subject}*\n\n${safe.body}`);
         }
         status = NotificationStatus.Sent;
       } catch (e: unknown) {
@@ -140,8 +130,11 @@ export function makeSendNotification(
         recipientId: data.recipientId,
         recipientType,
         channel: channel as NotificationChannel,
-        subject: data.subject,
-        body: safe.text,
+        // Ce qui est PERSISTÉ est ce qui a été ENVOYÉ, jamais le brut : `getNotificationHistory`
+        // relit cette ligne et la rend au modèle. Y laisser un marqueur interne le ferait
+        // ressortir au premier tour suivant — c'est le défaut `documents.content`, à l'envers.
+        subject: safe.subject,
+        body: safe.body,
       });
 
       const sent = {

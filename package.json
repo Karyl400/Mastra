@@ -37,9 +37,10 @@
     "smoke:email": "node --env-file=.env scripts/smoke-email.mjs",
     "verify:bundle": "node scripts/verify-vercel-bundle.js --require pdfkit,pdfmake,js-md5,fontkit,docx",
     "prepare": "husky",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src scripts --ext .ts,.mts,.mjs,.js",
     "format": "prettier --write .",
-    "format:check": "prettier --check \"src/**/*.ts\""
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "knowledge:forget": "npx tsx --env-file=.env scripts/knowledge-forget.mts"
   },
   "dependencies": {
     "@ai-sdk/google": "^4.0.48",
@@ -93,7 +94,7 @@
     "vitest": "4.1.10"
   },
   "lint-staged": {
-    "*.ts": [
+    "*.{ts,mts,cts,mjs,cjs,js}": [
       "eslint --fix",
       "prettier --write"
     ]

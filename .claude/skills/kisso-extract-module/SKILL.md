@@ -7,7 +7,8 @@ description: Use when splitting a large file in the Kisso repo — especially sl
 
 ## Le fichier visé
 
-`src/features/notification/infrastructure/handlers/slack-events.handler.ts` — **3 658 lignes**,
+`src/features/notification/infrastructure/handlers/slack-events.handler.ts` — **~2 650 lignes**
+(3 658 au moment où ce skill a été écrit ; recompter avant de citer un chiffre),
 et il porte simultanément la sécurité, la déduplication et le rationnement. C'est exactement
 pourquoi on l'extrait **par étapes**, jamais d'un bloc : une régression dans une refonte massive
 devient très difficile à localiser.
@@ -20,8 +21,15 @@ application  ← dépend de domain
 infrastructure  ← implémente les ports du domain
 ```
 
-Jamais l'inverse. Deux tests garde-fou le verrouillent :
-`tests/unit/quality/architecture.test.ts` et `code-architecture.test.ts`.
+Jamais l'inverse. **UN** test garde-fou le verrouille : `tests/unit/quality/architecture.test.ts`.
+
+⚠️ Ce paragraphe annonçait **deux** tests, dont `code-architecture.test.ts` — qui **n'a jamais
+existé**. Corrigé le 2026-08-21 ; `CLAUDE.md` déclarait ce défaut réparé depuis le 2026-08-19,
+mais la correction n'avait été écrite qu'à un seul des deux endroits.
+
+⚠️ Et le test réel ne voit que `features/*/domain` et `features/*/application` : **`src/shared/`
+lui est invisible** (4 760 lignes), alors que trois fichiers `domain/` y atteignent un framework
+par transitivité. Ne pas le croire exhaustif.
 
 **Où va quoi :**
 

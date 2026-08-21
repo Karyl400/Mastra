@@ -214,6 +214,56 @@ export function sanitizeNotificationBody(raw: string | undefined | null): Saniti
   };
 }
 
+/**
+ * Repli COURT — un sujet n'est pas un corps.
+ *
+ * `NOTIFICATION_BODY_PLACEHOLDER` est une phrase entière, juste pour un corps vidé ; en ligne
+ * d'objet elle donnerait « (Le contenu de cette notification a été retiré : il n'a pas passé le
+ * contrôle de sortie.) », ce que personne n'ouvre. Deux fonctions, deux replis.
+ */
+export const NOTIFICATION_SUBJECT_PLACEHOLDER = 'Notification Kisso';
+
+/** Le schéma de `sendNotification` borne déjà `subject` à 200 ; on ne fait pas confiance à ça
+ *  seul, l'assainissement pouvant être appelé depuis un chemin qui ne passe pas par le schéma
+ *  (une ligne relue en base, par exemple). */
+const SUBJECT_MAX_LENGTH = 200;
+
+/**
+ * ⚠️ **UN SUJET N'EST PAS UN CORPS, et c'est pourquoi ce n'est pas `sanitizeNotificationBody`
+ * qui est réutilisé tel quel.** Deux différences, toutes deux nécessaires :
+ *
+ * 1. **Les sauts de ligne sont APLATIS.** `\r\n` dans une ligne d'objet est la primitive
+ *    classique d'injection d'en-tête SMTP. Nodemailer s'en protège — mais on ne délègue pas à
+ *    un transport une garantie qu'on peut tenir soi-même, et le SECOND transport de ce tool
+ *    (Slack) n'a jamais entendu parler de cette règle : un sujet multiligne y casse simplement
+ *    la mise en forme de `*${subject}*`.
+ * 2. **La longueur est bornée.**
+ *
+ * Le reste — marqueurs internes, URL hors `ALLOWED_LINK_DOMAINS` — est le contrat commun, et il
+ * est partagé par construction : `redactAndFilter` est le point unique. Le faire diverger
+ * ferait qu'un lien retiré du corps survivrait dans le sujet, à deux caractères de là.
+ *
+ * Trouvé par l'audit du 2026-08-21 : `sendNotification` filtrait son `body` depuis la veille et
+ * laissait passer son `subject`, alors que le `.describe()` du champ ORDONNE au modèle de le
+ * rédiger.
+ */
+export function sanitizeNotificationSubject(raw: string | undefined | null): SanitizedDocumentText {
+  const { text, redacted, strippedUrls } = redactAndFilter(raw);
+  const flattened = dropUnknownQualifiers(text)
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+
+  return {
+    text:
+      flattened.length > 0
+        ? flattened.slice(0, SUBJECT_MAX_LENGTH)
+        : NOTIFICATION_SUBJECT_PLACEHOLDER,
+    redacted,
+    strippedUrls,
+  };
+}
+
 export function sanitizeDocumentSource(raw: string | undefined | null): SanitizedDocumentText {
   const { text, redacted, strippedUrls } = redactAndFilter(raw);
 

@@ -13,7 +13,6 @@ export default defineConfig([
       '.mastra/**',
       'drizzle/**',
       'venv/**',
-      'scripts/**',
       'node_modules/**',
       '.history/**',
     ],
@@ -101,6 +100,47 @@ export default defineConfig([
     languageOptions: {
       ecmaVersion: 2022,
       globals: globals.node,
+    },
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // `scripts/` — 8 146 lignes qui écrivent EN PRODUCTION, et qui étaient nues
+  // ══════════════════════════════════════════════════════════════════════════
+  //
+  // Ce répertoire était dans les `ignores` ci-dessus, et le hook `lint-staged` ne le
+  // rattrapait pas : son glob `*.ts` NE MATCHE PAS `.mts`, extension de presque tout
+  // `scripts/`. Ni eslint, ni prettier, ni le pre-commit, ni `tsc` ne le lisaient.
+  //
+  // ⚠️ **Ce n'est pas une question d'hygiène.** Douze de ces quarante fichiers ouvrent une
+  // connexion Turso ou un `WebClient` Slack : `set-role.mts` écrit la colonne dont dépend
+  // toute la frontière d'autorisation, `probe-erasure.mts` SUPPRIME réellement,
+  // `apply-ddl.mts` applique du DDL sur la production. Une faute de frappe y est
+  // indétectable avant l'exécution — et l'exécution, c'est la production. Ce dépôt a déjà
+  // laissé la base de production sale deux fois de suite par un défaut de script.
+  //
+  // ⚠️ **Le typecheck a trouvé TROIS défauts réels dans la minute qui a suivi son
+  // ouverture** : un appel avec un argument mort (le pré-remplissage disparu avec les
+  // modales, dont le commentaire affirmait le contraire), une doublure de dépôt rendant
+  // `void` là où le contrat rend un compte, et cette même doublure avec TROIS méthodes de
+  // retard sur son port — `x is not a function` à l'exécution.
+  //
+  // Trois règles sont écartées ICI et nulle part ailleurs, chacune pour une raison propre
+  // aux scripts :
+  {
+    files: ['scripts/**/*.{js,mjs,cjs,ts,mts,cts}'],
+    rules: {
+      // Un script CONSTRUIT ses chemins — c'est son métier (`apply-ddl.mts` lit le fichier
+      // qu'on lui nomme). La règle vise les serveurs qui reçoivent un chemin d'un
+      // utilisateur distant ; ici l'« attaquant » est celui qui tape la commande.
+      'security/detect-non-literal-fs-filename': 'off',
+      // Un script est une PROCÉDURE linéaire, pas un module réutilisable. Le seuil de 15 y
+      // dénonce des `main()` parfaitement lisibles, et le découper les rendrait moins
+      // faciles à suivre au moment où l'on en a le plus besoin : pendant un incident.
+      'sonarjs/cognitive-complexity': 'off',
+      // 23 signalements, tous dans des `console.log` de rapport. Aucun n'est un défaut de
+      // correction. Les corriger aurait été 23 modifications sans valeur dans des fichiers
+      // qu'on ne relit qu'en cas de problème.
+      'sonarjs/no-nested-template-literals': 'off',
     },
   },
 ]);

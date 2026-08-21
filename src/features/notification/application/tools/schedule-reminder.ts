@@ -11,6 +11,7 @@ import {
   canPerformSideEffects,
   writeReminderDelivery,
 } from '../../../../shared/slack-request-context';
+import { safeOutboundText } from '../services/outbound-text';
 import { deliveryLabel } from '../../domain/services/reminder-dispatch';
 
 const TRANSPORTED_CHANNELS = ['email', 'slack'] as const;
@@ -79,13 +80,31 @@ export function makeScheduleReminder(
         );
       }
 
+      /**
+       * ⚠️ **ON ASSAINIT À L'ÉCRITURE, ET PAS SEULEMENT À LA REMISE.**
+       *
+       * Deux raisons, et la seconde est celle qu'on oublie :
+       *  1. le cron du 2026-08-21 expédie ce texte le lendemain matin, sans qu'aucun humain
+       *     ne le relise — c'est le seul chemin sortant du produit dans ce cas ;
+       *  2. la ligne est RELUE par `getNotificationHistory`, qui la rend au modèle. Un
+       *     marqueur interne stocké ici ressortirait tel quel au premier tour suivant.
+       *
+       * Le défaut dormait tant que rien ne partait. Allumer l'ordonnanceur l'a réveillé —
+       * même mécanique que `onlyNonDeliveringTools` le même jour : **un assainisseur, comme
+       * un détecteur, encode le câblage ; quand le câblage bouge, il faut le déplacer avec.**
+       */
+      const safe = safeOutboundText(
+        { subject: data.subject, body: data.body },
+        { recipientId: data.recipientId, channel, tool: 'scheduleReminder' },
+      );
+
       const notif = createNotification({
         id: crypto.randomUUID(),
         recipientId: data.recipientId,
         recipientType,
         channel: channel as NotificationChannel,
-        subject: data.subject,
-        body: data.body,
+        subject: safe.subject,
+        body: safe.body,
       });
       const scheduled = {
         ...notif,

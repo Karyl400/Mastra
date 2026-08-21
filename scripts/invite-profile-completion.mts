@@ -107,7 +107,9 @@ async function main(): Promise<void> {
   }
 
   if (!apply) {
-    console.log(`\nRien n’a été envoyé. Relancer avec --apply pour écrire à ces ${targets.length} personnes.`);
+    console.log(
+      `\nRien n’a été envoyé. Relancer avec --apply pour écrire à ces ${targets.length} personnes.`,
+    );
     return;
   }
 
@@ -116,21 +118,27 @@ async function main(): Promise<void> {
 
   for (const member of targets) {
     try {
-      // `sendBlocks` accepte un identifiant `U…` : Slack ouvre alors le DM. Le
-      // pré-remplissage vient de l'annuaire, exactement comme dans le court-circuit.
-      await slack.sendBlocks(
-        member.slackUserId,
-        PROFILE_FORM_INVITE,
-        buildProfileInviteBlocks({
-          slackUserId: member.slackUserId,
-          firstName: member.firstName,
-          lastName: member.lastName,
-          email: member.email,
-          // Pas de `joinedAt` : la date d'arrivée réelle de quelqu'un déjà présent depuis
-          // des mois n'est connue de personne. `startDateFromJoin` retombera sur
-          // l'instant de la soumission, seule valeur honnête ici.
-        }),
-      );
+      /**
+       * `sendBlocks` accepte un identifiant `U…` : Slack ouvre alors le DM.
+       *
+       * ⚠️ **PLUS AUCUN PRÉ-REMPLISSAGE, et le commentaire qui figurait ici affirmait le
+       * contraire.** Il disait « le pré-remplissage vient de l'annuaire, exactement comme dans
+       * le court-circuit », et un objet de quatre champs était passé à
+       * `buildProfileInviteBlocks`. Or cette fonction ne prend **aucun argument** depuis la
+       * suppression des modales le 2026-08-19 : le pré-remplissage vivait dans le `value` du
+       * bouton, et il n'y a plus de bouton. JavaScript ignore silencieusement les arguments en
+       * trop — le script fonctionnait donc, en envoyant une invitation générique, pendant que
+       * son commentaire décrivait autre chose.
+       *
+       * ⚠️ **Rien ne l'a signalé pendant deux jours** parce que `scripts/` était hors de
+       * `tsconfig.include` : `tsc` ne l'a jamais lu. C'est la raison pour laquelle ce
+       * répertoire y est entré le 2026-08-21 — 8 146 lignes dont douze fichiers écrivent en
+       * production, et cette erreur-là a été trouvée dans la minute qui a suivi.
+       *
+       * L'accueil recueille désormais prénom, nom et email par l'ÉCHANGE ÉCRIT
+       * (`profile-chat.ts`), qui lit l'annuaire côté serveur. Rien n'est perdu.
+       */
+      await slack.sendBlocks(member.slackUserId, PROFILE_FORM_INVITE, buildProfileInviteBlocks());
       sent += 1;
     } catch (error) {
       // Isolé : un DM refusé (compte restreint, canal fermé) ne doit pas priver les autres

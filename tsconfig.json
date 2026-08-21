@@ -10,17 +10,8 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "outDir": "dist",
-    "baseUrl": ".",
-    "ignoreDeprecations": "6.0",
-    "types": ["node"],
-    "paths": {
-      "@domain/*": ["src/domain/*"],
-      "@infrastructure/*": ["src/infrastructure/*"],
-      "@config/*": ["src/config/*"],
-      "@prompts/*": ["src/prompts/*"],
-      "@mastra/*": ["src/mastra/*"]
-    }
+    "types": ["node"]
   },
-  "include": ["src/**/*", "tests/**/*"],
+  "include": ["src/**/*", "tests/**/*", "scripts/**/*"],
   "exclude": ["node_modules", "dist"]
 }

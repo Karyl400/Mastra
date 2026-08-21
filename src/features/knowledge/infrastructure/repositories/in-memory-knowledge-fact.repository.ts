@@ -4,6 +4,7 @@ import type {
   KnowledgeFactSearchOptions,
 } from '../../domain/ports/knowledge-fact.repository';
 import { matchedTermCount, queryTerms } from '../../domain/services/text-search';
+import type { ForgetScope } from '../../domain/ports/message-archive.repository';
 
 const DEFAULT_LIMIT = 12;
 
@@ -36,13 +37,13 @@ export class InMemoryKnowledgeFactRepository implements KnowledgeFactRepository 
       .slice(0, options.limit ?? DEFAULT_LIMIT);
   }
 
-  async forgetUser(slackUserId: string): Promise<number> {
+  async forgetUser(scope: ForgetScope): Promise<number> {
     let removed = 0;
     for (const [id, row] of this.rows) {
-      if (row.slackUserId === slackUserId) {
-        this.rows.delete(id);
-        removed += 1;
-      }
+      if (row.slackUserId !== scope.slackUserId) continue;
+      if (scope.channelId !== undefined && row.channelId !== scope.channelId) continue;
+      this.rows.delete(id);
+      removed += 1;
     }
     return removed;
   }

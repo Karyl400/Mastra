@@ -7,10 +7,32 @@ export interface ArchivedMessage {
   readonly postedAt: number;
 }
 
+/**
+ * ⚠️ **LA PORTÉE EST UN PARAMÈTRE, parce qu'un effacement irréversible ne doit jamais avoir de
+ * portée implicite.**
+ *
+ * `forgetUser(slackUserId)` — la signature d'avant le 2026-08-21 — effaçait PARTOUT. Elle
+ * n'avait aucun appelant, donc personne n'avait eu à choisir. En la branchant, il a fallu
+ * trancher : « oublie ce que je t'ai dit », tapé dans un DM, ne demande pas d'effacer un an de
+ * décisions d'équipe dans les canaux publics. Il demande d'oublier CETTE conversation.
+ *
+ * Deux usages, deux portées, et le type oblige à dire laquelle :
+ *   • `{ slackUserId, channelId }` — le court-circuit conversationnel, en DM ;
+ *   • `{ slackUserId }` — le geste RGPD explicite (`npm run knowledge:forget`).
+ *
+ * C'est la règle déjà appliquée à `ConversationRepository.forget` : en DM tout part, en fil de
+ * canal seuls les tours du demandeur, et jamais de portée indéterminée sur une suppression.
+ */
+export interface ForgetScope {
+  readonly slackUserId: string;
+  /** Restreint l'effacement à un seul canal. Absent = partout, et c'est un geste délibéré. */
+  readonly channelId?: string;
+}
+
 export interface MessageArchiveRepository {
   archive(message: ArchivedMessage): Promise<boolean>;
   search(query: string, options?: MessageSearchOptions): Promise<readonly ArchivedMessage[]>;
-  forgetUser(slackUserId: string): Promise<number>;
+  forgetUser(scope: ForgetScope): Promise<number>;
   prune(before: number): Promise<number>;
 
   /**

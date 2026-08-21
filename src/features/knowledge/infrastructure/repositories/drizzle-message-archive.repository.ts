@@ -8,6 +8,7 @@ import type {
   MessageSearchOptions,
 } from '../../domain/ports/message-archive.repository';
 import { toMatchQuery } from '../../domain/services/fts-query';
+import type { ForgetScope } from '../../domain/ports/message-archive.repository';
 
 const DEFAULT_LIMIT = 20;
 
@@ -75,12 +76,16 @@ export class DrizzleMessageArchiveRepository implements MessageArchiveRepository
     return rows.map(toDomain);
   }
 
-  async forgetUser(slackUserId: string): Promise<number> {
+  async forgetUser(scope: ForgetScope): Promise<number> {
     const db = getDb();
-    const result = await db
-      .delete(channelMessages)
-      .where(eq(channelMessages.slackUserId, slackUserId))
-      .run();
+    const where =
+      scope.channelId === undefined
+        ? eq(channelMessages.slackUserId, scope.slackUserId)
+        : and(
+            eq(channelMessages.slackUserId, scope.slackUserId),
+            eq(channelMessages.channelId, scope.channelId),
+          );
+    const result = await db.delete(channelMessages).where(where).run();
 
     return result.rowsAffected;
   }

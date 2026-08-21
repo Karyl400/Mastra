@@ -1422,6 +1422,18 @@ reconnu. Ils ne créent aucun faux positif — les détecteurs comparent sur des
 
 ## `shared/llm/model-fallback.ts`
 
+> ⚠️ **SECTION PÉRIMÉE SUR UN POINT, corrigé en tête le 2026-08-21 par l'audit.** Tout ce qui
+> suit décrit une chaîne à DEUX maillons, Groq primaire → Mistral. Depuis le 2026-08-20 elle en
+> compte **TROIS** : `google/gemini-3.5-flash` (primaire) → `groq/openai/gpt-oss-120b` (premier
+> repli) → `mistral/mistral-large-latest` (dernier recours), et les trois identifiants sont
+> surchargeables par `GEMINI_MODEL_ID` / `GROQ_MODEL_ID` / `MISTRAL_MODEL_ID`. Partout où le
+> texte ci-dessous dit « le modèle primaire (Groq) », lire « le premier repli ».
+>
+> La **source unique** est `resolveModelIds()` dans `src/shared/llm/model-fallback.ts` ; le
+> commentaire de tête de ce fichier porte le relevé comparatif qui a fait retenir
+> `gemini-3.5-flash` et écarter `gemini-3.7-flash`. Ne pas recopier la chaîne ici : ce bloc
+> existe pour dire où regarder, pas pour redire ce qu'il y a à voir.
+
 **L.6 — avant `export const GROQ_MODEL_ID = 'openai/gpt-oss-120b';`**
 
 Chaîne de modèles partagée par les trois agents Mastra.

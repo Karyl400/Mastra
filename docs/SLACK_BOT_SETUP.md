@@ -169,8 +169,9 @@ SLACK_BOT_TOKEN=xoxb-...            # OAuth & Permissions → Bot User OAuth Tok
 SLACK_SIGNING_SECRET=...            # Basic Information → Signing Secret
 
 # ── LLM (les agents ne démarrent pas sans) ───────────────────────────────
-GROQ_API_KEY=...                    # primaire — llama-3.3-70b-versatile
-MISTRAL_API_KEY=...                 # fallback — mistral-large-latest
+GOOGLE_GEMINI_API_KEY=...           # PRIMAIRE — gemini-3.5-flash (depuis le 2026-08-20)
+GROQ_API_KEY=...                    # premier repli — openai/gpt-oss-120b
+MISTRAL_API_KEY=...                 # dernier recours — mistral-large-latest
 
 # ── Base de données (LibSQL / Turso) ─────────────────────────────────────
 DATABASE_URL=libsql://[db]-[org].turso.io

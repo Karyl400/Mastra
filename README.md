@@ -43,8 +43,9 @@ silencieusement, ce qui est un défaut connu et suivi.
 | --- | --- | --- |
 | `DATABASE_URL` | LibSQL / Turso | **Le démarrage échoue** |
 | `DATABASE_AUTH_TOKEN` | Jeton Turso | Base distante inaccessible |
-| `GROQ_API_KEY` | Modèle primaire (`openai/gpt-oss-120b`) | Chaîne construite mais morte |
-| `MISTRAL_API_KEY` | Modèle de repli (`mistral-large-latest`) | Maillon omis de la chaîne |
+| `GOOGLE_GEMINI_API_KEY` | **Modèle primaire** (`gemini-3.5-flash`) | Maillon sauté — le repli Groq répond, mais son quota est JOURNALIER |
+| `GROQ_API_KEY` | Premier repli (`openai/gpt-oss-120b`) | Maillon sauté |
+| `MISTRAL_API_KEY` | Dernier recours (`mistral-large-latest`) | Maillon sauté ; si les trois manquent, `makeModelChain` **lève** |
 | `SLACK_BOT_TOKEN` | `xoxb-…`, client Web + envois | Aucun message ne part |
 | `SLACK_SIGNING_SECRET` | Vérification HMAC des événements | **Tout est refusé en 401** |
 | `MASTRA_API_TOKEN` | Bearer des routes `/api/*` | Les routes refusent tout |
@@ -80,7 +81,7 @@ src/
 │
 ├── shared/              transverse — sans dépendance vers aucune feature
 │   ├── security/          garde-fou anti-injection, filtres de sortie, gardes d'API
-│   ├── llm/               chaîne Groq → Mistral, borne de durée
+│   ├── llm/               chaîne Gemini → Groq → Mistral, borne de durée
 │   └── …                  logger, erreurs, contexte de requête Slack, court-circuits
 │
 ├── infrastructure/      connexion base (Drizzle + LibSQL), schéma, journal d'audit
@@ -245,11 +246,11 @@ fichier et à la ligne concernés.
 | Runtime | Node.js `>=22.13.0`, ESM |
 | Langage | TypeScript `6.0.3`, mode strict |
 | Framework | Mastra `@mastra/core` `1.57.x` |
-| Modèles | Groq `openai/gpt-oss-120b` → repli Mistral `mistral-large-latest` |
+| Modèles | Gemini `gemini-3.5-flash` → repli Groq `openai/gpt-oss-120b` → dernier recours Mistral `mistral-large-latest` |
 | Base | Turso / LibSQL + Drizzle ORM `0.45.x` |
 | Validation | Zod `3.25.76` — **version épinglée**, le parseur du SDK casse au-delà |
 | Tests | Vitest `4.1.10` |
 | Slack | `@slack/web-api` `8.x` |
-| Email | `nodemailer` (primaire), `@getbrevo/brevo` (repli) |
+| Email | `nodemailer` / SMTP (primaire), Brevo via son API HTTP (repli — adaptateur écrit à la main, aucun SDK) |
 | Documents | `pdfmake` `0.3` et `docx` `9.7.1` |
 | Déploiement | Vercel |

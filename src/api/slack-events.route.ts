@@ -15,6 +15,7 @@ import { parseWelcomeChannelNames } from '../features/directory/domain/services/
 import { DrizzleOnboardingInterviewRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding-interview.repository';
 import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
 import { DrizzlePendingInterviewEmailRepository } from '../features/recruitment/infrastructure/repositories/drizzle-pending-email.repository';
+import { KnowledgeErasureService } from '../features/knowledge/application/services/knowledge-erasure.service';
 import { KnowledgeIngestionService } from '../features/knowledge/application/services/knowledge-ingestion.service';
 import { ModelFactSummarizer } from '../features/knowledge/infrastructure/services/model-fact-summarizer.service';
 import { DrizzleMessageArchiveRepository } from '../features/knowledge/infrastructure/repositories/drizzle-message-archive.repository';
@@ -101,14 +102,28 @@ function buildWelcomeChannels(botToken: string) {
 export function getSlackEventsHandler(mastra: Mastra): SlackEventsHandler {
   if (!cachedHandler || cachedMastra !== mastra) {
     const botToken = process.env.SLACK_BOT_TOKEN ?? '';
+    const knowledgeArchiveRepo = new DrizzleMessageArchiveRepository();
+    const knowledgeFactRepo = new DrizzleKnowledgeFactRepository();
     cachedHandler = new SlackEventsHandler(botToken, mastra, {
       welcomeChannels: buildWelcomeChannels(botToken),
       interviewRepository: new DrizzleOnboardingInterviewRepository(),
       profileRepository: new DrizzleEmployeeRepository(),
       pendingEmailRepository: new DrizzlePendingInterviewEmailRepository(),
+      /**
+       * ⚠️ **UNE SEULE PAIRE DE DÉPÔTS pour l'ingestion ET l'effacement.**
+       *
+       * Les instancier deux fois marcherait — ils sont sans état — mais ferait deux endroits
+       * où changer une implémentation, et ce dépôt a déjà payé trois fois la divergence de
+       * deux copies. Surtout : effacer et archiver DOIVENT viser la même base, sinon
+       * l'effacement rendrait `0` en toute bonne foi.
+       */
+      knowledgeErasure: new KnowledgeErasureService({
+        archive: knowledgeArchiveRepo,
+        facts: knowledgeFactRepo,
+      }),
       knowledgeIngestion: new KnowledgeIngestionService({
-        archive: new DrizzleMessageArchiveRepository(),
-        facts: new DrizzleKnowledgeFactRepository(),
+        archive: knowledgeArchiveRepo,
+        facts: knowledgeFactRepo,
         // ⚠️ Le SECOND RIDEAU. Il ne tourne que sur les messages que le code déterministe n'a
         // pas su classer, et seulement par lots de cinq : sur le chemin nominal, il ne coûte
         // pas un seul appel de modèle. Voir `fact-curtain.service.ts`.

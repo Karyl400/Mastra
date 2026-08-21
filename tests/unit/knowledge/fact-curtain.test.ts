@@ -9,6 +9,24 @@ import { KnowledgeIngestionService } from '../../../src/features/knowledge/appli
 import { InMemoryMessageArchiveRepository } from '../../../src/features/knowledge/infrastructure/repositories/in-memory-message-archive.repository';
 import { InMemoryKnowledgeFactRepository } from '../../../src/features/knowledge/infrastructure/repositories/in-memory-knowledge-fact.repository';
 import { KNOWLEDGE_FACT_MIN_SCORE } from '../../../src/features/knowledge/domain/services/fact-distillation';
+/**
+ * ⚠️ **IMPORT STATIQUE, et il l'est depuis le 2026-08-21 pour une raison mesurée.**
+ *
+ * Il était DYNAMIQUE, dans le corps du premier `it`. Le test échouait alors par
+ * `Timeout 5000ms` — mesuré à **5 009 ms**, c'est-à-dire exactement sur la ligne. Ce n'était ni
+ * un appel réseau (l'agent est injecté) ni le coût d'import brut, mais la TRANSFORMATION Vite :
+ * `server.deps.inline: [/@mastra\/core/]` fait passer tout `@mastra/core` par le pipeline, et
+ * `llm-guardrail` y ajoute un `scryptSync(N=16384)` au chargement du module — 49 ms mesurés.
+ * Ce coût était imputé au délai du test.
+ *
+ * Le fichier passait dans la suite complète et échouait SEUL, parce que `singleFork: true`
+ * partage le cache de modules : **le test ne passait que grâce au travail d'un autre fichier.**
+ * Or c'est le fichier qu'on lance seul quand on débogue — et il rendait alors un
+ * `Timeout 5000ms` qui ne désigne pas sa cause, la classe de panne que ce dépôt traque partout.
+ *
+ * Poser un `testTimeout` aurait masqué la cause au lieu de la retirer.
+ */
+import { ModelFactSummarizer } from '../../../src/features/knowledge/infrastructure/services/model-fact-summarizer.service';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -239,8 +257,6 @@ describe('l’ingestion ne lève le rideau que sur ce que le code n’a pas clas
  */
 describe('la lecture des lignes rendues par le modèle', () => {
   async function parse(text: string) {
-    const { ModelFactSummarizer } =
-      await import('../../../src/features/knowledge/infrastructure/services/model-fact-summarizer.service');
     const summarizer = new ModelFactSummarizer({
       agent: { generate: async () => ({ text }) } as never,
     });

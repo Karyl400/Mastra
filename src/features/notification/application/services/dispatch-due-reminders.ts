@@ -1,6 +1,7 @@
 import { logger } from '../../../../shared/logger';
 import { NotificationStatus } from '../../../../shared/types';
 import { textEmailBody } from '../../domain/services/email-body';
+import { safeOutboundText } from './outbound-text';
 import {
   MAX_REMINDERS_PER_RUN,
   STALE_AFTER_DAYS,
@@ -175,17 +176,33 @@ async function deliverOne(
   // ── 3. L'ENVOI ────────────────────────────────────────────────────────────
   const preamble = reminderPreamble(reminder.scheduledAt);
 
+  /**
+   * ⚠️ **SECOND PASSAGE D'ASSAINISSEMENT, et ce n'est pas une redondance.**
+   *
+   * `scheduleReminder` filtre désormais à l'écriture — mais la production porte des rappels
+   * enregistrés AVANT ce correctif du 2026-08-21, et rien ne les relira jamais autrement que
+   * par ce chemin-ci. Filtrer seulement à l'écriture n'aurait protégé que l'avenir.
+   *
+   * C'est la même forme que `generateDocument`, qui filtre au seuil du rendu ET dans le tool :
+   * la persistance vit en dehors du renderer, donc une ligne peut entrer par un autre chemin
+   * que celui qu'on vient de fermer. L'opération est idempotente — un texte déjà propre en
+   * ressort identique, ce qu'un test vérifie.
+   *
+   * Et c'est ici que ça compte le plus : personne n'est présent au moment de cet envoi.
+   */
+  const safe = safeOutboundText(
+    { subject: reminder.subject, body: reminder.body },
+    { id: reminder.id, channel: reminder.channel, path: 'dispatchDueReminders' },
+  );
+
   try {
     if (reminder.channel === 'slack') {
-      await deps.chat.sendMessage(
-        destination,
-        `${preamble}\n\n*${reminder.subject}*\n\n${reminder.body}`,
-      );
+      await deps.chat.sendMessage(destination, `${preamble}\n\n*${safe.subject}*\n\n${safe.body}`);
     } else {
       await deps.email.sendEmail(
         destination,
-        reminder.subject,
-        textEmailBody(`${preamble}\n\n${reminder.body}`),
+        safe.subject,
+        textEmailBody(`${preamble}\n\n${safe.body}`),
       );
     }
   } catch (error) {

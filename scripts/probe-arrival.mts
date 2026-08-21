@@ -34,7 +34,6 @@ import { writeFileSync } from 'node:fs';
 import { createClient } from '@libsql/client';
 
 import {
-  PROFILE_QUESTIONS,
   pendingProfileStep,
   type ProfileStep,
 } from '../src/features/onboarding/domain/services/profile-chat.js';
@@ -101,7 +100,6 @@ async function resilientFetch(url: string, init?: RequestInit, attempts = 10): P
   }
   throw lastError;
 }
-
 
 /**
  * ⚠️ **LA REPRISE VAUT AUSSI POUR TURSO, et l'oubli a coûté une base laissée sale.**
@@ -313,7 +311,9 @@ async function runJourney(): Promise<void> {
    * où les trois résolveurs en ont un — refaire le parcours donne donc éternellement le même
    * conflit, et le message générique (« réessaie ») enfermait dans une boucle sans sortie.
    */
-  console.log(`\n${'═'.repeat(78)}\nCAS LIMITE — l’adresse est tenue par un dossier ARCHIVÉ\n${'═'.repeat(78)}`);
+  console.log(
+    `\n${'═'.repeat(78)}\nCAS LIMITE — l’adresse est tenue par un dossier ARCHIVÉ\n${'═'.repeat(78)}`,
+  );
 
   await say(channel, "oublie ce que je t'ai dit", '⟲ remise à zéro du fil');
 
@@ -337,7 +337,9 @@ async function runJourney(): Promise<void> {
   );
 
   // ── 4. Le parcours nominal, identité d'annuaire mise de côté ─────────────────
-  console.log(`\n${'═'.repeat(78)}\nPARCOURS NOMINAL — les quatre questions sont réellement posées\n${'═'.repeat(78)}`);
+  console.log(
+    `\n${'═'.repeat(78)}\nPARCOURS NOMINAL — les quatre questions sont réellement posées\n${'═'.repeat(78)}`,
+  );
 
   await dbExec({
     sql: 'UPDATE slack_directory SET first_name = NULL, last_name = NULL, email = NULL WHERE slack_user_id = ?',
@@ -379,7 +381,7 @@ async function runJourney(): Promise<void> {
       emailRetryDone = true;
       const retry = await say(channel, 'amina point sonde arobase kissohq', '⚠ email mal formé');
       record(
-        "une adresse mal formée est redemandée, et la réponse dit ce qui manque",
+        'une adresse mal formée est redemandée, et la réponse dit ce qui manque',
         pendingProfileStep(retry) === 'email' && retry.includes('@'),
         retry.slice(0, 90).replace(/\n/g, ' '),
       );
@@ -437,7 +439,9 @@ async function runJourney(): Promise<void> {
   // DIRECTEMENT sur la première question d'entretien. Envoyer « j'ai fini » à ce moment-là
   // écrasait l'entretien avant qu'il ait commencé, et la sonde imputait ensuite au produit une
   // absence de ligne d'entretien qu'elle avait elle-même provoquée.
-  console.log(`\n${'═'.repeat(78)}\nL’ENTRETIEN, PUIS LA VÉRIFICATION DU DOSSIER\n${'═'.repeat(78)}`);
+  console.log(
+    `\n${'═'.repeat(78)}\nL’ENTRETIEN, PUIS LA VÉRIFICATION DU DOSSIER\n${'═'.repeat(78)}`,
+  );
 
   // ⚠️ Cas limite — une réponse trop courte ne doit pas devenir la description du métier de
   // quelqu'un : ce champ est IMPRIMÉ dans un document qui porte son nom.
@@ -505,7 +509,11 @@ async function runJourney(): Promise<void> {
 
   // ── 7. Le ton, sur l'ensemble du parcours ───────────────────────────────────
   const whole = transcript.map(([, r]) => r).join('\n');
-  record("Marcel s'est nommé au moins une fois", whole.includes('Marcel'), String(whole.includes('Marcel')));
+  record(
+    "Marcel s'est nommé au moins une fois",
+    whole.includes('Marcel'),
+    String(whole.includes('Marcel')),
+  );
 
   const machineTalk = transcript.filter(([, r]) =>
     /je suis (?:un |une )?(?:outil|agent|bot|robot|assistant|ia)\b/i.test(r),
@@ -523,7 +531,6 @@ async function runJourney(): Promise<void> {
     !whole.includes('**'),
     whole.includes('**') ? 'un ** est sorti tel quel' : 'aucun',
   );
-
 }
 
 try {
@@ -617,4 +624,3 @@ console.log(
   `\n${failures === 0 && restored ? '✅ Parcours d’arrivée conforme.' : `❌ ${failures} contrôle(s) en défaut.`}`,
 );
 if (failures > 0 || !restored) process.exitCode = 1;
-
