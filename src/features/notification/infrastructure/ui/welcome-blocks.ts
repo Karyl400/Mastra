@@ -2,6 +2,7 @@ import { type SlackBlock } from '../providers/slack.adapter';
 import { type NewcomerIdentity } from '../../../onboarding/domain/services/newcomer-identity';
 import { PROFILE_FORM_INVITE } from '../../../../shared/profile-request';
 import { videoLine, writtenGuide } from '../../../../shared/onboarding-video';
+import { ASSISTANT_NAME, COMPANY_NAME } from '../../../../shared/assistant-identity';
 
 export function firstWordOf(fullName: string | undefined): string {
   return (fullName ?? '').trim().split(/\s+/)[0] ?? '';
@@ -33,7 +34,8 @@ export function buildWelcomeBlocks(
         type: 'mrkdwn',
         text:
           `${greet(prefill.firstName ?? '')}\n\n` +
-          "Ravi de t'accueillir chez Kisso. Voilà comment on démarre." +
+          `Moi c'est ${ASSISTANT_NAME}, je m'occupe des arrivées ici. Ravi de t'accueillir ` +
+          `chez ${COMPANY_NAME} — voilà comment on démarre.` +
           channelsLine(joinedNames) +
           videoLine() +
           writtenGuide(),

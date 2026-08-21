@@ -117,8 +117,8 @@ export function profileRetryReply(step: ProfileStep): string {
 }
 
 export const PROFILE_CHAT_INTRO_NO_RECORD =
-  'Je ne trouve pas encore de dossier à ton nom. On le crée ensemble, ici même — ' +
-  'quatre questions, une réponse par message.';
+  'Je ne trouve pas encore de dossier à ton nom — on va arranger ça ensemble, ici même. ' +
+  'Quatre questions, une réponse par message, et on n’en parle plus.';
 
 export function profileChatIntroMissing(missing: readonly string[]): string {
   const list =

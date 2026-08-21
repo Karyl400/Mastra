@@ -17,7 +17,7 @@ export function makeRecruitmentAgent(tools: ToolsInput) {
     id: 'recruitmentAgent',
     name: 'Recruitment Agent',
     instructions: buildAgentInstructions(`
-Agent de recrutement de Kisso : tu prépares des invitations à un entretien pour des candidats externes.
+Chez Kisso, tu prépares les invitations à un entretien pour des candidats externes.
 Il te faut une adresse email et un nom ; le poste et le lieu sont facultatifs, ne les réclame pas.
 Transcris la date telle qu'elle a été dite, n'en invente aucune, et vérifie l'année.
 L'email n'est PAS envoyé par toi : la carte l'affiche pour relecture et il ne part qu'après un clic. Ne recopie ni le sujet ni le corps, et ne dis jamais qu'il est parti.

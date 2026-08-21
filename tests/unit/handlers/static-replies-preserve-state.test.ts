@@ -10,7 +10,7 @@ import {
 import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
 import { PROFILE_QUESTIONS } from '../../../src/features/onboarding/domain/services/profile-chat';
 import { INTERVIEW_QUESTION_DAILY } from '../../../src/features/onboarding/domain/services/interview-chat';
-import { DISTRESS_REPLY } from '../../../src/shared/distress';
+import { AGGRESSION_REPLY } from '../../../src/shared/distress';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -141,9 +141,17 @@ describe('la détresse garde la priorité, sans emporter le fil', () => {
     const { handler, slack, append } = makeHandler(INTERVIEW_QUESTION_DAILY);
 
     // Intitulé de poste RÉEL dans une entreprise, et déclencheur du détecteur de détresse.
+    // C'est un FAUX POSITIF assumé : ce module préfère de loin déranger quelqu'un qui va
+    // bien à manquer quelqu'un qui va mal.
+    //
+    // ⚠️ Depuis la séparation du 2026-08-21, c'est le message AGRESSION qui sort — « harcèlement »
+    // et « discrimination » désignent une situation subie, pas une détresse. Le faux positif
+    // s'en trouve d'ailleurs moins gênant : on répond « ce que tu me décris n'a rien de normal,
+    // voilà vers qui aller », ce qui se lit bien mieux, sur un intitulé de poste, qu'un message
+    // de prévention du suicide.
     await handler.handleMessage(dm('Chargée de mission harcèlement et discrimination'));
 
-    expect(postedTexts(slack)[0]).toBe(DISTRESS_REPLY);
+    expect(postedTexts(slack)[0]).toBe(AGGRESSION_REPLY);
     expect(append).not.toHaveBeenCalled();
   });
 });

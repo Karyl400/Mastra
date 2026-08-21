@@ -5,7 +5,12 @@ import {
   detectsDistress,
   distressLanguage,
   distressReplyFor,
+  AGGRESSION_REPLY,
+  AGGRESSION_REPLY_EN,
+  distressKind,
 } from '../../../src/shared/distress';
+import { EMERGENCY_LINES } from '../../../src/shared/emergency-lines';
+import { ESCALATION_CONTACT, ESCALATION_CONTACT_EN } from '../../../src/shared/escalation';
 
 /**
  * ⚠️ C'est le seul module de ce dépôt où un défaut peut nuire à une PERSONNE, et non au
@@ -82,24 +87,45 @@ describe('DISTRESS_REPLY', () => {
     // `NEUTRAL_REFUSAL` a été réécrit pour ne renvoyer vers personne, à raison pour un refus
     // de sécurité. Cette décision avait supprimé le dernier endroit du système qui
     // mentionnait un être humain. Ici, ne renvoyer vers personne serait une faute.
-    expect(DISTRESS_REPLY).toContain('RH');
+    //
+    // ⚠️ CE TEST DISAIT `toContain('RH')` jusqu'au 2026-08-21. Il verrouillait un renvoi vers
+    // « l'équipe RH de Kisso » — instance qui N'EXISTE PAS : le workspace compte sept
+    // personnes et une seule porte `role = 'manager'`. Le test était vert et la phrase
+    // envoyait dans le vide, exactement comme le 3114 français avant lui.
+    expect(DISTRESS_REPLY).toContain(ESCALATION_CONTACT);
   });
 
-  it('cite une ligne joignable DEPUIS LE NIGERIA, où sont les salariés', () => {
-    // ⚠️ Ce test a remplacé un `toContain('3114')` qui verrouillait un numéro FRANÇAIS dans
-    // un produit dont les utilisateurs sont au Nigeria. Il ne joignait personne, et il était
-    // présenté comme joignable — le pire endroit du dépôt pour ce genre de défaut.
-    //
-    // SURPIN, membre nigérian de LifeLine International, ligne gratuite 24h/24 ; et le 112,
-    // urgences nationales. Vérifiés le 2026-08-18.
-    expect(DISTRESS_REPLY).toContain('0800 0787 746');
-    expect(DISTRESS_REPLY).toContain('112');
-    // Et surtout : plus aucune trace du numéro qui ne servait à rien ici.
-    expect(DISTRESS_REPLY).not.toContain('3114');
+  it('cite les lignes VÉRIFIÉES du pays configuré — aucun numéro écrit à la main', () => {
+    // ⚠️ ASSERTION DÉRIVÉE de `emergency-lines.ts`, jamais un littéral. Ce test a d'abord
+    // verrouillé le 3114 (français), puis SURPIN (nigérian) ; les deux étaient des chiffres
+    // recopiés qu'aucun mécanisme ne reliait au pays réel des salariés. Un numéro écrit en
+    // dur dans un test est un numéro que personne ne revérifiera.
+    expect(DISTRESS_REPLY).toContain(EMERGENCY_LINES.crisis.number);
+    expect(DISTRESS_REPLY).toContain(EMERGENCY_LINES.medical.number);
+  });
+
+  it("n'a AUCUNE trace des numéros d'autres pays écartés à la vérification", () => {
+    // Les quatre sont réels, gratuits, et joignent quelqu'un — ailleurs. C'est ce qui les
+    // rend dangereux : la mauvaise réponse a toutes les apparences de la bonne.
+    //   3114 → France · 122 → RD Congo · 143 → Côte d'Ivoire · 988 → États-Unis
+    for (const etranger of ['3114', '988', '116 123']) {
+      expect(DISTRESS_REPLY, etranger).not.toContain(etranger);
+    }
   });
 
   it('ne diagnostique rien et ne promet aucune transmission', () => {
-    expect(DISTRESS_REPLY).toContain("Je n'ai pas transmis");
+    expect(DISTRESS_REPLY).toContain("Je n'ai transmis ce message à personne");
+  });
+
+  it("ne s'annonce plus comme un OUTIL — mais ne prétend pas non plus être thérapeute", () => {
+    // ⚠️ Le seul changement de TON consenti ici. Le texte ouvrait par « Je suis un outil
+    // d'onboarding » : une phrase sur soi, au moment où quelqu'un vient de parler de lui.
+    //
+    // Ce qui NE change pas, et qui est l'essentiel : Marcel dit toujours qu'il n'est pas la
+    // bonne personne. Simuler l'empathie auprès de quelqu'un de vulnérable serait lui mentir
+    // au pire moment — c'est le seul endroit du produit où « presque humain » nuit.
+    expect(DISTRESS_REPLY).not.toMatch(/je suis un outil/i);
+    expect(DISTRESS_REPLY).toMatch(/pas la bonne personne/i);
   });
 });
 
@@ -256,15 +282,15 @@ describe('DISTRESS_REPLY_EN', () => {
     // ⚠️ Un numéro faux consomme le seul geste que la personne aura peut-être la force de
     // faire. La version anglaise ne cite donc AUCUNE ligne que la version française ne
     // cite pas : SURPIN et le 112, vérifiés le 2026-08-18 auprès de LifeLine International.
-    expect(DISTRESS_REPLY_EN).toContain('0800 0787 746');
-    expect(DISTRESS_REPLY_EN).toContain('112');
+    expect(DISTRESS_REPLY_EN).toContain(EMERGENCY_LINES.crisis.number);
+    expect(DISTRESS_REPLY_EN).toContain(EMERGENCY_LINES.medical.number);
     expect(DISTRESS_REPLY_EN).not.toContain('3114');
     expect(DISTRESS_REPLY_EN).not.toContain('988');
     expect(DISTRESS_REPLY_EN).not.toContain('116 123');
   });
 
   it('NOMME un humain à joindre, comme la version française', () => {
-    expect(DISTRESS_REPLY_EN).toContain('HR');
+    expect(DISTRESS_REPLY_EN).toContain(ESCALATION_CONTACT_EN);
   });
 
   it('ne promet aucune transmission', () => {
@@ -276,6 +302,102 @@ describe('DISTRESS_REPLY_EN', () => {
     // `sanitizeAgentOutput`, qui est ce qui convertit le markdown. Constaté en production
     // le 2026-08-18 sur la version française — les `**` s'affichaient autour du numéro.
     expect(DISTRESS_REPLY_EN).not.toContain('**');
-    expect(DISTRESS_REPLY_EN).toContain('*0800 0787 746*');
+    expect(DISTRESS_REPLY_EN).toContain(`*${EMERGENCY_LINES.crisis.number}*`);
+  });
+});
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * AGRESSION — séparée de la détresse le 2026-08-21
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Jusqu'ici, « je suis harcelé par mon manager » recevait le message de PRÉVENTION DU
+ * SUICIDE. Ce n'était pas un bug de détection — la phrase était bien interceptée — mais une
+ * réponse à côté : on donnait un numéro d'écoute à quelqu'un qui a besoin de la police, et on
+ * ne nommait personne capable d'agir sur ce qui se passe au travail.
+ */
+describe('distressKind — la nature de la situation', () => {
+  const AGGRESSIONS = [
+    'je suis harcelé par mon manager',
+    'je subis du harcèlement moral depuis mon arrivée',
+    'mon responsable me menace tous les jours',
+    "je pense que c'est de la discrimination",
+    'je me suis fait agresser en sortant du bureau',
+    'je suis en danger, il ne veut pas me laisser partir',
+    'my manager is threatening me',
+    'i was sexually harassed at work',
+  ];
+
+  for (const text of AGGRESSIONS) {
+    it(`classe en agression : « ${text} »`, () => {
+      expect(distressKind(text)).toBe('aggression');
+    });
+  }
+
+  const SELF_HARM = [
+    'je veux mourir',
+    "j'ai des idées noires depuis des semaines",
+    'je suis à bout, je craque',
+    'I want to die',
+    'i feel hopeless',
+  ];
+
+  for (const text of SELF_HARM) {
+    it(`classe en détresse : « ${text} »`, () => {
+      expect(distressKind(text)).toBe('self_harm');
+    });
+  }
+
+  it('fait primer la DÉTRESSE quand un message porte les deux', () => {
+    // ⚠️ Les deux erreurs ne se valent pas. Traiter une agression comme une détresse donne
+    // quand même un numéro d'urgence joignable ; l'inverse répondrait par une démarche
+    // administrative à quelqu'un qui pense à en finir.
+    expect(distressKind("je suis harcelé et je n'en peux plus, je veux en finir")).toBe(
+      'self_harm',
+    );
+  });
+
+  it('ne classe rien sur un message ordinaire', () => {
+    expect(distressKind("il me faudrait le guide d'accueil en PDF")).toBeNull();
+    expect(distressKind('')).toBeNull();
+  });
+});
+
+describe('AGGRESSION_REPLY', () => {
+  it('nomme quelqu’un qui peut AGIR, pas seulement quelqu’un qui écoute', () => {
+    // C'est toute la différence entre les deux textes. Une ligne d'écoute ne peut rien
+    // contre un collègue qui menace ; la personne qui a autorité sur le workspace, si.
+    expect(AGGRESSION_REPLY).toContain(ESCALATION_CONTACT);
+    expect(AGGRESSION_REPLY).toMatch(/peut agir/i);
+  });
+
+  it('donne la police AVANT toute autre orientation', () => {
+    const police = AGGRESSION_REPLY.indexOf(EMERGENCY_LINES.crisis.number);
+    const manager = AGGRESSION_REPLY.indexOf(ESCALATION_CONTACT);
+    expect(police).toBeGreaterThan(-1);
+    // Quelqu'un en danger immédiat ne doit pas avoir à lire un paragraphe sur la hiérarchie
+    // avant de trouver le numéro.
+    expect(police).toBeLessThan(manager);
+  });
+
+  it('ne promet aucune transmission — même garantie que la détresse', () => {
+    expect(AGGRESSION_REPLY).toContain("Je n'ai transmis ce message à personne");
+    expect(AGGRESSION_REPLY_EN.toLowerCase()).toContain("haven't passed this message on");
+  });
+
+  it('est écrit en mrkdwn Slack, comme tout texte posté sans passer par le filtre', () => {
+    for (const texte of [AGGRESSION_REPLY, AGGRESSION_REPLY_EN]) {
+      expect(texte).not.toContain('**');
+    }
+    expect(AGGRESSION_REPLY).toContain(`*${EMERGENCY_LINES.crisis.number}*`);
+  });
+
+  it('est bien le texte RENDU sur une agression — la séparation va jusqu’au bout', () => {
+    // ⚠️ Sans cette assertion, la classification pourrait être juste et le routage muet :
+    // c'est exactement le défaut qu'a connu la base de connaissance, correcte et
+    // inatteignable pendant deux jours.
+    expect(distressReplyFor('je suis harcelé par mon manager')).toBe(AGGRESSION_REPLY);
+    expect(distressReplyFor('i was sexually harassed at work')).toBe(AGGRESSION_REPLY_EN);
+    expect(distressReplyFor('je veux mourir')).toBe(DISTRESS_REPLY);
   });
 });

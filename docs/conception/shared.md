@@ -7493,3 +7493,187 @@ parce qu'un booléen dit qu'il faut réparer, jamais quoi.
 - Pas de garde `NODE_ENV`, à dessein : ce dépôt a déjà eu un interrupteur qu'on oublie
   (`AUTHZ_ENFORCE`, inactif dix jours). Le seul site d'appel est `src/mastra/index.ts`,
   qu'aucun test unitaire n'importe — vérifié, la sortie de la suite n'en porte aucune trace.
+
+---
+
+# Marcel — l'identité, le ton, et ce qui les rend sûrs (2026-08-21)
+
+Trois modules nouveaux (`assistant-identity.ts`, `escalation.ts`, `emergency-lines.ts`), une
+séparation dans `distress.ts`, et un élargissement du détecteur de fausses annonces. Le fil qui
+les relie : **on ne change pas le ton d'un produit avant d'avoir élargi ce qui le surveille.**
+
+## L'ordre des gestes, qui est tout le lot
+
+Ce dépôt avait REFUSÉ tout ton chaleureux, et l'argument était juste :
+
+> « `claim-reconciliation.ts` détecte l'accompli non appuyé par un appel d'outil au moyen d'une
+> liste **FERMÉE** de six motifs. Un modèle invité à varier ses formules écrirait "voilà, ton
+> document t'attend" — hors motif, donc non requalifié. Demander de la variété au modèle
+> DÉGRADE le seul détecteur de fausses annonces. »
+
+L'argument ne dit pas « jamais de ton chaleureux ». Il dit « pas AVANT le détecteur ». Les six
+motifs d'origine étaient tous des tournures administratives (« a été envoyé », « est prêt »,
+« mise à jour ») ; aucune façon normale de parler n'y entrait. Le détecteur est donc passé de
+**6 à 14 familles**, et l'élargissement a été livré et testé **avant** la première modification
+de ton.
+
+### Le filtre interrogatif, qui n'était pas prévu et qui compte plus que les motifs
+
+Élargir seul aurait multiplié les faux positifs à la vitesse où l'on gagnait en couverture :
+« Tout est bon pour toi ? » et « Est-ce que ça y est ? » se seraient fait requalifier — on
+aurait accolé un démenti à une QUESTION.
+
+`assertiveText()` découpe donc sur `[.!?]+` et **jette tout segment terminé par `?`** avant de
+tester le moindre motif. Une interrogation n'affirme rien : il n'y a rien à contredire. Ce
+filtre protège les six motifs d'origine autant que les huit nouveaux — il aurait dû exister
+avant ce lot.
+
+⚠️ Les segments retenus sont recollés par `' . '` et non par un espace : sans séparateur, la
+fin d'une phrase et le début de la suivante formeraient des expressions qu'aucune ne contient.
+
+## `shared/assistant-identity.ts` — Marcel
+
+L'assistant n'avait **aucun nom**. Il se désignait par la société, ou par sa nature :
+« Je suis un outil d'onboarding ». Une personne qui écrit à quelqu'un sans nom n'écrit à
+personne.
+
+⚠️ **`ASSISTANT_NAME` n'est pas `KISSO-AGENT-v3`, et les confondre rendrait le bot muet.**
+`KISSO-AGENT-v3` est un identifiant interne, verrouillé par la DIRECTIVE 1.1 et censuré par
+`INTERNAL_MARKERS.agent_identity` : toute réponse qui le contient est **remplacée en bloc**.
+« Marcel » est un nom d'affichage, destiné à sortir à chaque conversation. Un prénom ne
+renseigne aucun attaquant ; un identifiant de version, si.
+
+### Nommer n'est pas mentir
+
+L'interdiction porte sur l'**auto-désignation comme outil** — une phrase qui parle de la
+machine au lieu de parler à la personne. Elle n'oblige nulle part à revendiquer une humanité,
+et la distinction porte : dans le message de détresse, Marcel dit toujours qu'il n'est pas la
+bonne personne, parce qu'à cet endroit entretenir l'illusion nuirait à quelqu'un de vulnérable.
+
+### La garantie est dans le code, pas dans le prompt
+
+`tests/unit/quality/assistant-persona.test.ts` **scanne tout `src/`**, commentaires retirés, et
+échoue sur toute auto-désignation. C'est la seule garantie possible : le bloc STYLE le demande
+au modèle, et une consigne est PROBABLE — ce dépôt l'a mesurée en échec quatre fois (couverture
+des extraits, rédaction du contenu, `recipient` d'un document, codes internes récités par
+Gemini).
+
+Un second test vérifie que les motifs **reconnaissent** bien ce qu'ils interdisent. Sans lui,
+un motif cassé rendrait le premier test vert et vide de sens — le défaut exact de
+`READ_ONLY_TOOL_NAMES`, désarmé pendant des semaines.
+
+### Les quatre ouvertures d'instructions ont suivi
+
+« Tu es **l'agent** d'onboarding de Kisso » invitait littéralement le modèle à se désigner comme
+un agent, en contradiction avec le bloc STYLE placé quelques lignes plus bas. Les quatre
+ouvertures sont devenues des descriptions de RÔLE (« Chez Kisso, tu accompagnes les nouveaux
+arrivants… »), ce qui coûte aussi quelques caractères de moins.
+
+### Le bloc STYLE, et pourquoi « sans exclamation » RESTE
+
+Plafonné à **86 tokens**, repayés à chaque étape chez les quatre agents. Mesure : **62 → 81
+tokens**. Ce lot n'est donc PAS autofinancé, contrairement à ceux du 2026-08-11, et il faut le
+dire — c'est acceptable uniquement parce que le budget journalier est passé de 100 000 tokens
+(Groq) à plusieurs millions (Gemini).
+
+⚠️ La consigne « sans exclamation » est conservée malgré la demande d'un ton chaleureux, et ce
+n'est pas une contradiction. Le constat de l'utilisatrice testeuse était que **« les points
+d'exclamation arrivent précisément dans les phrases où il ne fait rien »** : l'enthousiasme
+ponctuel avait servi de CAMOUFLAGE à l'inaction. Un collègue chaleureux, dans une conversation
+de travail, n'écrit d'ailleurs presque jamais de points d'exclamation. La chaleur passe par le
+nom, l'adresse directe et la brièveté.
+
+## `shared/escalation.ts` — « l'équipe RH » n'existe pas
+
+Six textes en dur renvoyaient vers « l'équipe RH ». Le relevé de production du 2026-08-20 est
+sans ambiguïté : le workspace compte **sept personnes, dont une seule** porte
+`slack_directory.role = 'manager'`. Il n'y a pas de service RH. Ces six phrases envoyaient dans
+le vide, exactement comme le 3114 français avant elles — et personne à qui on le disait n'avait
+moyen de s'en apercevoir.
+
+Déclaré **une seule fois**. Six littéraux se désynchronisent au premier changement de personne,
+et le symptôme serait qu'on continue d'orienter les gens vers quelqu'un qui a quitté
+l'entreprise.
+
+⚠️ **Ce n'est pas une frontière d'autorisation.** Le droit de lire un dossier se décide sur
+`slack_directory.role`, en base, par `resolveAccess`. Ici on nomme quelqu'un dans une phrase ;
+là-bas on accorde un droit. Les confondre ferait qu'un renommage de courtoisie changerait qui
+peut lire quoi.
+
+## `shared/emergency-lines.ts` — les numéros, et leur source
+
+La règle « ne jamais écrire un numéro non vérifié » ne tenait qu'à un commentaire. Elle tient
+désormais à une **structure** : chaque numéro porte sa source dans le champ `verified`, et il
+faut mentir dans ce champ pour en introduire un qui ne le soit pas.
+
+### Bénin — retenu par défaut
+
+| Numéro | Service | Source |
+| --- | --- | --- |
+| **117** | Police Républicaine, gratuit, 24h/24 | ARCEP Bénin + lancement du numéro vert (2026-11-07) + `findahelpline.com/countries/bj`, qui le liste aussi pour le **risque suicidaire** |
+| **112** | SAMU | ARCEP Bénin — liste officielle des numéros courts |
+
+C'est le second angle sur le 117 qui décide : il couvre les deux cas de ce module.
+
+### ⚠️ Trois numéros écartés à la vérification, et chacun aurait été une faute plausible
+
+- **3114** — français. Il figurait dans le code jusqu'au 2026-08-18 et ne joignait personne.
+- **122** — **congolais (RDC)**. Il remonte en tête d'une recherche « ligne verte violences
+  basées sur le genre » parce que trois médias congolais en parlent ; aucune source béninoise
+  ne le cite.
+- **143** — **ivoirien**. Ligne nationale d'assistance psychologique de Côte d'Ivoire,
+  annoncée par un ministère dont le sigle (MSHPCMU) ressemble à s'y méprendre à celui d'un
+  ministère béninois.
+
+Les trois sont réels, gratuits, et joignent quelqu'un — **dans un autre pays**. C'est
+exactement pourquoi une recherche rapide ne suffit pas ici : la mauvaise réponse a toutes les
+apparences de la bonne.
+
+Le **138** béninois est réel et vérifié, mais délibérément ABSENT : c'est la ligne d'assistance
+aux **enfants** victimes de violences. La citer à un salarié adulte l'enverrait vers un service
+qui ne peut pas le prendre en charge.
+
+### Le Nigeria n'est pas supprimé
+
+`CLAUDE.md` consignait le 2026-08-18 que les salariés sont au Nigeria ; le propriétaire a
+demandé le 2026-08-21 des numéros locaux en nommant la **police béninoise**. Les deux
+affirmations viennent de la même personne et se contredisent ; la plus récente et la plus
+explicite l'emporte. Le Nigeria reste disponible par `EMERGENCY_COUNTRY=NG` — trancher en
+supprimant l'autre pays aurait détruit une vérification coûteuse pour un gain nul.
+
+Une valeur inconnue retombe sur le défaut plutôt que de lever : une faute de frappe dans une
+variable d'environnement ne doit pas priver quelqu'un de tout numéro.
+
+## `shared/distress.ts` — deux situations, deux réponses
+
+Le module n'en connaissait qu'une. « je suis harcelé par mon manager » et « je veux mourir »
+recevaient le **même** texte, qui citait une ligne de prévention du suicide. À quelqu'un qui
+vient de dire qu'on l'agresse, ce texte répond à côté : il donne un numéro d'écoute là où il
+faut la police, et **ne nomme personne capable d'agir** sur ce qui se passe au travail.
+
+`distressKind()` rend `'self_harm' | 'aggression' | null`.
+
+⚠️ **En cas de doute, `self_harm` l'emporte.** Un message peut porter les deux (« je suis
+harcelé et je n'en peux plus, je veux en finir ») et les deux erreurs ne se valent pas :
+traiter une agression comme une détresse donne quand même un numéro d'urgence joignable ;
+l'inverse remplace une aide vitale par une démarche administrative.
+
+`AGGRESSION_REPLY` nomme quelqu'un qui peut **agir**, et le dit explicitement (« c'est lui qui
+peut agir là-dessus, pas moi »). Un test vérifie que le numéro de police apparaît **avant** la
+mention du manager : quelqu'un en danger immédiat ne doit pas lire un paragraphe sur la
+hiérarchie avant de trouver un numéro.
+
+### ⚠️ Un faux négatif trouvé par accident, et c'était le plus cher possible
+
+Le test de priorité détresse/agression a révélé que **« je veux en finir » n'était détecté par
+RIEN** — ni par `envie d en finir`, ni par `en finir avec la vie`. C'est la formulation la plus
+courante en français. Ajoutée, avec « je n'en peux plus » et « j'en peux plus ».
+
+C'est la leçon de méthode du lot : le test cherchait tout autre chose.
+
+### Les assertions sont DÉRIVÉES
+
+Les tests ne recopient plus de numéro. Ils lisent `EMERGENCY_LINES.crisis.number`. Ce fichier a
+d'abord verrouillé le 3114, puis SURPIN — deux chiffres recopiés qu'aucun mécanisme ne reliait
+au pays réel des salariés. **Un numéro écrit en dur dans un test est un numéro que personne ne
+revérifiera.**

@@ -13,7 +13,7 @@ export function makeOnboardingOrchestrator(tools: ToolsInput) {
     id: 'onboardingOrchestrator',
     name: 'Onboarding Orchestrator',
     instructions: buildAgentInstructions(`
-Tu es l'agent d'onboarding de Kisso : tu supervises le parcours d'intégration des nouveaux employés.
+Chez Kisso, tu accompagnes les nouveaux arrivants tout au long de leur intégration.
 Si tu as l'email, passe-le DIRECTEMENT à getEmployeeProfile : n'appelle pas findEmployeeByEmail avant. Sinon, résous par findPersonByName (nom) ou findEmployeeByEmail (pour obtenir l'UUID qu'exige generateDocument).
 
 ${agentToolBoundary(tools)}

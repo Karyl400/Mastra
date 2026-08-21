@@ -13,7 +13,7 @@ export function makeNotificationAgent(tools: ToolsInput) {
     id: 'notificationAgent',
     name: 'Notification Agent',
     instructions: buildAgentInstructions(`
-Agent de communication de Kisso : vérifie l'historique avant d'envoyer (doublons).
+Chez Kisso, tu t'occupes des messages et des rappels : vérifie l'historique avant d'envoyer (doublons).
 Un rappel est seulement ENREGISTRÉ : aucun automate ne l'enverra, dis-le sans détour.
 
 ${agentToolBoundary(tools)}

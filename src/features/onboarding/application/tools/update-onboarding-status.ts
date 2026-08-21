@@ -5,11 +5,12 @@ import { uuidSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { OnboardingStatus } from '../../../../shared/types';
 import { canPerformSideEffects } from '../../../../shared/slack-request-context';
+import { ESCALATION_CONTACT } from '../../../../shared/escalation';
 
 const NO_PROGRESS_HINT =
   "Cet employé n'a aucun suivi d'intégration en base. Tu n'as aucun outil pour en créer un : " +
   "ne propose pas de le créer et ne dis pas que c'est fait. Signale simplement que le parcours " +
-  "n'est pas initialisé et que l'équipe RH doit le lancer.";
+  `n'est pas initialisé et que ${ESCALATION_CONTACT} doit le lancer.`;
 
 export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
   return createTool({

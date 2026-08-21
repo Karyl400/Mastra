@@ -1,4 +1,5 @@
 import { normalizeIntentText } from './intent-text';
+import { ESCALATION_CONTACT } from './escalation';
 
 const ERASURE_STEMS: readonly string[] = ['oubli', 'supprim', 'efface', 'delete', 'forget'];
 
@@ -99,7 +100,7 @@ export const ERASURE_SCOPE_NOTICE =
   'Ça ne touche que ce que je garde de nos échanges. Les documents déjà produits, les ' +
   "notifications déjà envoyées, ta fiche dans l'annuaire, ce que tu m'as dit de ton métier " +
   "lors de l'accueil et les messages que j'ai archivés dans les canaux ne passent pas par " +
-  "moi — pour ceux-là, adresse-toi à l'équipe RH.";
+  `moi — pour ceux-là, adresse-toi à ${ESCALATION_CONTACT}.`;
 
 export function erasureDoneReply(count: number): string {
   if (count === 0) {
@@ -118,4 +119,4 @@ export function erasureDoneReply(count: number): string {
 
 export const ERASURE_FAILED_REPLY =
   "Je n'ai pas réussi à effacer ce que j'avais gardé de nos échanges — ma mémoire est " +
-  "indisponible à l'instant. Redemande-le-moi dans un moment, ou signale-le à l'équipe RH.";
+  `indisponible à l'instant. Redemande-le-moi dans un moment, ou signale-le à ${ESCALATION_CONTACT}.`;
