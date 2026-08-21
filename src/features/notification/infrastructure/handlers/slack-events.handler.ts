@@ -134,7 +134,7 @@ import {
   INTERVIEW_QUESTION_DAILY,
   INTERVIEW_QUESTION_STYLE,
   INTERVIEW_SKIPPED_REPLY,
-  INTERVIEW_TOO_SHORT_REPLY,
+  interviewRetryReply,
   captureInterviewAnswer,
   isQuestionToBot,
   pendingInterviewStep,
@@ -258,7 +258,10 @@ export interface SlackEventsHandlerOptions {
   conversationRepository?: ConversationRepository | null;
   pinnedFactRepository?: PinnedFactRepository | null;
   interviewRepository?: OnboardingInterviewRepository | null;
-  profileRepository?: { findByEmail(email: string): Promise<ProfileSnapshot | null> } | null;
+  profileRepository?: {
+    findByEmail(email: string): Promise<ProfileSnapshot | null>;
+    findById?(id: string): Promise<ProfileSnapshot | null>;
+  } | null;
   dedupRepository?: SlackEventDedupRepository | null;
   conversationTokenBudget?: number;
   conversationTtlMs?: number;
@@ -398,7 +401,12 @@ export class SlackEventsHandler {
   private pinnedFactRepo: PinnedFactRepository | null | undefined;
   private readonly interviewRepo: OnboardingInterviewRepository | null | undefined;
   private readonly profileRepo:
-    { findByEmail(email: string): Promise<ProfileSnapshot | null> } | null | undefined;
+    | {
+        findByEmail(email: string): Promise<ProfileSnapshot | null>;
+        findById?(id: string): Promise<ProfileSnapshot | null>;
+      }
+    | null
+    | undefined;
   private dedupRepo: SlackEventDedupRepository | null | undefined;
   private readonly conversationTokenBudget: number;
   private readonly conversationTtlMs: number;
@@ -1956,17 +1964,45 @@ export class SlackEventsHandler {
     try {
       const member = await this.getDirectoryRepo()?.findBySlackUserId(user);
       const fromDirectory = answersFromDirectory(member);
-
-      const email = member?.email;
-      if (!email || !this.profileRepo) return fromDirectory;
-
-      return { ...fromDirectory, ...answersFromRecord(await this.profileRepo.findByEmail(email)) };
+      const record = await this.findProfileRecord(member);
+      return record ? { ...fromDirectory, ...answersFromRecord(record) } : fromDirectory;
     } catch (error) {
       logger.warn('Dossier existant illisible — la conversation repart de zéro', {
         error: String(error),
       });
       return {};
     }
+  }
+
+  /**
+   * ⚠️ **LE LIEN DIRECT D'ABORD, L'ADRESSE ENSUITE — corrigé le 2026-08-21, en production.**
+   *
+   * Les deux lecteurs du dossier (`knownProfileAnswers` et le verdict de « j'ai fini ») ne
+   * passaient QUE par `slack_directory.email`. Or cette colonne peut être vide : elle vient du
+   * profil Slack, et une adresse n'y est pas toujours visible — un invité, un compte sans
+   * `users:read.email` exploitable, ou simplement quelqu'un qui ne l'a pas renseignée.
+   *
+   * Le symptôme, reproduit par la sonde d'arrivée : la personne complète tout son dossier,
+   * `submitProfile` RELIE bien `slack_directory.employee_id` au dossier créé — et « j'ai fini »
+   * répond « Je ne trouve pas encore de dossier à ton nom ». L'identifiant était dans la ligne
+   * qu'on venait de lire, et personne ne le regardait.
+   *
+   * Même famille que la cause racine du 2026-08-19, à l'envers : là, `employee_id` n'était
+   * écrite par aucun chemin ; ici elle l'est, et n'est lue par aucun.
+   */
+  private async findProfileRecord(
+    member: { employeeId?: string | null; email?: string | null } | null | undefined,
+  ): Promise<ProfileSnapshot | null> {
+    if (!this.profileRepo) return null;
+
+    const employeeId = member?.employeeId;
+    if (employeeId && this.profileRepo.findById) {
+      const byId = await this.profileRepo.findById(employeeId);
+      if (byId) return byId;
+    }
+
+    const email = member?.email;
+    return email ? await this.profileRepo.findByEmail(email) : null;
   }
 
   private async submitProfile(
@@ -2143,9 +2179,7 @@ export class SlackEventsHandler {
     let reply: string;
     try {
       const member = user ? await this.getDirectoryRepo()?.findBySlackUserId(user) : null;
-      const email = member?.email ?? null;
-      const record = email && this.profileRepo ? await this.profileRepo.findByEmail(email) : null;
-      reply = verifyProfile(record).reply;
+      reply = verifyProfile(await this.findProfileRecord(member)).reply;
     } catch (error) {
       logger.error('Vérification « j’ai fini » impossible — on ne l’impute pas à la personne', {
         error: String(error),
@@ -2564,7 +2598,7 @@ export function interviewReplyFor(step: InterviewStep, text: string, skipped: bo
   if (skipped) return INTERVIEW_SKIPPED_REPLY;
 
   const answer = captureInterviewAnswer(text);
-  if (!answer) return INTERVIEW_TOO_SHORT_REPLY;
+  if (!answer) return interviewRetryReply(step);
   if (step === 'dailyWork') return INTERVIEW_QUESTION_STYLE;
   return interviewDoneReply(answer);
 }

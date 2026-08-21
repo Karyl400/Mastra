@@ -512,12 +512,16 @@ for (const scenario of selected) {
   if (scenario.reset) {
     // Gratuit : c'est un court-circuit. Voir l'en-tête pour la raison.
     await post("oublie ce que je t'ai dit");
-    await wait(6000);
+    await wait(14000);
   }
 
   const since = Math.floor(Date.now() / 1000) - 1;
   const { status, ms } = await post(scenario.text);
-  await wait(scenario.free ? 9000 : 50000);
+  // ⚠️ 14 s et non 9 : `BURST_RULE` plafonne à 5 messages par minute et s'applique AUSSI aux
+  // court-circuits gratuits. À 9 s, une série de scénarios gratuits déclenche le refus de
+  // rafale et la campagne mesure sa propre cadence au lieu du produit — constaté sur la sonde
+  // d'arrivée le 2026-08-21.
+  await wait(scenario.free ? 14000 : 50000);
 
   const replies = await botRepliesSince(since);
   const reply = replies.join('\n');

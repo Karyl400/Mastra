@@ -167,17 +167,48 @@ async function botRepliesSince(channel: string, since: number): Promise<string> 
 
 const transcript: Array<[string, string]> = [];
 
-async function say(channel: string, text: string, label: string): Promise<string> {
-  const since = Math.floor(Date.now() / 1000) - 1;
-  const status = await post(channel, text);
-  await wait(9000);
-  const reply = await botRepliesSince(channel, since);
+/**
+ * ⚠️ **LA SONDE DOIT RESPECTER `BURST_RULE`, ET ELLE NE LE FAISAIT PAS — 2026-08-21.**
+ *
+ * Le premier rejeu a déraillé sur « Tu m'écris plus vite que je ne sais répondre ». Ce n'était
+ * pas un défaut du produit : `BURST_RULE` autorise 5 messages par minute et s'applique à TOUT,
+ * y compris aux court-circuits gratuits — délibérément, « une rafale reste une rafale, quel que
+ * soit le quota derrière ». La sonde postait toutes les 9 secondes, soit 6,7 par minute.
+ *
+ * C'est le pire genre de faux signal : le parcours suivant partait d'un état que la sonde
+ * croyait établi, et six contrôles rougissaient en désignant des causes imaginaires. Un cadre
+ * qui ne respecte pas les règles du produit ne mesure pas le produit.
+ *
+ * D'où DEUX gardes : une cadence sous la limite (5 par minute ⇒ un message toutes les 12 s au
+ * plus vite), et la RECONNAISSANCE du refus de rafale, qui attend puis rejoue le tour au lieu
+ * de le compter comme une réponse.
+ */
+const BURST_PATTERN = /plus vite que je ne sais répondre|laisse-moi une minute/i;
+const PACE_MS = 14_000;
 
-  console.log('─'.repeat(78));
-  console.log(`${label}\n→ « ${text.length > 90 ? `${text.slice(0, 90)}…` : text} »   (ACK ${status})`);
-  console.log(reply || '(AUCUNE RÉPONSE)');
-  transcript.push([label, reply]);
-  return reply;
+async function say(channel: string, text: string, label: string): Promise<string> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const since = Math.floor(Date.now() / 1000) - 1;
+    const status = await post(channel, text);
+    await wait(PACE_MS);
+    const reply = await botRepliesSince(channel, since);
+
+    if (BURST_PATTERN.test(reply)) {
+      console.log(`⏳ rafale détectée sur « ${label} » — pause de 65 s puis nouvelle tentative`);
+      await wait(65_000);
+      continue;
+    }
+
+    console.log('─'.repeat(78));
+    console.log(
+      `${label}\n→ « ${text.length > 90 ? `${text.slice(0, 90)}…` : text} »   (ACK ${status})`,
+    );
+    console.log(reply || '(AUCUNE RÉPONSE)');
+    transcript.push([label, reply]);
+    return reply;
+  }
+
+  throw new Error(`Rafale persistante sur « ${label} » — le rejeu est interrompu.`);
 }
 
 const checks: Array<[string, boolean, string]> = [];
@@ -279,6 +310,10 @@ await db.execute({
 
 await say(channel, "oublie ce que je t'ai dit", '⟲ remise à zéro du fil');
 
+// Un arrivant dit bonjour avant de remplir quoi que ce soit. C'est aussi le seul moment du
+// parcours où Marcel se nomme — le contrôle de persona porterait sinon sur rien.
+await say(channel, 'bonjour', '⓪ salutation');
+
 reply = await say(channel, 'je veux compléter mon profil', '① demande du formulaire');
 record(
   'la première question posée est bien le PRÉNOM',
@@ -360,15 +395,13 @@ if (createdId) {
   );
 }
 
-// ── 6. « j'ai fini » puis l'entretien ───────────────────────────────────────
-console.log(`\n${'═'.repeat(78)}\nVÉRIFICATION DU DOSSIER, PUIS L’ENTRETIEN\n${'═'.repeat(78)}`);
-
-reply = await say(channel, "j'ai fini", '⑥ « j’ai fini »');
-record(
-  'le verdict de complétion ne redemande pas un dossier qui existe',
-  !reply.includes('Je ne trouve pas encore de dossier'),
-  reply.slice(0, 90).replace(/\n/g, ' '),
-);
+// ── 6. L'ENTRETIEN, qui s'enchaîne tout seul, PUIS « j'ai fini » ────────────
+//
+// ⚠️ L'ordre importe, et la première version l'avait faux : la création du dossier enchaîne
+// DIRECTEMENT sur la première question d'entretien. Envoyer « j'ai fini » à ce moment-là
+// écrasait l'entretien avant qu'il ait commencé, et la sonde imputait ensuite au produit une
+// absence de ligne d'entretien qu'elle avait elle-même provoquée.
+console.log(`\n${'═'.repeat(78)}\nL’ENTRETIEN, PUIS LA VÉRIFICATION DU DOSSIER\n${'═'.repeat(78)}`);
 
 // ⚠️ Cas limite — une réponse trop courte ne doit pas devenir la description du métier de
 // quelqu'un : ce champ est IMPRIMÉ dans un document qui porte son nom.
@@ -387,6 +420,23 @@ for (let guard = 0; guard < 4; guard += 1) {
   if (!step) break;
   reply = await say(channel, INTERVIEW[step], `→ entretien : ${step}`);
 }
+
+reply = await say(channel, "j'ai fini", '⑥ « j’ai fini »');
+record(
+  'le verdict de complétion ne redemande pas un dossier qui existe',
+  !reply.includes('Je ne trouve pas encore de dossier'),
+  reply.slice(0, 90).replace(/\n/g, ' '),
+);
+
+// ⚠️ **CE CONTRÔLE VIENT D'UN DÉFAUT TROUVÉ PAR CETTE SONDE, en production le 2026-08-21.**
+// L'annuaire n'a pas d'email ici (mis de côté), mais `submitProfile` a RELIÉ `employee_id`.
+// Les deux lecteurs du dossier ne passaient que par l'adresse : « Je ne trouve pas encore de
+// dossier à ton nom » juste après l'avoir créé, avec l'identifiant sous les yeux.
+record(
+  "le dossier se retrouve par son LIEN, sans adresse dans l'annuaire",
+  reply.includes('complet') || !reply.includes('Je ne trouve pas'),
+  reply.slice(0, 70).replace(/\n/g, ' '),
+);
 
 if (createdId) {
   const interview = await db.execute({
@@ -444,34 +494,50 @@ for (const [label, ok, detail] of checks) console.log(`${ok ? '✅' : '❌'} ${l
 // ── 8. Nettoyage ────────────────────────────────────────────────────────────
 console.log(`\n${'═'.repeat(78)}\nNETTOYAGE\n${'═'.repeat(78)}`);
 
-if (createdId) {
-  await db.execute({
-    sql: 'DELETE FROM onboarding_interview WHERE employee_id = ?',
-    args: [createdId],
-  });
-  await db.execute({
-    sql: 'DELETE FROM onboarding_progress WHERE employee_id = ?',
-    args: [createdId],
-  });
-  await db.execute({ sql: 'DELETE FROM employees WHERE id = ?', args: [createdId] });
-  console.log(`Dossier de sonde ${createdId} supprimé.`);
-}
-
-await db.execute({
-  sql: 'UPDATE slack_directory SET first_name = ?, last_name = ?, email = ? WHERE slack_user_id = ?',
-  args: [realIdentity.first_name, realIdentity.last_name, realIdentity.email, ARRIVAL_USER],
-});
-
+/**
+ * ⚠️ **L'ORDRE DU NETTOYAGE A COÛTÉ UNE BASE DE PRODUCTION LAISSÉE SALE — 2026-08-21.**
+ *
+ * La première version supprimait le dossier de sonde AVANT de rendre l'annuaire à son vrai
+ * dossier. Or `slack_directory.employee_id` pointait encore sur la sonde :
+ * `FOREIGN KEY constraint failed`, le script mourait, et le dossier réel restait archivé,
+ * l'annuaire vidé de son identité. Il a fallu réparer à la main depuis la sauvegarde.
+ *
+ * On RESTAURE donc d'abord — c'est ce qui relâche la référence — puis on purge. Et l'on purge
+ * TOUT ce qui pend au dossier de sonde : l'email de bienvenue crée une ligne `notifications`
+ * que la première version ignorait.
+ */
 if (existingEmployeeId) {
   await db.execute({
     sql: 'UPDATE employees SET deleted_at = NULL WHERE id = ?',
     args: [existingEmployeeId],
   });
-  await db.execute({
-    sql: 'UPDATE slack_directory SET employee_id = ? WHERE slack_user_id = ?',
-    args: [existingEmployeeId, ARRIVAL_USER],
-  });
-  console.log(`Dossier réel ${existingEmployeeId} restauré et relié.`);
+}
+
+await db.execute({
+  sql: 'UPDATE slack_directory SET first_name = ?, last_name = ?, email = ?, employee_id = ? WHERE slack_user_id = ?',
+  args: [
+    realIdentity.first_name,
+    realIdentity.last_name,
+    realIdentity.email,
+    existingEmployeeId,
+    ARRIVAL_USER,
+  ],
+});
+if (existingEmployeeId) console.log(`Dossier réel ${existingEmployeeId} restauré et relié.`);
+
+if (createdId) {
+  for (const [table, column] of [
+    ['onboarding_interview', 'employee_id'],
+    ['onboarding_progress', 'employee_id'],
+    ['notifications', 'recipient_id'],
+    ['documents', 'employee_id'],
+  ] as const) {
+    await db
+      .execute({ sql: `DELETE FROM ${table} WHERE ${column} = ?`, args: [createdId] })
+      .catch((error) => console.log(`  ${table} : ${String(error).slice(0, 60)}`));
+  }
+  await db.execute({ sql: 'DELETE FROM employees WHERE id = ?', args: [createdId] });
+  console.log(`Dossier de sonde ${createdId} supprimé, dépendances comprises.`);
 }
 
 // ⚠️ On RELIT après restauration. Écrire puis supposer est exactement ce que `role:set` refuse
