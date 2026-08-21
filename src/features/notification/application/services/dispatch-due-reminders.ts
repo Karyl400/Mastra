@@ -3,9 +3,11 @@ import { NotificationStatus } from '../../../../shared/types';
 import { textEmailBody } from '../../domain/services/email-body';
 import {
   MAX_REMINDERS_PER_RUN,
+  STALE_AFTER_DAYS,
   STRANDED_CLAIM_MS,
   reminderPreamble,
   selectDueReminders,
+  selectStaleReminders,
 } from '../../domain/services/reminder-dispatch';
 import type { Notification } from '../../domain/entities/notification';
 import type { NotificationRepository } from '../../domain/ports/notification.repository';
@@ -27,6 +29,8 @@ export interface DispatchReport {
   readonly sent: number;
   readonly failed: number;
   readonly skipped: number;
+  /** Périmés : le jour est passé depuis plus d'une semaine. Annulés, jamais remis. */
+  readonly stale: number;
   readonly reasons: Readonly<Record<string, number>>;
 }
 
@@ -53,6 +57,30 @@ export async function dispatchDueReminders(deps: DispatchDeps): Promise<Dispatch
   const now = deps.now?.() ?? new Date();
 
   const pending = await deps.notifications.findPending();
+
+  /**
+   * ⚠️ **LES PÉRIMÉS SONT ÉTEINTS AVANT TOUT LE RESTE.** Allumer un ordonnanceur réveille tout
+   * ce qui dormait : le 2026-08-21, la première exécution a trouvé des lignes écrites des
+   * semaines plus tôt, quand rien ne les reprenait. Sans cette extinction, un backlog de six
+   * mois partirait par lots de 25, sur des jours, chez des gens qui n'ont rien demandé.
+   *
+   * On ANNULE plutôt qu'on ne supprime : la trace reste lisible, et un rappel exhumé est un
+   * mensonge de plus, pas un service rendu.
+   */
+  const stale = selectStaleReminders(pending, now);
+  for (const old of stale) {
+    logger.warn('Rappel périmé — annulé sans remise', {
+      id: old.id,
+      scheduledAt: old.scheduledAt,
+      staleAfterDays: STALE_AFTER_DAYS,
+    });
+    await deps.notifications.update({
+      ...old,
+      status: NotificationStatus.Cancelled,
+      updatedAt: now.toISOString(),
+    });
+  }
+
   const due = selectDueReminders(pending, now, MAX_REMINDERS_PER_RUN);
 
   if (due.length === MAX_REMINDERS_PER_RUN) {
@@ -80,9 +108,10 @@ export async function dispatchDueReminders(deps: DispatchDeps): Promise<Dispatch
     sent,
     failed,
     skipped,
+    stale: stale.length,
   });
 
-  return { due: due.length, sent, failed, skipped, reasons };
+  return { due: due.length, sent, failed, skipped, stale: stale.length, reasons };
 }
 
 async function deliverOne(

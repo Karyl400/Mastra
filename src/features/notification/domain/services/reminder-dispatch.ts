@@ -50,6 +50,28 @@ export const REMINDER_DISPATCH_HOUR_UTC = 6;
  */
 export const MAX_REMINDERS_PER_RUN = 25;
 
+/**
+ * ⚠️ **ALLUMER UN ORDONNANCEUR RÉVEILLE TOUT CE QUI DORMAIT — constaté en production le
+ * 2026-08-21, à la première exécution.**
+ *
+ * `scheduleReminder` écrivait des lignes `scheduled` depuis des semaines, et rien ne les
+ * reprenait : elles étaient inertes. À la seconde où la remise a existé, **trois rappels échus
+ * de la veille sont partis pour de bon**, et onze autres attendaient leur jour. C'était correct
+ * — et c'est exactement le mode de panne qu'on aurait eu en pire si la table avait porté six
+ * mois d'historique : une avalanche, le jour de la mise en service, sans que personne l'ait
+ * demandée.
+ *
+ * Le plafond par exécution borne la RAFALE, pas le BACKLOG : il l'étale sur des jours.
+ *
+ * Au-delà de cette péremption, un rappel n'est plus rendu, il est ANNULÉ. « Je te rappelle ceci
+ * pour le 20 juillet » remis le 21 août n'est pas un service, c'est de la confusion — et une
+ * personne qui reçoit ça n'a aucun moyen de savoir si c'est un bug ou une intention.
+ *
+ * ⚠️ Sept jours, et pas moins : rater d'un jour ou deux doit rester rattrapable, c'est toute la
+ * raison d'être de la reprise. Ce qu'on refuse est l'exhumation, pas le retard.
+ */
+export const STALE_AFTER_DAYS = 7;
+
 const DAY_MS = 86_400_000;
 
 const DISPATCHABLE: ReadonlySet<string> = new Set([
@@ -121,7 +143,32 @@ export function isDueForDispatch(
   const at = Date.parse(notification.scheduledAt);
   if (Number.isNaN(at)) return false;
 
+  if (now.getTime() - at > STALE_AFTER_DAYS * DAY_MS) return false;
+
   return localDayKey(new Date(at), timeZone) <= localDayKey(now, timeZone);
+}
+
+/**
+ * Périmé : le jour est passé depuis trop longtemps pour que la remise ait encore un sens.
+ * Distinct de « pas encore dû » — c'est un état terminal, pas une attente.
+ */
+export function isStaleReminder(
+  notification: Pick<Notification, 'status' | 'scheduledAt'>,
+  now: Date,
+): boolean {
+  if (
+    !DISPATCHABLE.has(notification.status) &&
+    notification.status !== NotificationStatus.Sending
+  ) {
+    return false;
+  }
+  const at = notification.scheduledAt ? Date.parse(notification.scheduledAt) : Number.NaN;
+  if (Number.isNaN(at)) return false;
+  return now.getTime() - at > STALE_AFTER_DAYS * DAY_MS;
+}
+
+export function selectStaleReminders(all: readonly Notification[], now: Date): Notification[] {
+  return all.filter((n) => isStaleReminder(n, now));
 }
 
 export function selectDueReminders(

@@ -5,9 +5,11 @@ import {
   REMINDER_DISPATCH_HOUR_UTC,
   REMINDER_DISPATCH_PATH,
   REMINDER_DISPATCH_SCHEDULE,
+  STALE_AFTER_DAYS,
   STRANDED_CLAIM_MS,
   deliveryLabel,
   isDueForDispatch,
+  isStaleReminder,
   isStrandedClaim,
   nextDeliveryAt,
   reminderPreamble,
@@ -471,5 +473,57 @@ describe('la note de remise ne répète pas ce que l’agent vient de dire', () 
     const { buildReminderNotice } =
       await import('../../../src/features/notification/infrastructure/handlers/slack-events.handler');
     expect(buildReminderNotice(new Map(), 'Voici ton guide.')).toBe('');
+  });
+});
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * ALLUMER UN ORDONNANCEUR RÉVEILLE TOUT CE QUI DORMAIT
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Constaté en production le 2026-08-21, à la PREMIÈRE exécution. `scheduleReminder` écrivait
+ * des lignes `scheduled` depuis des semaines et rien ne les reprenait : elles étaient inertes.
+ * À la seconde où la remise a existé, trois rappels échus de la veille sont partis pour de bon.
+ *
+ * C'était correct — et c'est le mode de panne qu'on aurait eu en pire avec six mois
+ * d'historique : une avalanche le jour de la mise en service, que personne n'a demandée. Le
+ * plafond par exécution borne la RAFALE, pas le BACKLOG : il l'étale sur des jours.
+ */
+describe('un rappel exhumé n’est pas un service rendu', () => {
+  it('un rappel en retard d’un jour part quand même — c’est le but de la reprise', () => {
+    const now = new Date('2026-08-25T06:00:00.000Z');
+    expect(isDueForDispatch(reminder(), now, 'Africa/Lagos')).toBe(true);
+  });
+
+  it('un rappel échu depuis plus d’une semaine ne part PAS', () => {
+    const now = new Date('2026-09-05T06:00:00.000Z');
+    expect(isDueForDispatch(reminder(), now, 'Africa/Lagos')).toBe(false);
+    expect(isStaleReminder(reminder(), now)).toBe(true);
+  });
+
+  it('la remise les ANNULE plutôt que de les remettre, et le dit', async () => {
+    const deps = makeDeps({ now: () => new Date('2026-09-05T06:00:00.000Z') });
+    await deps.notifications.save(reminder({ id: 'vieux' }));
+
+    const report = await run(deps);
+
+    expect(report).toMatchObject({ due: 0, sent: 0, stale: 1 });
+    expect(deps.email.sendEmail).not.toHaveBeenCalled();
+    expect((await deps.notifications.findById('vieux'))?.status).toBe(NotificationStatus.Cancelled);
+  });
+
+  it('un rappel FRAIS n’est jamais confondu avec un périmé', async () => {
+    const deps = makeDeps();
+    await deps.notifications.save(reminder({ id: 'frais' }));
+
+    const report = await run(deps);
+
+    expect(report).toMatchObject({ due: 1, sent: 1, stale: 0 });
+  });
+
+  it('la péremption laisse la place au retard — sept jours, pas moins', () => {
+    // Raccourcir cette borne transformerait le rattrapage en perte : c'est précisément ce que
+    // la reprise existe pour éviter.
+    expect(STALE_AFTER_DAYS).toBeGreaterThanOrEqual(7);
   });
 });
