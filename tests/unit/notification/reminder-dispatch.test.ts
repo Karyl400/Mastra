@@ -436,3 +436,40 @@ describe('une prise abandonnée est reprise par la remise suivante', () => {
     expect(deps.email.sendEmail).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * La note de remise ne doit pas devenir son propre bruit — même défaut que le doublon de
+ * démenti corrigé plus tôt le 2026-08-21, sous une autre forme.
+ */
+describe('la note de remise ne répète pas ce que l’agent vient de dire', () => {
+  it('s’efface entièrement quand la réponse dit déjà « au matin »', async () => {
+    const { buildReminderNotice } =
+      await import('../../../src/features/notification/infrastructure/handlers/slack-events.handler');
+    const ctx = new Map([['slackReminderDelivery', 'le lundi 24 août 2026 au matin']]);
+    expect(buildReminderNotice(ctx, 'Je te le remettrai lundi 24 août 2026 au matin.')).toBe('');
+  });
+
+  it('se réduit à l’information NEUVE quand seule la date est déjà là', async () => {
+    const { buildReminderNotice } =
+      await import('../../../src/features/notification/infrastructure/handlers/slack-events.handler');
+    const ctx = new Map([['slackReminderDelivery', 'le lundi 24 août 2026 au matin']]);
+    const notice = buildReminderNotice(ctx, 'Rappel programmé pour le lundi 24 août 2026.');
+
+    expect(notice).toContain('matin');
+    expect(notice).toContain('une fois par jour');
+    expect(notice).not.toContain('24 août');
+  });
+
+  it('donne la date entière quand l’agent ne l’a pas donnée', async () => {
+    const { buildReminderNotice } =
+      await import('../../../src/features/notification/infrastructure/handlers/slack-events.handler');
+    const ctx = new Map([['slackReminderDelivery', 'le lundi 24 août 2026 au matin']]);
+    expect(buildReminderNotice(ctx, "C'est noté.")).toContain('lundi 24 août 2026');
+  });
+
+  it('ne dit rien du tout hors du chemin des rappels', async () => {
+    const { buildReminderNotice } =
+      await import('../../../src/features/notification/infrastructure/handlers/slack-events.handler');
+    expect(buildReminderNotice(new Map(), 'Voici ton guide.')).toBe('');
+  });
+});

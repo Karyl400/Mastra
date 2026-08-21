@@ -381,10 +381,24 @@ function buildAuthorizationNotice(requestContext: unknown, answer: string): stri
  * ⚠️ La note S'EFFACE si la réponse dit déjà « au matin » : le doublon de démenti relevé le
  * 2026-08-21 est venu d'une note qui redisait ce que la phrase disait déjà.
  */
-function buildReminderNotice(requestContext: unknown, answer: string): string {
+export function buildReminderNotice(requestContext: unknown, answer: string): string {
   const label = readReminderDelivery(requestContext);
   if (!label) return '';
+
+  // La réponse dit déjà tout : rien à ajouter.
   if (answer.includes(label) || /au matin\b/i.test(answer)) return '';
+
+  // ⚠️ La note ne REDIT pas la date quand l'agent vient de la donner. Mesuré en production le
+  // 2026-08-21 : « Rappel programmé pour le lundi 24 août 2026. » suivi de « Je te le
+  // remettrai lundi 24 août 2026 au matin » — l'information utile (le matin, une fois par
+  // jour) noyée dans une répétition. Même arbitrage que `buildRecipientNotice` : une note qui
+  // se répète finit par se faire ignorer, y compris quand elle compte.
+  // ⚠️ Bornes SIMPLES et non `\s+` : `sonarjs/super-linear-regex` signale le retour arrière que
+  // produit un quantificateur en tête ou en queue de motif, et ce dépôt tient son lint à zéro
+  // warning. Le libellé est produit par `deliveryLabel`, sa forme est connue exactement.
+  const day = label.replace(/^le /i, '').replace(/ au matin$/i, '');
+  if (answer.includes(day)) return "\n\n_(Au matin — je ne passe qu'une fois par jour.)_";
+
   return `\n\n_(Je te le remettrai ${label} — je ne passe qu'une fois par jour.)_`;
 }
 
