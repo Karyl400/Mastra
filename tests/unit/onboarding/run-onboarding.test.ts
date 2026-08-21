@@ -5,6 +5,10 @@ import {
   BestEffortStep,
   OnboardingOutcome,
 } from '../../../src/features/onboarding/domain/value-objects/onboarding-outcome';
+import {
+  PROFILE_EMAIL_TAKEN_REPLY,
+  PROFILE_SUBMISSION_FAILED_REPLY,
+} from '../../../src/features/onboarding/domain/services/onboarding-replies';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -152,5 +156,91 @@ describe('idempotence', () => {
 
     expect(runIds[0]).toBeTruthy();
     expect(runIds[0]).toBe(runIds[1]);
+  });
+});
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * L'ADRESSE OCCUPÉE PAR UNE FICHE SUPPRIMÉE — trouvé en production le 2026-08-21
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ CE DÉFAUT EST UNE BOUCLE SANS SORTIE, et c'est ce qui le rend cher.
+ *
+ * `idx_employees_email` est un index UNIQUE **sans prédicat sur `deleted_at`**. Une fiche
+ * soft-deleted occupe donc toujours son adresse. Or les trois résolveurs filtrent
+ * `deleted_at` : pour le produit, la personne n'a PAS de dossier. Il lui pose donc les quatre
+ * questions, puis échoue à l'enregistrement — indéfiniment.
+ *
+ * `DrizzleEmployeeRepository.explainEmailConflict` fabrique pourtant un diagnostic EXACT
+ * (« l'adresse est encore occupée par une fiche supprimée le … »). Ce diagnostic existait déjà
+ * et n'atteignait personne : `runOnboarding` le remplaçait par un message générique qui
+ * conseille de RECOMMENCER — c'est-à-dire de refaire exactement ce qui vient d'échouer.
+ *
+ * Constaté en production : `SQLITE_CONSTRAINT: UNIQUE constraint failed: employees.email`,
+ * `code: 'CONFLICT'`, `statusCode: 409`. Awa TRAORE est dans cet état depuis le 2026-08-12.
+ */
+describe("l'adresse est occupée par une fiche supprimée", () => {
+  const conflit = {
+    status: 'failed',
+    error: {
+      code: 'CONFLICT',
+      statusCode: 409,
+      message: "L'adresse alice@kisso.com est encore occupée par une fiche supprimée le …",
+    },
+  };
+
+  it('ne conseille PAS de recommencer — recommencer échouerait à l’identique', async () => {
+    const d = deps(workflowReturning(conflit));
+
+    await runOnboarding(d, PROFILE, START);
+
+    const texte = d.notify.mock.calls.at(-1)?.[0] ?? '';
+    expect(texte).not.toMatch(/recommence/i);
+    expect(texte).not.toMatch(/réessaie/i);
+  });
+
+  it('nomme qui peut débloquer, parce que la personne ne le peut pas elle-même', async () => {
+    const d = deps(workflowReturning(conflit));
+
+    await runOnboarding(d, PROFILE, START);
+
+    // ⚠️ `toContain('Nazer')` seul ne prouve RIEN : le message générique le nomme aussi depuis
+    // le 2026-08-21. L'assertion doit donc porter sur la DIFFÉRENCE entre les deux textes —
+    // c'est ce qui distingue un test qui garde une propriété d'un test qui décore.
+    const texte = d.notify.mock.calls.at(-1)?.[0] ?? '';
+    expect(texte).toContain('Nazer');
+    expect(texte).not.toBe(PROFILE_SUBMISSION_FAILED_REPLY);
+  });
+
+  it('dit que le dossier existe, au lieu de laisser croire à une panne', async () => {
+    // « ça vient de mon côté » est FAUX ici : rien n'est cassé, une donnée est occupée. La
+    // différence compte — l'une se répare toute seule, l'autre demande un geste humain.
+    const d = deps(workflowReturning(conflit));
+
+    await runOnboarding(d, PROFILE, START);
+
+    expect(d.notify.mock.calls.at(-1)?.[0] ?? '').toMatch(/archiv|supprim/i);
+  });
+
+  it('reconnaît le conflit MÊME enfoui dans une chaîne de causes', async () => {
+    // ⚠️ Mastra emballe l'erreur du step. Chercher le code au premier niveau seulement, c'est
+    // retomber en silence sur le message générique — le défaut d'origine sous une autre forme.
+    const enfoui = {
+      status: 'failed',
+      error: { message: 'step failed', cause: { cause: { code: 'CONFLICT' } } },
+    };
+    const d = deps(workflowReturning(enfoui));
+
+    await runOnboarding(d, PROFILE, START);
+
+    expect(d.notify.mock.calls.at(-1)?.[0] ?? '').toBe(PROFILE_EMAIL_TAKEN_REPLY);
+  });
+
+  it('laisse le message GÉNÉRIQUE aux échecs qui, eux, méritent un réessai', async () => {
+    const d = deps(workflowReturning({ status: 'failed', error: { message: 'timeout SMTP' } }));
+
+    await runOnboarding(d, PROFILE, START);
+
+    expect(d.notify.mock.calls.at(-1)?.[0] ?? '').toMatch(/recommence/i);
   });
 });

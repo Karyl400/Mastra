@@ -1231,8 +1231,17 @@ export class SlackEventsHandler {
       return;
     }
 
-    await this.chatProvider.sendBlocks(channel, PROFILE_FORM_INVITE, buildProfileInviteBlocks());
-
+    // ⚠️ L'INVITATION EST POSTÉE APRÈS LA VÉRIFICATION, PAS AVANT — corrigé le 2026-08-21,
+    // sur observation en production.
+    //
+    // Elle partait inconditionnellement, si bien qu'une personne au dossier déjà complet lisait
+    // « On va compléter ton dossier » suivi, dans la seconde, de « Ton dossier est déjà complet
+    // — je n'ai rien à te redemander. » Le premier message annonce un travail que le second
+    // annule : c'est la famille de défaut que ce dépôt traque partout ailleurs, ici sous sa
+    // forme la plus bénigne et la plus visible.
+    //
+    // L'ordre coûte une lecture de plus avant le premier mot posté. C'est le bon échange :
+    // l'alternative est d'ouvrir la conversation par une phrase fausse.
     const known = await this.knownProfileAnswers(user);
     const first = nextProfileStep(known);
 
@@ -1243,6 +1252,8 @@ export class SlackEventsHandler {
       );
       return;
     }
+
+    await this.chatProvider.sendBlocks(channel, PROFILE_FORM_INVITE, buildProfileInviteBlocks());
 
     await this.sayAndRemember(
       { channel, threadTs, conversationId, user },

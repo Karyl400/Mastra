@@ -2183,3 +2183,63 @@ divergence qui a laissé passer le bug : l'ancien double écrivait inconditionne
 
 l'objet entier, donc il conservait des horodatages que Drizzle, lui, jetait.
 
+
+---
+
+# Deux défauts trouvés par le REJEU en production (2026-08-21)
+
+Un rejeu du parcours d'arrivée complet a dérivé. C'est ce qui l'a rendu utile : les deux défauts
+ci-dessous sont invisibles à la lecture du code, et aucun test unitaire ne les couvrait.
+
+## Une adresse occupée par une fiche supprimée enferme la personne dans une BOUCLE
+
+`idx_employees_email` est UNIQUE **sans prédicat sur `deleted_at`** : une fiche archivée occupe
+encore son adresse. Mais les trois résolveurs (`findByName`, `findByEmail`, `findAll`) filtrent
+`deleted_at` — donc pour le produit, la personne n'a **pas** de dossier.
+
+Le parcours est alors le suivant, et il ne se termine jamais :
+
+1. « Je ne trouve pas encore de dossier à ton nom » — vrai, du point de vue des résolveurs ;
+2. les quatre questions, auxquelles la personne répond ;
+3. `UNIQUE constraint failed: employees.email` ;
+4. « ça vient de mon côté […] réécris-moi *compléter mon profil* et recommence » ;
+5. retour à l'étape 1.
+
+⚠️ **LE DIAGNOSTIC EXACT EXISTAIT DÉJÀ ET N'ATTEIGNAIT PERSONNE.**
+`DrizzleEmployeeRepository.explainEmailConflict` fabrique, mot pour mot :
+
+> `L'adresse … est encore occupée par une fiche supprimée le … Réactiver cette fiche ou libérer
+> l'adresse avant de recréer un employé.`
+
+`runOnboarding` le remplaçait par le message générique. C'est la même famille qu'`emailSent:
+false` sous `status: 'success'` et que `documents.content` perdu en silence : **l'information
+juste existe, et se perd au dernier mètre.**
+
+`PROFILE_EMAIL_TAKEN_REPLY` ne conseille pas de recommencer, dit que le dossier est archivé, et
+nomme qui peut le débloquer. Il ne cite **ni la date ni l'identifiant** : ce sont des détails
+d'implémentation pour quelqu'un qui n'a aucun moyen d'agir dessus.
+
+⚠️ `isEmailAlreadyTaken` parcourt la **chaîne de causes**. En production, `code: 'CONFLICT'`
+était enfoui sous `details.cause.cause` : une lecture à plat retomberait en silence sur le
+message générique — le défaut d'origine sous une autre forme, et invisible puisque le repli
+existe. Même méthode que `isUniqueConstraintViolation` et que `userFacingFailure`.
+
+⚠️ **Awa TRAORE est dans cet état depuis le 2026-08-12.** Le défaut n'est pas théorique.
+
+## L'invitation au formulaire était postée avant la vérification
+
+Constaté à l'œil dans la campagne : « On va compléter ton dossier — c'est lui qui me permet de
+retrouver ton profil » suivi, dans la seconde, de « Ton dossier est déjà complet — je n'ai rien
+à te redemander. » Le premier message annonce un travail que le second annule.
+
+La lecture est déplacée **avant** le premier mot posté. Cela coûte un aller-retour de base de
+données ; l'alternative est d'ouvrir la conversation par une phrase fausse.
+
+## ⚠️ Ce que le rejeu a révélé et qui n'est PAS corrigé
+
+Après un échec d'enregistrement, la machine à états repart de zéro et capture le message suivant
+comme un **prénom**. Relevé en base pendant le rejeu : `first_name` valant
+`« en asynchrone, avec peu de réunions et beaucoup d'écrit »`.
+
+C'est la famille de défaut déjà corrigée pour les court-circuits le 2026-08-19 (« Salut »
+devenait un prénom), reparue par un autre chemin — l'échec de sauvegarde. Signalé plutôt que tu.
