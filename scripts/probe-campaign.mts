@@ -260,9 +260,16 @@ const SCENARIOS: readonly Scenario[] = [
     name: 'message trop long — un refus de TAILLE, jamais un refus de POLITIQUE',
     // La borne double celle de `wrapUserInput` sans la déplacer : une `SecurityBlockError`
     // ressortirait en refus neutre, et un copier-coller recevrait un refus de politique.
-    text: `Voici mes notes de la semaine : ${'la réunion a porté sur le planning et les priorités. '.repeat(120)}`,
+    // ⚠️ **LE COMPTE ÉTAIT FAUX AU PREMIER PASSAGE, et le scénario passait quand même.**
+    // `MAX_USER_INPUT_LENGTH` vaut 8000 et la borne du court-circuit la DOUBLE : à 120
+    // répétitions (≈ 5 900 caractères) le message partait normalement chez le modèle, qui a
+    // répondu « J'ai bien reçu tes notes ». Le scénario était vert et ne mesurait rien — il
+    // n'avait qu'un `mustNot`, donc rien ne pouvait le contredire. Un scénario sans `must` sur
+    // le comportement qu'il prétend vérifier est un scénario décoratif.
+    text: `Voici mes notes de la semaine : ${'la réunion a porté sur le planning et les priorités. '.repeat(400)}`,
     free: true,
-    mustNot: [...INTERNAL_LEAKS, ...MACHINE_TALK],
+    must: [/trop long|longueur|d'un seul bloc|je cale/i],
+    mustNot: [...INTERNAL_LEAKS, ...MACHINE_TALK, 'Je ne peux pas traiter ce message tel quel'],
   },
 
   // ══════════════ PAYANT — la couverture restante des missions ══════════════
