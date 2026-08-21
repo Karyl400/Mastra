@@ -29,6 +29,7 @@ import { logger } from '../shared/logger';
 import { DrizzleConversationRepository } from '../features/conversation/infrastructure/repositories/drizzle-conversation.repository';
 import { deriveConversationId } from '../features/conversation/domain/value-objects/conversation-id';
 import { DEFAULT_AGENT_ID } from '../features/notification/domain/services/agent-routing';
+import { judgeWorkspace } from '../shared/slack-team';
 
 export const SLACK_INTERACTIONS_PATH = '/slack/interactions';
 
@@ -414,6 +415,33 @@ export async function handleSlackInteractionRequest(
   } catch (error) {
     logger.warn('Slack interaction payload is not valid JSON', { error });
     return jsonResponse({ error: 'invalid_payload' }, 400);
+  }
+
+  /**
+   * ⚠️ **CONTRÔLE D'APPARTENANCE AU WORKSPACE — il manquait ici, et seulement ici.**
+   *
+   * La signature HMAC prouve que Slack a émis la requête, pas depuis quel workspace : une app
+   * installée ailleurs signerait tout aussi valablement. `/slack/events` posait cette défense
+   * en profondeur depuis longtemps ; cette route ne la posait pas, alors que `payload.team.id`
+   * est **déclaré dans son type et lu nulle part**. Relevé par l'audit du 2026-08-21.
+   *
+   * La règle est PARTAGÉE (`shared/slack-team.ts`), pas recopiée — c'est la seule façon de ne
+   * pas rejouer la divergence qui vient d'être corrigée ailleurs.
+   *
+   * ⚠️ **Fail-open sans `SLACK_TEAM_ID`**, comme côté événements : refuser en silence tous les
+   * clics d'un déploiement qui n'a pas posé la variable serait une panne indiscernable d'un bot
+   * mort. On journalise, on ne bloque pas.
+   */
+  const workspace = judgeWorkspace(payload.team?.id, process.env.SLACK_TEAM_ID);
+  if (!workspace.accepted) {
+    logger.warn('Interaction Slack venue d’un workspace inattendu — ignorée', {
+      received: workspace.received,
+      expected: workspace.expected,
+      type: payload.type,
+    });
+    // On ACQUITTE : Slack ne doit pas réessayer, et un 4xx ferait apparaître une croix rouge
+    // dans le client de quelqu'un dont on ignore délibérément l'action.
+    return ack();
   }
 
   if (payload.type === 'block_actions') return handleBlockActions(payload);

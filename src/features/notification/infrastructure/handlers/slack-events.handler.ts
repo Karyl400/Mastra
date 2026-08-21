@@ -1,6 +1,7 @@
 import { WebClient } from '@slack/web-api';
 import { LRUCache } from 'lru-cache';
 import type { Mastra } from '@mastra/core';
+import { judgeWorkspace } from '../../../../shared/slack-team';
 import { logger } from '../../../../shared/logger';
 import { wrapAgentInput } from '../../../../shared/security/llm-guardrail';
 import { sanitizeAgentOutput } from '../../../../shared/security/agent-output';
@@ -863,11 +864,17 @@ export class SlackEventsHandler {
     return true;
   }
 
+  /**
+   * ⚠️ **LA RÈGLE VIT DANS `shared/slack-team.ts` DEPUIS LE 2026-08-21, et elle y vit parce
+   * qu'elle a DEUX consommateurs.** `/slack/interactions` ne la posait pas du tout, alors que
+   * son payload porte `team.id` — déclaré dans le type, lu nulle part. Recopier la règle ici et
+   * là était exactement ce qui avait produit la divergence ; on la partage.
+   */
   private checkTeamId(envelope: SlackEventEnvelope): SlackEventDecision | undefined {
-    const expected = process.env.SLACK_TEAM_ID?.trim();
+    const verdict = judgeWorkspace(envelope.team_id, process.env.SLACK_TEAM_ID);
 
-    if (!expected) {
-      if (!this.teamIdWarningEmitted) {
+    if (verdict.accepted) {
+      if (!verdict.checked && !this.teamIdWarningEmitted) {
         this.teamIdWarningEmitted = true;
         logger.warn(
           'SLACK_TEAM_ID is not set — cross-workspace check disabled (fail-open by design)',
@@ -876,15 +883,11 @@ export class SlackEventsHandler {
       return undefined;
     }
 
-    if (envelope.team_id && envelope.team_id !== expected) {
-      logger.warn('Dropping Slack event from an unexpected workspace', {
-        received: envelope.team_id,
-        expected,
-      });
-      return { action: 'ignore', reason: 'wrong_team' };
-    }
-
-    return undefined;
+    logger.warn('Dropping Slack event from an unexpected workspace', {
+      received: verdict.received,
+      expected: verdict.expected,
+    });
+    return { action: 'ignore', reason: 'wrong_team' };
   }
 
   private rejectMessage(event: SlackMessageEvent): SlackIgnoreReason | undefined {

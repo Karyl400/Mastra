@@ -11,6 +11,7 @@ import { logger } from '../shared/logger';
 import { pruneKnowledge } from '../features/knowledge/application/services/prune-knowledge';
 import { DrizzleMessageArchiveRepository } from '../features/knowledge/infrastructure/repositories/drizzle-message-archive.repository';
 import { DrizzleKnowledgeFactRepository } from '../features/knowledge/infrastructure/repositories/drizzle-knowledge-fact.repository';
+import { constantTimeEquals } from '../shared/security/api-auth';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -48,7 +49,16 @@ export function authorizeCron(
   if (!secret) {
     return { ok: false, status: 503, reason: 'cron_secret_not_configured' };
   }
-  if (header !== `Bearer ${secret}`) {
+  /**
+   * ⚠️ **COMPARAISON À TEMPS CONSTANT, comme les deux autres frontières de ce dépôt.**
+   *
+   * L'exploitation par mesure de temps est ici peu plausible — comparaison de chaînes V8 sur un
+   * réseau public, et le CDN Vercel ajoute 0,3 à 2,3 s de variance, mesurée. Ce qu'on corrige
+   * n'est pas un risque, c'est une DISSONANCE : trois secrets, et un seul traité autrement que
+   * les autres. C'est le genre d'écart qui devient un défaut le jour où quelqu'un recopie le
+   * mauvais des deux modèles.
+   */
+  if (!constantTimeEquals(header ?? '', `Bearer ${secret}`)) {
     return { ok: false, status: 401, reason: 'bad_cron_authorization' };
   }
   return { ok: true };

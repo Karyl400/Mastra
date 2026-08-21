@@ -197,3 +197,58 @@ describe('generateDocument — garde d’idempotence par run', () => {
     expect(upload).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * ⚠️ **LE REFUS PRÉCÈDE LE CACHE — inversion du 2026-08-21.**
+ *
+ * La clé d'idempotence porte la CONVERSATION, pas le demandeur : dans un fil de canal partagé,
+ * deux personnes la partagent. Le cache étant consulté en premier, un non-autorisé qui
+ * reformulait à l'identique après un manager recevait le verdict mis en cache — dont
+ * `recipient`, le NOM de la personne — au lieu du refus.
+ *
+ * Étroit, mais ce dépôt tient une règle explicite : le refus tombe AVANT toute lecture. Ce test
+ * la porte pour `generateDocument`, comme `person-record-authorization.test.ts` la porte pour
+ * les deux autres outils gardés.
+ */
+describe("la frontière d'autorisation passe avant le cache d'idempotence", () => {
+  it('refuse un demandeur non autorisé même quand la conversation a DÉJÀ produit ce document', async () => {
+    const { deps } = makeDeps();
+    const tool = makeGenerateDocument(deps as never);
+
+    /**
+     * Même CONVERSATION, deux demandeurs. C'est tout le scénario : la clé d'idempotence porte
+     * `channel` (ou `channel:threadTs`), jamais l'identité — deux personnes d'un fil de canal
+     * la partagent donc par construction.
+     */
+    const inThread = (accessLevel: 'full' | 'readonly', eventTs: string) => ({
+      requestContext: buildSlackRequestContext({
+        channel: 'C_HQ',
+        threadTs: '111.000',
+        eventTs,
+        accessLevel,
+      }),
+    });
+
+    // 1. Un demandeur AUTORISÉ produit le document : le cache se remplit.
+    const payload = { ...INPUT, content: 'Bienvenue.' };
+
+    const first = (await tool.execute!(
+      payload as never,
+      inThread('full', '1.1') as never,
+    )) as Record<string, unknown>;
+    expect(first.saved).toBe(true);
+
+    // 2. Un NON-AUTORISÉ du même fil reformule à l'identique.
+    const second = (await tool.execute!(
+      payload as never,
+      inThread('readonly', '2.2') as never,
+    )) as Record<string, unknown>;
+
+    expect(second.reason).toBe('not_authorized');
+    // Le verdict en cache ne doit RIEN laisser filtrer — ni le nom du destinataire, ni le fait
+    // qu'un document existe déjà pour cette personne.
+    expect(second.alreadyDelivered).toBeUndefined();
+    expect(JSON.stringify(second)).not.toContain(EMPLOYEE.lastName);
+    expect(JSON.stringify(second)).not.toContain(EMPLOYEE.firstName);
+  });
+});

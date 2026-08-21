@@ -289,6 +289,36 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         revisionFingerprint: revisionFingerprintOf(data.revises, content),
       });
 
+      /**
+       * ⚠️ **LA GARDE PASSE AVANT LE CACHE D'IDEMPOTENCE — inversé le 2026-08-21.**
+       *
+       * Le cache était consulté d'abord, et sa clé porte la CONVERSATION
+       * (`channel` ou `channel:threadTs`). Dans un fil de canal partagé, deux personnes
+       * partagent donc la clé : après qu'un manager avait produit un document sur X, un
+       * non-autorisé du même fil qui reformulait à l'identique recevait le verdict en cache —
+       * dont `recipient`, le NOM de la personne — au lieu du refus.
+       *
+       * L'exposition était étroite (le verdict, jamais le contenu ; aucune re-livraison), mais
+       * ce dépôt tient une règle explicite : « le refus est rendu AVANT toute lecture en base,
+       * et les tests le vérifient en assertant que le repository n'est jamais appelé ». Le
+       * cache n'est pas la base, mais c'est une lecture, et elle précédait la frontière. Les
+       * deux autres outils gardés n'avaient pas cette inversion.
+       *
+       * Aucun comportement légitime ne change : un demandeur autorisé consulte le cache
+       * exactement comme avant, une ligne plus bas.
+       */
+      if (!canReadPersonRecord(ctx?.requestContext, employeeId)) {
+        logger.warn('Document refusé — demandeur non autorisé pour cette personne', {
+          employeeId,
+        });
+        return {
+          saved: false as const,
+          delivery: 'none' as DeliveryVerdict,
+          reason: 'not_authorized',
+          hint: HINTS.not_authorized,
+        };
+      }
+
       const previous = dedupKey
         ? runGuard.get<{ result: Record<string, unknown>; eventTs?: string }>(dedupKey)
         : undefined;
@@ -309,18 +339,6 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
             "Ce document a DÉJÀ été produit et livré dans cette conversation ; rien n'a été " +
             "refait. Dis-le et renvoie la personne vers l'envoi précédent — ne prétends pas " +
             "l'avoir regénéré.",
-        };
-      }
-
-      if (!canReadPersonRecord(ctx?.requestContext, employeeId)) {
-        logger.warn('Document refusé — demandeur non autorisé pour cette personne', {
-          employeeId,
-        });
-        return {
-          saved: false as const,
-          delivery: 'none' as DeliveryVerdict,
-          reason: 'not_authorized',
-          hint: HINTS.not_authorized,
         };
       }
 
