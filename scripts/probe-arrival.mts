@@ -601,6 +601,33 @@ if (createdId) {
   console.log(`Dossier de sonde ${createdId} supprimé, dépendances comprises.`);
 }
 
+/**
+ * ⚠️ **L'ARCHIVE AUSSI — et elle manquait, constaté le 2026-08-21 au soir.**
+ *
+ * Le nettoyage suivait les dépendances du DOSSIER (`employee_id`, `recipient_id`) et ignorait
+ * `channel_messages`, qui n'est indexée ni par l'un ni par l'autre mais par le **canal et
+ * l'auteur Slack**. Douze messages de sonde étaient donc restés dans l'archive de production
+ * après un passage — et depuis le 2026-08-21 cette table est lisible par le manager.
+ *
+ * ⚠️ **Une sonde qui laisse des traces fausse la mesure suivante** : ces douze lignes auraient
+ * été distillées en faits, puis rendues par `searchKnowledge` comme si quelqu'un les avait
+ * vraiment écrites. Une sonde doit rendre la base telle qu'elle l'a trouvée, et la vérifier —
+ * c'est déjà la règle appliquée au dossier, elle n'avait simplement pas suivi la table
+ * nouvelle.
+ *
+ * Portée : ce canal (`channel`, le DM ouvert plus haut) et cet auteur, jamais plus large. Les faits partent avant les messages,
+ * même ordre que `KnowledgeErasureService` — un résumé sans sa source est pire qu'aucun des deux.
+ */
+for (const table of ['knowledge_facts', 'channel_messages'] as const) {
+  const removed = await dbExec({
+    sql: `DELETE FROM ${table} WHERE slack_user_id = ? AND channel_id = ?`,
+    args: [ARRIVAL_USER, channel],
+  })
+    .then((r) => r.rowsAffected)
+    .catch(() => -1);
+  if (removed > 0) console.log(`Archive nettoyée : ${removed} ligne(s) de ${table}.`);
+}
+
 // ⚠️ On RELIT après restauration. Écrire puis supposer est exactement ce que `role:set` refuse
 // de faire, et pour la même raison : une restauration qu'on n'a pas constatée n'a pas eu lieu.
 const after = await dbExec({

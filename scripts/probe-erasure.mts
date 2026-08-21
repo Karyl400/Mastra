@@ -50,8 +50,56 @@ const db = createClient({ url: databaseUrl, authToken: process.env.DATABASE_AUTH
 /** En DM la clé de conversation EST le canal — voir `deriveConversationId`. */
 const conversationId = channel;
 
+/**
+ * ⚠️ **REPRISE SUR PANNE DE TRANSPORT — cette sonde est morte deux fois pour cette raison.**
+ *
+ * Le 2026-08-21, un `UND_ERR_CONNECT_TIMEOUT` vers Turso a tué ce script APRÈS qu'il eut posté
+ * la demande d'effacement : le geste avait donc réellement eu lieu, et le verdict s'est perdu.
+ * C'est le pire ordre possible — on a modifié la production et on ne sait pas dire ce qui s'est
+ * passé, ce qui est exactement le mode de panne que ce dépôt traque dans le produit.
+ *
+ * `scripts/probe-arrival.mts` avait été durci contre cette même panne le matin même
+ * (`resilientFetch` ne couvrait que Slack) ; le correctif n'avait pas été propagé ici. **Deux
+ * sondes qui frappent la même base sans partager leur reprise finissent par diverger, et c'est
+ * celle qu'on a oubliée qui perd le verdict.**
+ */
+async function dbExec(query: { sql: string; args: unknown[] }) {
+  let last: unknown;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      return await db.execute(query as never);
+    } catch (error) {
+      last = error;
+      await new Promise((resolve) => setTimeout(resolve, 1500 * (attempt + 1)));
+    }
+  }
+  throw last;
+}
+
+/**
+ * ⚠️ **L'ARCHIVE COMPTE AUSSI DEPUIS LE 2026-08-21.**
+ *
+ * Le court-circuit d'effacement ne touchait que `conversation_turns` et `pinned_facts` ; les
+ * messages archivés dans `channel_messages` — **DM compris depuis le 2026-08-21, et relisibles
+ * par le manager** — lui échappaient. Dire « c'est effacé » en les laissant serait un mensonge
+ * par omission sur la donnée la plus sensible du lot.
+ *
+ * Cette sonde doit donc compter les DEUX. Sans quoi elle validerait, comme avant le correctif
+ * qu'elle vérifie, une réponse plausible adossée à un geste partiel.
+ *
+ * ⚠️ Portée : ce CANAL. En DM c'est exactement ce que le court-circuit efface ; en fil de canal
+ * il ne touche pas à l'archive, délibérément.
+ */
+async function countArchive(): Promise<number> {
+  const rows = await dbExec({
+    sql: 'SELECT COUNT(*) AS n FROM channel_messages WHERE channel_id = ? AND slack_user_id = ?',
+    args: [channel, REQUESTER],
+  });
+  return Number(rows.rows[0]?.n ?? 0);
+}
+
 async function countTurns(): Promise<number> {
-  const rows = await db.execute({
+  const rows = await dbExec({
     sql: 'SELECT COUNT(*) AS n FROM conversation_turns WHERE conversation_id = ?',
     args: [conversationId],
   });
@@ -98,14 +146,16 @@ async function lastBotMessage(since: number): Promise<string | undefined> {
 }
 
 const before = await countTurns();
+const archiveBefore = await countArchive();
 console.log(`Cible        : ${baseUrl}/slack/events`);
 console.log(`Conversation : ${conversationId}`);
-console.log(`Tours en base AVANT : ${before}`);
+console.log(`Tours en base AVANT     : ${before}`);
+console.log(`Archive du canal AVANT  : ${archiveBefore}`);
 
 if (!confirmed) {
   console.log(
     '\n⚠️ Lecture seule. Cette sonde SUPPRIME des données réelles ; relance avec --yes ' +
-      'pour exécuter réellement la demande d\'effacement.',
+      "pour exécuter réellement la demande d'effacement.",
   );
   process.exit(0);
 }
@@ -118,16 +168,35 @@ console.log(`\n→ demande d'effacement   ACK ${status}`);
 await new Promise((resolve) => setTimeout(resolve, 8000));
 
 const after = await countTurns();
+const archiveAfter = await countArchive();
 const reply = await lastBotMessage(since);
 
-console.log(`Tours en base APRÈS : ${after}`);
+console.log(`Tours en base APRÈS     : ${after}`);
+console.log(`Archive du canal APRÈS  : ${archiveAfter}`);
 console.log(`Réponse postée      : ${reply ?? '(aucune)'}`);
 
 const supprime = before > 0 && after === 0;
+/**
+ * ⚠️ **Un `0 → 0` sur l'archive n'est PAS une réussite, c'est une absence de preuve.** Si rien
+ * n'était archivé avant, le nouveau chemin n'a pas été exercé et il faut le dire — c'est la
+ * distinction `null` / `[]` que ce dépôt applique à `readToolCalls` : sans preuve positive,
+ * on se tait plutôt que d'affirmer.
+ */
+const archiveEffacee = archiveBefore > 0 && archiveAfter === 0;
+const archiveNonExercee = archiveBefore === 0;
 const annonceLaPortee = Boolean(reply?.includes(ERASURE_SCOPE_NOTICE));
 
 console.log('');
-console.log(supprime ? '✅ Les données ont RÉELLEMENT été supprimées.' : '❌ Rien n\'a été supprimé.');
+console.log(
+  supprime ? '✅ Les données ont RÉELLEMENT été supprimées.' : "❌ Rien n'a été supprimé.",
+);
+console.log(
+  archiveNonExercee
+    ? "⚠️  Archive : rien n'était archivé avant — le chemin n'a PAS été exercé, ce n'est pas une réussite."
+    : archiveEffacee
+      ? `✅ L'archive du DM est partie aussi (${archiveBefore} → 0).`
+      : `❌ L'archive du DM SUBSISTE (${archiveBefore} → ${archiveAfter}).`,
+);
 console.log(
   annonceLaPortee
     ? "✅ La réponse nomme ce que l'effacement ne couvre pas."
