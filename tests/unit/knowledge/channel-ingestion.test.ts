@@ -130,10 +130,33 @@ describe('ingestion des messages de canal', () => {
     expect(archive.size).toBe(0);
   });
 
-  it('N’ARCHIVE JAMAIS un message direct', async () => {
+  /**
+   * ⚠️ **CE TEST DISAIT L'INVERSE JUSQU'AU 2026-08-21, et le renversement est une DÉCISION DE
+   * PRODUIT, pas une correction de défaut.**
+   *
+   * Il verrouillait « N'ARCHIVE JAMAIS un message direct ». Le propriétaire a demandé que
+   * Marcel retienne aussi ce qui se dit en DM, en connaissance de la conséquence :
+   * `authorizeOtherMemoryRead` autorise le manager à chercher ce qu'une AUTRE personne a dit,
+   * donc **le General Manager peut relire les DM de chacun**. Un DM cesse d'être privé.
+   *
+   * C'est écrit ici en toutes lettres pour que cela ne se redécouvre pas un jour par surprise —
+   * c'est exactement le genre de propriété qu'un commentaire affirme et que rien ne recalcule.
+   */
+  it('archive un message direct — décision du 2026-08-21, portée assumée', async () => {
     const { handler, archive } = makeHandler();
 
     await deliver(handler, envelope({ channel: 'D0PRIVE01', channel_type: 'im' }));
+
+    expect(archive.size).toBe(1);
+  });
+
+  it('mais `mpim` reste DEHORS — ni appartenance vérifiable, ni propriétaire unique', async () => {
+    // Un salon privé à plusieurs n'a pas l'appartenance d'un canal (qu'on peut interroger) ni
+    // le porteur unique d'un DM (dont la portée se décide). On ne sait pas à qui il appartient,
+    // donc on ne le garde pas — le test qui suit le verrouille déjà.
+    const { handler, archive } = makeHandler();
+
+    await deliver(handler, envelope({ channel: 'G0GROUPE1', channel_type: 'mpim' }));
 
     expect(archive.size).toBe(0);
   });

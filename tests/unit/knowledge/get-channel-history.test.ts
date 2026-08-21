@@ -153,6 +153,7 @@ describe('getChannelHistory — autorisation', () => {
         throw new Error('slack down');
       },
       fetchRecent: async () => [message('secret', 1)],
+      listMemberChannels: async () => [],
     };
 
     const result = (await makeGetChannelHistory({

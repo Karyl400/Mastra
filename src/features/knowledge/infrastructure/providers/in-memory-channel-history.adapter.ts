@@ -27,6 +27,16 @@ export class InMemoryChannelHistoryAdapter implements ChannelHistoryPort {
     return this.members.get(channelId)?.has(slackUserId) ?? false;
   }
 
+  // ⚠️ DÉRIVÉ de `setMembers`, jamais d'une seconde liste : c'est cette doublure qui décide, dans
+  // tous les tests, quels canaux la lecture en direct balaie. Deux sources divergeraient, et le
+  // test verrouillerait alors une frontière que la production n'applique pas.
+  async listMemberChannels(slackUserId: string, limit: number): Promise<string[]> {
+    return [...this.members.entries()]
+      .filter(([channelId, ids]) => ids.has(slackUserId) && !/^D/i.test(channelId))
+      .map(([channelId]) => channelId)
+      .slice(0, limit);
+  }
+
   async fetchRecent(
     channelId: string,
     options: ChannelHistoryReadOptions,

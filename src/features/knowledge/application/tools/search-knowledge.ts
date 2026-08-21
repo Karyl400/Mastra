@@ -5,7 +5,10 @@ import { logger } from '../../../../shared/logger';
 import { readSlackContext, writeExcerptCoverage } from '../../../../shared/slack-request-context';
 import type { ChannelHistoryPort } from '../../domain/ports/channel-history.port';
 import type { KnowledgeFactRepository } from '../../domain/ports/knowledge-fact.repository';
-import type { MessageArchiveRepository } from '../../domain/ports/message-archive.repository';
+import {
+  isDirectMessageChannel,
+  type MessageArchiveRepository,
+} from '../../domain/ports/message-archive.repository';
 import type {
   DirectoryPerson,
   PersonDirectoryPort,
@@ -17,6 +20,7 @@ import {
   type Requester,
 } from '../../domain/services/disclosure-policy';
 import { FACT_KIND_LABELS, type FactKind } from '../../domain/services/fact-distillation';
+import { matchedTermCount } from '../../domain/services/text-search';
 import { wrapRetrievedContent } from '../services/untrusted-excerpt.service';
 
 export interface SearchKnowledgeDeps {
@@ -35,6 +39,11 @@ const MAX_RESULTS = 6;
 const MAX_CHANNELS_CHECKED = 6;
 
 const SCAN_LIMIT = 24;
+
+/** Bornes de la lecture EN DIRECT — elle ne doit jamais devenir un balayage du workspace. */
+const LIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+const LIVE_SCAN_LIMIT = 60;
 
 type SearchVerdict =
   | DisclosureReason
@@ -103,11 +112,34 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
   async function readableChannels(
     channelIds: readonly string[],
     requesterId: string,
+    isManager: boolean,
   ): Promise<Set<string>> {
     const distinct = [...new Set(channelIds)].slice(0, MAX_CHANNELS_CHECKED);
 
     const verdicts = await Promise.all(
       distinct.map(async (channelId) => {
+        /**
+         * ⚠️ **UN DM NE SE TRANCHE PAS PAR L'APPARTENANCE — ajouté le 2026-08-21 avec
+         * l'archivage des DM.**
+         *
+         * `conversations.members` sur un `D…` rendrait « membre » pour ses deux participants et
+         * « non-membre » pour tout le monde d'autre, manager compris : la ligne serait donc
+         * filtrée juste après qu'`authorizeOtherMemoryRead` l'ait autorisée. La recherche
+         * nominative du manager marcherait sur les canaux et échouerait en silence sur les DM,
+         * sans jamais dire pourquoi — deux frontières qui se contredisent, et c'est la seconde
+         * qui gagne sans le dire.
+         *
+         * La règle est donc explicite : son propre DM toujours, celui d'autrui au niveau
+         * `full`. La MÊME règle que `mayTouchRecord`, écrite ici parce que le sujet n'est pas
+         * un dossier mais un canal.
+         */
+        if (isDirectMessageChannel(channelId)) {
+          const own = await deps.channels
+            .isMember(channelId, requesterId)
+            .catch(() => false as boolean);
+          return [channelId, own || isManager] as const;
+        }
+
         try {
           return [channelId, await deps.channels.isMember(channelId, requesterId)] as const;
         } catch (error) {
@@ -121,6 +153,75 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
     );
 
     return new Set(verdicts.filter(([, member]) => member).map(([channelId]) => channelId));
+  }
+
+  /**
+   * ════════════════════════════════════════════════════════════════════════
+   * LE REPLI EN DIRECT — lire Slack AVANT de prétendre ne rien savoir
+   * ════════════════════════════════════════════════════════════════════════
+   *
+   * Jusqu'au 2026-08-21, une base vide rendait `nothing_known` avec un `hint` invitant le
+   * modèle à appeler `getChannelHistory` lui-même. C'était une CONSIGNE — et ce dépôt a mesuré
+   * cinq consignes en échec. Pire : les deux niveaux de la base étaient EMPTY en production
+   * (`channel_messages` et `knowledge_facts`, 0 ligne), donc `nothing_known` était la seule
+   * réponse que cet outil savait rendre, et rien ne le signalait.
+   *
+   * ⚠️ **LA FRONTIÈRE EST TENUE PAR LA CONSTRUCTION DE LA LISTE, pas par un filtre.** On part
+   * des canaux dont le DEMANDEUR est membre (`listMemberChannels`) : il n'y a donc rien à
+   * filtrer ensuite, donc rien à oublier de filtrer. C'est la différence entre une garantie et
+   * une vérification.
+   *
+   * ⚠️ **CE CHEMIN NE COÛTE QUE SUR UN ÉCHEC**, comme `settlesWithoutModel` qui ne vit
+   * qu'après un refus : le chemin nominal — la base répond — ne paie rien. Et il est borné
+   * des deux côtés (nombre de canaux, fenêtre, nombre de lignes rendues) : une recherche large
+   * ne doit pas pouvoir devenir un balayage complet du workspace.
+   *
+   * ⚠️ Il ne LÈVE jamais : un canal illisible est sauté. Le pire cas reste « je ne sais pas »,
+   * qui est exactement la réponse qu'on avait avant.
+   */
+  async function sweepLive(query: string, requesterId: string, only?: string): Promise<Line[]> {
+    const channelIds = only
+      ? [only]
+      : await deps.channels.listMemberChannels(requesterId, MAX_CHANNELS_CHECKED);
+
+    if (channelIds.length === 0) return [];
+
+    // Un canal explicitement demandé n'échappe PAS au contrôle d'appartenance : c'est le
+    // modèle qui l'a écrit, donc une valeur réputée contrôlée par un attaquant.
+    const readable = only ? await readableChannels([only], requesterId, false) : null;
+    const targets = readable ? channelIds.filter((id) => readable.has(id)) : channelIds;
+
+    const perChannel = await Promise.all(
+      targets.map(async (channelId) => {
+        try {
+          const messages = await deps.channels.fetchRecent(channelId, {
+            sinceMs: LIVE_WINDOW_MS,
+            limit: LIVE_SCAN_LIMIT,
+          });
+
+          return messages
+            .filter((message) => !message.isBot && matchedTermCount(message.text, query) > 0)
+            .map<Line>((message) => ({
+              channelId,
+              slackUserId: message.authorId,
+              postedAt: message.at.getTime(),
+              kind: null,
+              text: message.text,
+            }));
+        } catch (error) {
+          logger.warn('Knowledge — canal illisible pendant la lecture en direct', {
+            channelId,
+            error: String(error),
+          });
+          return [];
+        }
+      }),
+    );
+
+    return perChannel
+      .flat()
+      .sort((a, b) => b.postedAt - a.postedAt)
+      .slice(0, SCAN_LIMIT);
   }
 
   return createTool({
@@ -198,7 +299,7 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
       };
 
       let lines: Line[];
-      let tier: 'facts' | 'messages';
+      let tier: 'facts' | 'messages' | 'live';
       try {
         const facts = await deps.facts.search(data.query, scope);
 
@@ -227,11 +328,20 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
         return refuse('knowledge_unavailable');
       }
 
-      if (lines.length === 0) return refuse('nothing_known');
+      // ⚠️ On LIT SLACK avant de dire qu'on ne sait pas. La base peut être vide pour deux
+      // raisons très différentes — le sujet n'a jamais été évoqué, ou l'archivage n'a rien
+      // capté — et « je ne sais pas » les confond. En production, les deux niveaux étaient
+      // vides : cet outil ne pouvait RIEN rendre d'autre, et personne ne le voyait.
+      if (lines.length === 0) {
+        lines = await sweepLive(data.query, requesterId, scope.channelId);
+        tier = 'live';
+        if (lines.length === 0) return refuse('nothing_known');
+      }
 
       const allowed = await readableChannels(
         lines.map((line) => line.channelId),
         requesterId,
+        authorizeOtherMemoryRead(requester).allowed,
       );
 
       const visible = lines.filter((line) => allowed.has(line.channelId));
@@ -276,10 +386,14 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
 }
 
 function describeSearchCoverage(shown: number, matched: number, tier: string): string {
+  // ⚠️ La provenance est DITE, et elle change ce que la personne doit en conclure : une lecture
+  // en direct ne voit que la fenêtre récente, une archive ne voit que ce qui a été capté.
   const source =
     tier === 'facts'
       ? "Ces éléments viennent de ce que j'ai retenu au fil des canaux"
-      : "Ces éléments sont des messages bruts d'archive";
+      : tier === 'live'
+        ? 'Ces éléments viennent de canaux que je viens de relire à l’instant, sur le dernier mois'
+        : "Ces éléments sont des messages bruts d'archive";
 
   const truncation = matched > shown ? ` sur ${matched} correspondances` : '';
 

@@ -39,7 +39,13 @@ function person(slackUserId: string, isManager: boolean) {
   };
 }
 
-function makeTool(options: { memberOf?: readonly string[] } = {}) {
+function makeTool(
+  options: {
+    memberOf?: readonly string[];
+    /** Ce que Slack rendrait si on le relisait EN DIRECT, canal par canal. */
+    live?: Readonly<Record<string, readonly { text: string; authorId: string }[]>>;
+  } = {},
+) {
   const archive = new InMemoryMessageArchiveRepository();
   const facts = new InMemoryKnowledgeFactRepository();
   const ingestion = new KnowledgeIngestionService({ archive, facts });
@@ -55,9 +61,23 @@ function makeTool(options: { memberOf?: readonly string[] } = {}) {
     ),
   } as unknown as PersonDirectoryPort;
 
+  // ⚠️ `listMemberChannels` est DÉRIVÉ de `memberOf`, jamais d'une seconde liste : c'est cette
+  // doublure qui décide quels canaux la lecture en direct balaie, et deux sources divergeraient
+  // — le test verrouillerait alors une frontière que la production n'applique pas.
   const channels = {
     isMember: vi.fn(async (channelId: string) => memberOf.has(channelId)),
-    fetchRecent: vi.fn(),
+    listMemberChannels: vi.fn(async (_id: string, limit: number) =>
+      [...memberOf].filter((c) => !c.startsWith('D')).slice(0, limit),
+    ),
+    fetchRecent: vi.fn(async (channelId: string) =>
+      (options.live?.[channelId] ?? []).map((m) => ({
+        authorId: m.authorId,
+        authorLabel: m.authorId,
+        text: m.text,
+        at: new Date('2026-08-20T10:00:00.000Z'),
+        isBot: false,
+      })),
+    ),
   } as unknown as ChannelHistoryPort;
 
   const tool = makeSearchKnowledge({ directory, facts, archive, channels });
@@ -134,13 +154,92 @@ describe('searchKnowledge — ce qui est rendu', () => {
     expect(result.tier).toBe('messages');
   });
 
-  it('dit qu’il ne sait rien plutôt que de combler', async () => {
+  it('dit qu’il ne sait rien plutôt que de combler — quand Slack non plus ne sait rien', async () => {
     const { tool } = makeTool();
 
     const result = await run(tool, { query: 'kubernetes' }, EMPLOYEE);
 
     expect(result.found).toBe(false);
     expect(result.reason).toBe('nothing_known');
+  });
+
+  /**
+   * ════════════════════════════════════════════════════════════════════════
+   * LIRE SLACK AVANT DE PRÉTENDRE NE RIEN SAVOIR
+   * ════════════════════════════════════════════════════════════════════════
+   *
+   * ⚠️ Ce repli n'existait pas avant le 2026-08-21 : `nothing_known` portait un `hint` invitant
+   * le modèle à appeler `getChannelHistory`. Une CONSIGNE — et ce dépôt en a mesuré cinq en
+   * échec. Pire, les deux niveaux de la base étaient VIDES en production (0 ligne dans
+   * `channel_messages` et `knowledge_facts`) : `nothing_known` était la seule réponse que cet
+   * outil savait rendre, et rien ne le signalait.
+   *
+   * « Rien en base » et « rien n'a été dit » sont deux choses différentes. La réponse les
+   * confondait.
+   */
+  it('RELIT le canal en direct quand la base est vide, et le trouve', async () => {
+    const { tool } = makeTool({
+      live: {
+        [PUBLIC_CHANNEL]: [{ text: 'on part sur kubernetes en octobre', authorId: MANAGER }],
+      },
+    });
+
+    const result = await run(tool, { query: 'kubernetes' }, EMPLOYEE);
+
+    expect(result.found).toBe(true);
+    expect(result.tier).toBe('live');
+    expect(String(result.knowledge)).toContain('kubernetes');
+  });
+
+  it('la couverture DIT que la lecture était directe — la provenance change la conclusion', async () => {
+    const { tool } = makeTool({
+      live: { [PUBLIC_CHANNEL]: [{ text: 'on part sur kubernetes', authorId: MANAGER }] },
+    });
+
+    const result = await run(tool, { query: 'kubernetes' }, EMPLOYEE);
+
+    expect(String(result.knowledge)).toMatch(/relire|relu|à l’instant|dernier mois/i);
+  });
+
+  it('ne balaie QUE les canaux du demandeur — la frontière tient par construction', async () => {
+    // Le canal privé existe et contient la réponse, mais le demandeur n'en est pas membre : il
+    // n'entre même pas dans la liste balayée, donc il n'y a rien à filtrer après coup.
+    const { tool, channels } = makeTool({
+      memberOf: [PUBLIC_CHANNEL],
+      live: { [PRIVATE_CHANNEL]: [{ text: 'secret kubernetes', authorId: MANAGER }] },
+    });
+
+    const result = await run(tool, { query: 'kubernetes' }, EMPLOYEE);
+
+    expect(result.found).toBe(false);
+    expect(result.reason).toBe('nothing_known');
+    expect(channels.fetchRecent).not.toHaveBeenCalledWith(PRIVATE_CHANNEL, expect.anything());
+  });
+
+  it('la base PRIME : quand elle répond, aucune lecture en direct n’a lieu', async () => {
+    // Le chemin nominal ne paie rien. C'est la même règle que `settlesWithoutModel`, qui ne vit
+    // qu'après un refus : on ne fait grossir que le chemin rare.
+    const { tool, ingestion, channels } = makeTool();
+    await seed(ingestion);
+
+    const result = await run(tool, { query: 'migration' }, EMPLOYEE);
+
+    expect(result.found).toBe(true);
+    expect(channels.fetchRecent).not.toHaveBeenCalled();
+  });
+
+  it('un canal illisible est SAUTÉ, il ne fait pas échouer la recherche', async () => {
+    const { tool, channels } = makeTool({
+      live: { [PUBLIC_CHANNEL]: [{ text: 'kubernetes', authorId: MANAGER }] },
+    });
+    (channels.fetchRecent as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('slack down'),
+    );
+
+    const result = await run(tool, { query: 'kubernetes' }, EMPLOYEE);
+
+    // Le pire cas reste « je ne sais pas » — exactement la réponse d'avant le repli.
+    expect(result.found).toBe(false);
   });
 
   it('encadre le texte retrouvé comme une DONNÉE non fiable', async () => {
