@@ -43,23 +43,6 @@ export const INTERVIEW_TOO_SHORT_REPLY =
   'Il me faut un peu plus que ça — une phrase, même courte. Sinon dis-moi « passe », et on ' +
   'verra ça plus tard.';
 
-/**
- * ⚠️ **LA RELANCE DOIT REPOSER LA QUESTION, ET CE N'EST PAS UNE QUESTION DE POLITESSE.**
- *
- * Défaut trouvé par le rejeu d'arrivée en production, le 2026-08-21. `INTERVIEW_TOO_SHORT_REPLY`
- * seul disait « il me faut un peu plus que ça » — sans jamais redire ce qu'il demandait.
- *
- * Or `pendingInterviewStep` reconstitue l'état de l'entretien en cherchant la QUESTION dans le
- * dernier tour de l'assistant. Une relance qui ne la contient pas efface donc l'état : la
- * réponse suivante, celle où la personne prend la peine de développer, ne part plus vers
- * `captureInterviewAnswer` mais vers le modèle — et n'est enregistrée NULLE PART.
- *
- * **Une réponse trop courte mettait silencieusement fin à l'entretien.** Le symptôme est le
- * plus discret possible : le bot répond quelque chose de sensé, et la table reste vide.
- *
- * `profileRetryReply` avait déjà cette forme depuis toujours — les deux machines à états
- * doivent la partager, sans quoi c'est celle qu'on a oubliée qui perd les données.
- */
 export function interviewRetryReply(step: InterviewStep): string {
   const question = step === 'workStyle' ? INTERVIEW_QUESTION_STYLE : INTERVIEW_QUESTION_DAILY;
   return `${INTERVIEW_TOO_SHORT_REPLY}\n\n${question}`;

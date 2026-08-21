@@ -80,19 +80,6 @@ export function makeScheduleReminder(
         );
       }
 
-      /**
-       * ⚠️ **ON ASSAINIT À L'ÉCRITURE, ET PAS SEULEMENT À LA REMISE.**
-       *
-       * Deux raisons, et la seconde est celle qu'on oublie :
-       *  1. le cron du 2026-08-21 expédie ce texte le lendemain matin, sans qu'aucun humain
-       *     ne le relise — c'est le seul chemin sortant du produit dans ce cas ;
-       *  2. la ligne est RELUE par `getNotificationHistory`, qui la rend au modèle. Un
-       *     marqueur interne stocké ici ressortirait tel quel au premier tour suivant.
-       *
-       * Le défaut dormait tant que rien ne partait. Allumer l'ordonnanceur l'a réveillé —
-       * même mécanique que `onlyNonDeliveringTools` le même jour : **un assainisseur, comme
-       * un détecteur, encode le câblage ; quand le câblage bouge, il faut le déplacer avec.**
-       */
       const safe = safeOutboundText(
         { subject: data.subject, body: data.body },
         { recipientId: data.recipientId, channel, tool: 'scheduleReminder' },
@@ -115,17 +102,6 @@ export function makeScheduleReminder(
       await repo.save(scheduled);
       logger.info('Rappel enregistré', { id: scheduled.id, scheduledAt: scheduled.scheduledAt });
 
-      /**
-       * ⚠️ **ON REND LE MOMENT DE REMISE, PAS LE MOMENT DEMANDÉ.**
-       *
-       * Ce tool rendait `scheduledLabel: 'lundi 24 août 2026 à 09 h00'` — l'heure que la
-       * personne avait dite. Le cron ne passe qu'UNE FOIS PAR JOUR (limite du plan Hobby,
-       * ±59 min de précision) : annoncer une heure serait promettre ce qu'aucune pièce de ce
-       * système ne tient. Le modèle ne peut pas répéter une précision qu'on ne lui donne pas.
-       *
-       * `willBeSentAutomatically` passe à `true`, et c'est enfin vrai — voir
-       * `reminder-dispatch.ts` et `/internal/reminders/dispatch`.
-       */
       const delivery = deliveryLabel(scheduled.scheduledAt, new Date());
       if (delivery) writeReminderDelivery(_ctx?.requestContext, delivery);
 

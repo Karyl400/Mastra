@@ -27,10 +27,6 @@ export interface ScheduleCandidateInterviewDeps {
 }
 
 const REFUSALS = {
-  // ⚠️ La règle appliquée est bien « le manager, et lui seul » : sans employé cible,
-  // `canPerformSideEffects` retombe sur `accessLevel === 'full'`, que seul
-  // `slack_directory.role = 'manager'` accorde. Ce texte NOMME désormais cette règle au lieu
-  // de la laisser deviner — un refus sans motif se lit comme une panne.
   forbidden: `Seul ${ESCALATION_CONTACT} peut préparer une invitation à un entretien. Dis-le simplement, sans t'excuser, et ne propose aucun autre moyen de le faire.`,
   no_slack_context:
     'Cette action doit être demandée depuis Slack — je ne peux pas afficher la confirmation ailleurs.',
@@ -79,9 +75,6 @@ export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewD
       const requestContext = (ctx as { requestContext?: unknown })?.requestContext;
 
       if (!canPerformSideEffects(requestContext)) {
-        // Le `hint` INVITE le modèle à donner la raison ; cette note la GARANTIT. Les deux,
-        // parce qu'une réponse qui l'explique naturellement se lit mieux qu'une note accolée —
-        // et le handler s'efface justement quand le modèle a fait le travail.
         writeAuthorizationNotice(
           requestContext,
           `Seul ${ESCALATION_CONTACT} peut préparer une invitation à un entretien.`,

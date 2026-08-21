@@ -75,28 +75,9 @@ export function makeFindEmployeeByEmail(repo: EmployeeRepository, directory?: Di
       logger.info('Recherche employé par email', { email: normalizedEmail });
 
       const employee = await repo.findByEmail(normalizedEmail);
-      /**
-       * On ne consulte l'annuaire que si le dossier n'a rien donné : c'est un aller-retour, et
-       * ce dépôt les compte. Écrit en deux temps plutôt qu'en ternaire imbriqué — la forme
-       * condensée cachait l'ORDRE, qui est précisément ce qui compte ici.
-       */
       let memberEarly: Awaited<ReturnType<NonNullable<typeof directory>['findByEmail']>> = null;
       if (!employee && directory) memberEarly = await directory.findByEmail(normalizedEmail);
 
-      /**
-       * ⚠️ **ANTI-ORACLE — le verdict est le MÊME que l'adresse désigne quelqu'un ou personne.**
-       *
-       * Sans cela, ce tool répond `found: true/false` sur une adresse arbitraire, à n'importe
-       * qui : c'est l'énumération de l'annuaire une adresse à la fois. `getEmployeeProfile` a
-       * été retravaillé pour ne pas être cet oracle — « il passe l'identifiant RÉSOLU **ou
-       * `null`** » — et la même précaution n'avait pas été portée ici.
-       *
-       * ⚠️ **On résout D'ABORD, on décide ENSUITE.** L'ordre inverse (refuser avant de lire)
-       * serait plus économe mais rouvrirait l'oracle : il faut connaître la cible pour savoir
-       * si le demandeur y a droit, et c'est précisément pour cela que le refus ne peut pas
-       * tomber avant la lecture sur CE chemin — contrairement au chemin par identifiant, où il
-       * le peut et où il le fait.
-       */
       const resolvedId = employee?.id ?? memberEarly?.employeeId ?? null;
       if (!mayHoldKeyFor(ctx?.requestContext, resolvedId)) {
         logger.info('Résolution par email refusée — verdict neutre', {
@@ -163,16 +144,6 @@ export function makeFindEmployeeByEmail(repo: EmployeeRepository, directory?: Di
   });
 }
 
-/**
- * Le verdict rendu quand le demandeur n'a pas à tenir cet identifiant.
- *
- * ⚠️ **Il n'affirme PAS que l'adresse ne désigne personne** — ce serait un mensonge dans la
- * moitié des cas, et ce dépôt ne fabrique pas de faux négatifs pour se protéger. Il dit
- * seulement qu'il ne peut pas résoudre, ce qui est exactement vrai : la résolution est refusée.
- *
- * ⚠️ Il porte le MÊME `hint` d'auto-résolution que le vrai « non trouvé », sans quoi la
- * différence de forme rouvrirait l'oracle qu'on vient de fermer.
- */
 function unresolvable(requesterEmployeeId: string | undefined) {
   return {
     found: false as const,

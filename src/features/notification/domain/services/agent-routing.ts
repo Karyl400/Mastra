@@ -47,19 +47,7 @@ const EXPERTISE_QUESTION_PATTERN = new RegExp(
   'u',
 );
 
-/**
- * ⚠️ CETTE BANDE EST UNIQUEMENT INTERROGATIVE — aucun mot-clé nu.
- *
- * La première version portait `décidé|décision|convenu`, et un test de non-régression
- * PRÉEXISTANT l'a attrapée sur-le-champ : « je conteste cette décision » partait chez
- * `knowledgeAgent`. Même critère que celui qui avait fait écarter « ajoute » et « word » —
- * un mot très courant du français ne désigne pas une capacité. La FORME de la question, elle,
- * ne se prononce que pour demander ce qui s'est dit.
- */
 const RECALL_QUESTION_PATTERN = new RegExp(
-  // ⚠️ Le séparateur est `${APOS}?\\s*` et non `\\s+` : « qu'est-ce qu'ON a dit » n'a AUCUN
-  // espace après « qu », et cette seule exigence faisait échouer la formulation la plus
-  // courante des trois. Attrapé par un test, jamais à la lecture.
   `${LB}(?:qu${APOS}?est-ce\\s+qu|qu${APOS}?a-t-on|qu${APOS}?avons-nous|de\\s+quoi)${APOS}?\\s*` +
     `(?:\\S+\\s+){0,3}(?:d[ié]cid|convenu|dit|parl|discut)` +
     `|${LB}(?:ce\\s+)?qui\\s+(?:a|ont)\\s+[ée]t[ée]\\s+(?:d[ié]cid|convenu|dit|[ée]voqu)`,
@@ -104,16 +92,6 @@ const TOPIC_BANDS: ReadonlyArray<{
     keywords: [],
     requiredTool: 'searchKnowledge',
     pattern: RECALL_QUESTION_PATTERN,
-    // ⚠️ `true`, et il a fallu une mesure en production pour le trancher. Posé d'abord à
-    // `false` par prudence, la bande n'a JAMAIS tiré : en DM la clé de conversation est le
-    // canal, donc le palier collant verrouille tous les sujets pendant une heure — c'est l'état
-    // absorbant corrigé le 2026-08-11, et il rendait la base inatteignable dans le seul cas qui
-    // compte. Journal du 2026-08-20 : `agentId: onboardingOrchestrator, sticky: true`.
-    //
-    // La règle d'admission est respectée : `searchKnowledge` n'est porté que par UN agent, et
-    // le délogement n'a lieu que si le fil en cours ne l'a pas. Le motif est purement
-    // INTERROGATIF, donc il ouvre toujours une tâche neuve — c'est pour cela que
-    // « on avait dit jeudi », qui peut CONTINUER une discussion d'agenda, en a été retiré.
     overridesSticky: true,
   },
 ];
@@ -130,19 +108,6 @@ const VERB_SUFFIX_PATTERN = '(?:s|r|z|nt)?';
 
 export const DEFAULT_AGENT_ID = 'onboardingOrchestrator';
 
-/**
- * ⚠️ **DÉRIVÉE de `AGENT_TOOLS`, plus recopiée — 2026-08-21.**
- *
- * C'était une TROISIÈME copie du câblage agent→outils, après `src/mastra/index.ts` (le vrai) et
- * `AGENT_TOOLS`. Aucun test ne la confrontait aux deux autres : un agent ajouté au registre et
- * oublié ici aurait vu son fil COLLANT ignoré en silence, donc reroute à chaque message — et le
- * symptôme (« il perd le fil ») ne désigne jamais une liste d'identifiants.
- *
- * L'ensemble est maintenant impossible à désynchroniser de la table qui déclare les outils :
- * un agent sans outil déclaré n'existe pas pour le routage, ce qui est exactement la propriété
- * qu'on veut — le palier collant ne doit jamais renvoyer vers un agent dont on ignore ce qu'il
- * sait faire.
- */
 const KNOWN_AGENT_IDS: ReadonlySet<string> = new Set(Object.keys(AGENT_TOOLS));
 
 export function matchesKeyword(lowerText: string, keyword: string): boolean {

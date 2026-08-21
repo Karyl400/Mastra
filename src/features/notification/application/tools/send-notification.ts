@@ -96,13 +96,6 @@ export function makeSendNotification(
 
       let status: NotificationStatus;
 
-      /**
-       * ⚠️ **LE SUJET AUSSI — trouvé par l'audit du 2026-08-21.** Le `body` était filtré depuis
-       * la veille, le `subject` partait BRUT à deux caractères de là, sur les deux transports.
-       * C'est pourtant la partie la plus visible d'un email et la ligne en gras d'un message
-       * Slack, et son `.describe()` ORDONNE au modèle de le rédiger. Une asymétrie dans une
-       * défense délibérément construite, pas une défense absente.
-       */
       const safe = safeOutboundText(
         { subject: data.subject, body: data.body },
         { recipientId: data.recipientId, channel, tool: 'sendNotification' },
@@ -130,9 +123,6 @@ export function makeSendNotification(
         recipientId: data.recipientId,
         recipientType,
         channel: channel as NotificationChannel,
-        // Ce qui est PERSISTÉ est ce qui a été ENVOYÉ, jamais le brut : `getNotificationHistory`
-        // relit cette ligne et la rend au modèle. Y laisser un marqueur interne le ferait
-        // ressortir au premier tour suivant — c'est le défaut `documents.content`, à l'envers.
         subject: safe.subject,
         body: safe.body,
       });

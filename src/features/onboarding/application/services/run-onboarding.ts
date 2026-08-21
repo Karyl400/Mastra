@@ -44,16 +44,6 @@ export interface RunOnboardingDeps {
   readonly onRecordReady: (employeeId: string | undefined) => Promise<void>;
 }
 
-/**
- * ⚠️ LA CHAÎNE DE CAUSES EST PARCOURUE, jamais le seul premier niveau.
- *
- * Mastra emballe l'erreur du step : en production, `code: 'CONFLICT'` était enfoui sous
- * `details.cause.cause`. Une lecture à plat retomberait en silence sur le message générique —
- * c'est-à-dire le défaut d'origine sous une autre forme, et invisible puisque le repli existe.
- *
- * Même méthode que `isUniqueConstraintViolation` dans le dépôt Drizzle et que `userFacingFailure`
- * pour le quota : dans ce projet, une erreur intéressante est toujours à plusieurs niveaux.
- */
 function isEmailAlreadyTaken(error: unknown): boolean {
   for (let current: unknown = error, depth = 0; current && depth < 8; depth += 1) {
     const node = current as { code?: unknown; statusCode?: unknown; cause?: unknown };
@@ -105,8 +95,6 @@ export async function runOnboarding(
       error: result.error,
     });
 
-    // Deux échecs, deux gestes différents : l'un se répare en réessayant, l'autre demande
-    // qu'un humain libère l'adresse. Les confondre enferme la personne dans une boucle.
     await deps.notify(emailTaken ? PROFILE_EMAIL_TAKEN_REPLY : PROFILE_SUBMISSION_FAILED_REPLY);
     return;
   }

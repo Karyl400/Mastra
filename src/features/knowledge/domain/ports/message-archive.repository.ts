@@ -7,25 +7,8 @@ export interface ArchivedMessage {
   readonly postedAt: number;
 }
 
-/**
- * ⚠️ **LA PORTÉE EST UN PARAMÈTRE, parce qu'un effacement irréversible ne doit jamais avoir de
- * portée implicite.**
- *
- * `forgetUser(slackUserId)` — la signature d'avant le 2026-08-21 — effaçait PARTOUT. Elle
- * n'avait aucun appelant, donc personne n'avait eu à choisir. En la branchant, il a fallu
- * trancher : « oublie ce que je t'ai dit », tapé dans un DM, ne demande pas d'effacer un an de
- * décisions d'équipe dans les canaux publics. Il demande d'oublier CETTE conversation.
- *
- * Deux usages, deux portées, et le type oblige à dire laquelle :
- *   • `{ slackUserId, channelId }` — le court-circuit conversationnel, en DM ;
- *   • `{ slackUserId }` — le geste RGPD explicite (`npm run knowledge:forget`).
- *
- * C'est la règle déjà appliquée à `ConversationRepository.forget` : en DM tout part, en fil de
- * canal seuls les tours du demandeur, et jamais de portée indéterminée sur une suppression.
- */
 export interface ForgetScope {
   readonly slackUserId: string;
-  /** Restreint l'effacement à un seul canal. Absent = partout, et c'est un geste délibéré. */
   readonly channelId?: string;
 }
 
@@ -35,20 +18,8 @@ export interface MessageArchiveRepository {
   forgetUser(scope: ForgetScope): Promise<number>;
   prune(before: number): Promise<number>;
 
-  /**
-   * Les messages qu'AUCUN rideau n'a encore examinés, du plus ancien au plus récent.
-   *
-   * ⚠️ La fenêtre (`sinceMs`) borne le rattrapage : sans elle, allumer le second rideau
-   * exhumerait tout l'historique d'un coup — la leçon payée le même jour sur les rappels, où
-   * la première exécution du cron a réveillé des lignes écrites des semaines plus tôt.
-   */
   pendingDistillation(sinceMs: number, limit: number): Promise<readonly ArchivedMessage[]>;
 
-  /**
-   * ⚠️ **ON MARQUE TOUT LE LOT, y compris ce dont le modèle n'a rien tiré.** Sans cela, cinq
-   * messages sans intérêt seraient relus à chaque nouveau message : un appel de modèle par
-   * message, c'est-à-dire l'inverse exact de ce que le lot de 5 existe pour éviter.
-   */
   markDistilled(ids: readonly string[], at: number): Promise<number>;
 }
 
@@ -58,30 +29,12 @@ export interface MessageSearchOptions {
   readonly limit?: number;
 }
 
-/**
- * ⚠️ **LES DM SONT ARCHIVÉS DEPUIS LE 2026-08-21, ET CE N'EST PAS UN DÉTAIL DE PLUS.**
- *
- * `im` était délibérément absent : n'archiver que les canaux revenait à ne garder que ce qui
- * était déjà public pour ses membres. Un DM, lui, est un espace privé — et
- * `authorizeOtherMemoryRead` autorise le manager à chercher ce qu'une AUTRE personne a dit.
- *
- * **Conséquence assumée, décidée par le propriétaire** : le General Manager peut relire ce que
- * chacun écrit en privé à Marcel. La portée d'un DM devient celle d'un canal. C'est un choix de
- * produit, pas un effet de bord — et il est écrit ici pour qu'il ne se redécouvre pas un jour
- * par surprise.
- *
- * ⚠️ Deux garde-fous restent en place et ne doivent PAS être relâchés au motif que les DM
- * entrent : `forgetUser` emporte l'archive d'une personne (c'est le droit à l'effacement, pas
- * un privilège), et `mpim` reste ABSENT — un groupe privé de plusieurs personnes n'a ni
- * l'appartenance vérifiable d'un canal, ni le propriétaire unique d'un DM.
- */
 export const ARCHIVED_CHANNEL_TYPES: readonly string[] = ['channel', 'group', 'im'];
 
 export function isArchivableChannelType(channelType: string | undefined): boolean {
   return channelType !== undefined && ARCHIVED_CHANNEL_TYPES.includes(channelType);
 }
 
-/** Un canal de DM : `D…`. Slack ne dit pas « je suis membre » d'un DM comme d'un canal. */
 export function isDirectMessageChannel(channelId: string): boolean {
   return /^D/i.test(channelId.trim());
 }

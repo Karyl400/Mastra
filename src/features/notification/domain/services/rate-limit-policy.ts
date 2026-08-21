@@ -14,20 +14,6 @@ export const BURST_RULE: RateLimitRule = {
   windowMs: MINUTE_MS,
 };
 
-/**
- * ⚠️ CES DEUX PLAFONDS ÉTAIENT DES DÉCALQUES DU QUOTA GROQ, ET IL N'EST PLUS LE PRIMAIRE.
- *
- * Ils ont été dimensionnés sur les 100 000 tokens par JOUR de Groq, qui bornaient tout le
- * produit à ≈ 19 messages quotidiens pour l'organisation entière — la contrainte qui
- * gouvernait chaque décision de coût de ce dépôt. Gemini est passé primaire le 2026-08-20
- * et n'a pas ce plafond ; garder les anciennes valeurs ferait du garde-fou LUI-MÊME la
- * limite qui casse la production, ce qui est le contraire de son rôle.
- *
- * Ce qu'ils gardent : ils ne protègent plus un quota de fournisseur, ils protègent contre
- * une BOUCLE — un automate ou une injection qui ferait parler le bot sans fin. C'est
- * pourquoi ils sont relevés et non retirés, et pourquoi `BURST_RULE` ne bouge PAS : une
- * rafale reste une rafale, quel que soit le quota derrière.
- */
 export const DAILY_RULE: RateLimitRule = {
   name: 'daily',
   limit: 200,

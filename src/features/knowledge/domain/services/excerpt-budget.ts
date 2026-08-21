@@ -36,18 +36,6 @@ export function renderExcerptLines(excerpts: readonly ConversationExcerpt[]): st
     .join('\n');
 }
 
-/**
- * ⚠️ **LE `lookup` RÉSOUT LES MENTIONS, ET IL EST POSÉ ICI PLUTÔT QUE CHEZ LES APPELANTS.**
- *
- * Deux outils projettent des extraits vers le modèle (`getChannelHistory`,
- * `getUserConversations`) et un troisième les rend autrement (`searchKnowledge`). Résoudre les
- * mentions dans chacun aurait fait trois sites à ne pas oublier — la forme de défaut que ce
- * dépôt paie le plus souvent. Le point de passage OBLIGÉ est cette fonction : elle est la
- * dernière chose que traverse un extrait avant de devenir du texte.
- *
- * Optionnel à dessein : sans annuaire, on rend exactement ce qu'on rendait avant, jetons bruts
- * compris. Une dégradation lisible, jamais une invention.
- */
 export function projectExcerpts(
   all: readonly ConversationExcerpt[],
   lookup?: NameLookup,

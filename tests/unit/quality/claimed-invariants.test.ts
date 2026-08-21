@@ -8,8 +8,11 @@ import { join, resolve } from 'node:path';
  * « Verrouillé par `X` » doit citer un fichier qui existe
  * ════════════════════════════════════════════════════════════════════════════
  *
- * 45 % de `src/` est du commentaire, et c'est un actif : les explications locales et
- * vérifiables sur place de ce dépôt sont ce qui rend ses arbitrages relisibles.
+ * ⚠️ Ce bloc a été écrit quand 45 % de `src/` était du commentaire. Depuis le 2026-08-21, le
+ * code n'en porte plus aucun — le corpus a déménagé dans `docs/conception/`, et c'est le
+ * SECOND bloc de ce fichier qui le garde. Celui-ci ne couvre plus que les chaînes de
+ * caractères de `src/` : une phrase « verrouillé par `X` » écrite dans un message reste une
+ * affirmation d'autorité, et doit désigner un fichier qui existe.
  *
  * ⚠️ Mais une revue du 2026-08-19 a trouvé TROIS défauts qu'un commentaire avait masqués, et
  * ils partagent une forme : **le commentaire énonce une propriété GLOBALE que rien ne

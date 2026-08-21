@@ -2,23 +2,6 @@ import { normalizeIntentText } from './intent-text';
 import { ESCALATION_CONTACT, ESCALATION_CONTACT_EN } from './escalation';
 import { EMERGENCY_LINES } from './emergency-lines';
 
-/**
- * ⚠️ DEUX SITUATIONS, DEUX RÉPONSES — séparées le 2026-08-21.
- *
- * Ce module n'en connaissait qu'une. « je suis harcelé par mon manager » et « je veux
- * mourir » recevaient le MÊME texte, qui citait une ligne de prévention du suicide. À
- * quelqu'un qui vient de dire qu'on l'agresse, ce texte répond à côté : il lui donne un
- * numéro d'écoute là où il lui faut la police, et il ne nomme personne qui puisse AGIR sur
- * ce qui se passe au travail.
- *
- * L'inverse est vrai aussi : envoyer vers la police quelqu'un qui pense à en finir, c'est
- * répondre par une procédure à une souffrance.
- *
- * ⚠️ EN CAS DE DOUTE, C'EST `self_harm` QUI L'EMPORTE. Un message peut porter les deux
- * (« je suis harcelé et je n'en peux plus, je veux en finir ») et les deux erreurs ne se
- * valent pas : traiter une agression comme une détresse donne quand même un numéro
- * d'urgence joignable, l'inverse remplace une aide vitale par une démarche administrative.
- */
 export type DistressKind = 'self_harm' | 'aggression';
 
 const SELF_HARM_PHRASES_FR: readonly string[] = [
@@ -27,10 +10,6 @@ const SELF_HARM_PHRASES_FR: readonly string[] = [
   'envie de mourir',
   'envie d en finir',
   'en finir avec la vie',
-  // ⚠️ « je veux en finir » n'était détecté par RIEN jusqu'au 2026-08-21 — ni ici, ni par
-  // « envie d en finir », ni par « en finir avec la vie ». C'est pourtant la formulation la
-  // plus courante en français, et le faux négatif le plus cher que ce module puisse avoir.
-  // Trouvé par un test qui cherchait tout autre chose : la priorité détresse/agression.
   'veux en finir',
   'je n en peux plus',
   'j en peux plus',
@@ -59,9 +38,6 @@ const AGGRESSION_PHRASES_FR: readonly string[] = [
   'me harcele',
   'je suis discrimine',
 
-  // Ajoutées le 2026-08-21 avec la séparation. Chacune décrit un FAIT subi, jamais une
-  // opinion : c'est le critère qui a fait écarter « violence » et « conflit » nus, trop
-  // courants pour désigner une situation vécue.
   'me suis fait agresser',
   'on m a agresse',
   'je suis en danger',
@@ -278,11 +254,6 @@ function guessLanguage(forms: readonly string[]): DistressLanguage {
   return 'both';
 }
 
-/**
- * La NATURE de la situation, indépendamment de la langue.
- *
- * ⚠️ `self_harm` gagne quand les deux correspondent — voir l'en-tête du module.
- */
 export function distressKind(text: string | undefined | null): DistressKind | null {
   const raw = (text ?? '').trim();
   if (raw.length === 0 || raw.length > MAX_DISTRESS_LENGTH) return null;
@@ -337,18 +308,6 @@ export function detectsDistress(text: string | undefined | null): boolean {
 const CRISIS = EMERGENCY_LINES.crisis;
 const MEDICAL = EMERGENCY_LINES.medical;
 
-/**
- * ⚠️ CES QUATRE TEXTES SONT LES SEULS DU DÉPÔT QUI N'ONT AUCUNE VARIANTE, et un test le
- * verrouille. Ailleurs, la répétition littérale est ce qui fait « machine » et on la combat.
- * Ici, elle est une garantie : ce texte a été pesé mot à mot, et un tirage qui en changerait
- * la formulation ferait qu'on ne saurait plus lequel a été lu.
- *
- * ⚠️ MARCEL NE JOUE PAS L'EMPATHIE ICI. C'est le seul endroit où « presque humain » serait
- * nuisible : simuler la compassion auprès de quelqu'un de vulnérable, c'est lui mentir au pire
- * moment. Le texte reconnaît, oriente vers quelqu'un qui peut agir, et s'efface. Ce qui a
- * changé le 2026-08-21 est seulement l'auto-désignation « je suis un outil d'onboarding », qui
- * ouvrait le message par une phrase sur SOI — remplacée par une phrase sur la personne.
- */
 export const DISTRESS_REPLY =
   "Merci de me l'avoir dit. Je ne suis pas la bonne personne pour t'aider là-dessus, et je ne " +
   'vais pas te laisser sans réponse.\n\n' +
@@ -367,15 +326,6 @@ export const DISTRESS_REPLY_EN =
   'the workspace.\n\n' +
   "I haven't passed this message on to anyone: it stays between us.";
 
-/**
- * ⚠️ LA RÉPONSE À UNE AGRESSION NOMME QUELQU'UN QUI PEUT AGIR — c'est ce qui la distingue.
- *
- * Une ligne d'écoute ne peut rien contre un collègue qui menace : elle écoute. Ce qu'il faut
- * ici, c'est la police si le danger est immédiat, et la personne qui a autorité sur le
- * workspace pour ce qui s'y passe. Le message le dit explicitement — « c'est lui qui peut
- * faire quelque chose, pas moi » — parce que laisser croire le contraire, c'est exactement le
- * genre de promesse creuse que ce dépôt traque partout ailleurs.
- */
 export const AGGRESSION_REPLY =
   "Ce que tu me décris n'a rien de normal, et tu as bien fait de le dire.\n\n" +
   `Si tu es en danger tout de suite : *${CRISIS.number}* (${CRISIS.label}). Le ` +

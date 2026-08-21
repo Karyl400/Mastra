@@ -45,17 +45,6 @@ const CAPABILITY_LIST = `${ANNOUNCED_CAPABILITIES.slice(0, -1)
   .map((c) => c.text)
   .join(', ')}, ou ${ANNOUNCED_CAPABILITIES[ANNOUNCED_CAPABILITIES.length - 1]!.text}`;
 
-/**
- * ⚠️ C'EST ICI QUE MARCEL SE PRÉSENTE, et c'est souvent le tout premier échange.
- *
- * Le texte disait « Bonjour. » — correct, et anonyme. Personne ne se présente comme ça à un
- * nouveau collègue. Le prénom ne coûte rien (ce court-circuit répond sans aucun appel de
- * modèle) et change ce que la personne croit avoir en face d'elle.
- *
- * ⚠️ Les variantes restent contraintes par deux tests : `GREETING_REPLY` doit tenir sous
- * 200 caractères ET citer chacune des capacités réellement câblées — une salutation qui
- * promet ce qui n'existe pas est le défaut qu'on a corrigé en retirant « questionnaire ».
- */
 export const GREETING_REPLY = `Bonjour, moi c'est ${ASSISTANT_NAME}. Dis-moi ce qu'il te faut : ${CAPABILITY_LIST}.`;
 
 export const GREETING_REPLIES: readonly string[] = [

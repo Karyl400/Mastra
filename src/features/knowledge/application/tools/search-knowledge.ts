@@ -40,7 +40,6 @@ const MAX_CHANNELS_CHECKED = 6;
 
 const SCAN_LIMIT = 24;
 
-/** Bornes de la lecture EN DIRECT — elle ne doit jamais devenir un balayage du workspace. */
 const LIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 const LIVE_SCAN_LIMIT = 60;
@@ -84,7 +83,6 @@ function stamp(postedAt: number): string {
 }
 
 export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
-  /** Une lecture par personne et par canal distincts, jamais une par ligne. */
   async function resolveSpeakers(lines: readonly Line[]): Promise<Map<string, string>> {
     const ids = [...new Set(lines.map((l) => l.slackUserId).filter((id): id is string => !!id))];
 
@@ -102,13 +100,6 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
     return new Map(resolved);
   }
 
-  /**
-   * ⚠️ LA FRONTIÈRE QUI COMPTE. L'archive contient les canaux PRIVÉS où le bot est invité.
-   * Sans ce filtre, une recherche rendrait le contenu de `#engineer-karyl` à quelqu'un qui
-   * n'y est pas — ce que `getChannelHistory` refuse déjà en lecture directe. L'appartenance
-   * est tranchée en direct auprès de Slack, jamais sur l'inventaire local qu'aucun événement
-   * ne vient démentir.
-   */
   async function readableChannels(
     channelIds: readonly string[],
     requesterId: string,
@@ -118,21 +109,6 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
 
     const verdicts = await Promise.all(
       distinct.map(async (channelId) => {
-        /**
-         * ⚠️ **UN DM NE SE TRANCHE PAS PAR L'APPARTENANCE — ajouté le 2026-08-21 avec
-         * l'archivage des DM.**
-         *
-         * `conversations.members` sur un `D…` rendrait « membre » pour ses deux participants et
-         * « non-membre » pour tout le monde d'autre, manager compris : la ligne serait donc
-         * filtrée juste après qu'`authorizeOtherMemoryRead` l'ait autorisée. La recherche
-         * nominative du manager marcherait sur les canaux et échouerait en silence sur les DM,
-         * sans jamais dire pourquoi — deux frontières qui se contredisent, et c'est la seconde
-         * qui gagne sans le dire.
-         *
-         * La règle est donc explicite : son propre DM toujours, celui d'autrui au niveau
-         * `full`. La MÊME règle que `mayTouchRecord`, écrite ici parce que le sujet n'est pas
-         * un dossier mais un canal.
-         */
         if (isDirectMessageChannel(channelId)) {
           const own = await deps.channels
             .isMember(channelId, requesterId)
@@ -155,30 +131,6 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
     return new Set(verdicts.filter(([, member]) => member).map(([channelId]) => channelId));
   }
 
-  /**
-   * ════════════════════════════════════════════════════════════════════════
-   * LE REPLI EN DIRECT — lire Slack AVANT de prétendre ne rien savoir
-   * ════════════════════════════════════════════════════════════════════════
-   *
-   * Jusqu'au 2026-08-21, une base vide rendait `nothing_known` avec un `hint` invitant le
-   * modèle à appeler `getChannelHistory` lui-même. C'était une CONSIGNE — et ce dépôt a mesuré
-   * cinq consignes en échec. Pire : les deux niveaux de la base étaient EMPTY en production
-   * (`channel_messages` et `knowledge_facts`, 0 ligne), donc `nothing_known` était la seule
-   * réponse que cet outil savait rendre, et rien ne le signalait.
-   *
-   * ⚠️ **LA FRONTIÈRE EST TENUE PAR LA CONSTRUCTION DE LA LISTE, pas par un filtre.** On part
-   * des canaux dont le DEMANDEUR est membre (`listMemberChannels`) : il n'y a donc rien à
-   * filtrer ensuite, donc rien à oublier de filtrer. C'est la différence entre une garantie et
-   * une vérification.
-   *
-   * ⚠️ **CE CHEMIN NE COÛTE QUE SUR UN ÉCHEC**, comme `settlesWithoutModel` qui ne vit
-   * qu'après un refus : le chemin nominal — la base répond — ne paie rien. Et il est borné
-   * des deux côtés (nombre de canaux, fenêtre, nombre de lignes rendues) : une recherche large
-   * ne doit pas pouvoir devenir un balayage complet du workspace.
-   *
-   * ⚠️ Il ne LÈVE jamais : un canal illisible est sauté. Le pire cas reste « je ne sais pas »,
-   * qui est exactement la réponse qu'on avait avant.
-   */
   async function sweepLive(query: string, requesterId: string, only?: string): Promise<Line[]> {
     const channelIds = only
       ? [only]
@@ -186,8 +138,6 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
 
     if (channelIds.length === 0) return [];
 
-    // Un canal explicitement demandé n'échappe PAS au contrôle d'appartenance : c'est le
-    // modèle qui l'a écrit, donc une valeur réputée contrôlée par un attaquant.
     const readable = only ? await readableChannels([only], requesterId, false) : null;
     const targets = readable ? channelIds.filter((id) => readable.has(id)) : channelIds;
 
@@ -201,7 +151,6 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
       .slice(0, SCAN_LIMIT);
   }
 
-  /** Un canal illisible est SAUTÉ : le pire cas reste « je ne sais pas ». */
   async function sweepOneChannel(channelId: string, query: string): Promise<Line[]> {
     try {
       const messages = await deps.channels.fetchRecent(channelId, {
@@ -227,15 +176,6 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
     }
   }
 
-  /**
-   * ⚠️ **LE VERDICT TOMBE AVANT TOUTE LECTURE, et c'est ce qui empêche l'ORACLE** : sans cela,
-   * « personne inconnue » et « tu n'as pas le droit » se distinguent, et l'annuaire s'énumère
-   * une adresse à la fois. Même règle que le chemin email de `getEmployeeProfile`.
-   *
-   * Extrait d'`execute` le 2026-08-21 — non pour le chiffre de complexité, mais parce que cette
-   * séquence EST la frontière : la voir d'un bloc vaut mieux que la lire entre deux lectures de
-   * base.
-   */
   async function admit(
     requesterId: string,
     person: string | undefined,
@@ -348,10 +288,6 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
         return refuse('knowledge_unavailable');
       }
 
-      // ⚠️ On LIT SLACK avant de dire qu'on ne sait pas. La base peut être vide pour deux
-      // raisons très différentes — le sujet n'a jamais été évoqué, ou l'archivage n'a rien
-      // capté — et « je ne sais pas » les confond. En production, les deux niveaux étaient
-      // vides : cet outil ne pouvait RIEN rendre d'autre, et personne ne le voyait.
       if (lines.length === 0) {
         lines = await sweepLive(data.query, requesterId, scope.channelId);
         tier = 'live';
@@ -412,8 +348,6 @@ const COVERAGE_SOURCES: Readonly<Record<string, string>> = {
 };
 
 function describeSearchCoverage(shown: number, matched: number, tier: string): string {
-  // ⚠️ La provenance est DITE, et elle change ce que la personne doit en conclure : une lecture
-  // en direct ne voit que la fenêtre récente, une archive ne voit que ce qui a été capté.
   const source = COVERAGE_SOURCES[tier] ?? COVERAGE_SOURCES.messages;
 
   const truncation = matched > shown ? ` sur ${matched} correspondances` : '';
@@ -427,7 +361,6 @@ type Nominative =
   | { readonly kind: 'self'; readonly slackUserId: string }
   | { readonly kind: 'other'; readonly slackUserId?: string; readonly email?: string };
 
-/** Purement syntaxique : AUCUNE lecture, donc aucune information rendue avant le verdict. */
 function classifyPerson(
   raw: string | undefined,
   requesterId: string,

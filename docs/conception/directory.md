@@ -3,14 +3,17 @@
 > Décisions de conception, extraites des commentaires du code le 2026-08-20.
 > Périmètre : `src/features/directory/`
 >
-> Chaque entrée porte le fichier et la ligne d'origine, ainsi que la déclaration
-> qu'elle précédait. Le code ne porte plus ce texte : **c'est ici qu'il vit désormais.**
+> Chaque entrée est ancrée sur la **déclaration** qu'elle précédait, jamais sur un numéro
+> de ligne : l'audit du 2026-08-21 a mesuré 5 424 ancres `L.N` dont **153 exactes (2,8 %)**.
+> Un numéro de ligne se périme au premier retrait de commentaire — c'est-à-dire aussitôt.
+>
+> Le code ne porte plus ce texte : **c'est ici qu'il vit désormais.**
 
 ---
 
 ## `features/directory/application/services/access-guard.ts`
 
-**L.9 — avant `export interface AccessEvaluation {`**
+**Avant `export interface AccessEvaluation {`**
 
 LE POINT D'APPLICATION de la frontière d'autorisation (P1).
 
@@ -47,23 +50,23 @@ C'est la même doctrine que `checkTeamId` : fail-open, mais BRUYANT. Ce dépôt 
 prix des échecs silencieux trois fois — `emailSent: false` sous `status: 'success'`,
 `documents.content` perdu sans erreur, `status = Sent` posé avant l'envoi.
 
-**L.51 — avant `readonly decision: AccessDecision;`**
+**Avant `readonly decision: AccessDecision;`**
 
  Ce que la politique décide — toujours calculé, même en observation.
 
-**L.53 — avant `readonly effective: AccessLevel;`**
+**Avant `readonly effective: AccessLevel;`**
 
  Ce qui est réellement appliqué. En observation, toujours `full`.
 
-**L.55 — avant `readonly enforced: boolean;`**
+**Avant `readonly enforced: boolean;`**
 
  `false` en observation, ou quand la configuration interdit d'appliquer.
 
-**L.59 — avant `export type SubjectResolver = (slackUserId: string) => Promise<AccessSubject | null>;`**
+**Avant `export type SubjectResolver = (slackUserId: string) => Promise<AccessSubject | null>;`**
 
  Résout le sujet d'une décision. `null` = inconnu de l'annuaire.
 
-**L.65 — avant `readonly hasManager?: () => Promise<boolean>;`**
+**Avant `readonly hasManager?: () => Promise<boolean>;`**
 
 « Existe-t-il au moins un dossier portant le rôle `manager` ? »
 
@@ -74,22 +77,22 @@ cas rétrograde tout le monde. Absent ⇒ on reste en observation, bruyamment.
 NE DOIT JAMAIS LEVER : une panne de lecture n'est pas une preuve d'absence. L'appelant
 rend `false` en dernier recours, ce qui suspend l'application au lieu de couper l'équipe.
 
-**L.78 — avant `const MANAGER_RECHECK_MS = 60_000;`**
+**Avant `const MANAGER_RECHECK_MS = 60_000;`**
 
 Intervalle entre deux vérifications « existe-t-il un manager ? » quand la réponse est NON.
 
 Une minute : assez court pour qu'une désignation prenne effet sans redéploiement, assez long
 pour qu'un état mal configuré ne coûte pas une lecture par message.
 
-**L.86 — avant `export function readAuthzEnforce(raw: string | undefined): boolean {`**
+**Avant `export function readAuthzEnforce(raw: string | undefined): boolean {`**
 
  Lit `AUTHZ_ENFORCE`. Tout ce qui n'est pas explicitement « vrai » vaut observation.
 
-**L.96 — avant `private misconfigurationLogged = false;`**
+**Avant `private misconfigurationLogged = false;`**
 
  Un avertissement de configuration, pas un par message.
 
-**L.98 — avant `private managerSeen = false;`**
+**Avant `private managerSeen = false;`**
 
 Mémorisation du contrôle « existe-t-il un manager ? ».
 
@@ -99,7 +102,7 @@ message. Un `false` est RÉÉVALUÉ, avec un intervalle : sans cela, désigner u
 n'aurait d'effet qu'au prochain démarrage à froid, et le diagnostic serait « j'ai fait ce
 qu'on m'a dit et rien n'a changé » — la classe de panne la plus coûteuse de ce dépôt.
 
-**L.116 — avant `async evaluate(slackUserId: string): Promise<AccessEvaluation> {`**
+**Avant `async evaluate(slackUserId: string): Promise<AccessEvaluation> {`**
 
 Évalue l'accès d'une personne.
 
@@ -109,42 +112,36 @@ C'est aussi pourquoi `unknown_actor` ne vaut pas refus : un événement parvenu 
 déjà franchi la signature HMAC et le contrôle de `team_id`, son origine n'est pas en
 doute ; seul son privilège l'est.
 
-**L.141 — avant `logger.info('Authorization (observation mode) — this actor WOULD be restricted', {`**
+**Avant `logger.info('Authorization (observation mode) — this actor WOULD be restricted', {`**
 
 LA ligne à lire avant d'activer. Elle répond exactement à la question qu'on se pose
 
-**L.142 — avant `logger.info('Authorization (observation mode) — this actor WOULD be restricted', {`**
 
 à ce moment-là : « qui perdrait quoi, et pourquoi ? »
-
-**L.165 — avant `private async canEnforce(): Promise<boolean> {`**
+**Avant `private async canEnforce(): Promise<boolean> {`**
 
 Applique-t-on réellement ? Non tant qu'aucun manager n'est désigné — voir l'avertissement
 en tête de fichier.
 
-**L.182 — avant `const now = Date.now();`**
+**Avant `const now = Date.now();`**
 
 Ni `Date.now()` en boucle serrée ni une lecture par message : l'intervalle borne le coût
 
-**L.183 — avant `const now = Date.now();`**
 
 du seul état où ce contrôle échoue, c'est-à-dire un état transitoire de configuration.
-
-**L.188 — avant `const found = await this.hasManager().catch((error) => {`**
+**Avant `const found = await this.hasManager().catch((error) => {`**
 
 NE LÈVE PAS : une panne de lecture n'est pas une preuve d'absence, et refuser
 
-**L.189 — avant `const found = await this.hasManager().catch((error) => {`**
 
 d'appliquer est le sens le moins coûteux — c'est l'état d'avant l'activation.
-
-**L.209 — avant `private warnOnce(message: string): void {`**
+**Avant `private warnOnce(message: string): void {`**
 
  Un avertissement de configuration pour la vie de l'instance, pas un par message.
 
 ## `features/directory/application/services/channel-coverage.service.ts`
 
-**L.5 — avant `export interface ChannelSnapshot {`**
+**Avant `export interface ChannelSnapshot {`**
 
 COUVERTURE DE CANAUX — le bot rejoint automatiquement les canaux publics.
 
@@ -183,11 +180,9 @@ le script de synchronisation, et lui seul, qui branche la persistance.
 événement Slack ne l'invalide (`member_joined_channel` / `member_left_channel` ne sont pas
 abonnés). Voir l'en-tête de `domain/entities/slack-channel.ts`.
 
-**L.50 — avant `export interface ChannelSnapshot {`**
 
  Un canal, vu sous l'angle de l'accès.
-
-**L.58 — avant `readonly memberCountReported?: number | null;`**
+**Avant `readonly memberCountReported?: number | null;`**
 
 ASSERTION de Slack (`conversations.list` → `num_members`), quand la source la porte.
 
@@ -195,11 +190,11 @@ Optionnel et distinct du compte observé : ce sont deux mesures d'instants diff�
 leur écart est le seul signal de fraîcheur d'un inventaire qu'aucun événement ne dément.
 `undefined` ou `null` = « Slack n'a rien affirmé », ce qu'un `0` ne dirait pas.
 
-**L.68 — avant `export interface ChannelMemberScan {`**
+**Avant `export interface ChannelMemberScan {`**
 
  Résultat d'un balayage des membres d'un canal. `truncated` = le plafond a été touché.
 
-**L.88 — avant `export interface ChannelAccessSource {`**
+**Avant `export interface ChannelAccessSource {`**
 
 La source de canaux, déclarée par son CONSOMMATEUR.
 
@@ -207,11 +202,11 @@ Vocabulaire propre à la feature, et non le type de `notification/infrastructure
 `application` ne connaît pas Slack. L'adaptateur qui relie les deux vit en `infrastructure`,
 seule couche où le croisement est légitime — même construction que `MemberSource`.
 
-**L.96 — avant `listChannels(): Promise<{ channels: readonly ChannelSnapshot[]; truncated: boolean }>;`**
+**Avant `listChannels(): Promise<{ channels: readonly ChannelSnapshot[]; truncated: boolean }>;`**
 
  Balayage complet et BORNÉ. `truncated` = le plafond de pages a été touché.
 
-**L.100 — avant `listMembers?(channelId: string): Promise<ChannelMemberScan>;`**
+**Avant `listMembers?(channelId: string): Promise<ChannelMemberScan>;`**
 
 Membres observés d'un canal — OPTIONNEL.
 
@@ -219,119 +214,99 @@ Une source qui ne sait pas énumérer les membres couvre parfaitement les canaux
 et l'inventaire sont deux capacités séparées, et les fondre obligerait toute doublure de
 test de la couverture à simuler une API dont elle n'a que faire.
 
-**L.125 — avant `readonly accessibleChannelIds: readonly string[];`**
+**Avant `readonly accessibleChannelIds: readonly string[];`**
 
 LA réponse à la demande : « accès à tous les canaux dans lesquels il est invité via leur
 Channel ID ». Les canaux où le bot peut écrire à l'issue de ce passage — ceux dont il était
 déjà membre, et ceux qu'il vient de rejoindre. Trié, donc stable d'un appel à l'autre.
 
-**L.133 — avant `readonly privateNotMember: readonly ChannelRef[];`**
+**Avant `readonly privateNotMember: readonly ChannelRef[];`**
 
  État NOMMÉ, jamais une erreur : il faut une invitation humaine.
 
-**L.137 — avant `readonly missingScope: boolean;`**
+**Avant `readonly missingScope: boolean;`**
 
  Le scope `channels:join` manque : ajouter le scope PUIS réinstaller l'app.
 
-**L.139 — avant `readonly truncated: boolean;`**
+**Avant `readonly truncated: boolean;`**
 
  Le balayage a touché son plafond de pages : la liste est PARTIELLE.
 
-**L.141 — avant `readonly inventory?: ChannelInventoryReport;`**
+**Avant `readonly inventory?: ChannelInventoryReport;`**
 
  Présent seulement si un `ChannelInventoryRepository` a été fourni.
 
-**L.152 — avant `readonly channelsRecorded: number;`**
+**Avant `readonly channelsRecorded: number;`**
 
  Canaux enregistrés — TOUS ceux qui ont été vus, membres ou non.
 
-**L.154 — avant `readonly channelsWithMembers: number;`**
+**Avant `readonly channelsWithMembers: number;`**
 
  Canaux dont les membres ont été énumérés (ceux où le bot peut écrire).
 
-**L.156 — avant `readonly membersRecorded: number;`**
+**Avant `readonly membersRecorded: number;`**
 
  Total des appartenances observées, tous canaux confondus.
 
-**L.158 — avant `readonly truncatedChannels: readonly string[];`**
+**Avant `readonly truncatedChannels: readonly string[];`**
 
  Canaux dont l'énumération des membres a touché le plafond : la liste est PARTIELLE.
 
-**L.166 — avant `readonly inventory?: ChannelInventoryRepository;`**
+**Avant `readonly inventory?: ChannelInventoryRepository;`**
 
 OPTIONNEL — voir l'en-tête. Absent : aucune écriture, aucun appel supplémentaire, la
 couverture se comporte exactement comme avant. C'est ce qui permet de laisser ce service
 câblé au boot d'une fonction Vercel sans lui coûter une E/S.
 
-**L.173 — avant `readonly now?: () => Date;`**
+**Avant `readonly now?: () => Date;`**
 
  Injectable pour les tests. Une seule horloge lue par passe : voir `run()`.
 
-**L.195 — avant `if (channel.isArchived) {`**
+**Avant `if (channel.isArchived) {`**
 
 ARCHIVÉ D'ABORD, avant `isMember` : `chat.postMessage` échoue en `is_archived` quel
 
-**L.196 — avant `if (channel.isArchived) {`**
 
 que soit `is_member`, et le bot RESTE membre des canaux archivés sous lui —
 
-**L.197 — avant `if (channel.isArchived) {`**
-
 `listChannelMembershipsPage` ne pose délibérément pas `exclude_archived`, ils
-
-**L.198 — avant `if (channel.isArchived) {`**
 
 arrivent donc bien ici. Tester l'adhésion en premier les faisait entrer dans
 
-**L.199 — avant `if (channel.isArchived) {`**
-
 `accessibleChannelIds`, dont le contrat est « les canaux où le bot PEUT écrire » :
-
-**L.200 — avant `if (channel.isArchived) {`**
 
 une promesse d'écriture certaine d'échouer, et un `archivedSkipped` qui ne les
 
-**L.201 — avant `if (channel.isArchived) {`**
-
 comptait jamais.
-
-**L.208 — avant `alreadyMember += 1;`**
+**Avant `alreadyMember += 1;`**
 
 Un canal privé dont on EST membre est parfaitement utilisable : c'est le cas de
 
-**L.209 — avant `alreadyMember += 1;`**
 
 `#engineer-karyl`. « Privé » ne vaut exclusion que combiné à « pas membre ».
-
-**L.221 — avant `failures.push({`**
+**Avant `failures.push({`**
 
 Le scope manque : la tentative suivante échouerait identiquement. On enregistre
 
-**L.222 — avant `failures.push({`**
 
 l'échec sans consommer un appel de plus.
-
-**L.232 — avant `const result = await deps.source.join(channel.id);`**
+**Avant `const result = await deps.source.join(channel.id);`**
 
 SÉQUENTIEL, pas `Promise.all` : `conversations.join` est plafonné par Slack, et une
 
-**L.233 — avant `const result = await deps.source.join(channel.id);`**
 
 salve simultanée sur un workspace fourni se ferait rate-limiter — le remède
 
-**L.234 — avant `const result = await deps.source.join(channel.id);`**
-
 produirait alors le symptôme qu'il vient corriger.
-
-**L.244 — avant `alreadyMember += 1;`**
+**Avant `alreadyMember += 1;`**
 
 Course bénigne : quelqu'un a invité le bot entre le balayage et l'appel.
 
-**L.250 — avant `privateNotMember.push({ id: channel.id, name: channel.name });`**
+**Avant `privateNotMember.push({ id: channel.id, name: channel.name });`**
 
 Slack contredit `is_private` (canal converti entre-temps) : état nommé, pas erreur.
 
-**L.303 — avant `function logCoverage(report: ChannelCoverageReport): void {`**
+**Avant `function logCoverage(report: ChannelCoverageReport): void {`**
 
 Journalise l'issue de la passe. Extrait de `run()` : la fonction porte déjà la boucle
 d'adhésion et son `switch`, et empiler trois branches de journalisation par-dessus la rendait
@@ -340,7 +315,7 @@ illisible — la lire ne doit pas coûter plus que la comprendre.
 `missing_scope` d'abord : c'est la seule issue qui appelle un geste HUMAIN, et la noyer dans
 le message générique de dégradation ferait manquer la seule chose à faire.
 
-**L.340 — avant `async function recordInventory(`**
+**Avant `async function recordInventory(`**
 
 Enregistre l'inventaire — canaux vus, et membres observés de ceux où le bot peut écrire.
 
@@ -368,42 +343,40 @@ dont le `synced_at` est ANTÉRIEUR à celui qu'on vient d'écrire. Deux horloges
 instants resteraient correctes, mais un même instant rend la passe lisible d'un seul coup
 d'œil en base — tous les canaux d'un même balayage portent le même `synced_at`.
 
-**L.419 — avant `interface ChannelRecordOutcome {`**
+**Avant `interface ChannelRecordOutcome {`**
 
  Ce qu'une passe a pu faire d'UN canal. Champs absents = l'étape n'a pas eu lieu.
 
-**L.422 — avant `readonly members?: number;`**
+**Avant `readonly members?: number;`**
 
  Nombre de membres enregistrés. `undefined` = ils n'ont pas été énumérés.
 
-**L.425 — avant `readonly error?: string;`**
+**Avant `readonly error?: string;`**
 
  Message d'échec. `undefined` = aucun échec.
 
-**L.429 — avant `async function recordOneChannel(`**
+**Avant `async function recordOneChannel(`**
 
 Enregistre UN canal, et ses membres s'il est accessible. Ne lève jamais : chaque échec est
 rendu comme une valeur, pour que la passe continue sur les canaux suivants.
 
-**L.448 — avant `memberCountReported: channel.memberCountReported ?? null,`**
+**Avant `memberCountReported: channel.memberCountReported ?? null,`**
 
 `?? null` : une source qui ne porte pas le champ n'affirme rien. On n'invente pas un
 
-**L.449 — avant `memberCountReported: channel.memberCountReported ?? null,`**
 
 `0`, qui serait indiscernable d'un canal réellement vide.
-
-**L.455 — avant `return { channelRecorded: false, error: errorMessage(error) };`**
+**Avant `return { channelRecorded: false, error: errorMessage(error) };`**
 
 Sans ligne de canal, l'appartenance violerait la clé étrangère : on n'essaie même pas.
 
-**L.474 — avant `function isInventoryDegraded(inventory: ChannelInventoryReport | undefined): boolean {`**
+**Avant `function isInventoryDegraded(inventory: ChannelInventoryReport | undefined): boolean {`**
 
  Un rapport d'inventaire ABSENT n'est pas dégradé : il n'a pas été demandé.
 
 ## `features/directory/application/services/directory-sync.service.ts`
 
-**L.7 — avant `export interface EmployeeDirectoryLookup {`**
+**Avant `export interface EmployeeDirectoryLookup {`**
 
 SYNCHRONISATION DE L'ANNUAIRE — Slack dit qui existe, la base s'en souvient.
 
@@ -431,7 +404,6 @@ Le rapport porte un `outcome` du même vocabulaire que `OnboardingOutcome`
 synchronisés » sans mention des 3 qui ont échoué se lit « tout va bien » — et ce dépôt a
 déjà payé trois fois ce mensonge.
 
-**L.39 — avant `export interface EmployeeDirectoryLookup {`**
 
 Le strict nécessaire de `EmployeeRepository` : une résolution par email.
 
@@ -440,8 +412,7 @@ features ne se référencent pas au niveau applicatif, c'est la règle structura
 (`member-source.ts` et le port `employee` dupliqué par la feature `document` font le même
 choix, documenté comme intentionnel). `EmployeeRepository` la satisfait structurellement, le
 câblage n'a donc rien à adapter.
-
-**L.52 — avant `export interface DirectorySyncSource extends MemberSource {`**
+**Avant `export interface DirectorySyncSource extends MemberSource {`**
 
 La source consommée : le port `MemberSource`, plus — quand la source SAIT le dire — un aveu
 de troncature.
@@ -451,34 +422,34 @@ construction d'avouer qu'il est incomplet. Une source qui l'ignore n'est pas moi
 elle est seulement moins bavarde, et le rapport le dira (`truncated: false` est alors une
 absence d'information, pas une garantie — d'où le nom de la méthode, au passé).
 
-**L.71 — avant `readonly outcome: 'completed' | 'degraded';`**
+**Avant `readonly outcome: 'completed' | 'degraded';`**
 
  `degraded` dès qu'un membre a échoué, qu'un rattachement a échoué, ou que le scan est tronqué.
 
-**L.75 — avant `readonly linked: number;`**
+**Avant `readonly linked: number;`**
 
  Rattachements `employee_id` NOUVEAUX. Un rattachement déjà en place n'est pas recompté.
 
-**L.78 — avant `readonly failures: readonly DirectorySyncFailure[];`**
+**Avant `readonly failures: readonly DirectorySyncFailure[];`**
 
  Borné (voir `MAX_REPORTED_FAILURES`) : le décompte, lui, ne l'est pas.
 
-**L.81 — avant `readonly truncated: boolean;`**
+**Avant `readonly truncated: boolean;`**
 
  Le balayage a touché son plafond de pages : l'annuaire est PARTIEL.
 
-**L.88 — avant `readonly employees?: EmployeeDirectoryLookup;`**
+**Avant `readonly employees?: EmployeeDirectoryLookup;`**
 
 Optionnel : sans lui, aucun rattachement `employee_id` n'est tenté et le rapport le dit
 (`linked: 0`). L'absence d'annuaire employé n'est pas une dégradation — c'est une
 configuration, exactement comme « pas de canal de département » ne rend pas une invitation
 Slack dégradée.
 
-**L.95 — avant `readonly now?: () => Date;`**
+**Avant `readonly now?: () => Date;`**
 
  Injectable pour les tests ; la production passe l'heure réelle.
 
-**L.103 — avant `const MAX_REPORTED_FAILURES = 10;`**
+**Avant `const MAX_REPORTED_FAILURES = 10;`**
 
 On ne rapporte pas 5 000 échecs.
 
@@ -487,63 +458,47 @@ créée (le DDL vit dans `scripts/ddl-slack-directory.sql` et s'applique à la m
 migrations `drizzle/` étant désynchronisées). CHAQUE ligne échoue alors avec le même
 `no such table`. Un échantillon nomme la cause ; le décompte, lui, reste exact.
 
-**L.121 — avant `const knownLinks = await readKnownLinks(deps.repository);`**
+**Avant `const knownLinks = await readKnownLinks(deps.repository);`**
 
 Lu AVANT les upserts, en UN aller-retour : `upsertFacts` ne touche pas `employee_id`,
 
-**L.122 — avant `const knownLinks = await readKnownLinks(deps.repository);`**
 
 donc cette photo reste valable après. La forme « naturelle » — relire chaque ligne
 
-**L.123 — avant `const knownLinks = await readKnownLinks(deps.repository);`**
-
 après son upsert pour savoir si elle est rattachée — coûterait un aller-retour par
 
-**L.124 — avant `const knownLinks = await readKnownLinks(deps.repository);`**
-
 membre pour la même information.
-
-**L.134 — avant `try {`**
+**Avant `try {`**
 
 Chaque membre est isolé : un profil malformé ne doit pas emporter l'annuaire entier.
 
-**L.135 — avant `try {`**
 
 Sans cette isolation, une seule ligne en échec laisserait la politique d'autorisation
 
-**L.136 — avant `try {`**
-
 sans aucun fait sur personne — c'est-à-dire sans aucune décision.
-
-**L.145 — avant `continue;`**
+**Avant `continue;`**
 
 Le rattachement suppose la ligne écrite : inutile de l'essayer.
 
-**L.168 — avant `logger.error('Directory sync degraded', {`**
+**Avant `logger.error('Directory sync degraded', {`**
 
 La ligne à chercher. Elle dit QUOI et POURQUOI — un booléen dirait qu'il faut
 
-**L.169 — avant `logger.error('Directory sync degraded', {`**
 
 réparer, jamais quoi.
-
-**L.191 — avant `async function readKnownLinks(`**
+**Avant `async function readKnownLinks(`**
 
  `slackUserId → employeeId`. Une panne de lecture n'annule pas la synchronisation.
 
-**L.199 — avant `logger.warn('Directory sync could not read existing links — employee lookups will repeat', {`**
+**Avant `logger.warn('Directory sync could not read existing links — employee lookups will repeat', {`**
 
 Conséquence assumée et NOMMÉE : sans cette photo, chaque membre porteur d'un email fera
 
-**L.200 — avant `logger.warn('Directory sync could not read existing links — employee lookups will repeat', {`**
 
 une résolution employé de plus. C'est du travail en trop, jamais une perte de donnée —
 
-**L.201 — avant `logger.warn('Directory sync could not read existing links — employee lookups will repeat', {`**
-
 `linkEmployee` est idempotent quand il repose la même valeur.
-
-**L.209 — avant `async function linkEmployeeIfPossible(`**
+**Avant `async function linkEmployeeIfPossible(`**
 
 Rattache `employee_id` quand l'email désigne un employé enregistré.
 
@@ -553,17 +508,15 @@ employé en cours de migration, `users:read.email` momentanément absent — et 
 perdrait son pont vers le métier sans que rien ne le signale. Un rattachement qui manque se
 refait au passage suivant ; un rattachement effacé ne se voit pas.
 
-**L.226 — avant `if (facts.isBot || facts.isDeleted) return 'skipped';`**
+**Avant `if (facts.isBot || facts.isDeleted) return 'skipped';`**
 
 Un bot n'a pas d'employé, un compte désactivé n'a plus à en gagner un, et sans email il
 
-**L.227 — avant `if (facts.isBot || facts.isDeleted) return 'skipped';`**
 
 n'y a rien à résoudre. Trois filtres qui épargnent autant d'allers-retours en base.
-
 ## `features/directory/application/services/welcome-channels.service.ts`
 
-**L.4 — avant `export type ChannelInviteStatus =`**
+**Avant `export type ChannelInviteStatus =`**
 
 INVITATION D'UN ARRIVANT dans les canaux publics d'accueil.
 
@@ -586,15 +539,15 @@ canal mais avec son message de bienvenue peut demander de l'aide ; l'inverse ne 
 
 ⚠️ TypeScript pur côté logique — seule la journalisation est importée.
 
-**L.32 — avant `| 'bot_not_in_channel'`**
+**Avant `| 'bot_not_in_channel'`**
 
  Le BOT n'est pas membre : il doit rejoindre avant de pouvoir inviter quelqu'un.
 
-**L.35 — avant `| 'missing_scope'`**
+**Avant `| 'missing_scope'`**
 
  Scope manquant — seule issue qui appelle un geste HUMAIN.
 
-**L.49 — avant `export interface WelcomeChannelSource {`**
+**Avant `export interface WelcomeChannelSource {`**
 
 La source, déclarée par son CONSOMMATEUR — `application` ne connaît pas Slack.
 
@@ -602,11 +555,11 @@ L'adaptateur qui la relie au fournisseur Slack vit en `infrastructure`, seule co
 croisement entre deux features est légitime. Même construction que `MemberSource` et
 `ChannelAccessSource`.
 
-**L.57 — avant `listChannels(): Promise<readonly WelcomeChannelRef[]>;`**
+**Avant `listChannels(): Promise<readonly WelcomeChannelRef[]>;`**
 
  Canaux du workspace, nom ET identifiant. La résolution se fait ici, pas en config.
 
-**L.60 — avant `join(channelId: string): Promise<ChannelInviteResult>;`**
+**Avant `join(channelId: string): Promise<ChannelInviteResult>;`**
 
 Le bot se rend membre du canal.
 
@@ -614,57 +567,45 @@ Rendu sous le MÊME vocabulaire que `invite` — un seul type de résultat, donc
 `switch` à lire dans le service, là où deux vocabulaires proches auraient fabriqué la
 confusion qu'ils prétendaient éviter.
 
-**L.77 — avant `readonly outcome: 'completed' | 'degraded' | 'not_configured';`**
+**Avant `readonly outcome: 'completed' | 'degraded' | 'not_configured';`**
 
 `not_configured` est DISTINCT de `completed` : « personne n'a demandé d'invitation » ne se
 lit pas comme « toutes les invitations ont abouti ». Sans cette valeur, une variable
 d'environnement oubliée produirait un rapport parfaitement vert.
 
-**L.83 — avant `readonly joinedNames: readonly string[];`**
+**Avant `readonly joinedNames: readonly string[];`**
 
  Noms des canaux où l'arrivant se trouve à l'issue du passage — pour le DM.
 
-**L.101 — avant `logger.warn('No welcome channels configured — skipping newcomer invitations', {`**
+**Avant `logger.warn('No welcome channels configured — skipping newcomer invitations', {`**
 
 `warn` et non `error` : ne rien configurer est un choix légitime. Mais le silence
 
-**L.102 — avant `logger.warn('No welcome channels configured — skipping newcomer invitations', {`**
 
 total ferait ressembler l'absence de configuration à une panne d'invitation, et
 
-**L.103 — avant `logger.warn('No welcome channels configured — skipping newcomer invitations', {`**
-
 c'est précisément la ligne qu'on cherchera le jour où un arrivant n'atterrit nulle
 
-**L.104 — avant `logger.warn('No welcome channels configured — skipping newcomer invitations', {`**
-
 part.
-
-**L.116 — avant `logger.error('Unable to list Slack channels for the welcome invitations', {`**
+**Avant `logger.error('Unable to list Slack channels for the welcome invitations', {`**
 
 Sans annuaire de canaux, AUCUN nom n'est résoluble : on rend un échec PAR canal
 
-**L.117 — avant `logger.error('Unable to list Slack channels for the welcome invitations', {`**
 
 demandé plutôt qu'un rapport vide, qui se lirait « rien à faire ».
-
-**L.145 — avant `failures.push({ name, status: 'missing_scope' });`**
+**Avant `failures.push({ name, status: 'missing_scope' });`**
 
 La tentative suivante échouerait identiquement : on enregistre sans dépenser un
 
-**L.146 — avant `failures.push({ name, status: 'missing_scope' });`**
 
 appel de plus. Même arbitrage que `ChannelCoverageService`.
-
-**L.151 — avant `const outcome = await inviteOnce(deps.source, channel, slackUserId);`**
+**Avant `const outcome = await inviteOnce(deps.source, channel, slackUserId);`**
 
 SÉQUENTIEL, jamais `Promise.all` : `conversations.invite` est plafonné par Slack, et
 
-**L.152 — avant `const outcome = await inviteOnce(deps.source, channel, slackUserId);`**
 
 une salve simultanée se ferait rate-limiter — le remède produirait le symptôme.
-
-**L.176 — avant `async function inviteOnce(`**
+**Avant `async function inviteOnce(`**
 
 Une invitation, avec UN seul rattrapage : si le bot n'est pas membre du canal, il le rejoint
 et réessaie.
@@ -672,23 +613,19 @@ et réessaie.
 Jamais deux fois — un `join` qui échoue est définitif pour ce passage, et boucler
 consommerait du quota d'API pour répéter le même refus.
 
-**L.193 — avant `return { status: 'bot_not_in_channel', error: joined.error };`**
+**Avant `return { status: 'bot_not_in_channel', error: joined.error };`**
 
 On conserve le statut de l'INVITATION (`bot_not_in_channel`, la cause réelle) et
 
-**L.194 — avant `return { status: 'bot_not_in_channel', error: joined.error };`**
 
 l'erreur du `join` (ce qui a empêché de la lever). Écraser le premier par le second
 
-**L.195 — avant `return { status: 'bot_not_in_channel', error: joined.error };`**
-
 dirait « le bot n'a pas pu rejoindre » sans dire pourquoi on essayait.
-
-**L.202 — avant `async function safely(call: () => Promise<ChannelInviteResult>): Promise<ChannelInviteResult> {`**
+**Avant `async function safely(call: () => Promise<ChannelInviteResult>): Promise<ChannelInviteResult> {`**
 
  Un port qui lève malgré son contrat ne doit pas couler la boucle.
 
-**L.211 — avant `function logReport(`**
+**Avant `function logReport(`**
 
 Journalise l'issue. `missing_scope` d'abord : c'est la seule issue qui appelle un geste
 humain, et la noyer dans le message générique de dégradation ferait manquer la seule chose
@@ -696,7 +633,7 @@ humain, et la noyer dans le message générique de dégradation ferait manquer l
 
 ## `features/directory/domain/entities/directory-member.ts`
 
-**L.1 — avant `export interface DirectoryMember {`**
+**Avant `export interface DirectoryMember {`**
 
 Une personne du workspace Slack, telle que l'annuaire la connaît.
 
@@ -707,31 +644,31 @@ relier à un email, à un employé, ou à un statut d'invité.
 
 ⚠️ TypeScript pur — aucun import de framework. Cette entité traverse la couche `domain`.
 
-**L.12 — avant `readonly slackUserId: string;`**
+**Avant `readonly slackUserId: string;`**
 
  Identifiant Slack `U…`. IMMUABLE pour la vie du compte : c'est la clé, pas l'email.
 
-**L.16 — avant `readonly email: string | null;`**
+**Avant `readonly email: string | null;`**
 
  `null` sur les comptes sans adresse (bots) ou si `users:read.email` venait à manquer.
 
-**L.20 — avant `readonly firstName: string | null;`**
+**Avant `readonly firstName: string | null;`**
 
  Voir `DirectoryMemberFacts` : lus dans le profil Slack, jamais dérivés de `realName`.
 
-**L.23 — avant `readonly title: string | null;`**
+**Avant `readonly title: string | null;`**
 
  `profile.title` — le poste DÉCLARÉ dans Slack, distinct de `employees.position`.
 
-**L.28 — avant `readonly isRestricted: boolean;`**
+**Avant `readonly isRestricted: boolean;`**
 
  Invité multi-canal.
 
-**L.30 — avant `readonly isUltraRestricted: boolean;`**
+**Avant `readonly isUltraRestricted: boolean;`**
 
  Invité mono-canal.
 
-**L.34 — avant `readonly dmChannelId: string | null;`**
+**Avant `readonly dmChannelId: string | null;`**
 
 Canal `D…` du message direct, appris au premier DM reçu.
 
@@ -739,11 +676,11 @@ Il ne peut PAS être découvert par balayage : `conversations.list({ types: 'im'
 `missing_scope` faute du scope `im:read` (vérifié le 2026-08-12). `null` signifie donc
 « cette personne ne nous a jamais écrit en direct », jamais « introuvable ».
 
-**L.43 — avant `readonly employeeId: string | null;`**
+**Avant `readonly employeeId: string | null;`**
 
  `employees.id`, quand la personne est un employé enregistré.
 
-**L.46 — avant `readonly isManager: boolean;`**
+**Avant `readonly isManager: boolean;`**
 
 Cette personne porte-t-elle le rôle `manager` ?
 
@@ -757,11 +694,11 @@ d'être écrasés à chaque resynchronisation.
 ligne dans `employees` : exiger un dossier aurait rendu la frontière indésignable sans en
 fabriquer un, c'est-à-dire sans inventer une date d'embauche.
 
-**L.62 — avant `readonly syncedAt: Date;`**
+**Avant `readonly syncedAt: Date;`**
 
  Dernière confirmation par Slack de ces valeurs.
 
-**L.66 — avant `export interface DirectoryMemberFacts {`**
+**Avant `export interface DirectoryMemberFacts {`**
 
 Ce que Slack nous apprend d'une personne, indépendamment de ce que la base en sait déjà.
 
@@ -771,7 +708,7 @@ qu'une synchronisation, en réécrivant l'enregistrement, effacerait le canal de
 le rattachement à l'employé — une perte silencieuse, exactement le mode d'échec que ce dépôt
 a déjà payé avec `documents.content`.
 
-**L.81 — avant `readonly firstName: string | null;`**
+**Avant `readonly firstName: string | null;`**
 
 Prénom, nom et poste — lus TELS QUELS dans `profile.first_name`, `profile.last_name` et
 `profile.title`, jamais dérivés de `realName`.
@@ -789,14 +726,14 @@ inconnue.
 
 ## `features/directory/domain/entities/slack-channel.ts`
 
-**L.1 — avant `export interface SlackChannelRecord {`**
+**Avant `export interface SlackChannelRecord {`**
 
 L'INVENTAIRE DES CANAUX — ce que le bot observe des canaux où il se trouve.
 
-════════════════════════════════════════════════════════════════════════════
+
 ⚠️ CE MODÈLE EST UN INVENTAIRE D'OBSERVABILITÉ. IL N'EST JAMAIS UNE SOURCE
    D'AUTORISATION. LE LIRE COMME UNE ACL EST UN BUG DE SÉCURITÉ.
-════════════════════════════════════════════════════════════════════════════
+
 
 La demande d'origine est de l'inventaire pur : « pour les canaux où le bot est invité, je veux
 l'ID du canal, le nombre de personnes et les membres ». Le piège est que le résultat
@@ -822,17 +759,15 @@ La règle est rendue EXÉCUTABLE, et non recommandée :
 ⚠️ TypeScript pur — zéro import de framework. Cette couche est verrouillée par
 `tests/unit/quality/architecture.test.ts`.
 
-**L.34 — avant `export interface SlackChannelRecord {`**
 
 Un canal, tel que l'inventaire le connaît à sa dernière synchronisation.
 
 `channelId` et non `name` comme identité : un canal se renomme sans que son `C…` bouge.
-
-**L.44 — avant `readonly isMember: boolean;`**
+**Avant `readonly isMember: boolean;`**
 
  `true` = le bot est dedans. C'est ce que `chat.postMessage` exige, rien de plus.
 
-**L.47 — avant `readonly memberCountReported: number | null;`**
+**Avant `readonly memberCountReported: number | null;`**
 
 ⚠️ ASSERTION DE SLACK (`conversations.list` → `num_members`), et non un cache du nombre de
 lignes de `slack_channel_members`.
@@ -842,48 +777,48 @@ normalement. Le vrai compte est celui des membres observés ; l'écart entre les
 signal de fraîcheur gratuit. `null` = Slack n'a rien affirmé (fréquent sur les canaux
 privés) — ce qu'un `0`, indiscernable d'un canal vide, ne dirait pas.
 
-**L.61 — avant `export interface SlackChannelFacts {`**
+**Avant `export interface SlackChannelFacts {`**
 
 Ce que Slack affirme d'un canal, indépendamment de ce que la base en sait déjà.
 
 Distinct de `SlackChannelRecord` pour la même raison que `DirectoryMemberFacts` l'est de
 `DirectoryMember` : `syncedAt` est un fait de NOTRE processus, pas du sien.
 
-**L.76 — avant `export interface SlackChannelMembership {`**
+**Avant `export interface SlackChannelMembership {`**
 
 Une appartenance OBSERVÉE : cette personne était dans ce canal lors de la dernière passe.
 
 Le temps passé est la formulation exacte, et il est volontaire. Cet objet ne dit pas
 « appartient », il dit « a été vu appartenant à l'instant `syncedAt` ».
 
-**L.85 — avant `readonly firstSeenAt: Date;`**
+**Avant `readonly firstSeenAt: Date;`**
 
  Première observation. SURVIT aux resynchronisations d'une personne toujours présente.
 
-**L.87 — avant `readonly syncedAt: Date;`**
+**Avant `readonly syncedAt: Date;`**
 
  Dernière observation. Une valeur ancienne = la personne n'a pas été revue.
 
-**L.91 — avant `export interface SlackChannelInventoryEntry {`**
+**Avant `export interface SlackChannelInventoryEntry {`**
 
 Le compte OBSERVÉ d'un canal, avec l'assertion de Slack à côté — jamais fondus.
 
 Les fusionner en un seul nombre détruirait le seul signal de fraîcheur dont dispose une table
 qu'aucun événement ne viendra jamais démentir.
 
-**L.99 — avant `readonly observedMemberCount: number;`**
+**Avant `readonly observedMemberCount: number;`**
 
  `COUNT(*)` sur les appartenances observées. LE compte.
 
 ## `features/directory/domain/ports/channel.repository.ts`
 
-**L.8 — avant `export interface ChannelInventoryRepository {`**
+**Avant `export interface ChannelInventoryRepository {`**
 
 Persistance de l'INVENTAIRE des canaux et de leurs membres observés.
 
-════════════════════════════════════════════════════════════════════════════
+
 ⚠️ AUCUNE MÉTHODE DE CE PORT NE RÉPOND À UNE QUESTION D'AUTORISATION.
-════════════════════════════════════════════════════════════════════════════
+
 
 Le nommage EST le garde-fou, et il est délibéré. On ne trouvera ici ni `canRead`, ni
 `isAllowed`, ni `hasAccess`, ni même `isMemberOf` — pas parce que ces méthodes seraient
@@ -904,7 +839,7 @@ Verrouillé par `tests/unit/directory/channel-inventory-not-an-acl.test.ts`.
 
 ⚠️ TypeScript pur — zéro import de framework.
 
-**L.35 — avant `upsertChannel(facts: SlackChannelFacts, now: Date): Promise<void>;`**
+**Avant `upsertChannel(facts: SlackChannelFacts, now: Date): Promise<void>;`**
 
 Enregistre ce que Slack vient d'affirmer d'un canal.
 
@@ -912,7 +847,7 @@ Enregistre ce que Slack vient d'affirmer d'un canal.
 jamais du nombre de lignes de la table d'appartenances. Ce sont deux mesures d'instants
 différents, et leur écart est le seul signal de fraîcheur de cet inventaire.
 
-**L.44 — avant `replaceMembers(channelId: string, slackUserIds: readonly string[], now: Date): Promise<void>;`**
+**Avant `replaceMembers(channelId: string, slackUserIds: readonly string[], now: Date): Promise<void>;`**
 
 REMPLACE l'ensemble des membres observés d'un canal. Ce n'est pas une fusion.
 
@@ -929,18 +864,18 @@ lignée exacte de `documents.content`.
 Un ensemble vide est une valeur LÉGITIME : elle signifie « plus personne d'observé », et
 doit vider le canal.
 
-**L.62 — avant `listChannels(): Promise<SlackChannelRecord[]>;`**
+**Avant `listChannels(): Promise<SlackChannelRecord[]>;`**
 
  Tout l'inventaire, trié sur `channelId` — pour les rapports et le diagnostic.
 
-**L.65 — avant `listInventory(): Promise<SlackChannelInventoryEntry[]>;`**
+**Avant `listInventory(): Promise<SlackChannelInventoryEntry[]>;`**
 
 Les canaux avec leur compte OBSERVÉ (`COUNT(*)`) à côté de l'assertion de Slack.
 
 Les deux chiffres restent séparés à dessein : les fondre supprimerait l'écart, qui est
 l'information.
 
-**L.73 — avant `listObservedMembers(channelId: string): Promise<SlackChannelMembership[]>;`**
+**Avant `listObservedMembers(channelId: string): Promise<SlackChannelMembership[]>;`**
 
 Les appartenances OBSERVÉES d'un canal, triées sur `slackUserId`.
 
@@ -948,7 +883,7 @@ Rend les enregistrements complets — `firstSeenAt` et `syncedAt` compris — et
 identifiants : un appelant qui ne voit pas la date d'observation ne peut pas savoir qu'il
 lit un état ancien. C'est le contraire d'une commodité.
 
-**L.82 — avant `listChannelsObservedForUser(slackUserId: string): Promise<SlackChannelMembership[]>;`**
+**Avant `listChannelsObservedForUser(slackUserId: string): Promise<SlackChannelMembership[]>;`**
 
 « Dans quels canaux cette personne a-t-elle été observée ? » — sert l'index sur
 `slack_user_id`.
@@ -958,7 +893,7 @@ comme un droit d'accès ; celui-ci se lit comme ce qu'il est, une trace de balay
 
 ## `features/directory/domain/ports/directory.repository.ts`
 
-**L.3 — avant `export interface DirectoryRepository {`**
+**Avant `export interface DirectoryRepository {`**
 
 Persistance de l'annuaire des personnes.
 
@@ -966,11 +901,11 @@ Persistance de l'annuaire des personnes.
 secondes et qui exécute déjà la prise de clé de déduplication. Une implémentation doit s'y
 tenir à UN aller-retour dans le cas passant.
 
-**L.13 — avant `findByEmail(email: string): Promise<DirectoryMember | null>;`**
+**Avant `findByEmail(email: string): Promise<DirectoryMember | null>;`**
 
  Sert la question que trois agents posaient à l'utilisateur faute de savoir y répondre.
 
-**L.16 — avant `findByName(query: string, limit: number): Promise<DirectoryMember[]>;`**
+**Avant `findByName(query: string, limit: number): Promise<DirectoryMember[]>;`**
 
 Résout une personne par son NOM, accents et casse ignorés.
 
@@ -982,7 +917,7 @@ implémentations divergeraient au premier accent.
 ⚠️ Les bots et les comptes désactivés ne sont PAS filtrés ici : c'est une décision
 d'appelant, et `findByEmail` ne les filtre pas davantage. Le tool les écarte.
 
-**L.29 — avant `upsertFacts(facts: DirectoryMemberFacts, now: Date): Promise<void>;`**
+**Avant `upsertFacts(facts: DirectoryMemberFacts, now: Date): Promise<void>;`**
 
 Enregistre ce que Slack vient de dire, SANS écraser ce que nous avons appris par ailleurs.
 
@@ -992,13 +927,13 @@ complète repasse sur toutes les lignes ; si elle réécrivait l'enregistrement 
 passage effacerait le canal de DM appris au fil des messages et le rattachement à
 l'employé — une perte muette, dans la lignée exacte de `documents.content`.
 
-**L.40 — avant `rememberDmChannel(slackUserId: string, dmChannelId: string): Promise<void>;`**
+**Avant `rememberDmChannel(slackUserId: string, dmChannelId: string): Promise<void>;`**
 
 Mémorise le canal de DM d'une personne, appris de son premier message direct.
 
 Idempotent, et volontairement NON destructif : un `D…` déjà connu n'est pas remplacé.
 
-**L.47 — avant `hasManager(): Promise<boolean>;`**
+**Avant `hasManager(): Promise<boolean>;`**
 
 Existe-t-il au moins un dossier employé portant le rôle `manager` ?
 
@@ -1010,7 +945,7 @@ Lecture seule. Aucun chemin de ce dépôt n'ÉCRIT le rôle : il se pose délib�
 `npm run role:set`. Déclarer ici une écriture en ferait une capacité du produit, donc
 quelque chose qu'un futur câblage pourrait brancher sans le relire.
 
-**L.60 — avant `findManagers(): Promise<DirectoryMember[]>;`**
+**Avant `findManagers(): Promise<DirectoryMember[]>;`**
 
 Les personnes VIVANTES qui portent le rôle `manager`.
 
@@ -1022,11 +957,10 @@ deux par la même lecture ferait payer une liste à un chemin qui n'a besoin que
 Mêmes exclusions que la politique — ni bot, ni compte désactivé : écrire à un compte que
 `resolveAccess` refuse serait écrire dans le vide.
 
-**L.73 — avant `linkEmployee(slackUserId: string, employeeId: string | null): Promise<number>;`**
+**Avant `linkEmployee(slackUserId: string, employeeId: string | null): Promise<number>;`**
 
  Rattache une personne à un employé enregistré. `null` détache.
 
-**L.74 — avant `linkEmployee(slackUserId: string, employeeId: string | null): Promise<number>;`**
 
 Rattache une ligne d'annuaire à un dossier, et rend le NOMBRE de lignes réellement
 touchées.
@@ -1037,14 +971,13 @@ ligne n'existe pas, l'ordre réussit sans rien faire. Trouvé EN PRODUCTION le 2
 en testant le correctif du matin même — il journalisait « Annuaire relié au dossier »
 alors que zéro ligne avait bougé, ce qui est exactement la famille de défaut qu'il
 fermait. Sans ce compte, l'appelant ne peut que réciter « c'est fait ».
-
-**L.87 — avant `listAll(): Promise<DirectoryMember[]>;`**
+**Avant `listAll(): Promise<DirectoryMember[]>;`**
 
  Tout l'annuaire, pour les usages de lecture groupée.
 
 ## `features/directory/domain/ports/member-source.ts`
 
-**L.3 — avant `export interface MemberSource {`**
+**Avant `export interface MemberSource {`**
 
 Source des faits d'annuaire — ce que le monde extérieur sait des personnes.
 
@@ -1062,20 +995,20 @@ Le port est délibérément RÉDUIT à deux méthodes — celles que l'annuaire 
 les sept méthodes de `SlackWorkspaceProvider` ferait entrer ici `inviteToChannel()`, une
 capacité d'ÉCRITURE, dans le port d'un composant dont le rôle est de lire qui est qui.
 
-**L.21 — avant `fetchById(slackUserId: string): Promise<DirectoryMemberFacts | null>;`**
+**Avant `fetchById(slackUserId: string): Promise<DirectoryMemberFacts | null>;`**
 
 Résout une personne par son identifiant Slack.
 
 `null` = introuvable. Ne doit PAS lever sur une simple absence : sur le chemin de l'ACK,
 une exception pour un compte inconnu coûterait le traitement du message entier.
 
-**L.29 — avant `fetchAll(): Promise<DirectoryMemberFacts[]>;`**
+**Avant `fetchAll(): Promise<DirectoryMemberFacts[]>;`**
 
  Balayage complet, pour la synchronisation périodique.
 
 ## `features/directory/domain/services/access-policy.ts`
 
-**L.1 — avant `export type AccessLevel = 'denied' | 'readonly' | 'full';`**
+**Avant `export type AccessLevel = 'denied' | 'readonly' | 'full';`**
 
 LA FRONTIÈRE D'AUTORISATION (P1) — service de domaine PUR.
 
@@ -1135,22 +1068,20 @@ Il ne DÉCIDE pas non plus si la décision est appliquée : le mode observation 
 l'appelant. Cette fonction dit ce qui *devrait* se passer, toujours, même quand rien n'est
 appliqué — c'est ce qui rend le mode observation mesurable.
 
-**L.69 — avant `export type AccessLevel = 'denied' | 'readonly' | 'full';`**
 
 Trois niveaux, ordonnés du plus restrictif au plus permissif.
 
  - `denied`   : l'événement n'est pas traité du tout. Aucun appel LLM, aucun tool.
  - `readonly` : traité, mais par un agent dépourvu de tout outil à effet de bord.
  - `full`     : traité par l'agent nominal.
-
-**L.78 — avant `export type AccessReason =`**
+**Avant `export type AccessReason =`**
 
 Motif de la décision. Il est journalisé et sert le mode observation — c'est lui qui répond à
 « qu'est-ce qui serait refusé si on activait ? ». Jamais montré à l'utilisateur : nommer la
 règle qui a porté renseignerait un attaquant sur la sonde qui a fonctionné, exactement le
 défaut corrigé sur `[SECURITY_BLOCK]`.
 
-**L.92 — avant `export interface AccessSubject {`**
+**Avant `export interface AccessSubject {`**
 
 Le sujet de la décision — la personne, telle que l'annuaire la connaît.
 
@@ -1159,15 +1090,15 @@ collecté par l'annuaire mais absent d'ici : aucun palier ne l'utilise aujourd'h
 champ présent dans une signature de sécurité finit toujours par être lu comme s'il faisait
 quelque chose.
 
-**L.104 — avant `readonly isRestricted: boolean;`**
+**Avant `readonly isRestricted: boolean;`**
 
  Invité multi-canal (`is_restricted` chez Slack).
 
-**L.106 — avant `readonly isUltraRestricted: boolean;`**
+**Avant `readonly isUltraRestricted: boolean;`**
 
  Invité mono-canal (`is_ultra_restricted` chez Slack).
 
-**L.109 — avant `readonly isManager: boolean;`**
+**Avant `readonly isManager: boolean;`**
 
 Cette personne porte-t-elle le rôle `manager` ?
 
@@ -1180,7 +1111,7 @@ General Manager de cette entreprise n'a pas de ligne dans `employees`, et 5 des 
 personnes vivantes non plus. Exiger un dossier aurait rendu la frontière indésignable
 sans en fabriquer un — c'est-à-dire sans inventer une date d'embauche.
 
-**L.124 — avant `export function resolveAccess(subject: AccessSubject | null): AccessDecision {`**
+**Avant `export function resolveAccess(subject: AccessSubject | null): AccessDecision {`**
 
 Décide du niveau d'accès. Fonction TOTALE : tout sujet, y compris `null`, reçoit une
 décision — il n'existe pas d'entrée pour laquelle l'appelant aurait à inventer un défaut.
@@ -1205,7 +1136,7 @@ rien à perdre. Ce que `readonly` ferme, c'est l'accès aux dossiers des AUTRES.
 
 ## `features/directory/domain/services/welcome-channel-names.ts`
 
-**L.1 — avant `export function parseWelcomeChannelNames(raw: string | undefined | null): readonly string[] {`**
+**Avant `export function parseWelcomeChannelNames(raw: string | undefined | null): readonly string[] {`**
 
 Noms de canaux d'accueil, lus d'une variable d'environnement.
 
@@ -1216,33 +1147,25 @@ Slack pour savoir de quel canal il parle. La résolution nom → identifiant est
 
 ⚠️ TypeScript pur — aucun import.
 
-**L.12 — avant `const seen = new Set<string>();`**
+**Avant `const seen = new Set<string>();`**
 
 Un `Set` plutôt qu'un tableau filtré : il donne la déduplication ET conserve l'ordre
 
-**L.13 — avant `const seen = new Set<string>();`**
 
 d'insertion. Deux invitations dans le même canal ne casseraient rien (la seconde rendrait
 
-**L.14 — avant `const seen = new Set<string>();`**
-
 `already_in_channel`, comptée comme un succès), mais elles dépenseraient un appel Slack
 
-**L.15 — avant `const seen = new Set<string>();`**
-
 et feraient apparaître le canal deux fois dans le message de bienvenue.
-
-**L.19 — avant `const name = part.trim().replace(/^#+/, '').trim().toLowerCase();`**
+**Avant `const name = part.trim().replace(/^#+/, '').trim().toLowerCase();`**
 
 Le `#` de tête est retiré : c'est la forme sous laquelle Slack AFFICHE un canal, donc
 
-**L.20 — avant `const name = part.trim().replace(/^#+/, '').trim().toLowerCase();`**
 
 celle qu'un humain recopiera. L'API, elle, ne connaît que le nom nu.
-
 ## `features/directory/infrastructure/providers/slack-channel-access.adapter.ts`
 
-**L.17 — avant `export interface SlackChannelReader {`**
+**Avant `export interface SlackChannelReader {`**
 
 Le pont entre `ChannelCoverageService` (qui ne connaît pas Slack) et `SlackWorkspaceService`
 (qui ne connaît que lui). Rien d'autre : pas une décision, pas une politique.
@@ -1250,15 +1173,13 @@ Le pont entre `ChannelCoverageService` (qui ne connaît pas Slack) et `SlackWork
 Il vit en `infrastructure` pour la même raison que `SlackMemberSource` — c'est la seule
 couche où deux features peuvent se croiser.
 
-**L.25 — avant `export interface SlackChannelReader {`**
 
 Le strict nécessaire côté Slack : lire une page de canaux, rejoindre un canal.
 
 `SlackWorkspaceService` le satisfait structurellement. On ne dépend pas de
 `SlackWorkspaceProvider` : ses 7 méthodes incluent `inviteToChannel`, un droit d'écriture sur
 l'appartenance des AUTRES, dont la couverture de canaux n'a aucun usage.
-
-**L.36 — avant `listChannels(): Promise<readonly { id: string; memberCount: number }[]>;`**
+**Avant `listChannels(): Promise<readonly { id: string; memberCount: number }[]>;`**
 
 `conversations.list` sous sa projection RICHE — la seule qui porte `num_members`.
 
@@ -1266,11 +1187,11 @@ Elle n'est appelée que si `reportedMemberCounts` est demandé : c'est un SECOND
 complet du workspace, et le faire par défaut doublerait les appels de tout le monde pour un
 chiffre dont seul l'inventaire a l'usage.
 
-**L.45 — avant `getChannelMembers(channelId: string): Promise<readonly string[]>;`**
+**Avant `getChannelMembers(channelId: string): Promise<readonly string[]>;`**
 
  `conversations.members`, déjà déroulé par le fournisseur.
 
-**L.52 — avant `readonly reportedMemberCounts?: boolean;`**
+**Avant `readonly reportedMemberCounts?: boolean;`**
 
 Demande l'assertion `num_members` de Slack, au prix d'un second `conversations.list`.
 
@@ -1278,7 +1199,7 @@ Faux par défaut : ce composant est câblé dans `src/mastra/index.ts`, donc att
 boot d'une fonction Vercel — celui qui est SUR le chemin des 3 secondes d'ACK de Slack. Le
 script de synchronisation, lui, l'active.
 
-**L.62 — avant `export const MEMBER_SCAN_CAP = SLACK_MAX_PAGES * SLACK_PAGE_LIMIT;`**
+**Avant `export const MEMBER_SCAN_CAP = SLACK_MAX_PAGES * SLACK_PAGE_LIMIT;`**
 
 Plafond du balayage des membres d'UN canal, en identifiants.
 
@@ -1295,7 +1216,7 @@ plafonnée. La franchir n'est donc pas une limite de capacité mais le signe d'u
 d'où la journalisation en `error` et le drapeau `truncated`. Un plafond silencieux se lit
 « tout est synchronisé » — le mode d'échec que ce dépôt paie depuis `emailSent: false`.
 
-**L.92 — avant `async listChannels(): Promise<{ channels: ChannelSnapshot[]; truncated: boolean }> {`**
+**Avant `async listChannels(): Promise<{ channels: ChannelSnapshot[]; truncated: boolean }> {`**
 
 Balayage PAGINÉ et BORNÉ, comme celui des membres.
 
@@ -1307,27 +1228,21 @@ la centième ligne.
 Les canaux sans identifiant sont écartés : un `join('')` ne peut rien rejoindre et
 fabriquerait un échec qui ne désigne rien.
 
-**L.116 — avant `const count = reported.get(channel.id);`**
+**Avant `const count = reported.get(channel.id);`**
 
 La clé n'est POSÉE que si Slack a effectivement affirmé quelque chose. Un
 
-**L.117 — avant `const count = reported.get(channel.id);`**
 
 `memberCountReported: null` systématique ferait dire à l'instantané « Slack affirme
 
-**L.118 — avant `const count = reported.get(channel.id);`**
-
 qu'il n'y a rien à affirmer », là où son ABSENCE dit ce qui est vrai : cette source
 
-**L.119 — avant `const count = reported.get(channel.id);`**
-
 ne porte pas l'assertion. Le consommateur retombe sur `null` par `?? null`.
-
-**L.148 — avant `async join(channelId: string): Promise<ChannelJoinResult> {`**
+**Avant `async join(channelId: string): Promise<ChannelJoinResult> {`**
 
  `joinChannel` ne lève jamais : chaque refus de Slack est déjà un état nommé.
 
-**L.154 — avant `async listMembers(channelId: string): Promise<ChannelMemberScan> {`**
+**Avant `async listMembers(channelId: string): Promise<ChannelMemberScan> {`**
 
 Membres observés d'un canal, BORNÉS.
 
@@ -1339,15 +1254,13 @@ On ne rattrape PAS l'erreur ici : un refus de Slack sur l'énumération n'est pa
 métier nommé comme le sont ceux de `join`. L'appelant le convertit en échec d'inventaire,
 par canal, sans couler la passe.
 
-**L.168 — avant `const memberIds = collected.filter(Boolean);`**
+**Avant `const memberIds = collected.filter(Boolean);`**
 
 Les identifiants vides sont écartés : ils ne désignent personne et gonfleraient le
 
-**L.169 — avant `const memberIds = collected.filter(Boolean);`**
 
 `COUNT(*)`, c'est-à-dire le seul chiffre que cet inventaire existe pour rendre.
-
-**L.184 — avant `private async readReportedMemberCounts(): Promise<Map<string, number>> {`**
+**Avant `private async readReportedMemberCounts(): Promise<Map<string, number>> {`**
 
 L'assertion `num_members` de Slack, par identifiant de canal. Vide si non demandée.
 
@@ -1367,7 +1280,7 @@ compte OBSERVÉ qui fait foi.
 
 ## `features/directory/infrastructure/providers/slack-member-source.adapter.ts`
 
-**L.8 — avant `export interface SlackMemberReader {`**
+**Avant `export interface SlackMemberReader {`**
 
 L'annuaire, alimenté depuis Slack.
 
@@ -1382,19 +1295,17 @@ Il consomme le service Slack déjà câblé. Un second client dupliquerait le je
 réglages de retry et les compteurs de rate-limit — deux clients ignorant chacun les appels
 de l'autre franchiraient un plafond que ni l'un ni l'autre ne verrait venir.
 
-**L.27 — avant `export interface SlackMemberReader {`**
 
 Le strict nécessaire côté Slack — deux méthodes.
 
 L'adaptateur ne dépend PAS de `SlackWorkspaceProvider` (7 méthodes, dont `inviteToChannel`,
 une capacité d'écriture) : un annuaire dont le rôle est de lire qui est qui n'a aucune raison
 de tenir un droit d'inviter. C'est aussi ce qui rend la doublure de test triviale.
-
-**L.40 — avant `readonly maxPages?: number;`**
+**Avant `readonly maxPages?: number;`**
 
  Plafond de pages. Défaut : celui du service Slack. Surchargé par les tests.
 
-**L.44 — avant `function toFacts(member: SlackMember): DirectoryMemberFacts {`**
+**Avant `function toFacts(member: SlackMember): DirectoryMemberFacts {`**
 
 Projection `SlackMember` → `DirectoryMemberFacts`.
 
@@ -1403,26 +1314,22 @@ trois états est précisément ce que la politique d'autorisation lit pour REFUS
 rétrograder : une source qui les écarterait produirait un annuaire où seuls figurent les
 gens à qui l'on dit oui, c'est-à-dire aucune décision.
 
-**L.59 — avant `firstName: member.firstName || null,`**
+**Avant `firstName: member.firstName || null,`**
 
 `|| null` et non `?? null` : Slack rend une CHAÎNE VIDE pour un champ de profil non
 
-**L.60 — avant `firstName: member.firstName || null,`**
 
 renseigné, jamais `undefined`. Avec `??` on stockerait `''`, qui se lit « renseigné,
 
-**L.61 — avant `firstName: member.firstName || null,`**
-
 mais vide » — indiscernable d'un vrai vide et faux positif garanti sur toute recherche.
-
-**L.76 — avant `private truncated = false;`**
+**Avant `private truncated = false;`**
 
 ⚠️ `truncated` est un fait du DERNIER balayage, pas un état durable. Il existe parce que
 `MemberSource.fetchAll()` rend un tableau nu : un tableau ne sait pas dire qu'il est
 incomplet. Sans ce drapeau, une synchronisation plafonnée rapporterait « 10 000 membres
 synchronisés » et serait indiscernable d'une synchronisation intégrale.
 
-**L.91 — avant `async fetchById(slackUserId: string): Promise<DirectoryMemberFacts | null> {`**
+**Avant `async fetchById(slackUserId: string): Promise<DirectoryMemberFacts | null> {`**
 
 `null` sur un compte introuvable — jamais une exception.
 
@@ -1431,7 +1338,7 @@ un identifiant inconnu coûterait le traitement du message entier. `getUserById`
 déjà `user_not_found` en `null` ; ce qui reste (réseau, 5xx, rate-limit) remonte, et c'est
 volontaire — une panne de Slack n'est pas une absence de personne.
 
-**L.106 — avant `async fetchAll(): Promise<DirectoryMemberFacts[]> {`**
+**Avant `async fetchAll(): Promise<DirectoryMemberFacts[]> {`**
 
 Balayage complet — PAGINÉ, BORNÉ, et bavard quand il est borné.
 
@@ -1444,13 +1351,13 @@ ensuite en `unknown_actor` toute personne qui a eu le tort d'être en page 2. Le
 Les membres sans identifiant sont écartés : `slack_user_id` est la clé primaire, une chaîne
 vide y créerait UN sujet fantôme que toutes les lignes suivantes viendraient écraser.
 
-**L.163 — avant `wasLastFetchTruncated(): boolean {`**
+**Avant `wasLastFetchTruncated(): boolean {`**
 
  Le dernier `fetchAll()` a-t-il touché le plafond de pages ?
 
 ## `features/directory/infrastructure/providers/slack-welcome-channel.adapter.ts`
 
-**L.8 — avant `export interface SlackInviteClient {`**
+**Avant `export interface SlackInviteClient {`**
 
 Le pont entre `WelcomeChannelsService` (qui ne connaît pas Slack) et `SlackWorkspaceService`
 (qui ne connaît que lui). Rien d'autre : pas une décision, pas une politique.
@@ -1465,15 +1372,13 @@ la raison d'être de ce fichier :
 Les faire remonter sous un vocabulaire unique est exactement ce que le service attend pour
 n'avoir qu'un seul `switch` à lire.
 
-**L.23 — avant `export interface SlackInviteClient {`**
 
 Le strict nécessaire côté Slack.
 
 On ne dépend PAS de `SlackWorkspaceProvider` entier : ses sept méthodes n'ont ici aucun
 usage, et une dépendance large obligerait toute doublure de test à simuler une API dont ce
 composant n'a que faire. `SlackWorkspaceService` satisfait cette interface structurellement.
-
-**L.36 — avant `const STATUS_BY_SLACK_ERROR: ReadonlyMap<string, ChannelInviteStatus> = new Map([`**
+**Avant `const STATUS_BY_SLACK_ERROR: ReadonlyMap<string, ChannelInviteStatus> = new Map([`**
 
 Codes d'erreur Slack traduits en états NOMMÉS.
 
@@ -1481,15 +1386,13 @@ Liste FERMÉE : tout code absent devient `failed`, message conservé. Une traduc
 optimiste ferait passer un refus inconnu pour un succès — exactement le mode d'échec de
 `status = Sent` posé avant le `try`.
 
-**L.45 — avant `['cant_invite_self', 'already_in_channel'],`**
+**Avant `['cant_invite_self', 'already_in_channel'],`**
 
 Slack rend `cant_invite_self` quand la cible est le bot lui-même : le résultat visé
 
-**L.46 — avant `['cant_invite_self', 'already_in_channel'],`**
 
 (« la personne est dans le canal ») est atteint, donc ce n'est pas un échec.
-
-**L.54 — avant `const STATUS_BY_JOIN_OUTCOME: ReadonlyMap<string, ChannelInviteStatus> = new Map([`**
+**Avant `const STATUS_BY_JOIN_OUTCOME: ReadonlyMap<string, ChannelInviteStatus> = new Map([`**
 
 `SlackJoinOutcome.status` traduit dans le vocabulaire du service.
 
@@ -1497,15 +1400,13 @@ Slack rend `cant_invite_self` quand la cible est le bot lui-même : le résultat
 un canal que le bot ne peut pas rejoindre et un canal qui n'existe pas produisent le même
 fait — l'arrivant n'y entrera pas — et le message d'erreur conserve la cause exacte.
 
-**L.93 — avant `return classify(error);`**
+**Avant `return classify(error);`**
 
 Le contrat dit « ne lève jamais » ; on ne le suppose pas pour autant. Une exception
 
-**L.94 — avant `return classify(error);`**
 
 qui traverserait ce point ferait échouer l'accueil entier d'un arrivant.
-
-**L.100 — avant `function classify(error: unknown): ChannelInviteResult {`**
+**Avant `function classify(error: unknown): ChannelInviteResult {`**
 
 Le code d'erreur Slack, lu d'abord dans `error.data.error` (forme du SDK), puis dans le
 message.
@@ -1516,7 +1417,7 @@ réemballé compterait pour un échec définitif au lieu de déclencher le rattr
 
 ## `features/directory/infrastructure/repositories/drizzle-channel.repository.ts`
 
-**L.17 — avant `const MEMBER_INSERT_CHUNK = 100;`**
+**Avant `const MEMBER_INSERT_CHUNK = 100;`**
 
 Inventaire des canaux sur LibSQL/Turso.
 
@@ -1532,7 +1433,6 @@ se bloque indéfiniment contre une base `libsql://` distante. Le DDL
 (`scripts/ddl-slack-channels.sql`) doit être appliqué à la main sur toute base neuve ou de
 production, comme pour `conversation_turns`, `slack_event_dedup` et `slack_directory`.
 
-**L.33 — avant `const MEMBER_INSERT_CHUNK = 100;`**
 
 Taille des paquets d'insertion.
 
@@ -1541,30 +1441,23 @@ multi-lignes porte 4 colonnes par membre : au-delà de ~240 membres, un `INSERT`
 dépasserait la borne et échouerait sur les canaux les plus peuplés — c'est-à-dire exactement
 ceux pour lesquels l'inventaire a de la valeur. 100 laisse une marge confortable et garde le
 nombre d'allers-retours bas.
-
-**L.45 — avant `constructor(private readonly resolveDb: () => DatabaseInstance = getDb) {}`**
+**Avant `constructor(private readonly resolveDb: () => DatabaseInstance = getDb) {}`**
 
 Connexion résolue PARESSEUSEMENT (fonction, pas instance) : la construire ici ouvrirait la
 base au chargement du module. Le paramètre existe pour les tests, qui injectent une base
 libsql en mémoire plutôt que de mocker Drizzle à la main.
 
-**L.68 — avant `set: {`**
+**Avant `set: {`**
 
 Champs énumérés UN À UN, comme dans `upsertFacts` de l'annuaire. `channel_id` est
 
-**L.69 — avant `set: {`**
 
 absent : c'est la cible du conflit. `member_count_reported` est réécrit tel quel,
 
-**L.70 — avant `set: {`**
-
 `null` compris — un `COALESCE` avec l'ancienne valeur conserverait une assertion
 
-**L.71 — avant `set: {`**
-
 périmée en la faisant passer pour actuelle.
-
-**L.83 — avant `async replaceMembers(`**
+**Avant `async replaceMembers(`**
 
 REMPLACEMENT en deux temps, et l'ORDRE porte toute la sûreté :
 
@@ -1582,48 +1475,40 @@ pendant la phase 1 lève avant la suppression : rien n'est perdu, la passe suiva
 `lt` et non `ne` sur la suppression : une passe concurrente plus récente aurait écrit un
 `synced_at` postérieur, et l'égalité stricte inversée effacerait son travail.
 
-**L.107 — avant `const unique = [...new Set(slackUserIds)];`**
+**Avant `const unique = [...new Set(slackUserIds)];`**
 
 Dédoublonnage défensif : `conversations.members` peut rendre deux fois le même
 
-**L.108 — avant `const unique = [...new Set(slackUserIds)];`**
 
 identifiant à cheval sur deux pages. Sans lui, l'`INSERT` multi-lignes lèverait
 
-**L.109 — avant `const unique = [...new Set(slackUserIds)];`**
-
 `ON CONFLICT DO UPDATE command cannot affect row a second time` — un échec de la passe
 
-**L.110 — avant `const unique = [...new Set(slackUserIds)];`**
-
 entière pour une redite bénigne de l'API.
-
-**L.128 — avant `set: { syncedAt: now },`**
+**Avant `set: { syncedAt: now },`**
 
 `first_seen_at` ABSENT du `set`, et c'est le point critique de ce fichier.
 
-**L.140 — avant `async listChannels(): Promise<SlackChannelRecord[]> {`**
+**Avant `async listChannels(): Promise<SlackChannelRecord[]> {`**
 
  Tri explicite : sans `ORDER BY`, deux appels identiques peuvent rendre deux ordres.
 
-**L.147 — avant `async listInventory(): Promise<SlackChannelInventoryEntry[]> {`**
+**Avant `async listInventory(): Promise<SlackChannelInventoryEntry[]> {`**
 
 `LEFT JOIN` et non `INNER` : un canal sans aucun membre observé doit apparaître avec un
 compte de 0. Un `INNER JOIN` le ferait DISPARAÎTRE du rapport, et « absent » se lirait
 « pas de problème » — alors qu'un canal connu sans membre observé est précisément ce qu'il
 faut voir.
 
-**L.165 — avant `observedMemberCount: count(slackChannelMembers.slackUserId),`**
+**Avant `observedMemberCount: count(slackChannelMembers.slackUserId),`**
 
 `count(colonne)` et non `count(*)` : sur un `LEFT JOIN` sans correspondance, `count(*)`
 
-**L.166 — avant `observedMemberCount: count(slackChannelMembers.slackUserId),`**
 
 rendrait 1 (la ligne de gauche existe), donc un canal vide serait rapporté à 1 membre.
-
 ## `features/directory/infrastructure/repositories/drizzle-directory.repository.ts`
 
-**L.9 — avant `export class DrizzleDirectoryRepository implements DirectoryRepository {`**
+**Avant `export class DrizzleDirectoryRepository implements DirectoryRepository {`**
 
 Annuaire des personnes du workspace, sur LibSQL/Turso.
 
@@ -1636,14 +1521,14 @@ COÛT : `findBySlackUserId` fait UN aller-retour, sur la PRIMARY KEY. C'est un p
 par le port, pas une optimisation : elle tourne sur le chemin de l'ACK Slack, celui qui n'a
 que 3 secondes et qui exécute déjà la prise de clé de déduplication.
 
-**L.22 — avant `constructor(private readonly resolveDb: () => DatabaseInstance = getDb) {}`**
+**Avant `constructor(private readonly resolveDb: () => DatabaseInstance = getDb) {}`**
 
 La connexion est résolue PARESSEUSEMENT (fonction, pas instance) : la construire ici
 ouvrirait la base au câblage de `src/mastra/index.ts`, au chargement du module. Le paramètre
 existe pour les tests, qui injectent une base libsql en mémoire plutôt que de mocker
 Drizzle à la main.
 
-**L.41 — avant `async findByEmail(email: string): Promise<DirectoryMember | null> {`**
+**Avant `async findByEmail(email: string): Promise<DirectoryMember | null> {`**
 
 Deux passes, et l'ordre est le fond :
 
@@ -1658,7 +1543,7 @@ L'index reste NON unique (voir `schema.ts`) : deux comptes peuvent porter la mê
 temps d'une migration. On rend la première ligne, jamais une erreur — ce port répond à
 « qui est-ce ? », il n'arbitre pas les doublons.
 
-**L.77 — avant `async upsertFacts(facts: DirectoryMemberFacts, now: Date): Promise<void> {`**
+**Avant `async upsertFacts(facts: DirectoryMemberFacts, now: Date): Promise<void> {`**
 
 ⚠️ LE POINT CRITIQUE DE CE FICHIER — le `set` de l'upsert énumère les champs UN À UN.
 
@@ -1672,7 +1557,7 @@ le rattachement à l'employé. Muette, comme `documents.content` l'a été sur 6
 `slack_user_id` est absent du `set` : c'est la cible du conflit, la réécrire n'a pas de sens.
 `first_seen_at` n'est posé qu'à l'INSERT, c'est-à-dire une seule fois dans la vie de la ligne.
 
-**L.132 — avant `async rememberDmChannel(slackUserId: string, dmChannelId: string): Promise<void> {`**
+**Avant `async rememberDmChannel(slackUserId: string, dmChannelId: string): Promise<void> {`**
 
 Le `IS NULL` de la clause `WHERE` porte TOUTE la garantie de non-destruction, et il la porte
 atomiquement : deux DM traités en parallèle par deux instances ne peuvent pas se voler la
@@ -1685,45 +1570,37 @@ ne lève pas. La ligne est créée par `upsertFacts`, jamais ici — fabriquer u
 flag, c'est-à-dire un sujet d'autorisation dont tous les faits seraient des valeurs par
 défaut.
 
-**L.153 — avant `async hasManager(): Promise<boolean> {`**
+**Avant `async hasManager(): Promise<boolean> {`**
 
 `LIMIT 1` et non un `COUNT(*)` : la question est « existe-t-il », pas « combien ». Compter
 balaierait la table pour une réponse booléenne, et ce contrôle vit sur le chemin d'un
 message.
 
-**L.160 — avant `const row = await db`**
+**Avant `const row = await db`**
 
 ⚠️ Les mêmes exclusions que la politique : un bot ou un compte désactivé est REFUSÉ
 
-**L.161 — avant `const row = await db`**
 
 quel que soit son rôle, donc un manager désactivé n'est pas un manager. Sans ces
 
-**L.162 — avant `const row = await db`**
-
 clauses, la garde autoriserait l'application au nom de quelqu'un que la politique
 
-**L.163 — avant `const row = await db`**
-
 refuse — et rétrograderait tout le monde en croyant l'inverse.
-
-**L.180 — avant `async findManagers(): Promise<DirectoryMember[]> {`**
+**Avant `async findManagers(): Promise<DirectoryMember[]> {`**
 
  Tri sur la clé : deux appels identiques doivent rendre le même ordre.
 
-**L.198 — avant `async linkEmployee(slackUserId: string, employeeId: string | null): Promise<number> {`**
+**Avant `async linkEmployee(slackUserId: string, employeeId: string | null): Promise<number> {`**
 
  Destructif à dessein, contrairement à `rememberDmChannel` : `null` DÉTACHE, c'est le port.
 
-**L.202 — avant `const result = await db`**
+**Avant `const result = await db`**
 
 ⚠️ On REND le compte : un `UPDATE` sans ligne correspondante réussit sans rien faire.
 
-**L.203 — avant `const result = await db`**
 
 Voir le port pour l'incident de production qui l'a imposé.
-
-**L.212 — avant `async findByName(query: string, limit: number): Promise<DirectoryMember[]> {`**
+**Avant `async findByName(query: string, limit: number): Promise<DirectoryMember[]> {`**
 
 Résolution par nom : UN aller-retour, puis le rapprochement en mémoire.
 
@@ -1735,14 +1612,14 @@ qu'on corrige.
 La borne est ici l'effectif du WORKSPACE Slack (40 lignes en production au
 2026-08-14, bots et comptes désactivés compris), pas un volume de trafic.
 
-**L.240 — avant `async listAll(): Promise<DirectoryMember[]> {`**
+**Avant `async listAll(): Promise<DirectoryMember[]> {`**
 
 Tri explicite sur la clé : sans `ORDER BY`, deux appels identiques peuvent rendre deux ordres
 différents — même défaut que celui corrigé sur `getNotificationHistory`.
 
 ## `features/directory/infrastructure/repositories/in-memory-channel.repository.ts`
 
-**L.9 — avant `export class InMemoryChannelInventoryRepository implements ChannelInventoryRepository {`**
+**Avant `export class InMemoryChannelInventoryRepository implements ChannelInventoryRepository {`**
 
 Doublure de test de l'inventaire des canaux.
 
@@ -1759,31 +1636,29 @@ que ce port existe pour interdire.
 ⚠️ Inventaire d'observabilité — jamais une source d'autorisation. Voir
 `domain/entities/slack-channel.ts`.
 
-**L.27 — avant `private members = new Map<string, Map<string, SlackChannelMembership>>();`**
+**Avant `private members = new Map<string, Map<string, SlackChannelMembership>>();`**
 
  Clé `channelId` → membres par `slackUserId`.
 
-**L.37 — avant `memberCountReported: facts.memberCountReported,`**
+**Avant `memberCountReported: facts.memberCountReported,`**
 
 Réécrit tel quel, `null` compris : conserver l'ancienne valeur ferait passer une
 
-**L.38 — avant `memberCountReported: facts.memberCountReported,`**
 
 assertion périmée pour actuelle.
-
-**L.56 — avant `firstSeenAt: previous.get(slackUserId)?.firstSeenAt ?? now,`**
+**Avant `firstSeenAt: previous.get(slackUserId)?.firstSeenAt ?? now,`**
 
 Le fait que NOUS accumulons — jamais réécrit par une resynchronisation.
 
-**L.62 — avant `this.members.set(channelId, next);`**
+**Avant `this.members.set(channelId, next);`**
 
 Remplacement, pas fusion : ce qui n'est pas dans `next` a disparu.
 
-**L.92 — avant `clear(): void {`**
+**Avant `clear(): void {`**
 
  Confort de test : vide l'inventaire entre deux cas.
 
-**L.99 — avant `function compareBinary(a: string, b: string): number {`**
+**Avant `function compareBinary(a: string, b: string): number {`**
 
 Comparaison BINAIRE, celle de l'`ORDER BY` de SQLite sur une colonne `text`. `localeCompare`
 s'en écarterait, et deux implémentations qui trient différemment finiraient par faire diverger
@@ -1791,7 +1666,7 @@ un test de la production sur un détail que personne ne relit.
 
 ## `features/directory/infrastructure/repositories/in-memory-directory.repository.ts`
 
-**L.5 — avant `export class InMemoryDirectoryRepository implements DirectoryRepository {`**
+**Avant `export class InMemoryDirectoryRepository implements DirectoryRepository {`**
 
 Doublure de test du `DirectoryRepository`. Même contrat et même sémantique que
 l'implémentation Drizzle — c'est elle qui sert de doublure aux tests de la politique d'accès
@@ -1803,59 +1678,49 @@ production n'a pas, et le défaut qu'elle laisserait passer — l'effacement mue
 à chaque synchronisation — est précisément celui que ce port existe pour interdire. Les deux
 implémentations sont donc exercées par la MÊME suite de tests.
 
-**L.23 — avant `async findByEmail(email: string): Promise<DirectoryMember | null> {`**
+**Avant `async findByEmail(email: string): Promise<DirectoryMember | null> {`**
 
 Égalité stricte d'abord, repli insensible à la casse ensuite — dans cet ORDRE, comme côté
 SQL. L'ordre est observable dès qu'une base contient deux adresses ne différant que par la
 casse : l'exacte doit gagner.
 
-**L.44 — avant `async upsertFacts(facts: DirectoryMemberFacts, now: Date): Promise<void> {`**
+**Avant `async upsertFacts(facts: DirectoryMemberFacts, now: Date): Promise<void> {`**
 
 ⚠️ LE POINT CRITIQUE — les trois champs que Slack ignore sont REPRIS de la ligne existante :
 `dmChannelId`, `employeeId` et `firstSeenAt`. Écrire `{ ...facts, ...}` sans eux les
 remettrait à leur valeur d'insertion à chaque synchronisation, ce que le port interdit.
 
-**L.67 — avant `dmChannelId: previous?.dmChannelId ?? null,`**
+**Avant `dmChannelId: previous?.dmChannelId ?? null,`**
 
 Faits que NOUS accumulons — jamais réécrits par une synchronisation.
 
-**L.70 — avant `isManager: previous?.isManager ?? false,`**
+**Avant `isManager: previous?.isManager ?? false,`**
 
 ⚠️ CONSERVÉ, jamais réécrit par une synchronisation — même contrat que `dmChannelId`
 
-**L.71 — avant `isManager: previous?.isManager ?? false,`**
 
 et `employeeId` juste au-dessus. Slack ne connaît pas ce fait ; le laisser écrire par
 
-**L.72 — avant `isManager: previous?.isManager ?? false,`**
-
 `upsertFacts` reviendrait à fabriquer une autorisation, et une resynchronisation
 
-**L.73 — avant `isManager: previous?.isManager ?? false,`**
-
 rétrograderait le manager en silence.
-
-**L.81 — avant `async rememberDmChannel(slackUserId: string, dmChannelId: string): Promise<void> {`**
+**Avant `async rememberDmChannel(slackUserId: string, dmChannelId: string): Promise<void> {`**
 
  Non destructif : un `D…` déjà connu n'est pas remplacé. Personne inconnue = sans effet.
 
-**L.89 — avant `async linkEmployee(slackUserId: string, employeeId: string | null): Promise<number> {`**
+**Avant `async linkEmployee(slackUserId: string, employeeId: string | null): Promise<number> {`**
 
  Destructif à dessein : `null` DÉTACHE. Personne inconnue = sans effet, comme l'`UPDATE`.
 
-**L.91 — avant `const row = this.rows.get(slackUserId);`**
+**Avant `const row = this.rows.get(slackUserId);`**
 
 ⚠️ Rend 0 quand la ligne n'existe pas, comme l'`UPDATE` SQL. La doublure DOIT partager ce
 
-**L.92 — avant `const row = this.rows.get(slackUserId);`**
 
 contrat : c'est précisément l'écart entre « l'ordre a réussi » et « une ligne a bougé »
 
-**L.93 — avant `const row = this.rows.get(slackUserId);`**
-
 qui a produit un log de succès mensonger en production le 2026-08-19.
-
-**L.100 — avant `async hasManager(): Promise<boolean> {`**
+**Avant `async hasManager(): Promise<boolean> {`**
 
 Pose le rôle — HORS DU PORT, et c'est volontaire.
 
@@ -1868,7 +1733,6 @@ situation exacte de `discoverSlackWorkspace` avant sa suppression.
 Ici, c'est un utilitaire de doublure : il donne aux tests le moyen de fabriquer un manager
 sans passer par SQL.
 
-**L.112 — avant `async hasManager(): Promise<boolean> {`**
 
 ⚠️ Les MÊMES exclusions que l'implémentation Drizzle — un bot ou un compte désactivé est
 refusé par la politique quel que soit son rôle, donc il ne compte pas comme manager.
@@ -1877,22 +1741,18 @@ La première version de cette doublure les omettait, et le contrat partagé l'a 
 elle aurait autorisé l'application de toute la frontière au nom de quelqu'un que la
 politique refuse par ailleurs. Une doublure plus permissive que son original rend vertes
 des campagnes qui décrivent un produit qui n'existe pas.
-
-**L.140 — avant `async findByName(query: string, limit: number): Promise<DirectoryMember[]> {`**
+**Avant `async findByName(query: string, limit: number): Promise<DirectoryMember[]> {`**
 
  Trié sur la clé, comme l'`ORDER BY` de l'implémentation Drizzle.
 
-**L.141 — avant `async findByName(query: string, limit: number): Promise<DirectoryMember[]> {`**
 
  Même rapprochement que la production — le module partagé est le seul juge.
-
-**L.157 — avant `clear(): void {`**
+**Avant `clear(): void {`**
 
  Confort de test : vide l'annuaire entre deux cas.
 
-**L.163 — avant `function compareBinary(a: string, b: string): number {`**
+**Avant `function compareBinary(a: string, b: string): number {`**
 
 Comparaison BINAIRE, celle de l'`ORDER BY` de SQLite sur une colonne `text`.
 `localeCompare` s'en écarterait — et deux implémentations qui trient différemment finiraient
 par faire diverger un test de la production sur un détail que personne ne relit.
-

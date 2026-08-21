@@ -30,44 +30,17 @@ export interface DispatchReport {
   readonly sent: number;
   readonly failed: number;
   readonly skipped: number;
-  /** Périmés : le jour est passé depuis plus d'une semaine. Annulés, jamais remis. */
   readonly stale: number;
   readonly reasons: Readonly<Record<string, number>>;
 }
 
 type Outcome = 'sent' | 'failed' | 'skipped';
 
-/**
- * ════════════════════════════════════════════════════════════════════════════
- * LA REMISE QUOTIDIENNE DES RAPPELS
- * ════════════════════════════════════════════════════════════════════════════
- *
- * Appelée par le cron Vercel, et par lui seul. Elle ne fait AUCUN appel de modèle : le sujet
- * et le corps ont été rédigés au moment de l'enregistrement, sous les yeux de la personne qui
- * les a demandés. Les refabriquer à la remise reviendrait à envoyer un texte que personne n'a
- * relu, et à payer un aller-retour par rappel sur un budget qui se compte à la journée.
- *
- * ⚠️ **L'ORDRE DES QUATRE GESTES EST TOUT** : on PREND, on résout, on envoie, on constate.
- *   - prendre AVANT d'envoyer ferme la course entre deux exécutions ;
- *   - rendre la prise sur un échec RÉPARABLE (transport, base) évite de perdre le rappel — la
- *     remise du lendemain le rattrapera ;
- *   - un destinataire introuvable n'est PAS réparable : on marque `failed` et on s'arrête là,
- *     sans quoi le même rappel repartirait en échec tous les matins jusqu'à la fin des temps.
- */
 export async function dispatchDueReminders(deps: DispatchDeps): Promise<DispatchReport> {
   const now = deps.now?.() ?? new Date();
 
   const pending = await deps.notifications.findPending();
 
-  /**
-   * ⚠️ **LES PÉRIMÉS SONT ÉTEINTS AVANT TOUT LE RESTE.** Allumer un ordonnanceur réveille tout
-   * ce qui dormait : le 2026-08-21, la première exécution a trouvé des lignes écrites des
-   * semaines plus tôt, quand rien ne les reprenait. Sans cette extinction, un backlog de six
-   * mois partirait par lots de 25, sur des jours, chez des gens qui n'ont rien demandé.
-   *
-   * On ANNULE plutôt qu'on ne supprime : la trace reste lisible, et un rappel exhumé est un
-   * mensonge de plus, pas un service rendu.
-   */
   const stale = selectStaleReminders(pending, now);
   for (const old of stale) {
     logger.warn('Rappel périmé — annulé sans remise', {
@@ -85,7 +58,6 @@ export async function dispatchDueReminders(deps: DispatchDeps): Promise<Dispatch
   const due = selectDueReminders(pending, now, MAX_REMINDERS_PER_RUN);
 
   if (due.length === MAX_REMINDERS_PER_RUN) {
-    // ⚠️ Un plafond silencieux se lit comme « tout a été traité ». On le dit.
     logger.warn('Lot de rappels plafonné — le reste partira à la remise suivante', {
       due: due.length,
       pending: pending.length,
@@ -125,7 +97,6 @@ async function deliverOne(
     reasons[reason] = (reasons[reason] ?? 0) + 1;
   };
 
-  // ── 1. LA PRISE ───────────────────────────────────────────────────────────
   const claimed = await deps.notifications.claimForDispatch(
     reminder.id,
     new Date(now.getTime() - STRANDED_CLAIM_MS),
@@ -136,7 +107,6 @@ async function deliverOne(
     return 'skipped';
   }
 
-  // ── 2. LE DESTINATAIRE ────────────────────────────────────────────────────
   let destination: string;
   try {
     const recipient = await deps.employees.findById(reminder.recipientId);
@@ -163,7 +133,6 @@ async function deliverOne(
       destination = recipient.email;
     }
   } catch (error) {
-    // Une base indisponible EST réparable d'ici demain : on rend la prise.
     logger.error('Résolution du destinataire impossible — la prise est rendue', {
       id: reminder.id,
       error: String(error),
@@ -173,23 +142,8 @@ async function deliverOne(
     return 'skipped';
   }
 
-  // ── 3. L'ENVOI ────────────────────────────────────────────────────────────
   const preamble = reminderPreamble(reminder.scheduledAt);
 
-  /**
-   * ⚠️ **SECOND PASSAGE D'ASSAINISSEMENT, et ce n'est pas une redondance.**
-   *
-   * `scheduleReminder` filtre désormais à l'écriture — mais la production porte des rappels
-   * enregistrés AVANT ce correctif du 2026-08-21, et rien ne les relira jamais autrement que
-   * par ce chemin-ci. Filtrer seulement à l'écriture n'aurait protégé que l'avenir.
-   *
-   * C'est la même forme que `generateDocument`, qui filtre au seuil du rendu ET dans le tool :
-   * la persistance vit en dehors du renderer, donc une ligne peut entrer par un autre chemin
-   * que celui qu'on vient de fermer. L'opération est idempotente — un texte déjà propre en
-   * ressort identique, ce qu'un test vérifie.
-   *
-   * Et c'est ici que ça compte le plus : personne n'est présent au moment de cet envoi.
-   */
   const safe = safeOutboundText(
     { subject: reminder.subject, body: reminder.body },
     { id: reminder.id, channel: reminder.channel, path: 'dispatchDueReminders' },
@@ -216,7 +170,6 @@ async function deliverOne(
     return 'skipped';
   }
 
-  // ── 4. LE CONSTAT ─────────────────────────────────────────────────────────
   await deps.notifications.update({
     ...reminder,
     status: NotificationStatus.Sent,

@@ -15,11 +15,6 @@ export interface KnowledgeIngestionPort {
 export interface KnowledgeIngestionDeps {
   readonly archive: MessageArchiveRepository;
   readonly facts?: KnowledgeFactRepository | null;
-  /**
-   * Le SECOND RIDEAU. Optionnel : sans lui, le comportement est exactement celui d'avant le
-   * 2026-08-21 — le code distille, ce qu'il ne classe pas reste au niveau 1, et la recherche
-   * dégrade vers le texte brut. Aucun appel de modèle n'a lieu.
-   */
   readonly summarizer?: FactSummarizerPort | null;
 }
 
@@ -40,16 +35,9 @@ export class KnowledgeIngestionService implements KnowledgeIngestionPort {
 
     const classified = await this.distil(message);
 
-    // ⚠️ Le rideau n'est consulté QUE si le code n'a rien su faire de ce message. Sur un
-    // workspace où les motifs mordent, il ne coûte pas un seul appel — et s'il coûtait
-    // beaucoup, ce serait le signe qu'il faut élargir les motifs, pas le budget.
     if (!classified) await this.raiseCurtain();
   }
 
-  /**
-   * ⚠️ **NE PROPAGE JAMAIS.** Le rideau est un rattrapage : il ne doit pouvoir ni retarder ni
-   * faire échouer l'archivage, qui est le seul geste dont la perte serait irréversible.
-   */
   private async raiseCurtain(): Promise<void> {
     if (!this.facts || !this.summarizer) return;
 
@@ -67,7 +55,6 @@ export class KnowledgeIngestionService implements KnowledgeIngestionPort {
     }
   }
 
-  /** Rend `true` si le code a su classer ce message — donc si le rideau n'a rien à faire. */
   private async distil(message: ArchivedMessage): Promise<boolean> {
     if (!this.facts) return false;
 
@@ -84,7 +71,6 @@ export class KnowledgeIngestionService implements KnowledgeIngestionPort {
         score: distilled.score,
         postedAt: message.postedAt,
       });
-      // Classé par le CODE : plus rien à examiner, et le rideau ne le reverra jamais.
       await this.archive.markDistilled([message.id], Date.now()).catch(() => 0);
       return true;
     } catch (error) {

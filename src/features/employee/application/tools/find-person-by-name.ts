@@ -7,11 +7,6 @@ import { fullName } from '../../../../shared/name-matching';
 import { sanitizeDisplayName } from '../../../notification/domain/services/context-preamble';
 import { mayHoldKeyFor } from '../../../../shared/slack-request-context';
 
-/**
- * ⚠️ Le hint dit au modèle ce qu'il PEUT faire, pas ce qui lui est refusé — un refus détaillé
- * l'inviterait à contourner, et ce dépôt a mesuré cinq consignes en échec. Il ne nomme donc ni
- * la garde, ni le niveau, ni ce qui manque.
- */
 const WITHHELD_HINT =
   'Tu as le nom, pas son identifiant interne. Poursuis la conversation avec le nom ; pour ' +
   'agir sur son dossier, la personne concernée ou le General Manager doit le demander.';
@@ -33,29 +28,6 @@ const DIRECTORY_ONLY_HINT =
   "et les rappels ne fonctionneront pas pour elle. N'invente aucun identifiant interne ; " +
   'dis-le simplement.';
 
-/**
- * ⚠️ **LA CLÉ NE SORT QUE POUR QUI PEUT S'EN SERVIR — 2026-08-21.**
- *
- * Ce résolveur n'a jamais consulté de garde : il rendait l'UUID interne, le poste et le statut
- * de n'importe qui, à n'importe qui, depuis n'importe quel message Slack — invité mono-canal
- * compris. Sur treize outils, dix consultaient une frontière ; celui-ci et son voisin par email
- * étaient les deux exceptions qui rendent un IDENTIFIANT.
- *
- * ⚠️ **ON NE BLOQUE PAS, ON RÉDUIT.** La contrepartie est écrite noir sur blanc dans ce dépôt :
- * « un agent qui ne sait pas résoudre une personne ne peut RIEN faire », et le câblage manquant
- * a déjà produit une boucle sans sortie le 2026-08-10. Une garde bloquante casserait le produit
- * pour fermer une fuite modeste.
- *
- * L'UUID est la CLÉ : c'est lui qui rend l'appel SUIVANT possible. Un demandeur non autorisé
- * garde donc de quoi poursuivre le dialogue (le nom) et perd de quoi agir. Il ne perd rien
- * d'utile au passage : `getEmployeeProfile`, `generateDocument`, `sendNotification` et
- * `scheduleReminder` lui refuseraient déjà cet identifiant. Ce qu'on retire, c'est l'illusion
- * qu'il pourrait s'en servir — et l'énumération qui va avec.
- *
- * ⚠️ **Hors contexte Slack, on retient AUSSI.** `mayTouchRecord` répond `true` sans contexte,
- * par conception (playground, workflow, test). On ne renverse pas ce fail-open — mais un
- * résolveur n'a aucune raison de rendre un UUID à un appelant dont on ignore l'identité.
- */
 export function makeFindPersonByName(repo: EmployeeRepository, directory?: DirectoryRepository) {
   return createTool({
     id: 'findPersonByName',
@@ -114,12 +86,6 @@ export function makeFindPersonByName(repo: EmployeeRepository, directory?: Direc
   });
 }
 
-/**
- * Les deux projections sont sorties d'`execute` le 2026-08-21 : la réduction de sortie l'avait
- * portée à une complexité cognitive de 18 (seuil 15), et une fonction qui décide À LA FOIS de la
- * résolution et de ce qui sort est exactement celle qu'on relit mal le jour où l'une des deux
- * doit bouger.
- */
 function projectEmployee(
   found: {
     id: string;
@@ -156,8 +122,6 @@ function projectMember(
   requestContext: unknown,
 ) {
   const identified = mayHoldKeyFor(requestContext, member.employeeId);
-  // Deux raisons distinctes de joindre un hint, et elles ne disent pas la même chose : « cette
-  // personne n'a pas de dossier » n'est pas « tu n'as pas à tenir son identifiant ».
   let hint: string | undefined;
   if (!identified) hint = WITHHELD_HINT;
   else if (!member.employeeId) hint = DIRECTORY_ONLY_HINT;

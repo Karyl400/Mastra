@@ -52,8 +52,6 @@ export class InMemoryMessageArchiveRepository implements MessageArchiveRepositor
     return removed;
   }
 
-  // ⚠️ La marque vit à côté des lignes, jamais dedans : `ArchivedMessage` est le contrat du
-  // domaine, et y ajouter un champ d'intendance le ferait fuir dans tout ce qui le lit.
   private readonly distilled = new Map<string, number>();
 
   async pendingDistillation(sinceMs: number, limit: number): Promise<readonly ArchivedMessage[]> {

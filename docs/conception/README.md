@@ -1,11 +1,16 @@
 # Décisions de conception
 
-Ce dossier porte le *pourquoi* de ce code. Il a été extrait des commentaires le 2026-08-20 :
-**5 929 commentaires, 16 600 lignes**, retirés de `src/` et redistribués ici, une page par
-feature. Le code n'en porte plus aucun, à l'exception des directives fonctionnelles
-(`eslint-disable`, `@ts-*`), qui sont du comportement et non du texte.
+Ce dossier porte le *pourquoi* de ce code. Il a été extrait des commentaires en deux temps :
+**5 929 commentaires / 16 600 lignes** le 2026-08-20, puis les **299 commentaires /
+1 656 lignes** écrits depuis, le 2026-08-21. `src/` n'en porte plus aucun — il ne reste que
+**10 directives** (`eslint-disable`, `@ts-expect-error`), qui sont du comportement et non du
+texte : les retirer casserait `lint` ou `tsc`.
 
-Chaque entrée indique le fichier, la ligne d'origine et la déclaration qu'elle précédait.
+⚠️ **L'ancre est la DÉCLARATION, jamais un numéro de ligne.** La première extraction en avait
+semé 5 424 de la forme `L.189`, dont **153 exactes — 2,8 %**. Un numéro de ligne se périme au
+premier retrait de commentaire, c'est-à-dire immédiatement : il ne pointait donc déjà plus
+nulle part le jour où il a été écrit. Les 5 424 ont été normalisées le 2026-08-21, et
+3 019 entrées qu'un même commentaire avait vu découper ligne à ligne ont été recollées.
 
 | Document | Périmètre |
 | --- | --- |

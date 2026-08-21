@@ -18,12 +18,6 @@ export interface KnowledgeFactSearchOptions {
 
 import type { ForgetScope } from './message-archive.repository';
 
-/**
- * ⚠️ **La portée des faits doit suivre celle de l'archive dont ils sont DÉRIVÉS.** Si les
- * deux divergeaient, un fait distillé d'un DM effacé survivrait à son message source, et
- * `searchKnowledge` le rendrait encore : le pire des deux moitiés — la trace disparaît, le
- * résumé reste. `ForgetScope` est donc importé, jamais redéclaré.
- */
 export interface KnowledgeFactRepository {
   record(fact: KnowledgeFact): Promise<boolean>;
   search(query: string, options?: KnowledgeFactSearchOptions): Promise<readonly KnowledgeFact[]>;

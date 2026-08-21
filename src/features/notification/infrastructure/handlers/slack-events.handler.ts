@@ -278,14 +278,6 @@ export interface SlackEventsHandlerOptions {
   pendingEmailRepository?: PendingInterviewEmailRepository | null;
   sendEmail?: (to: string, subject: string, body: EmailBody) => Promise<unknown>;
   knowledgeIngestion?: KnowledgeIngestionPort | null;
-  /**
-   * ⚠️ **INJECTÉ, comme l'ingestion, et JAMAIS fabriqué ici.** Ce handler fabrique déjà six
-   * dépôts Drizzle en interne, ce qui est la cause racine documentée du piège de tests
-   * (« HUIT dépendances à neutraliser », la suite rouge un run sur trois par lenteur). On
-   * n'en ajoute pas un septième.
-   *
-   * Absent ou `null` ⇒ l'archive n'est pas touchée et la réponse ne prétend RIEN à son sujet.
-   */
   knowledgeErasure?: KnowledgeErasurePort | null;
   now?: () => Date;
 }
@@ -363,17 +355,6 @@ function buildRecipientNotice(requestContext: unknown, answer: string): string {
   return `\n\n_(Ce document a été produit pour ${recipient}.)_`;
 }
 
-/**
- * ⚠️ UN REFUS QUI NE DIT PAS POURQUOI SE LIT COMME UNE PANNE.
- *
- * Mesuré en production : « Je ne peux pas créer cette invitation. » — exact, et muet. Le `hint`
- * du tool demandait la raison, l'agent a pour instruction de le reprendre, et il ne l'a pas
- * fait. Cinquième consigne mesurée en échec dans ce dépôt.
- *
- * ⚠️ La note S'EFFACE quand la réponse nomme déjà la personne — même arbitrage que
- * `buildRecipientNotice` : une redite sur une réponse déjà juste n'est que du bruit, et le
- * bruit finit par faire ignorer les notes qui comptent.
- */
 function buildAuthorizationNotice(requestContext: unknown, answer: string): string {
   const notice = readAuthorizationNotice(requestContext);
   if (!notice) return '';
@@ -381,50 +362,11 @@ function buildAuthorizationNotice(requestContext: unknown, answer: string): stri
   return `\n\n_(${notice})_`;
 }
 
-/**
- * ⚠️ **QUAND LE RAPPEL ARRIVERA — dit par le code, jamais par le modèle.**
- *
- * Le rappel part pour de bon depuis le 2026-08-21, mais la remise est QUOTIDIENNE : le matin
- * du jour demandé, à ±59 min près (limite du plan Hobby). Le modèle n'a jamais l'heure dans sa
- * fenêtre — le tool ne lui rend que `deliveredOn` — mais il peut la reprendre de la demande de
- * la personne, qui l'a écrite juste avant. C'est le seul chemin par lequel une précision que
- * rien ne tient pourrait ressortir, et on le ferme ici.
- *
- * ⚠️ La note S'EFFACE si la réponse dit déjà « au matin » : le doublon de démenti relevé le
- * 2026-08-21 est venu d'une note qui redisait ce que la phrase disait déjà.
- */
-/**
- * ════════════════════════════════════════════════════════════════════════════
- * « TRANSMETS-MOI LE TEXTE » — le contournement que le modèle proposait
- * ════════════════════════════════════════════════════════════════════════════
- *
- * Mesuré en production le 2026-08-21. « Récapitule `<#CMLKC4S5T>` et envoie-le-moi en PDF »
- * contient `pdf`, donc part chez `onboardingOrchestrator` (bande 3, position 1) — qui ne porte
- * PAS `getChannelHistory`. Son refus était CORRECT et la quarantaine §4.2 a fonctionné : aucun
- * agent ne réunit lecture agrégée et écriture externe.
- *
- * Deux choses ne l'étaient pas :
- *  1. il PROPOSAIT un contournement — « transmets-moi le texte, je ferai le PDF ». Bénin (le
- *     demandeur a déjà le texte), mais cela apprend à passer autour d'une frontière ;
- *  2. il ANNONÇAIT l'adresse email du demandeur, que personne ne lui avait demandée.
- *
- * ⚠️ **LE PROMPT LE LUI INTERDISAIT DÉJÀ** — « Rédige `content` TOI-MÊME, ne le demande
- * jamais » — et il l'a fait quand même. C'est la sixième consigne d'agent mesurée en échec sur
- * ce dépôt. Une consigne est PROBABLE, le code est GARANTI : on n'ajoute donc pas une phrase au
- * prompt, on accole une note déterministe qui dit où la demande aboutit réellement.
- *
- * ⚠️ **On ne réécrit PAS le routage.** Faire gagner le jeton de canal sur `pdf` déplacerait la
- * demande vers un agent qui, lui, ne sait pas produire de document : on échangerait un demi-refus
- * contre un autre. Le routage par capacité est correct ; c'est la RÉPONSE qui manquait d'issue.
- */
-/** Hauteur d'étoile 1 : voir `mention-names.ts` — l'entrée vient d'un tiers, pas de backtracking. */
 const CHANNEL_TOKEN = /<#C[^>]{1,140}>/i;
 
 export function buildChannelRedirectNotice(text: string, agentId: string, answer: string): string {
   if (!CHANNEL_TOKEN.test(text)) return '';
-  // Dérivé du câblage : si l'agent qui a répondu SAIT lire un canal, il n'y a rien à rediriger.
   if (agentHasTool(agentId, 'getChannelHistory')) return '';
-  // Il a peut-être déjà dit la bonne chose — on ne double pas une réponse juste.
   if (/demande-moi (?:seulement |simplement )?le r[ée]sum[ée]/i.test(answer)) return '';
 
   return (
@@ -437,17 +379,8 @@ export function buildReminderNotice(requestContext: unknown, answer: string): st
   const label = readReminderDelivery(requestContext);
   if (!label) return '';
 
-  // La réponse dit déjà tout : rien à ajouter.
   if (answer.includes(label) || /au matin\b/i.test(answer)) return '';
 
-  // ⚠️ La note ne REDIT pas la date quand l'agent vient de la donner. Mesuré en production le
-  // 2026-08-21 : « Rappel programmé pour le lundi 24 août 2026. » suivi de « Je te le
-  // remettrai lundi 24 août 2026 au matin » — l'information utile (le matin, une fois par
-  // jour) noyée dans une répétition. Même arbitrage que `buildRecipientNotice` : une note qui
-  // se répète finit par se faire ignorer, y compris quand elle compte.
-  // ⚠️ Bornes SIMPLES et non `\s+` : `sonarjs/super-linear-regex` signale le retour arrière que
-  // produit un quantificateur en tête ou en queue de motif, et ce dépôt tient son lint à zéro
-  // warning. Le libellé est produit par `deliveryLabel`, sa forme est connue exactement.
   const day = label.replace(/^le /i, '').replace(/ au matin$/i, '');
   if (answer.includes(day)) return "\n\n_(Au matin — je ne passe qu'une fois par jour.)_";
 
@@ -615,11 +548,6 @@ export class SlackEventsHandler {
       this.limiter = new SlackRateLimiter({
         repository: new DrizzleRateLimitRepository(),
         rules: [
-          // ⚠️ CES VARIABLES ÉCRASENT LES CONSTANTES, ET LE PIÈGE S'EST REFERMÉ LE 2026-08-21.
-          // `SLACK_DAILY_LIMIT` et `SLACK_WORKSPACE_TOKEN_BUDGET` étaient posées en production
-          // depuis une semaine : relever les défauts dans `rate-limit-policy.ts` n'a RIEN
-          // changé, et le journal continuait d'afficher l'ancien plafond. Avant de conclure
-          // qu'un plafond n'a pas bougé, lire `npx vercel env ls production`.
           { ...BURST_RULE, limit: readRuleLimit(process.env.SLACK_BURST_LIMIT, BURST_RULE.limit) },
           { ...DAILY_RULE, limit: readRuleLimit(process.env.SLACK_DAILY_LIMIT, DAILY_RULE.limit) },
         ],
@@ -905,12 +833,6 @@ export class SlackEventsHandler {
     return true;
   }
 
-  /**
-   * ⚠️ **LA RÈGLE VIT DANS `shared/slack-team.ts` DEPUIS LE 2026-08-21, et elle y vit parce
-   * qu'elle a DEUX consommateurs.** `/slack/interactions` ne la posait pas du tout, alors que
-   * son payload porte `team.id` — déclaré dans le type, lu nulle part. Recopier la règle ici et
-   * là était exactement ce qui avait produit la divergence ; on la partage.
-   */
   private checkTeamId(envelope: SlackEventEnvelope): SlackEventDecision | undefined {
     const verdict = judgeWorkspace(envelope.team_id, process.env.SLACK_TEAM_ID);
 
@@ -1253,22 +1175,6 @@ export class SlackEventsHandler {
         }
       }
 
-      /**
-       * ⚠️ **L'ARCHIVE PART AUSSI, MAIS SEULEMENT EN DM ET SEULEMENT POUR CE CANAL.**
-       *
-       * Depuis le 2026-08-21 les DM sont archivés (`channel_messages`, `ARCHIVED_CHANNEL_TYPES`
-       * inclut `im`) et le manager peut les relire. Dire « c'est effacé » en laissant l'archive
-       * du DM intacte serait un mensonge par omission sur la donnée la plus sensible du lot.
-       *
-       * ⚠️ **En fil de CANAL, on ne touche à rien**, et ce n'est pas de la prudence : le
-       * demandeur y agit sur ses propres tours, pas sur la mémoire collective du canal. Un
-       * `forgetUser` global effacerait, sur une phrase en passant, un an de décisions d'équipe
-       * qu'une autre personne lira demain. Même règle que `ConversationRepository.forget` —
-       * « une portée indéterminée sur une suppression, c'est le fil entier ».
-       *
-       * L'effacement GLOBAL existe, et c'est un geste d'administration explicite :
-       * `npm run knowledge:forget -- --user <U…>` (dry-run par défaut).
-       */
       let removedArchive = 0;
       let archivePartial = false;
       if (isDirectMessage && user && this.knowledgeErasure) {
@@ -1290,8 +1196,6 @@ export class SlackEventsHandler {
       });
       await this.slack.chat.postMessage({
         channel,
-        // ⚠️ Sur un effacement PARTIEL, on ne dit jamais « c'est effacé » : le contrat de ce
-        // court-circuit est qu'il ne prétend jamais avoir effacé quand il a échoué.
         text: archivePartial
           ? ERASURE_FAILED_REPLY
           : erasureDoneReply(removed + removedFacts + removedArchive),
@@ -1382,17 +1286,6 @@ export class SlackEventsHandler {
       return;
     }
 
-    // ⚠️ L'INVITATION EST POSTÉE APRÈS LA VÉRIFICATION, PAS AVANT — corrigé le 2026-08-21,
-    // sur observation en production.
-    //
-    // Elle partait inconditionnellement, si bien qu'une personne au dossier déjà complet lisait
-    // « On va compléter ton dossier » suivi, dans la seconde, de « Ton dossier est déjà complet
-    // — je n'ai rien à te redemander. » Le premier message annonce un travail que le second
-    // annule : c'est la famille de défaut que ce dépôt traque partout ailleurs, ici sous sa
-    // forme la plus bénigne et la plus visible.
-    //
-    // L'ordre coûte une lecture de plus avant le premier mot posté. C'est le bon échange :
-    // l'alternative est d'ouvrir la conversation par une phrase fausse.
     const known = await this.knownProfileAnswers(user);
     const first = nextProfileStep(known);
 
@@ -1537,9 +1430,6 @@ export class SlackEventsHandler {
         });
       }
 
-      // ⚠️ La note s'accole désormais SUR LE VERDICT DU DÉTECTEUR, et non sur la seule
-      // classification des outils. C'est ce qui produisait le doublon relevé en production le
-      // 2026-08-21 : le modèle disait la vérité, et la note la redisait en moins bien.
       const deliveryPromise =
         toolCalls !== null && promisesWithoutActing(toolCalls)
           ? detectUnsupportedDeliveryPromise(safeOutput.text)
@@ -2079,22 +1969,6 @@ export class SlackEventsHandler {
     }
   }
 
-  /**
-   * ⚠️ **LE LIEN DIRECT D'ABORD, L'ADRESSE ENSUITE — corrigé le 2026-08-21, en production.**
-   *
-   * Les deux lecteurs du dossier (`knownProfileAnswers` et le verdict de « j'ai fini ») ne
-   * passaient QUE par `slack_directory.email`. Or cette colonne peut être vide : elle vient du
-   * profil Slack, et une adresse n'y est pas toujours visible — un invité, un compte sans
-   * `users:read.email` exploitable, ou simplement quelqu'un qui ne l'a pas renseignée.
-   *
-   * Le symptôme, reproduit par la sonde d'arrivée : la personne complète tout son dossier,
-   * `submitProfile` RELIE bien `slack_directory.employee_id` au dossier créé — et « j'ai fini »
-   * répond « Je ne trouve pas encore de dossier à ton nom ». L'identifiant était dans la ligne
-   * qu'on venait de lire, et personne ne le regardait.
-   *
-   * Même famille que la cause racine du 2026-08-19, à l'envers : là, `employee_id` n'était
-   * écrite par aucun chemin ; ici elle l'est, et n'est lue par aucun.
-   */
   private async findProfileRecord(
     member: { employeeId?: string | null; email?: string | null } | null | undefined,
   ): Promise<ProfileSnapshot | null> {

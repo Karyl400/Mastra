@@ -109,14 +109,6 @@ export function getSlackEventsHandler(mastra: Mastra): SlackEventsHandler {
       interviewRepository: new DrizzleOnboardingInterviewRepository(),
       profileRepository: new DrizzleEmployeeRepository(),
       pendingEmailRepository: new DrizzlePendingInterviewEmailRepository(),
-      /**
-       * ⚠️ **UNE SEULE PAIRE DE DÉPÔTS pour l'ingestion ET l'effacement.**
-       *
-       * Les instancier deux fois marcherait — ils sont sans état — mais ferait deux endroits
-       * où changer une implémentation, et ce dépôt a déjà payé trois fois la divergence de
-       * deux copies. Surtout : effacer et archiver DOIVENT viser la même base, sinon
-       * l'effacement rendrait `0` en toute bonne foi.
-       */
       knowledgeErasure: new KnowledgeErasureService({
         archive: knowledgeArchiveRepo,
         facts: knowledgeFactRepo,
@@ -124,9 +116,6 @@ export function getSlackEventsHandler(mastra: Mastra): SlackEventsHandler {
       knowledgeIngestion: new KnowledgeIngestionService({
         archive: knowledgeArchiveRepo,
         facts: knowledgeFactRepo,
-        // ⚠️ Le SECOND RIDEAU. Il ne tourne que sur les messages que le code déterministe n'a
-        // pas su classer, et seulement par lots de cinq : sur le chemin nominal, il ne coûte
-        // pas un seul appel de modèle. Voir `fact-curtain.service.ts`.
         summarizer: new ModelFactSummarizer(),
       }),
       sendEmail: (to, subject, body) => getEventsEmailProvider().sendEmail(to, subject, body),
@@ -212,9 +201,6 @@ export async function handleSlackEventRequest(c: SlackRouteContext): Promise<Res
       });
     }
   } else {
-    // ⚠️ Écarté pour la RÉPONSE, pas pour la CONNAISSANCE. Un message de canal est écarté par
-    // `rejectMessage` (`not_a_dm`) — c'est le cas nominal, et c'est justement celui qu'il faut
-    // archiver. Le rejet protège le budget de modèle ; il ne dit rien de ce qui mérite d'être su.
     scheduleBackgroundWork(
       handler.ingest(body).catch((error) => {
         logger.warn('Knowledge ingestion failed for an ignored Slack event', {

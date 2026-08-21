@@ -85,20 +85,6 @@ export class SlackChannelHistoryAdapter implements ChannelHistoryPort {
     }
   }
 
-  /**
-   * `users.conversations` rend les conversations dont CETTE personne est membre — c'est
-   * exactement l'ensemble que la politique de divulgation autorise, obtenu en un appel au lieu
-   * d'un `conversations.members` par canal.
-   *
-   * ⚠️ `types` ne demande QUE les canaux publics et privés. Les DM en sont volontairement
-   * absents : la lecture en direct sert à répondre sur ce qui s'est dit dans un canal, et
-   * balayer les DM d'autrui au premier « je ne trouve pas » serait une surface de divulgation
-   * qu'aucune question ne justifie.
-   *
-   * ⚠️ Ne lève JAMAIS : un repli qui échoue doit rendre « je ne sais pas », pas casser la
-   * recherche. Le scope `im:read` n'est d'ailleurs pas accordé, donc l'appel échouerait sur un
-   * `types` plus large.
-   */
   async listMemberChannels(slackUserId: string, limit: number): Promise<string[]> {
     try {
       const response = await this.slack.users.conversations({

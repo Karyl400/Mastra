@@ -240,22 +240,12 @@ export const mastra = new Mastra({
     apiRoutes: [
       slackEventsRoute,
       slackEventsWorkRoute,
-      // L'horloge extérieure : sans elle, `findPending()` n'a aucun appelant et un rappel
-      // enregistré ne part jamais. Voir `reminders-dispatch.route.ts`.
       remindersDispatchRoute,
       slackInteractionsRoute,
       slackInteractionsWorkRoute,
     ],
     middleware: [
       { path: '*', handler: createSecurityHeadersMiddleware() },
-      /**
-       * ⚠️ **EN PREMIER APRÈS LES EN-TÊTES, et avant le garde de contexte.**
-       *
-       * `createRequestContextGuard` refuse qu'un appelant SE DÉCLARE quelqu'un ; celui-ci
-       * refuse qu'il exécute un outil SANS se déclarer personne — la moitié de la brèche du
-       * 2026-08-14 restée ouverte, et la plus puissante des deux. Le placer avant évite de
-       * lire et parser le corps d'une requête qu'on va de toute façon refuser.
-       */
       {
         path: '/api/*',
         handler: createToolExecutionGuard({

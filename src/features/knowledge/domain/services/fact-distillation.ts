@@ -12,25 +12,6 @@ export const KNOWLEDGE_FACT_MIN_SCORE = 3;
 
 export const FACT_SUMMARY_MAX_CHARS = 180;
 
-/**
- * ⚠️ **LES MOTIFS SONT ÉCRITS SANS ACCENT, ET LE TEXTE EST PLIÉ AVANT D'ÊTRE TESTÉ.**
- *
- * Trouvé en production le 2026-08-21, par une sonde qui cherchait tout autre chose : le message
- * « on a **decide** de partir sur postgres » a bien été archivé au niveau 1 et n'a produit
- * AUCUN fait au niveau 2. Le motif exigeait `décidé` ; l'accent manquait.
- *
- * Ce n'est pas un cas de laboratoire : sur un clavier de téléphone, dans la précipitation, en
- * copie d'un outil qui les mange, une bonne part du français réel s'écrit sans accents. Un
- * classifieur qui échoue en silence sur cette moitié-là est pire qu'absent — il donne
- * l'illusion d'une couverture.
- *
- * Troisième forme du même piège dans ce dépôt, après `\b` en ASCII sur `bloqué` et
- * `matchesKeyword` : **le français accentué casse tout ce qui compare des caractères.** On
- * plie (`NFD` + retrait des marques) des DEUX côtés, une fois pour toutes.
- *
- * ⚠️ L'apostrophe typographique est pliée par la même passe (`’` → `'`) — c'est le cas le plus
- * fréquent sur mobile, et il a déjà coûté un refus non reconnu dans `shared/confirmation.ts`.
- */
 function foldForMatch(value: string): string {
   return value
     .normalize('NFD')
@@ -87,8 +68,6 @@ function truncateOnBoundary(value: string, maxChars: number): string {
 }
 
 export function classifyFact(text: string): FactKind | null {
-  // ⚠️ On teste le texte PLIÉ, on rend le texte d'origine ailleurs : le résumé stocké garde ses
-  // accents, seule la comparaison les ignore.
   const folded = foldForMatch(flatten(text));
   for (const candidate of KIND_TESTS) {
     if (candidate.test.test(folded)) return candidate.kind;

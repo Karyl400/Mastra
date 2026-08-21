@@ -96,43 +96,12 @@ export function requestsErasure(text: string | undefined | null): boolean {
   );
 }
 
-/**
- * ⚠️ **CETTE PHRASE A RÉTRÉCI LE 2026-08-21, parce que le produit sait faire plus.**
- *
- * Elle nommait « les messages que j'ai archivés dans les canaux » parmi ce qui ne partait pas.
- * C'était vrai — `forgetUser` était implémentée quatre fois et appelée zéro fois — mais le
- * renvoi vers le General Manager pointait alors vers **un geste sans implémentation** : il
- * aurait dû écrire du SQL à la main sur la Turso de production.
- *
- * Désormais, en DM, l'archive de CE canal part avec le reste. Ce qui subsiste hors de portée
- * est nommé, et il existe pour chacun un geste réel :
- *   • les canaux → `npm run knowledge:forget -- --user <U…>` (dry-run par défaut) ;
- *   • le dossier, l'annuaire, les documents, les notifications → toujours l'escalade humaine.
- *
- * ⚠️ **On ne dit pas « tout est effacé ».** Le contrat de ce court-circuit est de nommer ce
- * qu'il NE couvre pas — c'est la seule raison pour laquelle on peut lui faire confiance sur ce
- * qu'il couvre.
- */
 export const ERASURE_SCOPE_NOTICE =
   'Ça ne touche que ce que je garde de nos échanges ici. Les documents déjà produits, les ' +
   "notifications déjà envoyées, ta fiche dans l'annuaire, ce que tu m'as dit de ton métier " +
   "lors de l'accueil et ce que j'ai archivé dans les canaux ne passent pas par moi — pour " +
   `ceux-là, adresse-toi à ${ESCALATION_CONTACT}.`;
 
-/**
- * ⚠️ **ON NE DIT PLUS COMBIEN — demandé par le propriétaire le 2026-08-21.**
- *
- * La réponse annonçait « C'est effacé : 4 messages … ont été supprimés ». Le chiffre ne rendait
- * aucun service à qui le lisait, et il en rendait un à qui SONDE : il mesure ce que le bot avait
- * gardé, donc l'activité passée d'une personne — dans un DM où le manager peut par ailleurs
- * relire l'archive. Un compte est une information sur la donnée, pas seulement sur le geste.
- *
- * ⚠️ **On garde en revanche la distinction VIDE / NON VIDE.** « Je n'avais rien retenu » et
- * « c'est effacé » ne sont pas la même phrase : la première dit qu'il n'y avait rien, la seconde
- * qu'il y avait quelque chose et que c'est parti. Les fondre ferait dire « c'est effacé » à un
- * geste qui n'a rien effacé — la famille de mensonge que ce dépôt traque, et exactement ce que
- * ce court-circuit a été écrit pour ne plus faire.
- */
 export function erasureDoneReply(count: number): string {
   if (count === 0) {
     return `Je n'avais rien retenu de nos échanges. ${ERASURE_SCOPE_NOTICE}`;

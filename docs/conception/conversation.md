@@ -3,14 +3,17 @@
 > Décisions de conception, extraites des commentaires du code le 2026-08-20.
 > Périmètre : `src/features/conversation/`
 >
-> Chaque entrée porte le fichier et la ligne d'origine, ainsi que la déclaration
-> qu'elle précédait. Le code ne porte plus ce texte : **c'est ici qu'il vit désormais.**
+> Chaque entrée est ancrée sur la **déclaration** qu'elle précédait, jamais sur un numéro
+> de ligne : l'audit du 2026-08-21 a mesuré 5 424 ancres `L.N` dont **153 exactes (2,8 %)**.
+> Un numéro de ligne se périme au premier retrait de commentaire — c'est-à-dire aussitôt.
+>
+> Le code ne porte plus ce texte : **c'est ici qu'il vit désormais.**
 
 ---
 
 ## `features/conversation/domain/entities/conversation-turn.ts`
 
-**L.1 — avant `export interface ConversationTurn {`**
+**Avant `export interface ConversationTurn {`**
 
 Un tour de conversation : un message, et un seul, échangé avec un agent.
 
@@ -21,11 +24,11 @@ est un levier de −63 % sur la fenêtre, gratuit.
 
 TypeScript pur — ZÉRO import de framework, la couche `domain` ne dépend de rien.
 
-**L.13 — avant `readonly conversationId: string;`**
+**Avant `readonly conversationId: string;`**
 
  Clé dérivée du contexte Slack — voir `value-objects/conversation-id.ts`.
 
-**L.16 — avant `readonly content: string;`**
+**Avant `readonly content: string;`**
 
 Texte du message.
 - `user` : n'est écrit qu'après avoir passé `wrapAgentInput` sans lever, donc
@@ -33,21 +36,21 @@ Texte du message.
 - `assistant` : n'est écrit qu'APRÈS `sanitizeAgentOutput`, sinon l'unique
   filet anti-marqueurs serait contourné à chaque rejeu.
 
-**L.24 — avant `readonly agentId: string;`**
+**Avant `readonly agentId: string;`**
 
  Agent ayant produit ou reçu ce tour — porte aussi le routage collant (décision D5).
 
-**L.26 — avant `readonly slackUserId: string | null;`**
+**Avant `readonly slackUserId: string | null;`**
 
  `null` pour un tour `assistant`, qui n'émane d'aucun humain.
 
-**L.33 — avant `export type NewConversationTurn = Omit<ConversationTurn, 'id' | 'createdAt'>;`**
+**Avant `export type NewConversationTurn = Omit<ConversationTurn, 'id' | 'createdAt'>;`**
 
  Données d'un tour avant persistance : l'identité et l'horodatage appartiennent au dépôt.
 
 ## `features/conversation/domain/ports/conversation.repository.ts`
 
-**L.3 — avant `export const CONVERSATION_TTL_MS = 60 * 60 * 1000;`**
+**Avant `export const CONVERSATION_TTL_MS = 60 * 60 * 1000;`**
 
 TTL UNIQUE gouvernant à la fois la mémoire conversationnelle ET le routage collant
 (décision D1 de la spec) : 60 minutes d'inactivité.
@@ -56,17 +59,17 @@ Un seul paramètre plutôt que trois — mémoire, collance, rétention — qui 
 premier réglage. Au-delà de ce délai, le fil est considéré clos : ni contexte rejoué, ni
 agent collant.
 
-**L.14 — avant `readonly ttlMs: number;`**
+**Avant `readonly ttlMs: number;`**
 
  Fenêtre de fraîcheur. En pratique `CONVERSATION_TTL_MS`.
 
-**L.16 — avant `readonly limit: number;`**
+**Avant `readonly limit: number;`**
 
 Garde-fou de REQUÊTE (ex. 50) : plafonne ce qu'on charge avant de fenêtrer, pour ne
 jamais tirer un fil entier de mille messages en mémoire. Ce n'est PAS le plafond de
 contexte — celui-là se compte en tokens, via `selectWindow`.
 
-**L.24 — avant `export interface ForgetScope {`**
+**Avant `export interface ForgetScope {`**
 
 Portée d'un effacement demandé par une PERSONNE — à ne pas confondre avec `prune`, qui est
 une purge de rétention déclenchée par le temps.
@@ -75,7 +78,7 @@ Les deux ne peuvent pas partager une méthode : `prune` supprime ce qui est vieu
 ici on supprime ce qui appartient à quelqu'un, quel que soit son âge. Confondre les deux
 donnerait à une demande d'effacement une portée globale.
 
-**L.34 — avant `readonly slackUserId?: string | null;`**
+**Avant `readonly slackUserId?: string | null;`**
 
 Quand il est fourni, SEULS les tours émis par cette personne sont supprimés.
 
@@ -90,15 +93,15 @@ donc en place. C'est correct et voulu — `selectWindow` s'arrête sur une salve
 d'`assistant` sans question en amont plutôt que de la rejouer nue, donc les réponses
 orphelines cessent d'être rejouées d'elles-mêmes.
 
-**L.54 — avant `recentTurns(conversationId: string, options: RecentTurnsOptions): Promise<ConversationTurn[]>;`**
+**Avant `recentTurns(conversationId: string, options: RecentTurnsOptions): Promise<ConversationTurn[]>;`**
 
  Tours d'une conversation, du plus ancien au plus récent, ignorant ceux au-delà du TTL.
 
-**L.57 — avant `prune(olderThan: Date): Promise<number>;`**
+**Avant `prune(olderThan: Date): Promise<number>;`**
 
  Purge les tours au-delà du TTL. Appelé opportunément, pas par un cron.
 
-**L.60 — avant `forget(scope: ForgetScope): Promise<number>;`**
+**Avant `forget(scope: ForgetScope): Promise<number>;`**
 
 Efface à la demande, et rend le NOMBRE de tours réellement supprimés.
 
@@ -108,7 +111,7 @@ réciter « c'est fait » — précisément le défaut que ce dépôt corrige pa
 
 ## `features/conversation/domain/ports/pinned-fact.repository.ts`
 
-**L.1 — avant `export interface PinnedFact {`**
+**Avant `export interface PinnedFact {`**
 
 Mémoire LONGUE : les faits qu'une personne a explicitement demandé de retenir.
 
@@ -125,15 +128,15 @@ fois. La séparation rend l'invariant structurel plutôt que conventionnel.
 « mon poste est Backend Developer » vaut dans tous les fils. C'est aussi ce qui permet à
 l'effacement de les emporter par la même clé, quel que soit l'endroit où il est demandé.
 
-**L.20 — avant `readonly fact: string;`**
+**Avant `readonly fact: string;`**
 
  Texte D'ORIGINE de la personne, assaini. Jamais normalisé ni reformulé.
 
-**L.26 — avant `list(slackUserId: string, limit: number): Promise<PinnedFact[]>;`**
+**Avant `list(slackUserId: string, limit: number): Promise<PinnedFact[]>;`**
 
  Les faits d'une personne, du plus ancien au plus récent, bornés à `limit`.
 
-**L.29 — avant `pin(fact: PinnedFact, max: number): Promise<void>;`**
+**Avant `pin(fact: PinnedFact, max: number): Promise<void>;`**
 
 Épingle un fait, en évinçant le plus ancien si le plafond est atteint.
 
@@ -141,13 +144,13 @@ L'éviction fait PARTIE du contrat, elle n'est pas laissée à l'appelant : c'es
 garantit que le préambule système ne grossit jamais, et un appelant qui l'oublierait ne
 s'en apercevrait qu'au sixième fait.
 
-**L.38 — avant `forget(slackUserId: string): Promise<number>;`**
+**Avant `forget(slackUserId: string): Promise<number>;`**
 
  Efface tous les faits d'une personne. Rend le nombre de lignes supprimées.
 
 ## `features/conversation/domain/services/token-window.ts`
 
-**L.3 — avant `export const CHARS_PER_TOKEN = 3.5;`**
+**Avant `export const CHARS_PER_TOKEN = 3.5;`**
 
 Fenêtrage de l'historique conversationnel, EN TOKENS et jamais en nombre de messages
 (décision D3 de la spec).
@@ -161,14 +164,12 @@ mémoire K fois.
 
 TypeScript pur — ZÉRO import de framework.
 
-**L.17 — avant `export const CHARS_PER_TOKEN = 3.5;`**
 
 Caractères par token. Ratio calibré sur les mesures réelles du projet et non sur une
 moyenne générique : l'en-tête `SYSTEM_SECURITY_PROMPT` fait 1308 caractères pour
 374 tokens mesurés en production le 2026-08-08, soit 3,497 — arrondi à 3,5.
 L'incertitude résiduelle est de l'ordre de ±10 %, absorbée par la marge du budget.
-
-**L.25 — avant `export const CONVERSATION_TOKEN_BUDGET = 1600;`**
+**Avant `export const CONVERSATION_TOKEN_BUDGET = 1600;`**
 
 Budget par défaut alloué à l'historique.
 
@@ -187,21 +188,21 @@ aussi échoué le 2026-08-08. Mieux vaut une mémoire un peu courte qu'un bot mu
 
 Soit ~10 messages de texte courant, contre 6 avant le dégraissage.
 
-**L.45 — avant `export const MAX_TURN_BUDGET_SHARE = 0.4;`**
+**Avant `export const MAX_TURN_BUDGET_SHARE = 0.4;`**
 
 Part maximale du budget qu'un tour isolé peut occuper. Au-delà, il est TRONQUÉ et non exclu :
 un message géant avalerait sinon toute la fenêtre à lui seul, et l'exclure ferait disparaître
 du contexte le message le plus substantiel de l'échange.
 
-**L.52 — avant `const TRUNCATION_SUFFIX = '…';`**
+**Avant `const TRUNCATION_SUFFIX = '…';`**
 
  Marqueur de troncature. Un seul caractère, donc un coût négligeable.
 
-**L.55 — avant `export function estimateTokens(content: string): number {`**
+**Avant `export function estimateTokens(content: string): number {`**
 
  Coût estimé d'un contenu, en tokens.
 
-**L.60 — avant `export function selectWindow(`**
+**Avant `export function selectWindow(`**
 
 Sélectionne les tours les plus récents tenant dans `budgetTokens`.
 
@@ -215,50 +216,40 @@ Sélectionne les tours les plus récents tenant dans `budgetTokens`.
 
 @param turns tours du plus ancien au plus récent (l'ordre rendu par le dépôt).
 
-**L.80 — avant `const units: ConversationTurn[][] = [];`**
+**Avant `const units: ConversationTurn[][] = [];`**
 
  Unités retenues, du plus récent au plus ancien ; remises à l'endroit à la sortie.
 
-**L.84 — avant `let index = turns.length - 1;`**
+**Avant `let index = turns.length - 1;`**
 
 Parcours à rebours par UNITÉS indivisibles. Une unité vaut soit un tour `user` seul
 
-**L.85 — avant `let index = turns.length - 1;`**
 
 (question encore sans réponse), soit un tour `user` suivi de TOUTE la salve d'`assistant`
 
-**L.86 — avant `let index = turns.length - 1;`**
-
 qui lui répond — le bot poste parfois deux messages pour un seul message utilisateur, et
 
-**L.87 — avant `let index = turns.length - 1;`**
-
 les séparer recréerait exactement l'orphelin qu'on cherche à éviter.
-
-**L.94 — avant `if (start < 0 || turns[start].role !== 'user') break;`**
+**Avant `if (start < 0 || turns[start].role !== 'user') break;`**
 
 Salve d'assistants sans question en amont : le tour utilisateur est hors fenêtre
 
-**L.95 — avant `if (start < 0 || turns[start].role !== 'user') break;`**
 
 (purgé par le TTL ou coupé par le `limit`). On s'arrête plutôt que de le rejouer nu.
-
-**L.102 — avant `if (unitCost > remaining) break;`**
+**Avant `if (unitCost > remaining) break;`**
 
 On s'arrête — on ne saute PAS l'unité pour tenter la suivante : sauter donnerait un
 
-**L.103 — avant `if (unitCost > remaining) break;`**
 
 historique troué, où deux tours consécutifs en apparence ne le sont pas.
-
-**L.114 — avant `function truncateToBudget(turn: ConversationTurn, maxTurnTokens: number): ConversationTurn {`**
+**Avant `function truncateToBudget(turn: ConversationTurn, maxTurnTokens: number): ConversationTurn {`**
 
 Tronque un tour au plafond par tour. Renvoie le tour d'origine s'il tient déjà — on ne
 mute jamais l'entrée, le dépôt peut la réutiliser.
 
 ## `features/conversation/domain/value-objects/conversation-id.ts`
 
-**L.1 — avant `export interface SlackConversationRef {`**
+**Avant `export interface SlackConversationRef {`**
 
 Dérivation de la clé de conversation depuis le contexte Slack (décision D1 de la spec) :
 
@@ -283,25 +274,23 @@ meilleur discriminant.
 
 TypeScript pur — ZÉRO import de framework.
 
-**L.27 — avant `readonly channel: string;`**
+**Avant `readonly channel: string;`**
 
  Identifiant de canal Slack : `D…` (DM), `C…` (public), `G…` (privé).
 
-**L.29 — avant `readonly threadTs?: string | null;`**
+**Avant `readonly threadTs?: string | null;`**
 
  `thread_ts ?? ts` en canal ; `undefined` en DM, par conception.
 
-**L.36 — avant `throw new Error('deriveConversationId: channel is required');`**
+**Avant `throw new Error('deriveConversationId: channel is required');`**
 
 Sans cette garde, une clé vide fusionnerait TOUTES les conversations en une seule
 
-**L.37 — avant `throw new Error('deriveConversationId: channel is required');`**
 
 mémoire partagée — une fuite de contexte entre utilisateurs, pas un simple bug.
-
 ## `features/conversation/infrastructure/repositories/drizzle-conversation.repository.ts`
 
-**L.16 — avant `export class DrizzleConversationRepository implements ConversationRepository {`**
+**Avant `export class DrizzleConversationRepository implements ConversationRepository {`**
 
 Persistance des tours de conversation sur LibSQL/Turso.
 
@@ -310,19 +299,17 @@ sont désynchronisées de `schema.ts`, et `drizzle-kit push` se bloque indéfini
 base `libsql://` distante. Le DDL à appliquer à la main vit dans
 `scripts/ddl-conversation-turns.sql`.
 
-**L.47 — avant `const rows = await db`**
+**Avant `const rows = await db`**
 
 Tri DESC + `limit` pour tirer les tours les plus RÉCENTS — un `limit` sur un tri ASC
 
-**L.48 — avant `const rows = await db`**
 
 ramènerait le début du fil, c'est-à-dire exactement ce qu'on veut oublier.
-
-**L.61 — avant `return rows.reverse().map(toDomain);`**
+**Avant `return rows.reverse().map(toDomain);`**
 
 Remis à l'endroit : le port promet du plus ancien au plus récent.
 
-**L.73 — avant `async forget(scope: ForgetScope): Promise<number> {`**
+**Avant `async forget(scope: ForgetScope): Promise<number> {`**
 
 Effacement à la demande. Aucune borne de temps : on supprime ce qui appartient à la
 personne, y compris les tours plus récents que le TTL — c'est tout l'objet de la demande.
@@ -331,17 +318,15 @@ personne, y compris les tours plus récents que le TTL — c'est tout l'objet de
 garantit qu'on est en DM (donc dans un espace à une seule personne) ; le dépôt, lui, ne
 connaît pas la topologie Slack et n'a pas à la deviner.
 
-**L.100 — avant `role: row.role as ConversationRole,`**
+**Avant `role: row.role as ConversationRole,`**
 
 SQLite ne connaît pas les unions littérales : la colonne est un `text` libre, la
 
-**L.101 — avant `role: row.role as ConversationRole,`**
 
 contrainte vit dans le domaine.
-
 ## `features/conversation/infrastructure/repositories/drizzle-pinned-fact.repository.ts`
 
-**L.6 — avant `export class DrizzlePinnedFactRepository implements PinnedFactRepository {`**
+**Avant `export class DrizzlePinnedFactRepository implements PinnedFactRepository {`**
 
 Persistance des faits épinglés sur LibSQL/Turso.
 
@@ -350,23 +335,17 @@ désynchronisées de `schema.ts`, et `drizzle-kit push` se bloque indéfiniment 
 `libsql://` distante. Le DDL à appliquer à la main vit dans `scripts/ddl-pinned-facts.sql`,
 et il doit l'être AVANT le déploiement.
 
-**L.23 — avant `.orderBy(asc(pinnedFacts.createdAt))`**
+**Avant `.orderBy(asc(pinnedFacts.createdAt))`**
 
 Du plus ANCIEN au plus récent : c'est l'ordre dans lequel la personne les a donnés,
 
-**L.24 — avant `.orderBy(asc(pinnedFacts.createdAt))`**
 
 donc celui qui se lit. Le tri est explicite — sans `ORDER BY`, deux lectures
 
-**L.25 — avant `.orderBy(asc(pinnedFacts.createdAt))`**
-
 identiques peuvent rendre deux ordres différents (défaut déjà corrigé sur
 
-**L.26 — avant `.orderBy(asc(pinnedFacts.createdAt))`**
-
 `getNotificationHistory`).
-
-**L.33 — avant `async pin(fact: PinnedFact, max: number): Promise<void> {`**
+**Avant `async pin(fact: PinnedFact, max: number): Promise<void> {`**
 
 ⚠️ L'éviction se fait AVANT l'insertion, et sur `max - 1`.
 
@@ -378,25 +357,19 @@ Il n'y a PAS de transaction : LibSQL en supporte, mais le pire cas ici est de re
 sous le plafond d'un fait pendant quelques millisecondes — sans conséquence, la borne
 n'existant que pour le budget de tokens.
 
-**L.72 — avant `return (result as { rowsAffected?: number }).rowsAffected ?? 0;`**
+**Avant `return (result as { rowsAffected?: number }).rowsAffected ?? 0;`**
 
 `rowsAffected` est le champ rendu par le pilote libsql. Le contrat rend un NOMBRE et
 
-**L.73 — avant `return (result as { rowsAffected?: number }).rowsAffected ?? 0;`**
 
 non `void` pour la même raison que `OnboardingRepository.update` : sans lui, aucun
 
-**L.74 — avant `return (result as { rowsAffected?: number }).rowsAffected ?? 0;`**
-
 appelant ne peut distinguer une suppression réussie d'une suppression sur zéro ligne,
 
-**L.75 — avant `return (result as { rowsAffected?: number }).rowsAffected ?? 0;`**
-
 et la réponse rendue à la personne annoncerait un effacement qui n'a pas eu lieu.
-
 ## `features/conversation/infrastructure/repositories/in-memory-conversation.repository.ts`
 
-**L.11 — avant `export class InMemoryConversationRepository implements ConversationRepository {`**
+**Avant `export class InMemoryConversationRepository implements ConversationRepository {`**
 
 Doublure de test du `ConversationRepository`. Même contrat, même sémantique de TTL et de
 `limit` que l'implémentation Drizzle — c'est elle qui sert de doublure dans les tests
@@ -406,29 +379,27 @@ Les tours sont conservés dans leur ordre d'insertion, qui EST l'ordre chronolog
 tri n'est nécessaire, ce qui évite l'instabilité sur deux tours horodatés à la même
 milliseconde.
 
-**L.41 — avant `return options.limit > 0 ? alive.slice(-options.limit) : [];`**
+**Avant `return options.limit > 0 ? alive.slice(-options.limit) : [];`**
 
 `slice(-limit)` : on garde les PLUS RÉCENTS, tout en rendant l'ordre chronologique.
 
-**L.51 — avant `async forget(scope: ForgetScope): Promise<number> {`**
+**Avant `async forget(scope: ForgetScope): Promise<number> {`**
 
  Même sémantique que l'implémentation Drizzle : aucune borne de temps, un compte rendu.
 
-**L.57 — avant `return scope.slackUserId ? turn.slackUserId !== scope.slackUserId : false;`**
+**Avant `return scope.slackUserId ? turn.slackUserId !== scope.slackUserId : false;`**
 
 Filtrer par personne épargne les tours `assistant` (`slackUserId: null`) : voir le
 
-**L.58 — avant `return scope.slackUserId ? turn.slackUserId !== scope.slackUserId : false;`**
 
 commentaire du port, c'est voulu.
-
-**L.65 — avant `clear(): void {`**
+**Avant `clear(): void {`**
 
  Confort de test : vide le dépôt entre deux cas.
 
 ## `features/conversation/infrastructure/repositories/in-memory-pinned-fact.repository.ts`
 
-**L.3 — avant `export class InMemoryPinnedFactRepository implements PinnedFactRepository {`**
+**Avant `export class InMemoryPinnedFactRepository implements PinnedFactRepository {`**
 
 Doublure de `DrizzlePinnedFactRepository`.
 
@@ -436,4 +407,3 @@ Doublure de `DrizzlePinnedFactRepository`.
 `max - 1`. Une doublure plus permissive validerait en test un plafond que la production
 n'applique pas — et ce plafond est ce qui empêche le préambule système de grossir sans
 borne, à chaque aller-retour, sur un budget de ≈ 19 messages par jour.
-
