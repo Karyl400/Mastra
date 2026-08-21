@@ -75,11 +75,13 @@ export function makeFindEmployeeByEmail(repo: EmployeeRepository, directory?: Di
       logger.info('Recherche employé par email', { email: normalizedEmail });
 
       const employee = await repo.findByEmail(normalizedEmail);
-      const memberEarly = employee
-        ? null
-        : directory
-          ? await directory.findByEmail(normalizedEmail)
-          : null;
+      /**
+       * On ne consulte l'annuaire que si le dossier n'a rien donné : c'est un aller-retour, et
+       * ce dépôt les compte. Écrit en deux temps plutôt qu'en ternaire imbriqué — la forme
+       * condensée cachait l'ORDRE, qui est précisément ce qui compte ici.
+       */
+      let memberEarly: Awaited<ReturnType<NonNullable<typeof directory>['findByEmail']>> = null;
+      if (!employee && directory) memberEarly = await directory.findByEmail(normalizedEmail);
 
       /**
        * ⚠️ **ANTI-ORACLE — le verdict est le MÊME que l'adresse désigne quelqu'un ou personne.**

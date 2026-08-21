@@ -55,7 +55,9 @@ for (const row of people) {
   // Le lister comme une personne sans le dire produirait deux réponses contradictoires à
   // « qui est-ce ? » selon la table qu'on interroge — et `resolveAccess` refuse `is_bot` en
   // toute première règle.
-  const nature = row.is_bot ? ' [BOT]' : row.is_deleted ? ' [COMPTE DÉSACTIVÉ]' : '';
+  let nature = '';
+  if (row.is_bot) nature = ' [BOT]';
+  else if (row.is_deleted) nature = ' [COMPTE DÉSACTIVÉ]';
   console.log(`  ${show(row.first_name)} ${show(row.last_name)}${nature}`);
   console.log(`    ID     : ${row.slack_user_id}`);
   console.log(`    email  : ${show(row.email)}`);
@@ -101,7 +103,9 @@ try {
     console.log(`    membres (stockés): ${members.length}`);
     console.log(`    membres (Slack)  : ${show(channel.member_count_reported)}`);
     for (const member of members) {
-      console.log(`      · ${member.label}${member.is_bot ? ' [bot]' : ''}  ${member.slack_user_id}`);
+      console.log(
+        `      · ${member.label}${member.is_bot ? ' [bot]' : ''}  ${member.slack_user_id}`,
+      );
     }
     const age = channel.synced_at
       ? `${Math.round((Date.now() - Number(channel.synced_at)) / 60000)} min`
@@ -128,7 +132,9 @@ const employees = (
 console.log('═══ EMPLOYÉS (table métier) ═══\n');
 for (const row of employees) {
   const état = row.deleted_at ? `SUPPRIMÉ le ${row.deleted_at}` : 'actif';
-  console.log(`  ${row.first_name} ${row.last_name} <${row.email}> — ${row.position} / ${row.department} — ${état}`);
+  console.log(
+    `  ${row.first_name} ${row.last_name} <${row.email}> — ${row.position} / ${row.department} — ${état}`,
+  );
 }
 console.log(
   '\n  Rappel : `employees.position` est le poste CONTRACTUEL, `slack_directory.title` le poste\n' +

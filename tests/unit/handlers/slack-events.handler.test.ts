@@ -2685,7 +2685,12 @@ describe('SlackEventsHandler — court-circuits sans appel LLM', () => {
     // En DM la conversation est l'espace privé d'une seule personne : les tours `assistant`
     // partent aussi.
     const posted = slack.chat.postMessage.mock.calls.at(-1)?.[0] as { text: string };
-    expect(posted.text).toContain('2 messages');
+    // ⚠️ On n'annonce PLUS le nombre effacé (demandé le 2026-08-21) : un compte ne renseigne
+    // pas celui qui l'a demandé, il renseigne celui qui SONDE — il mesure ce que le bot avait
+    // gardé, donc l'activité passée d'une personne. Ce qui compte ici est que l'effacement ait
+    // RÉELLEMENT eu lieu, et le dépôt vidé ci-dessus le prouve mieux qu'une phrase.
+    expect(posted.text).toContain("C'est effacé");
+    expect(posted.text).not.toMatch(/\d/);
   });
 
   it("n'efface QUE ses propres tours dans un fil de canal", async () => {

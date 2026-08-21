@@ -25,6 +25,7 @@ import {
   KNOWLEDGE_SCAN_LIMIT,
 } from '../../domain/value-objects/retrieval-window';
 import { wrapRetrievedContent } from '../services/untrusted-excerpt.service';
+import { buildNameLookup } from '../services/directory-names';
 
 export interface GetChannelHistoryDeps {
   readonly directory: PersonDirectoryPort;
@@ -136,7 +137,11 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
         at: message.at,
       }));
 
-      const { lines, shown, coverage } = projectExcerpts(excerpts);
+      const nameLookup = await buildNameLookup(
+        deps.directory,
+        excerpts.map((excerpt) => excerpt.text),
+      );
+      const { lines, shown, coverage } = projectExcerpts(excerpts, nameLookup);
 
       logger.info("Knowledge — récupération de l'historique d'un canal", {
         scope: 'channel',

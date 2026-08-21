@@ -82,20 +82,7 @@ export function makeFindPersonByName(repo: EmployeeRepository, directory?: Direc
       const employees = await repo.findByName(query, MAX_NAME_CANDIDATES + 1);
 
       if (employees.length === 1) {
-        const found = employees[0]!;
-        const identified = mayHoldKeyFor(_ctx?.requestContext, found.id);
-
-        return {
-          found: true as const,
-          source: 'employees' as const,
-          employee: {
-            ...(identified ? { id: found.id, status: found.status } : {}),
-            firstName: sanitizeDisplayName(found.firstName),
-            lastName: sanitizeDisplayName(found.lastName),
-            position: found.position,
-          },
-          ...(identified ? {} : { hint: WITHHELD_HINT }),
-        };
+        return projectEmployee(employees[0]!, _ctx?.requestContext);
       }
 
       if (employees.length > 1) {
@@ -115,22 +102,7 @@ export function makeFindPersonByName(repo: EmployeeRepository, directory?: Direc
           linked: Boolean(member.employeeId),
         });
 
-        const identified = mayHoldKeyFor(_ctx?.requestContext, member.employeeId);
-
-        return {
-          found: true as const,
-          source: 'slack_directory' as const,
-          person: {
-            slackUserId: member.slackUserId,
-            firstName: sanitizeDisplayName(member.firstName),
-            lastName: sanitizeDisplayName(member.lastName),
-            title: sanitizeDisplayName(member.title),
-            ...(identified ? { employeeId: member.employeeId } : {}),
-          },
-          ...(identified && member.employeeId
-            ? {}
-            : { hint: identified ? DIRECTORY_ONLY_HINT : WITHHELD_HINT }),
-        };
+        return projectMember(member, _ctx?.requestContext);
       }
 
       if (members.length > 1) {
@@ -140,6 +112,68 @@ export function makeFindPersonByName(repo: EmployeeRepository, directory?: Direc
       return { found: false as const, reason: 'no_match' as const, hint: NO_MATCH_HINT };
     },
   });
+}
+
+/**
+ * Les deux projections sont sorties d'`execute` le 2026-08-21 : la réduction de sortie l'avait
+ * portée à une complexité cognitive de 18 (seuil 15), et une fonction qui décide À LA FOIS de la
+ * résolution et de ce qui sort est exactement celle qu'on relit mal le jour où l'une des deux
+ * doit bouger.
+ */
+function projectEmployee(
+  found: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    position: string | null;
+    status: string;
+  },
+  requestContext: unknown,
+) {
+  const identified = mayHoldKeyFor(requestContext, found.id);
+
+  return {
+    found: true as const,
+    source: 'employees' as const,
+    employee: {
+      ...(identified ? { id: found.id, status: found.status } : {}),
+      firstName: sanitizeDisplayName(found.firstName),
+      lastName: sanitizeDisplayName(found.lastName),
+      position: found.position,
+    },
+    ...(identified ? {} : { hint: WITHHELD_HINT }),
+  };
+}
+
+function projectMember(
+  member: {
+    slackUserId: string;
+    firstName: string | null;
+    lastName: string | null;
+    title: string | null;
+    employeeId: string | null;
+  },
+  requestContext: unknown,
+) {
+  const identified = mayHoldKeyFor(requestContext, member.employeeId);
+  // Deux raisons distinctes de joindre un hint, et elles ne disent pas la même chose : « cette
+  // personne n'a pas de dossier » n'est pas « tu n'as pas à tenir son identifiant ».
+  let hint: string | undefined;
+  if (!identified) hint = WITHHELD_HINT;
+  else if (!member.employeeId) hint = DIRECTORY_ONLY_HINT;
+
+  return {
+    found: true as const,
+    source: 'slack_directory' as const,
+    person: {
+      slackUserId: member.slackUserId,
+      firstName: sanitizeDisplayName(member.firstName),
+      lastName: sanitizeDisplayName(member.lastName),
+      title: sanitizeDisplayName(member.title),
+      ...(identified ? { employeeId: member.employeeId } : {}),
+    },
+    ...(hint ? { hint } : {}),
+  };
 }
 
 function label(firstName: string | null, lastName: string | null, role: string | null): string {

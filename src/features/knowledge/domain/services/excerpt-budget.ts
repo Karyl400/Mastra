@@ -1,5 +1,6 @@
 import type { ConversationExcerpt } from '../entities/conversation-excerpt';
 import { selectSalientExcerpts } from './excerpt-salience';
+import { resolveMentions, type NameLookup } from './mention-names';
 
 export const MAX_EXCERPTS = 6;
 
@@ -35,14 +36,33 @@ export function renderExcerptLines(excerpts: readonly ConversationExcerpt[]): st
     .join('\n');
 }
 
-export function projectExcerpts(all: readonly ConversationExcerpt[]): {
+/**
+ * ⚠️ **LE `lookup` RÉSOUT LES MENTIONS, ET IL EST POSÉ ICI PLUTÔT QUE CHEZ LES APPELANTS.**
+ *
+ * Deux outils projettent des extraits vers le modèle (`getChannelHistory`,
+ * `getUserConversations`) et un troisième les rend autrement (`searchKnowledge`). Résoudre les
+ * mentions dans chacun aurait fait trois sites à ne pas oublier — la forme de défaut que ce
+ * dépôt paie le plus souvent. Le point de passage OBLIGÉ est cette fonction : elle est la
+ * dernière chose que traverse un extrait avant de devenir du texte.
+ *
+ * Optionnel à dessein : sans annuaire, on rend exactement ce qu'on rendait avant, jetons bruts
+ * compris. Une dégradation lisible, jamais une invention.
+ */
+export function projectExcerpts(
+  all: readonly ConversationExcerpt[],
+  lookup?: NameLookup,
+): {
   lines: string;
   shown: number;
   coverage?: string;
 } {
   const selected = selectSalientExcerpts(all, MAX_EXCERPTS);
+  const readable = lookup
+    ? selected.map((excerpt) => ({ ...excerpt, text: resolveMentions(excerpt.text, lookup) }))
+    : selected;
+
   return {
-    lines: renderExcerptLines(selected),
+    lines: renderExcerptLines(readable),
     shown: selected.length,
     coverage: describeCoverage(all, selected.length),
   };

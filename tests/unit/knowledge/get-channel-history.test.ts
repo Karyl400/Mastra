@@ -235,3 +235,84 @@ describe('getChannelHistory — restitution', () => {
     expect(result.hint).toContain('Invite-moi');
   });
 });
+
+/**
+ * ⚠️ **LES MENTIONS SONT RÉSOLUES AVANT DE PARTIR AU MODÈLE — 2026-08-21.**
+ *
+ * Les extraits partaient avec les jetons bruts de Slack (`<@U0BJ8F1AMNF>`) et le modèle les
+ * recopiait dans ses résumés : « <@U0BJ8F1AMNF> a validé le déploiement », que personne ne peut
+ * lire. Le modèle n'a AUCUN moyen de résoudre un identifiant — l'annuaire n'est pas dans sa
+ * fenêtre — donc le lui demander revenait à lui demander d'inventer.
+ *
+ * Ce test exerce la chaîne complète : outil → projection → annuaire, et pas seulement la
+ * fonction pure. C'est le câblage qui manquait, pas la fonction.
+ */
+describe('getChannelHistory — les personnes taguées apparaissent sous leur nom', () => {
+  /** Un identifiant de la VRAIE forme Slack : `U` puis alphanumérique, jamais de souligné. */
+  const AWA = 'U0AWA9F1AMNF';
+
+  beforeEach(async () => {
+    channels.setMembers(PRIVATE_CHANNEL, [HR, GUEST]);
+    await directory.upsertFacts(
+      facts({ slackUserId: AWA, realName: 'Awa TRAORE', displayName: 'awa' }),
+      NOW,
+    );
+  });
+
+  it('remplace la mention par le nom de l’annuaire', async () => {
+    channels.seed(PRIVATE_CHANNEL, [message(`<@${AWA}> a validé le déploiement`, 2)]);
+
+    const result = await run(PRIVATE_CHANNEL, HR);
+
+    expect(result.conversation).toContain('@Awa TRAORE');
+    expect(result.conversation).not.toContain(AWA);
+  });
+
+  it("laisse l'identifiant pour une personne inconnue — on n'invente aucun nom", async () => {
+    // ⚠️ Le jeton ressort SANS ses chevrons : `renderExcerptLines` les retire pour neutraliser
+    // une balise de fin forgée dans un message de canal. C'est une garde antérieure et
+    // indépendante ; ce qui compte ici est qu'aucun nom n'ait été inventé.
+    channels.seed(PRIVATE_CHANNEL, [message('<@U0FANTOME99> a répondu', 2)]);
+
+    const result = await run(PRIVATE_CHANNEL, HR);
+
+    expect(result.conversation).toContain('U0FANTOME99');
+  });
+
+  it('ne fait AUCUNE lecture d’annuaire SUPPLÉMENTAIRE quand rien n’est tagué', async () => {
+    // Le cas le plus fréquent. Charger l'annuaire « au cas où » ferait payer une requête à
+    // chaque consultation pour un besoin qui n'existe pas la plupart du temps.
+    //
+    // ⚠️ On mesure un ÉCART, pas un absolu : l'outil lit déjà l'annuaire une fois pour la
+    // frontière d'autorisation. Asserter zéro serait mesurer la mauvaise chose — et c'est
+    // exactement l'erreur que la première version de ce test a commise.
+    let reads = 0;
+    const counting = {
+      ...directory,
+      findBySlackUserId: async (id: string) => {
+        reads += 1;
+        return directory.findBySlackUserId(id);
+      },
+    } as never;
+
+    const call = async (text: string) => {
+      channels.seed(PRIVATE_CHANNEL, [message(text, 2)]);
+      reads = 0;
+      await (
+        makeGetChannelHistory({ directory: counting, channels }).execute! as never as (
+          i: unknown,
+          c: unknown,
+        ) => Promise<unknown>
+      )(
+        { channelId: PRIVATE_CHANNEL },
+        { requestContext: buildSlackRequestContext({ channel: 'D0X', slackUserId: HR }) },
+      );
+      return reads;
+    };
+
+    const sansMention = await call('on décale la revue à jeudi');
+    const avecMention = await call(`<@${AWA}> décale la revue à jeudi`);
+
+    expect(avecMention).toBe(sansMention + 1);
+  });
+});

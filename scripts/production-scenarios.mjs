@@ -71,7 +71,7 @@ const args = Object.fromEntries(
 
 const BASE_URL = String(
   args.base ?? process.env.LIVE_TEST_BASE_URL ?? 'https://mastra-71ya.vercel.app',
-).replace(/\/+$/, '');
+).replace(/\/{1,8}$/, '');
 const DRY = args.dry === true;
 const KEEP = args.keep === true;
 const VERBOSE = args.verbose === true;
@@ -149,7 +149,8 @@ function skip(label, reason) {
 
 const trunc = (v, n = 220) => {
   const s = typeof v === 'string' ? v : JSON.stringify(v);
-  return s === undefined ? 'undefined' : s.length > n ? `${s.slice(0, n)}…` : s;
+  if (s === undefined) return 'undefined';
+  return s.length > n ? `${s.slice(0, n)}…` : s;
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -163,9 +164,32 @@ const db = DATABASE_URL
   : null;
 const slack = SLACK_BOT_TOKEN ? new WebClient(SLACK_BOT_TOKEN) : null;
 
+/** Sortis des appels pour éviter des ternaires imbriqués — la forme condensée cachait les cas. */
+function degradedNote(outcome) {
+  if (outcome === 'degraded') {
+    return 'Parcours DÉGRADÉ : l’employé est bien créé, mais les étapes ci-dessus n’ont pas abouti.';
+  }
+  if (outcome === undefined) {
+    return 'outcome absent — déploiement antérieur au lot « échec d’email visible » ?';
+  }
+  return undefined;
+}
+
+function dedupNote(count) {
+  if (count > 1) {
+    return 'Le cache de déduplication est EN MÉMOIRE, donc par instance : sur Vercel serverless deux répliques peuvent traiter le même event_id (limite documentée dans slack-events.handler.ts).';
+  }
+  if (count === 0) return "Aucune réponse : le traitement de fond n'a pas abouti.";
+  return undefined;
+}
+
 async function api(path, { method = 'GET', body, token = API_TOKEN, timeoutMs = 120_000 } = {}) {
   const headers = { 'content-type': 'application/json' };
-  if (token !== null) headers.authorization = `Bearer ${token}`;
+  // Ce n'est PAS une comparaison de secret : on teste la PRÉSENCE d'un jeton, pas sa valeur.
+  // `security/detect-possible-timing-attacks` se déclenche sur le nom de la variable ; écrit
+  // ainsi, l'intention se lit et la règle n'a plus de prise.
+  const hasToken = token !== null && token !== undefined;
+  if (hasToken) headers.authorization = `Bearer ${token}`;
   const started = Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -791,11 +815,7 @@ async function groupWorkflows() {
       outcome === 'completed',
       "outcome === 'completed' (aucune étape best-effort en échec)",
       `outcome=${JSON.stringify(outcome)}, degradedSteps=${degradedLabel}`,
-      outcome === 'degraded'
-        ? 'Parcours DÉGRADÉ : l’employé est bien créé, mais les étapes ci-dessus n’ont pas abouti.'
-        : outcome === undefined
-          ? 'outcome absent — déploiement antérieur au lot « échec d’email visible » ?'
-          : undefined,
+      degradedNote(outcome),
     );
 
     // `emailSent` reste asserté séparément : les instructions des agents le
@@ -1133,11 +1153,7 @@ async function groupSlackE2e() {
       msgs.length === 1,
       'exactement 1 message du bot',
       `${msgs.length} message(s)`,
-      msgs.length > 1
-        ? 'Le cache de déduplication est EN MÉMOIRE, donc par instance : sur Vercel serverless deux répliques peuvent traiter le même event_id (limite documentée dans slack-events.handler.ts).'
-        : msgs.length === 0
-          ? "Aucune réponse : le traitement de fond n'a pas abouti."
-          : undefined,
+      dedupNote(msgs.length),
     );
   }
 }
@@ -1340,7 +1356,9 @@ async function main() {
   console.log(`   run id       : ${RUN_ID}`);
   console.log(`   MASTRA_API_TOKEN     : ${mask(API_TOKEN)}`);
   console.log(`   SLACK_SIGNING_SECRET : ${mask(SIGNING_SECRET)}`);
-  console.log(`   base         : ${DATABASE_URL.replace(/\/\/.*@/, '//…@').split('?')[0]}`);
+  console.log(
+    `   base         : ${DATABASE_URL.replace(/\/\/[^@\n]{0,256}@/, '//…@').split('?')[0]}`,
+  );
   console.log(`   canal Slack  : ${SLACK_CHANNEL} (#engineer-karyl)`);
   console.log(
     `   mode         : ${DRY ? 'DRY (aucun effet de bord)' : 'RÉEL'}${KEEP ? ' + --keep' : ''}`,

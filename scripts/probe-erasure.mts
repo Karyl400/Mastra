@@ -190,13 +190,14 @@ console.log('');
 console.log(
   supprime ? '✅ Les données ont RÉELLEMENT été supprimées.' : "❌ Rien n'a été supprimé.",
 );
-console.log(
-  archiveNonExercee
-    ? "⚠️  Archive : rien n'était archivé avant — le chemin n'a PAS été exercé, ce n'est pas une réussite."
-    : archiveEffacee
-      ? `✅ L'archive du DM est partie aussi (${archiveBefore} → 0).`
-      : `❌ L'archive du DM SUBSISTE (${archiveBefore} → ${archiveAfter}).`,
-);
+function archiveVerdict(): string {
+  if (archiveNonExercee) {
+    return "⚠️  Archive : rien n'était archivé avant — le chemin n'a PAS été exercé, ce n'est pas une réussite.";
+  }
+  if (archiveEffacee) return `✅ L'archive du DM est partie aussi (${archiveBefore} → 0).`;
+  return `❌ L'archive du DM SUBSISTE (${archiveBefore} → ${archiveAfter}).`;
+}
+console.log(archiveVerdict());
 console.log(
   annonceLaPortee
     ? "✅ La réponse nomme ce que l'effacement ne couvre pas."

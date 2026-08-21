@@ -122,7 +122,8 @@ console.log(
 console.log('─'.repeat(84));
 
 for (const line of shown) {
-  const mark = line.level === 'full' ? '★' : line.level === 'denied' ? '✗' : '·';
+  const MARKS: Record<string, string> = { full: '★', denied: '✗' };
+  const mark = MARKS[line.level] ?? '·';
   console.log(
     `${mark} ${pad(line.name, 20)}${pad(line.title, 22)}${pad(line.level, 10)}${pad(line.reason, 18)}` +
       (line.linkedToLiveRecord ? 'lié' : 'aucun'),
@@ -182,4 +183,6 @@ console.log(
     '  `employees.id` AVANT de regarder le niveau — chacun lit son dossier et agit dessus.\n' +
     '  Ce que `readonly` ferme, c’est l’accès aux dossiers des AUTRES.',
 );
-console.log('  Ce script n’écrit rien et n’active rien. Poser la variable reste un geste humain.\n');
+console.log(
+  '  Ce script n’écrit rien et n’active rien. Poser la variable reste un geste humain.\n',
+);

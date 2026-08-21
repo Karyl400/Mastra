@@ -119,19 +119,26 @@ export const ERASURE_SCOPE_NOTICE =
   "lors de l'accueil et ce que j'ai archivé dans les canaux ne passent pas par moi — pour " +
   `ceux-là, adresse-toi à ${ESCALATION_CONTACT}.`;
 
+/**
+ * ⚠️ **ON NE DIT PLUS COMBIEN — demandé par le propriétaire le 2026-08-21.**
+ *
+ * La réponse annonçait « C'est effacé : 4 messages … ont été supprimés ». Le chiffre ne rendait
+ * aucun service à qui le lisait, et il en rendait un à qui SONDE : il mesure ce que le bot avait
+ * gardé, donc l'activité passée d'une personne — dans un DM où le manager peut par ailleurs
+ * relire l'archive. Un compte est une information sur la donnée, pas seulement sur le geste.
+ *
+ * ⚠️ **On garde en revanche la distinction VIDE / NON VIDE.** « Je n'avais rien retenu » et
+ * « c'est effacé » ne sont pas la même phrase : la première dit qu'il n'y avait rien, la seconde
+ * qu'il y avait quelque chose et que c'est parti. Les fondre ferait dire « c'est effacé » à un
+ * geste qui n'a rien effacé — la famille de mensonge que ce dépôt traque, et exactement ce que
+ * ce court-circuit a été écrit pour ne plus faire.
+ */
 export function erasureDoneReply(count: number): string {
   if (count === 0) {
     return `Je n'avais rien retenu de nos échanges. ${ERASURE_SCOPE_NOTICE}`;
   }
 
-  const plural = count > 1;
-  const s = plural ? 's' : '';
-  const verb = plural ? 'ont' : 'a';
-
-  return (
-    `C'est effacé : ${count} message${s} que j'avais gardé${s} de nos échanges ` +
-    `${verb} été supprimé${s}. ${ERASURE_SCOPE_NOTICE}`
-  );
+  return `C'est effacé : je ne garde plus rien de nos échanges. ${ERASURE_SCOPE_NOTICE}`;
 }
 
 export const ERASURE_FAILED_REPLY =

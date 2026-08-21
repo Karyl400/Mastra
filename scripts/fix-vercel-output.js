@@ -81,7 +81,7 @@ async function fixOutput() {
     console.log('✅ Le dossier .vercel/output existe déjà. Le VercelDeployer a fonctionné.');
   } else {
     console.error(
-      "❌ Erreur: Ni .mastra/output ni .vercel/output n'existent. Le build Mastra a échoué."
+      "❌ Erreur: Ni .mastra/output ni .vercel/output n'existent. Le build Mastra a échoué.",
     );
     process.exit(1);
   }
@@ -179,7 +179,7 @@ async function fixOutput() {
       vcConfig.maxDuration = FUNCTION_MAX_DURATION_SECONDS;
       patched = true;
       console.log(
-        `✅ Patch appliqué : maxDuration=${FUNCTION_MAX_DURATION_SECONDS}s dans .vc-config.json (traitement Slack via waitUntil)`
+        `✅ Patch appliqué : maxDuration=${FUNCTION_MAX_DURATION_SECONDS}s dans .vc-config.json (traitement Slack via waitUntil)`,
       );
     }
 
@@ -187,7 +187,7 @@ async function fixOutput() {
       vcConfig.memory = FUNCTION_MEMORY_MB;
       patched = true;
       console.log(
-        `✅ Patch appliqué : memory=${FUNCTION_MEMORY_MB} Mo dans .vc-config.json (le CPU y est proportionnel — démarrage à froid mesuré à 4,9 s)`
+        `✅ Patch appliqué : memory=${FUNCTION_MEMORY_MB} Mo dans .vc-config.json (le CPU y est proportionnel — démarrage à froid mesuré à 4,9 s)`,
       );
     }
 
@@ -245,10 +245,15 @@ async function assertCronsAreDeployable() {
 
   for (const cron of crons) {
     const [minute, hour] = String(cron.schedule ?? '').split(' ');
-    if (minute === '*' || hour === '*' || String(minute).includes('/') || String(hour).includes('/')) {
+    if (
+      minute === '*' ||
+      hour === '*' ||
+      String(minute).includes('/') ||
+      String(hour).includes('/')
+    ) {
       console.error(
         `\u274c Planification refusée par le plan Hobby : \u00ab ${cron.schedule} \u00bb tournerait\n` +
-          "   plus d'une fois par jour, et Vercel rejette le DÉPLOIEMENT dans ce cas."
+          "   plus d'une fois par jour, et Vercel rejette le DÉPLOIEMENT dans ce cas.",
       );
       process.exit(1);
     }
@@ -259,18 +264,17 @@ async function assertCronsAreDeployable() {
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     if (config.crons) {
       console.error(
-        "\u274c config.json déclare des crons : Vercel les FUSIONNE avec ceux de vercel.json\n" +
-          '   et refuse le doublon au déploiement. La source unique est vercel.json.'
+        '\u274c config.json déclare des crons : Vercel les FUSIONNE avec ceux de vercel.json\n' +
+          '   et refuse le doublon au déploiement. La source unique est vercel.json.',
       );
       process.exit(1);
     }
   }
 
   console.log(
-    `\u2705 Cron : ${crons.map((c) => `${c.path} @ ${c.schedule}`).join(', ')} (déclaré dans vercel.json, source unique)`
+    `\u2705 Cron : ${crons.map((c) => `${c.path} @ ${c.schedule}`).join(', ')} (déclaré dans vercel.json, source unique)`,
   );
 }
-
 
 /**
  * Construit `functions/slack-ack.func` et lui route `/slack/events` et `/slack/interactions`.
@@ -317,7 +321,7 @@ async function buildSlackAckFunction() {
   await writeFile(
     join(funcDir, 'package.json'),
     JSON.stringify({ name: 'slack-ack', type: 'module', private: true }, null, 2),
-    'utf8'
+    'utf8',
   );
 
   // Mémoire au plancher : ce code ne fait qu'un HMAC et un `fetch`. Y mettre 3009 Mo comme la
@@ -342,9 +346,9 @@ async function buildSlackAckFunction() {
         memory: 1769,
       },
       null,
-      2
+      2,
     ),
-    'utf8'
+    'utf8',
   );
 
   const configPath = join(target, 'config.json');
@@ -355,14 +359,17 @@ async function buildSlackAckFunction() {
 
   if (!routes.some((route) => route && route.dest === '/slack-ack')) {
     const filesystemAt = routes.findIndex((route) => route && route.handle === 'filesystem');
-    routes.splice(filesystemAt + 1, 0, { src: '^/slack/(events|interactions)$', dest: '/slack-ack' });
+    routes.splice(filesystemAt + 1, 0, {
+      src: '^/slack/(events|interactions)$',
+      dest: '/slack-ack',
+    });
     config.routes = routes;
     await writeFile(configPath, JSON.stringify(config), 'utf8');
   }
 
   console.log(
     "✅ Portier d'ACK : /slack/events et /slack/interactions servis par une fonction SANS " +
-      'dépendance (rejeu vers /internal/slack/…)'
+      'dépendance (rejeu vers /internal/slack/…)',
   );
 }
 
@@ -399,7 +406,7 @@ async function publishStaticAssets() {
       console.error(
         `\u274c Actif statique manquant : public/${asset}\n` +
           "   Il est cité par src/shared/onboarding-video.ts, dont l'URL est déduite du domaine\n" +
-          '   de production : sans le fichier, le message d\u2019accueil pointerait vers un 404.'
+          '   de production : sans le fichier, le message d\u2019accueil pointerait vers un 404.',
       );
       process.exit(1);
     }
@@ -418,7 +425,7 @@ async function publishStaticAssets() {
   config.routes = [{ handle: 'filesystem' }, ...routes];
   await writeFile(configPath, JSON.stringify(config), 'utf8');
   console.log(
-    "\u2705 Routage : phase « filesystem » ouverte avant l\u2019attrape-tout (sans elle, l\u2019actif part \u00e0 la fonction)"
+    '\u2705 Routage : phase « filesystem » ouverte avant l\u2019attrape-tout (sans elle, l\u2019actif part \u00e0 la fonction)',
   );
 }
 
@@ -443,7 +450,7 @@ async function healBundle(funcDir) {
       console.log('✅ Fermeture transitive déjà complète : aucune dépendance à copier.');
     } else if (copied.length > 0) {
       console.log(
-        `✅ Fermeture transitive (passe ${pass}) : ${copied.length} module(s) ajouté(s) au bundle.`
+        `✅ Fermeture transitive (passe ${pass}) : ${copied.length} module(s) ajouté(s) au bundle.`,
       );
     }
 
@@ -454,25 +461,25 @@ async function healBundle(funcDir) {
       const summary = [
         ...new Set(
           divergences.map(
-            (d) => `${d.name}@${d.bundleVersion} vs ${d.range}${d.peerOnly ? ' (peer)' : ''}`
-          )
+            (d) => `${d.name}@${d.bundleVersion} vs ${d.range}${d.peerOnly ? ' (peer)' : ''}`,
+          ),
         ),
       ];
       console.log(
-        `ℹ️  ${summary.length} version(s) hors intervalle déclaré dans le bundle (non bloquant) : ${summary.join(', ')}`
+        `ℹ️  ${summary.length} version(s) hors intervalle déclaré dans le bundle (non bloquant) : ${summary.join(', ')}`,
       );
     }
 
     const { scanned, missing } = auditBundle({ bundleDir: funcDir });
     if (missing.length === 0) {
       console.log(
-        `✅ Audit du bundle : ${scanned} paquets scannés, aucune dépendance obligatoire manquante.`
+        `✅ Audit du bundle : ${scanned} paquets scannés, aucune dépendance obligatoire manquante.`,
       );
       return;
     }
 
     console.log(
-      `⚠️  Audit du bundle : ${missing.length} dépendance(s) encore irrésolvable(s), passe de rattrapage…`
+      `⚠️  Audit du bundle : ${missing.length} dépendance(s) encore irrésolvable(s), passe de rattrapage…`,
     );
     const nextSeeds = [
       ...new Set(missing.map((entry) => entry.at.split(`${sep}node_modules${sep}`)[0])),
@@ -484,13 +491,13 @@ async function healBundle(funcDir) {
   const { missing } = auditBundle({ bundleDir: funcDir });
   if (missing.length > 0) {
     console.error(
-      `❌ Bundle incomplet : ${missing.length} dépendance(s) obligatoire(s) introuvable(s) après ${MAX_HEALING_PASSES} passes.`
+      `❌ Bundle incomplet : ${missing.length} dépendance(s) obligatoire(s) introuvable(s) après ${MAX_HEALING_PASSES} passes.`,
     );
     for (const entry of missing) {
       console.error(`   - ${entry.name} requis par ${entry.requiredBy} (${entry.at})`);
     }
     console.error(
-      "   Ces modules provoqueraient un `Cannot find module` au runtime. Build interrompu."
+      '   Ces modules provoqueraient un `Cannot find module` au runtime. Build interrompu.',
     );
     process.exit(1);
   }
@@ -582,7 +589,7 @@ async function pruneBundle(funcDir) {
 
   console.log(
     `✅ Élagage : ${removedFiles} fichiers retirés (${(removedBytes / 1048576).toFixed(1)} Mo) — ` +
-      'ni sources TypeScript, ni source maps, ni documentation ne sont chargées à l’exécution'
+      'ni sources TypeScript, ni source maps, ni documentation ne sont chargées à l’exécution',
   );
 }
 
@@ -619,7 +626,10 @@ const DYNAMIC_SEEDS = [
 const MAX_PRUNE_RATIO = 0.75;
 
 /** Toute chaîne littérale passée à `import` / `require` / `from`. */
-const SPEC_PATTERN = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)['"]([^'"\n]+)['"]/g;
+// Espaces BORNÉS : `\s*` répété dans une alternation donne un motif à backtracking, et ce
+// fichier lit du code source arbitraire du bundle.
+const SPEC_PATTERN =
+  /(?:\bfrom\s{0,8}|\bimport\s{0,8}\(?\s{0,8}|\brequire\s{0,8}\(\s{0,8})['"]([^'"\n]{1,512})['"]/g;
 
 function packageOfSpecifier(spec) {
   if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:')) return null;
@@ -753,7 +763,7 @@ async function pruneUnreachableModules(funcDir) {
   if (dead.length / installed.length > MAX_PRUNE_RATIO) {
     console.log(
       `⚠️  Élagage par atteignabilité ABANDONNÉ : ${dead.length}/${installed.length} paquets ` +
-        'déclarés inatteignables, ce qui est aberrant. Le bundle reste complet.'
+        'déclarés inatteignables, ce qui est aberrant. Le bundle reste complet.',
     );
     return;
   }
@@ -790,6 +800,6 @@ async function pruneUnreachableModules(funcDir) {
   console.log(
     `✅ Élagage par atteignabilité : ${dead.length} paquets retirés ` +
       `(${removedFiles} fichiers, ${(removedBytes / 1048576).toFixed(0)} Mo) — ` +
-      `${reachable.size} paquets conservés`
+      `${reachable.size} paquets conservés`,
   );
 }

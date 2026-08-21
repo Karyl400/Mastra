@@ -132,8 +132,17 @@ describe('Réponses rendues', () => {
 
   it('dit combien de messages ont réellement été supprimés', () => {
     expect(erasureDoneReply(0)).toContain("Je n'avais rien retenu");
-    expect(erasureDoneReply(1)).toContain('1 message ');
-    expect(erasureDoneReply(4)).toContain('4 messages');
+    expect(erasureDoneReply(1)).toContain("C'est effacé");
+    expect(erasureDoneReply(4)).toContain("C'est effacé");
+  });
+
+  it('ne dit JAMAIS combien de messages ont été supprimés', () => {
+    // ⚠️ Demandé le 2026-08-21. Le chiffre ne renseigne pas celui qui l'a demandé — il
+    // renseigne celui qui SONDE : il mesure ce que le bot avait gardé, donc l'activité passée
+    // d'une personne, dans un DM que le manager peut par ailleurs relire.
+    for (const count of [1, 2, 4, 12, 137]) {
+      expect(erasureDoneReply(count)).not.toMatch(/\d/);
+    }
   });
 
   it("n'annonce jamais une suppression quand la mémoire est indisponible", () => {

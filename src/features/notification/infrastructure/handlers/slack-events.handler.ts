@@ -169,6 +169,7 @@ import type { PinnedFactRepository } from '../../../conversation/domain/ports/pi
 import { DrizzlePinnedFactRepository } from '../../../conversation/infrastructure/repositories/drizzle-pinned-fact.repository';
 import { DrizzleRateLimitRepository } from '../repositories/drizzle-rate-limit.repository';
 import { writeAuditLog } from '../../../../infrastructure/audit/audit-log';
+import { agentHasTool } from '../../../../shared/agent-capabilities';
 
 export interface SlackMessageEvent {
   type?: string;
@@ -392,6 +393,46 @@ function buildAuthorizationNotice(requestContext: unknown, answer: string): stri
  * ⚠️ La note S'EFFACE si la réponse dit déjà « au matin » : le doublon de démenti relevé le
  * 2026-08-21 est venu d'une note qui redisait ce que la phrase disait déjà.
  */
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * « TRANSMETS-MOI LE TEXTE » — le contournement que le modèle proposait
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Mesuré en production le 2026-08-21. « Récapitule `<#CMLKC4S5T>` et envoie-le-moi en PDF »
+ * contient `pdf`, donc part chez `onboardingOrchestrator` (bande 3, position 1) — qui ne porte
+ * PAS `getChannelHistory`. Son refus était CORRECT et la quarantaine §4.2 a fonctionné : aucun
+ * agent ne réunit lecture agrégée et écriture externe.
+ *
+ * Deux choses ne l'étaient pas :
+ *  1. il PROPOSAIT un contournement — « transmets-moi le texte, je ferai le PDF ». Bénin (le
+ *     demandeur a déjà le texte), mais cela apprend à passer autour d'une frontière ;
+ *  2. il ANNONÇAIT l'adresse email du demandeur, que personne ne lui avait demandée.
+ *
+ * ⚠️ **LE PROMPT LE LUI INTERDISAIT DÉJÀ** — « Rédige `content` TOI-MÊME, ne le demande
+ * jamais » — et il l'a fait quand même. C'est la sixième consigne d'agent mesurée en échec sur
+ * ce dépôt. Une consigne est PROBABLE, le code est GARANTI : on n'ajoute donc pas une phrase au
+ * prompt, on accole une note déterministe qui dit où la demande aboutit réellement.
+ *
+ * ⚠️ **On ne réécrit PAS le routage.** Faire gagner le jeton de canal sur `pdf` déplacerait la
+ * demande vers un agent qui, lui, ne sait pas produire de document : on échangerait un demi-refus
+ * contre un autre. Le routage par capacité est correct ; c'est la RÉPONSE qui manquait d'issue.
+ */
+/** Hauteur d'étoile 1 : voir `mention-names.ts` — l'entrée vient d'un tiers, pas de backtracking. */
+const CHANNEL_TOKEN = /<#C[^>]{1,140}>/i;
+
+export function buildChannelRedirectNotice(text: string, agentId: string, answer: string): string {
+  if (!CHANNEL_TOKEN.test(text)) return '';
+  // Dérivé du câblage : si l'agent qui a répondu SAIT lire un canal, il n'y a rien à rediriger.
+  if (agentHasTool(agentId, 'getChannelHistory')) return '';
+  // Il a peut-être déjà dit la bonne chose — on ne double pas une réponse juste.
+  if (/demande-moi (?:seulement |simplement )?le r[ée]sum[ée]/i.test(answer)) return '';
+
+  return (
+    '\n\n_(Pour un résumé de canal, demande-le seul — sans PDF ni email dans la même phrase. ' +
+    'Je le lis alors moi-même, au lieu de te demander de me le recopier.)_'
+  );
+}
+
 export function buildReminderNotice(requestContext: unknown, answer: string): string {
   const label = readReminderDelivery(requestContext);
   if (!label) return '';
@@ -1527,6 +1568,7 @@ export class SlackEventsHandler {
       const recipientNotice = buildRecipientNotice(requestContext, safeOutput.text);
       const authorizationNotice = buildAuthorizationNotice(requestContext, safeOutput.text);
       const reminderNotice = buildReminderNotice(requestContext, safeOutput.text);
+      const channelRedirect = buildChannelRedirectNotice(text, agentId, safeOutput.text);
 
       await progress.resolve(
         safeOutput.text +
@@ -1535,6 +1577,7 @@ export class SlackEventsHandler {
           recipientNotice +
           authorizationNotice +
           reminderNotice +
+          channelRedirect +
           appendNotes([
             shape.truncated ? MODEL_TRUNCATED_NOTICE : undefined,
             excerptCoverage,

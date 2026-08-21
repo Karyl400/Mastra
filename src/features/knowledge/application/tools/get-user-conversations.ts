@@ -23,6 +23,7 @@ import {
   KNOWLEDGE_SCAN_LIMIT,
 } from '../../domain/value-objects/retrieval-window';
 import { wrapRetrievedContent } from '../services/untrusted-excerpt.service';
+import { buildNameLookup } from '../services/directory-names';
 
 export interface GetUserConversationsDeps {
   readonly directory: PersonDirectoryPort;
@@ -185,7 +186,11 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
         at: turn.at,
       }));
 
-      const { lines, shown, coverage } = projectExcerpts(excerpts);
+      const nameLookup = await buildNameLookup(
+        deps.directory,
+        excerpts.map((excerpt) => excerpt.text),
+      );
+      const { lines, shown, coverage } = projectExcerpts(excerpts, nameLookup);
 
       const hint = [
         withheld > 0

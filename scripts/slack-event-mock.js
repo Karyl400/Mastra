@@ -18,7 +18,7 @@
  *
  * Le script sort en code 1 si un scénario échoue.
  */
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 
 const args = process.argv.slice(2);
 const getArg = (name, fallback) => {
@@ -26,14 +26,16 @@ const getArg = (name, fallback) => {
   return hit ? hit.slice(name.length + 3) : fallback;
 };
 
-const BASE_URL = (getArg('url', 'http://localhost:4111') || '').replace(/\/+$/, '');
+const BASE_URL = (getArg('url', 'http://localhost:4111') || '').replace(/\/{1,8}$/, '');
 const EVENTS_PATH = getArg('path', '/slack/events');
 const VERBOSE = args.includes('--verbose');
 const TARGET = `${BASE_URL}${EVENTS_PATH}`;
 
 const SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
 if (!SIGNING_SECRET) {
-  console.error('SLACK_SIGNING_SECRET manquant. Lance avec: node --env-file=.env scripts/slack-event-mock.js');
+  console.error(
+    'SLACK_SIGNING_SECRET manquant. Lance avec: node --env-file=.env scripts/slack-event-mock.js',
+  );
   process.exit(1);
 }
 
@@ -43,7 +45,9 @@ const TEAM_ID = 'TMLKC4EPP';
 const HUMAN_USER_ID = 'U000HUMAN01';
 
 function sign(timestamp, rawBody) {
-  const digest = createHmac('sha256', SIGNING_SECRET).update(`v0:${timestamp}:${rawBody}`, 'utf8').digest('hex');
+  const digest = createHmac('sha256', SIGNING_SECRET)
+    .update(`v0:${timestamp}:${rawBody}`, 'utf8')
+    .digest('hex');
   return `v0=${digest}`;
 }
 
@@ -82,19 +86,29 @@ function eventCallback(event, eventId) {
     event_id: eventId,
     event_time: Math.floor(Date.now() / 1000),
     authorizations: [
-      { enterprise_id: null, team_id: TEAM_ID, user_id: BOT_USER_ID, is_bot: true, is_enterprise_install: false },
+      {
+        enterprise_id: null,
+        team_id: TEAM_ID,
+        user_id: BOT_USER_ID,
+        is_bot: true,
+        is_enterprise_install: false,
+      },
     ],
     event,
   };
 }
 
-const uniq = () => `Ev${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+// `randomBytes` plutôt que `Math.random` : la valeur n'a rien de secret, mais un mock qui
+// tire au sort avec un générateur non cryptographique est un motif qu'on finit par recopier
+// là où ça compte. Le coût est identique.
+const uniq = () =>
+  `Ev${Date.now().toString(36).toUpperCase()}${randomBytes(3).toString('hex').toUpperCase()}`;
 
 const scenarios = [
   {
     name: '(a) url_verification → renvoie le challenge',
     async run() {
-      const challenge = `chal-${Math.random().toString(36).slice(2)}`;
+      const challenge = `chal-${randomBytes(8).toString('hex')}`;
       const res = await post({ token: 'mock', challenge, type: 'url_verification' });
       const ok = res.status === 200 && res.json?.challenge === challenge;
       return { ok, res, expected: `200 + challenge "${challenge}"` };
@@ -114,8 +128,8 @@ const scenarios = [
             channel_type: 'channel',
             event_ts: `${Date.now() / 1000}`,
           },
-          uniq()
-        )
+          uniq(),
+        ),
       );
       const ok = res.status === 200 && res.json?.ok === true;
       return { ok, res, expected: '200 {"ok":true}' };
@@ -135,15 +149,15 @@ const scenarios = [
             channel_type: 'im',
             event_ts: `${Date.now() / 1000}`,
           },
-          uniq()
-        )
+          uniq(),
+        ),
       );
       const ok = res.status === 200 && res.json?.ok === true;
       return { ok, res, expected: '200 {"ok":true}' };
     },
   },
   {
-    name: "(d) message du bot lui-même → ACK 200 mais ignoré (pas de boucle)",
+    name: '(d) message du bot lui-même → ACK 200 mais ignoré (pas de boucle)',
     async run() {
       const res = await post(
         eventCallback(
@@ -158,8 +172,8 @@ const scenarios = [
             channel_type: 'im',
             event_ts: `${Date.now() / 1000}`,
           },
-          uniq()
-        )
+          uniq(),
+        ),
       );
       // Slack exige un 200 quoi qu'il arrive ; l'ignorance se voit dans les logs serveur
       // (`Slack event ignored { reason: 'bot_message' }`).
@@ -180,9 +194,9 @@ const scenarios = [
             channel: 'C0MOCKCHAN',
             channel_type: 'channel',
           },
-          uniq()
+          uniq(),
         ),
-        { signature: `v0=${'0'.repeat(64)}` }
+        { signature: `v0=${'0'.repeat(64)}` },
       );
       const ok = res.status === 401 && res.json?.reason === 'invalid_signature';
       return { ok, res, expected: '401 reason=invalid_signature' };
@@ -202,9 +216,9 @@ const scenarios = [
             channel: 'C0MOCKCHAN',
             channel_type: 'channel',
           },
-          uniq()
+          uniq(),
         ),
-        { timestamp: staleTs }
+        { timestamp: staleTs },
       );
       const ok = res.status === 401 && res.json?.reason === 'stale_timestamp';
       return { ok, res, expected: '401 reason=stale_timestamp' };
@@ -226,11 +240,15 @@ const scenarios = [
       const first = await post(eventCallback(event, eventId));
       const retry = await post(eventCallback(event, eventId), { retryNum: 1 });
       const ok =
-        first.status === 200 && first.json?.ok === true && retry.status === 200 && retry.json?.ok === true;
+        first.status === 200 &&
+        first.json?.ok === true &&
+        retry.status === 200 &&
+        retry.json?.ok === true;
       return {
         ok,
         res: retry,
-        expected: '200 sur les deux appels + 2e traité comme duplicate (reason: duplicate côté serveur)',
+        expected:
+          '200 sur les deux appels + 2e traité comme duplicate (reason: duplicate côté serveur)',
         extra: `1er appel: ${first.status} ${first.text}`,
       };
     },
@@ -256,7 +274,9 @@ for (const scenario of scenarios) {
   if (!outcome.ok) failures += 1;
   console.log(`${label} ${scenario.name}`);
   console.log(`     attendu : ${outcome.expected}`);
-  console.log(`     obtenu  : ${outcome.res.status} ${outcome.res.text} (${outcome.res.elapsedMs} ms)`);
+  console.log(
+    `     obtenu  : ${outcome.res.status} ${outcome.res.text} (${outcome.res.elapsedMs} ms)`,
+  );
   if (outcome.extra) console.log(`     détail  : ${outcome.extra}`);
   if (VERBOSE) console.log(`     brut    : ${outcome.res.text}`);
 }
