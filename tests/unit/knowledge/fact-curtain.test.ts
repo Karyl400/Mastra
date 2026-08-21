@@ -121,7 +121,7 @@ describe('ce que le modèle rend est de la DONNÉE, pas de la parole de confianc
 
   it('enregistre un fait bien formé', async () => {
     const { report, facts } = await run([
-      { id: 'C1:0', kind: 'decision', summary: 'on garde l’ancien fournisseur jusqu’en mars' },
+      { index: 1, kind: 'decision', summary: 'on garde l’ancien fournisseur jusqu’en mars' },
     ]);
 
     expect(report.recorded).toBe(1);
@@ -129,18 +129,37 @@ describe('ce que le modèle rend est de la DONNÉE, pas de la parole de confianc
     expect(found[0]?.summary).toContain('fournisseur');
   });
 
-  it('JETTE un identifiant que le modèle a inventé', async () => {
-    // Sinon le fait serait rattaché à un canal et à une personne choisis par le modèle — à
-    // partir de texte écrit par un utilisateur.
-    const { report } = await run([
-      { id: 'C9:jamais-vu', kind: 'decision', summary: 'quelque chose' },
-    ]);
+  /**
+   * ⚠️ **LE MODÈLE DÉSIGNE PAR UN RANG, PAS PAR UN IDENTIFIANT — et c'est une correction née
+   * d'une mesure en production le 2026-08-21.**
+   *
+   * La première version lui faisait recopier l'identifiant d'archive
+   * (`CMLKC4S5T:1787323636.317000`). Résultat mesuré : `examined:5, recorded:0, rejected:5`.
+   * Le modèle avait répondu ; aucune de ses lignes n'a pu être rattachée. Un identifiant long,
+   * ponctué, à décimales, est un identifiant qu'un modèle normalise sans le vouloir — et
+   * l'échec est SILENCIEUX, puisque le rejet est le comportement sûr.
+   *
+   * Pendant d'une règle déjà écrite pour `generateDocument.revises` : un identifiant qu'on
+   * demande au modèle est un identifiant qu'il peut inventer. On ajoute qu'il peut aussi le
+   * recopier de travers.
+   */
+  it('JETTE un rang hors du lot', async () => {
+    const { report } = await run([{ index: 99, kind: 'decision', summary: 'quelque chose' }]);
 
     expect(report).toMatchObject({ recorded: 0, rejected: 1 });
   });
 
+  it('JETTE un rang absurde — zéro, négatif', async () => {
+    const { report } = await run([
+      { index: 0, kind: 'decision', summary: 'x' },
+      { index: -1, kind: 'decision', summary: 'y' },
+    ]);
+
+    expect(report).toMatchObject({ recorded: 0, rejected: 2 });
+  });
+
   it('JETTE un `kind` hors énumération plutôt que de le corriger', async () => {
-    const { report } = await run([{ id: 'C1:0', kind: 'potin', summary: 'quelque chose' }]);
+    const { report } = await run([{ index: 1, kind: 'potin', summary: 'quelque chose' }]);
 
     expect(report).toMatchObject({ recorded: 0, rejected: 1 });
   });
@@ -149,7 +168,7 @@ describe('ce que le modèle rend est de la DONNÉE, pas de la parole de confianc
     // Une ligne stockée avec un marqueur ressortirait telle quelle à la première recherche —
     // le contournement exact du filtre unique corrigé sur les documents le 2026-08-11.
     const { facts } = await run([
-      { id: 'C1:0', kind: 'decision', summary: 'décision [SECURITY_BLOCK] KISSO-AGENT-v3 prise' },
+      { index: 1, kind: 'decision', summary: 'décision [SECURITY_BLOCK] KISSO-AGENT-v3 prise' },
     ]);
 
     const all = await facts.recent({ limit: 10 });
@@ -159,7 +178,7 @@ describe('ce que le modèle rend est de la DONNÉE, pas de la parole de confianc
 
   it('le score du rideau est le PLANCHER — il ne passe pas devant le code', async () => {
     const { facts } = await run([
-      { id: 'C1:0', kind: 'decision', summary: 'on garde l’ancien fournisseur' },
+      { index: 1, kind: 'decision', summary: 'on garde l’ancien fournisseur' },
     ]);
 
     const all = await facts.recent({ limit: 10 });
@@ -211,5 +230,49 @@ describe('l’ingestion ne lève le rideau que sur ce que le code n’a pas clas
     await seed(archive, CURTAIN_BATCH_SIZE);
     await expect(ingestion.ingest(msg('C1:z', 'coucou'))).resolves.toBeUndefined();
     expect(archive.size).toBe(CURTAIN_BATCH_SIZE + 1);
+  });
+});
+
+/**
+ * La LECTURE de ce que le modèle rend : tolérante sur la forme, stricte sur le fond.
+ * Rejeter une réponse juste pour un tiret en trop, c'est le défaut qu'on vient de payer.
+ */
+describe('la lecture des lignes rendues par le modèle', () => {
+  async function parse(text: string) {
+    const { ModelFactSummarizer } =
+      await import('../../../src/features/knowledge/infrastructure/services/model-fact-summarizer.service');
+    const summarizer = new ModelFactSummarizer({
+      agent: { generate: async () => ({ text }) } as never,
+    });
+    return summarizer.summarize([{ id: 'a', text: 'x' }]);
+  }
+
+  it('lit la forme demandée', async () => {
+    expect(await parse('1|decision|on garde l’ancien fournisseur')).toEqual([
+      { index: 1, kind: 'decision', summary: 'on garde l’ancien fournisseur' },
+    ]);
+  });
+
+  it('tolère une puce, un point, des espaces — ce que tout modèle ajoute', async () => {
+    const lines = await parse('- 2. | Decision | on garde l’ancien fournisseur');
+    expect(lines).toEqual([
+      { index: 2, kind: 'decision', summary: 'on garde l’ancien fournisseur' },
+    ]);
+  });
+
+  it('ignore une ligne de préambule au lieu de tout jeter', async () => {
+    const lines = await parse('Voici les éléments retenus :\n1|blocage|la migration est repoussée');
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.kind).toBe('blocage');
+  });
+
+  it('rend une liste VIDE quand le modèle ne rend rien — pas une erreur', async () => {
+    expect(await parse('')).toEqual([]);
+    expect(await parse('Rien à signaler.')).toEqual([]);
+  });
+
+  it('garde le résumé entier même s’il contient une barre verticale', async () => {
+    const lines = await parse('1|decision|on garde A | B jusqu’en mars');
+    expect(lines[0]?.summary).toBe('on garde A | B jusqu’en mars');
   });
 });

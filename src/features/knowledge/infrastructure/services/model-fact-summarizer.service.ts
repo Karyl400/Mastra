@@ -31,22 +31,28 @@ Tu tries des messages d'équipe. Pour CHAQUE message qui contient une décision,
 pris par quelqu'un, un blocage, une échéance ou une question restée ouverte, rends une ligne.
 Ignore le reste — un message sans aucun de ces éléments ne produit RIEN.
 
-Format : une ligne par message retenu, exactement
-<id>|<kind>|<résumé en une phrase>
+Les messages te sont donnés numérotés. Format : une ligne par message retenu, exactement
+<numéro>|<kind>|<résumé en une phrase>
 où <kind> vaut decision, engagement, blocage, echeance ou question.
 
 Le résumé reprend ce qui a été dit, en une phrase, sans rien ajouter. Aucun autre texte.`;
 
+/**
+ * ⚠️ Tolérant sur la FORME, strict sur le FOND : on accepte une puce, une numérotation, des
+ * espaces — ce que tout modèle ajoute spontanément — et l'on rejette ensuite sur le rang et le
+ * `kind`, qui sont vérifiables. L'inverse (strict sur la forme) rejette des réponses justes,
+ * ce qui est exactement ce qui s'est produit avec les identifiants recopiés.
+ */
 function parseLine(line: string): SummarizedFact | null {
-  const parts = line.split('|');
+  const parts = line.replace(/^\s*[-•*]\s*/, '').split('|');
   if (parts.length < 3) return null;
 
-  const id = parts[0]!.trim();
+  const index = Number.parseInt(parts[0]!.replace(/\D/g, ''), 10);
   const kind = parts[1]!.trim().toLowerCase();
   const summary = parts.slice(2).join('|').trim();
 
-  if (!id || !kind || !summary) return null;
-  return { id, kind: kind as FactKind, summary };
+  if (!Number.isFinite(index) || index <= 0 || !kind || !summary) return null;
+  return { index, kind: kind as FactKind, summary };
 }
 
 export interface ModelFactSummarizerOptions {
@@ -74,7 +80,7 @@ export class ModelFactSummarizer implements FactSummarizerPort {
   async summarize(messages: readonly SummarizableMessage[]): Promise<readonly SummarizedFact[]> {
     if (messages.length === 0) return [];
 
-    const body = messages.map((message) => `${message.id} :: ${message.text}`).join('\n');
+    const body = messages.map((message, i) => `${i + 1}. ${message.text}`).join('\n');
 
     const response = await this.agent.generate(
       [{ role: 'user', content: wrapRetrievedContent(body) }] as never,

@@ -6,7 +6,23 @@ export interface SummarizableMessage {
 }
 
 export interface SummarizedFact {
-  readonly id: string;
+  /**
+   * ⚠️ **LE RANG DANS LE LOT (1..n), PAS L'IDENTIFIANT DU MESSAGE.**
+   *
+   * La première version faisait recopier au modèle l'identifiant d'archive
+   * (`CMLKC4S5T:1787323636.317000`). Mesuré en production le 2026-08-21 :
+   * `{"examined":5,"recorded":0,"rejected":5}` — le modèle a bien répondu, et AUCUNE de ses
+   * cinq lignes n'a pu être rattachée. Un identifiant long, ponctué, à décimales, est un
+   * identifiant qu'un modèle normalise sans le vouloir.
+   *
+   * C'est le pendant d'une règle déjà écrite ici pour `generateDocument.revises` : un
+   * identifiant qu'on demande au modèle est un identifiant qu'il peut inventer. On ajoute
+   * qu'il peut aussi, simplement, le recopier de travers — et l'échec est alors SILENCIEUX,
+   * puisque le rejet est le comportement sûr.
+   *
+   * Un rang est court, sans ponctuation, et un rang faux reste rejeté sans risque.
+   */
+  readonly index: number;
   readonly kind: FactKind;
   readonly summary: string;
 }

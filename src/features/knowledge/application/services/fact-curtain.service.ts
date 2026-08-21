@@ -72,7 +72,7 @@ export async function runFactCurtain(deps: FactCurtainDeps): Promise<CurtainRepo
 
   const byId = new Map(pending.map((message) => [message.id, message]));
 
-  let summarized: readonly { id: string; kind: string; summary: string }[];
+  let summarized: readonly { index: number; kind: string; summary: string }[];
   try {
     summarized = await deps.summarizer.summarize(
       pending.map((message) => ({ id: message.id, text: message.text })),
@@ -90,10 +90,10 @@ export async function runFactCurtain(deps: FactCurtainDeps): Promise<CurtainRepo
   let rejected = 0;
 
   for (const candidate of summarized) {
-    const source = byId.get(candidate.id);
+    // ⚠️ Un rang hors du lot ne crée AUCUNE ligne : le fait serait sinon rattaché à un canal
+    // et à une personne choisis par le modèle, à partir de texte écrit par un utilisateur.
+    const source = pending[candidate.index - 1];
 
-    // ⚠️ Un identifiant que le modèle a INVENTÉ ne doit pas créer une ligne : le fait serait
-    // rattaché à un canal et à une personne choisis par lui.
     if (!source) {
       rejected += 1;
       continue;
