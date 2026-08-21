@@ -5,8 +5,10 @@ import {
   REMINDER_DISPATCH_HOUR_UTC,
   REMINDER_DISPATCH_PATH,
   REMINDER_DISPATCH_SCHEDULE,
+  STRANDED_CLAIM_MS,
   deliveryLabel,
   isDueForDispatch,
+  isStrandedClaim,
   nextDeliveryAt,
   reminderPreamble,
   selectDueReminders,
@@ -80,10 +82,42 @@ describe('un rappel est dû quand son JOUR est arrivé, pas à son heure', () =>
       NotificationStatus.Sent,
       NotificationStatus.Failed,
       NotificationStatus.Cancelled,
-      NotificationStatus.Sending,
     ]) {
       expect(isDueForDispatch(reminder({ status }), lundi, 'Africa/Lagos'), status).toBe(false);
     }
+  });
+
+  it('ignore une prise FRAÎCHE — quelqu’un est en train de l’envoyer', () => {
+    const lundi = new Date('2026-08-24T06:00:00.000Z');
+    const enVol = reminder({
+      status: NotificationStatus.Sending,
+      updatedAt: '2026-08-24T05:59:00.000Z',
+    });
+    expect(isDueForDispatch(enVol, lundi, 'Africa/Lagos')).toBe(false);
+  });
+
+  /**
+   * ⚠️ **LE MODE DE PANNE LE PLUS SILENCIEUX DE TOUT LE RÉPARTITEUR.**
+   *
+   * On prend AVANT d'envoyer, et l'état de prise interdit le doublon. Mais une fonction Vercel
+   * peut être tuée entre les deux — `maxDuration`, redéploiement, incident. Sans reprise, le
+   * rappel resterait `sending` pour toujours : aucune erreur, aucun log, personne prévenu.
+   *
+   * La grâce dépasse très largement `maxDuration` (60 s) : la raccourcir rouvrirait la course
+   * qu'on vient de fermer, et le symptôme serait un doublon dans la boîte de quelqu'un.
+   */
+  it('REPREND une prise abandonnée au-delà de la grâce', () => {
+    const now = new Date('2026-08-24T06:00:00.000Z');
+    const abandonne = reminder({
+      status: NotificationStatus.Sending,
+      updatedAt: new Date(now.getTime() - STRANDED_CLAIM_MS - 1000).toISOString(),
+    });
+    expect(isDueForDispatch(abandonne, now, 'Africa/Lagos')).toBe(true);
+    expect(isStrandedClaim(abandonne, now)).toBe(true);
+  });
+
+  it('la grâce dépasse très largement maxDuration — sinon on rouvre la course', () => {
+    expect(STRANDED_CLAIM_MS).toBeGreaterThan(60 * 60 * 1000);
   });
 
   it('ignore une ligne sans date et une date illisible', () => {
@@ -365,5 +399,40 @@ describe('la route du cron', () => {
 
   it('n’est PAS montée sous /api — le préfixe est réservé, et l’échec serait au démarrage', () => {
     expect(REMINDER_DISPATCH_PATH.startsWith('/api')).toBe(false);
+  });
+});
+
+describe('une prise abandonnée est reprise par la remise suivante', () => {
+  it('le rappel repart, il n’est pas perdu', async () => {
+    const deps = makeDeps();
+    // Prise laissée en vol par une invocation tuée il y a huit heures.
+    await deps.notifications.save(
+      reminder({
+        id: 'abandonne',
+        status: NotificationStatus.Sending,
+        updatedAt: new Date(Date.parse('2026-08-23T22:00:00.000Z')).toISOString(),
+      }),
+    );
+
+    const report = await run(deps);
+
+    expect(report).toMatchObject({ due: 1, sent: 1 });
+    expect(deps.email.sendEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('mais une prise FRAÎCHE est laissée tranquille — pas de doublon', async () => {
+    const deps = makeDeps();
+    await deps.notifications.save(
+      reminder({
+        id: 'en-vol',
+        status: NotificationStatus.Sending,
+        updatedAt: '2026-08-24T05:59:30.000Z',
+      }),
+    );
+
+    const report = await run(deps);
+
+    expect(report.due).toBe(0);
+    expect(deps.email.sendEmail).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,7 @@ import { NotificationStatus } from '../../../../shared/types';
 import { textEmailBody } from '../../domain/services/email-body';
 import {
   MAX_REMINDERS_PER_RUN,
+  STRANDED_CLAIM_MS,
   reminderPreamble,
   selectDueReminders,
 } from '../../domain/services/reminder-dispatch';
@@ -95,7 +96,10 @@ async function deliverOne(
   };
 
   // ── 1. LA PRISE ───────────────────────────────────────────────────────────
-  const claimed = await deps.notifications.claimForDispatch(reminder.id);
+  const claimed = await deps.notifications.claimForDispatch(
+    reminder.id,
+    new Date(now.getTime() - STRANDED_CLAIM_MS),
+  );
   if (!claimed) {
     logger.info('Rappel déjà pris par une autre exécution — ignoré', { id: reminder.id });
     note('already_claimed');

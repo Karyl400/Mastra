@@ -98,13 +98,38 @@ describe.each(IMPLEMENTATIONS)('claimForDispatch — %s', (_name, make) => {
     expect(await repo.claimForDispatch('jamais-vu')).toBe(false);
   });
 
-  it('la prise sort le rappel de findPending — sinon il serait resélectionné', async () => {
+  it('un rappel PRIS ne se reprend pas, même s’il reste dans findPending', async () => {
+    // ⚠️ `findPending` rend aussi les prises EN COURS, et c'est voulu : une invocation tuée
+    // entre la prise et l'envoi laisserait sinon le rappel invisible à jamais. Ce n'est donc
+    // pas la SÉLECTION qui interdit le doublon — c'est la PRISE, atomique, qui refuse.
     const repo = await make();
     await repo.save(reminder());
 
     await repo.claimForDispatch('n1');
 
-    expect(await repo.findPending()).toHaveLength(0);
+    expect(await repo.findPending()).toHaveLength(1);
+    expect(await repo.claimForDispatch('n1')).toBe(false);
+  });
+
+  it('une prise FRAÎCHE résiste à la reprise, même avec une grâce', async () => {
+    const repo = await make();
+    await repo.save(reminder());
+    await repo.claimForDispatch('n1');
+
+    const graceAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
+    expect(await repo.claimForDispatch('n1', graceAgo)).toBe(false);
+  });
+
+  it('une prise ABANDONNÉE est reprise — sinon le rappel serait perdu en silence', async () => {
+    // Une fonction Vercel peut être tuée entre la prise et l'envoi : dépassement de
+    // `maxDuration`, redéploiement, incident. Le rappel resterait `sending` pour toujours.
+    const repo = await make();
+    await repo.save(
+      reminder({ status: NotificationStatus.Sending, updatedAt: '2026-08-20T00:00:00.000Z' }),
+    );
+
+    const graceAgo = new Date(Date.parse('2026-08-21T00:00:00.000Z'));
+    expect(await repo.claimForDispatch('n1', graceAgo)).toBe(true);
   });
 
   it('releaseClaim rend le rappel reprenable — un transport en panne ne le perd pas', async () => {
@@ -137,9 +162,12 @@ describe.each(IMPLEMENTATIONS)('claimForDispatch — %s', (_name, make) => {
     await repo.save(reminder({ id: 'n1', status: NotificationStatus.Scheduled }));
     await repo.save(reminder({ id: 'n2', status: NotificationStatus.Pending }));
     await repo.save(reminder({ id: 'n3', status: NotificationStatus.Sent }));
+    await repo.save(reminder({ id: 'n4', status: NotificationStatus.Sending }));
 
     const pending = await repo.findPending();
 
-    expect(pending.map((n) => n.id).sort()).toEqual(['n1', 'n2']);
+    // `n4` en fait partie : une prise en cours PEUT être abandonnée, et c'est la prise qui
+    // tranchera. `n3` non : un rappel envoyé l'est pour de bon.
+    expect(pending.map((n) => n.id).sort()).toEqual(['n1', 'n2', 'n4']);
   });
 });

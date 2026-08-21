@@ -18,8 +18,13 @@ export interface NotificationRepository {
    * `false` et s'arrête.
    *
    * Rend `true` si ce processus-ci a bien pris le rappel, `false` si quelqu'un d'autre l'avait.
+   *
+   * ⚠️ `strandedBefore` est la date avant laquelle une prise EN COURS est réputée ABANDONNÉE —
+   * une invocation tuée entre la prise et l'envoi (dépassement de `maxDuration`, redéploiement,
+   * incident). Sans cette reprise, le rappel resterait `sending` à jamais, invisible de
+   * `findPending()` : perdu EN SILENCE, ce qui est pire qu'un doublon — un doublon se voit.
    */
-  claimForDispatch(id: string): Promise<boolean>;
+  claimForDispatch(id: string, strandedBefore?: Date): Promise<boolean>;
 
   /**
    * Rend la prise. Sur un échec de TRANSPORT rien n'est parti : garder le rappel en « envoi en

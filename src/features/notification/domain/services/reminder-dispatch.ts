@@ -58,6 +58,34 @@ const DISPATCHABLE: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * ⚠️ **UNE PRISE QUI NE SE TERMINE JAMAIS PERDRAIT LE RAPPEL POUR TOUJOURS.**
+ *
+ * On prend AVANT d'envoyer, et l'état de prise (`sending`) sort le rappel de `findPending()` —
+ * c'est précisément ce qui interdit le doublon. Mais une fonction Vercel peut être tuée entre
+ * les deux : dépassement de `maxDuration`, redéploiement, incident de plateforme. Le rappel
+ * resterait alors `sending`, invisible de toute exécution ultérieure, et personne ne le saurait.
+ *
+ * C'est le mode de panne que ce dépôt traque partout : pas une erreur, un SILENCE. Même forme
+ * que `Reprocessing an abandoned Slack event` — au-delà d'une grâce, on considère que
+ * l'invocation qui tenait la prise est morte, et on reprend.
+ *
+ * ⚠️ La grâce doit dépasser très largement `maxDuration` (60 s) : la reprendre trop tôt
+ * rouvrirait la course qu'on vient de fermer, et le symptôme serait un doublon dans la boîte
+ * de quelqu'un. Six heures, contre une remise quotidienne : on ne peut rater qu'un seul tour.
+ */
+export const STRANDED_CLAIM_MS = 6 * 60 * 60 * 1000;
+
+export function isStrandedClaim(
+  notification: Pick<Notification, 'status' | 'updatedAt'>,
+  now: Date,
+): boolean {
+  if (notification.status !== NotificationStatus.Sending) return false;
+  const at = Date.parse(notification.updatedAt ?? '');
+  if (Number.isNaN(at)) return false;
+  return now.getTime() - at >= STRANDED_CLAIM_MS;
+}
+
+/**
  * Le jour civil, dans le fuseau d'affichage — jamais en UTC. À 23 h à Cotonou on est déjà
  * demain en UTC+2 et encore hier en UTC-5 : comparer des jours sans fuseau, c'est se tromper
  * de journée une fois sur trois.
@@ -83,11 +111,11 @@ function localDayKey(at: Date, timeZone: string): string {
  * garde-fou censé éviter d'arriver trop tôt ferait systématiquement arriver un jour trop tard.
  */
 export function isDueForDispatch(
-  notification: Pick<Notification, 'status' | 'scheduledAt'>,
+  notification: Pick<Notification, 'status' | 'scheduledAt' | 'updatedAt'>,
   now: Date,
   timeZone: string = DISPLAY_TIMEZONE,
 ): boolean {
-  if (!DISPATCHABLE.has(notification.status)) return false;
+  if (!DISPATCHABLE.has(notification.status) && !isStrandedClaim(notification, now)) return false;
   if (!notification.scheduledAt) return false;
 
   const at = Date.parse(notification.scheduledAt);
