@@ -30,7 +30,7 @@ import {
   UNSUPPORTED_CLAIM_NOTICE,
   detectUnsupportedCompletionClaim,
   detectUnsupportedDeliveryPromise,
-  onlyNonDeliveringTools,
+  promisesWithoutActing,
   PROMISED_DELIVERY_NOTICE,
   hasActingToolCall,
   readToolCallNames,
@@ -77,6 +77,7 @@ import {
   buildSlackRequestContext,
   readExcerptCoverage,
   readAuthorizationNotice,
+  readReminderDelivery,
   readDocumentRecipient,
   type SlackAccessLevel,
 } from '../../../../shared/slack-request-context';
@@ -363,6 +364,25 @@ function buildAuthorizationNotice(requestContext: unknown, answer: string): stri
   if (!notice) return '';
   if (textMentionsName(answer, escalationName())) return '';
   return `\n\n_(${notice})_`;
+}
+
+/**
+ * ⚠️ **QUAND LE RAPPEL ARRIVERA — dit par le code, jamais par le modèle.**
+ *
+ * Le rappel part pour de bon depuis le 2026-08-21, mais la remise est QUOTIDIENNE : le matin
+ * du jour demandé, à ±59 min près (limite du plan Hobby). Le modèle n'a jamais l'heure dans sa
+ * fenêtre — le tool ne lui rend que `deliveredOn` — mais il peut la reprendre de la demande de
+ * la personne, qui l'a écrite juste avant. C'est le seul chemin par lequel une précision que
+ * rien ne tient pourrait ressortir, et on le ferme ici.
+ *
+ * ⚠️ La note S'EFFACE si la réponse dit déjà « au matin » : le doublon de démenti relevé le
+ * 2026-08-21 est venu d'une note qui redisait ce que la phrase disait déjà.
+ */
+function buildReminderNotice(requestContext: unknown, answer: string): string {
+  const label = readReminderDelivery(requestContext);
+  if (!label) return '';
+  if (answer.includes(label) || /au matin\b/i.test(answer)) return '';
+  return `\n\n_(Je te le remettrai ${label} — je ne passe qu'une fois par jour.)_`;
 }
 
 export class SlackEventsHandler {
@@ -1406,11 +1426,13 @@ export class SlackEventsHandler {
         });
       }
 
-      const registeredWithoutDelivery = toolCalls !== null && onlyNonDeliveringTools(toolCalls);
-
-      const deliveryPromise = registeredWithoutDelivery
-        ? detectUnsupportedDeliveryPromise(safeOutput.text)
-        : null;
+      // ⚠️ La note s'accole désormais SUR LE VERDICT DU DÉTECTEUR, et non sur la seule
+      // classification des outils. C'est ce qui produisait le doublon relevé en production le
+      // 2026-08-21 : le modèle disait la vérité, et la note la redisait en moins bien.
+      const deliveryPromise =
+        toolCalls !== null && promisesWithoutActing(toolCalls)
+          ? detectUnsupportedDeliveryPromise(safeOutput.text)
+          : null;
 
       if (deliveryPromise) {
         logger.error('Agent promised an automatic delivery that nothing performs', {
@@ -1434,13 +1456,15 @@ export class SlackEventsHandler {
 
       const recipientNotice = buildRecipientNotice(requestContext, safeOutput.text);
       const authorizationNotice = buildAuthorizationNotice(requestContext, safeOutput.text);
+      const reminderNotice = buildReminderNotice(requestContext, safeOutput.text);
 
       await progress.resolve(
         safeOutput.text +
           (unsupportedClaim ? UNSUPPORTED_CLAIM_NOTICE : '') +
-          (registeredWithoutDelivery ? PROMISED_DELIVERY_NOTICE : '') +
+          (deliveryPromise ? PROMISED_DELIVERY_NOTICE : '') +
           recipientNotice +
           authorizationNotice +
+          reminderNotice +
           appendNotes([
             shape.truncated ? MODEL_TRUNCATED_NOTICE : undefined,
             excerptCoverage,

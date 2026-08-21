@@ -181,14 +181,45 @@ export function readToolCallNames(response: unknown): string[] | null {
   });
 }
 
-const NON_DELIVERING_TOOL_NAMES: ReadonlySet<string> = new Set(['scheduleReminder']);
-
-export function onlyNonDeliveringTools(toolCalls: readonly string[]): boolean {
-  const acting = toolCalls.filter((name) => !READ_ONLY_TOOL_NAMES.has(name));
-  return acting.length > 0 && acting.every((name) => NON_DELIVERING_TOOL_NAMES.has(name));
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * LA PRÉMISSE DE CE DÉTECTEUR A CHANGÉ LE 2026-08-21 — et c'est le point de méthode
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * `onlyNonDeliveringTools` a été SUPPRIMÉE. Son ensemble ne contenait qu'un nom,
+ * `scheduleReminder`, et sa raison d'être tenait en une phrase : ce tool enregistrait une
+ * ligne que rien ne reprenait. Depuis que le cron quotidien existe
+ * (`domain/services/reminder-dispatch.ts`), le rappel PART. Garder le garde-fou tel quel
+ * reviendrait à faire démentir une phrase VRAIE — la faute exactement symétrique de celle
+ * qu'il corrigeait.
+ *
+ * ⚠️ **Un détecteur encode le CÂBLAGE. Quand le câblage bouge, il doit bouger avec, sinon il
+ * ment dans l'autre sens.** Même famille que `READ_ONLY_TOOL_NAMES`, qui gardait `getTaskList`
+ * après son retrait et ignorait `findPersonByName` ajouté le même jour : un détecteur périmé
+ * n'est pas neutre, il est faux.
+ *
+ * Ce qui RESTE vrai, et pourquoi la fonction n'est pas simplement effacée : promettre une
+ * livraison alors qu'AUCUN outil agissant n'a tourné reste un mensonge. La condition passe donc
+ * de « seuls des outils non livrants ont tourné » à « aucun outil agissant n'a tourné ». Le
+ * même garde-fou, sur la seule prémisse qui tienne encore.
+ */
+export function promisesWithoutActing(toolCalls: readonly string[]): boolean {
+  return !hasActingToolCall(toolCalls);
 }
 
-const ENCLITIC = "(?:(?:le|la|lui|les|leur|vous) |t')";
+/**
+ * ⚠️ **`l'` MANQUAIT, et avec lui les DEUX formes les plus courantes en français** — trouvé le
+ * 2026-08-21 en écrivant le test de la prémisse retournée. La liste tenait `le `, `la `, `vous `
+ * et l'élidé `t'`, mais pas l'élidé `l'` : « je te **l'**enverrai lundi » et « je vous
+ * **l'**enverrai » n'étaient détectés par RIEN. Le motif couvrait « je le enverrai », que
+ * personne n'écrit, et manquait ce que tout le monde écrit.
+ *
+ * Même famille que « je veux en finir », absent du détecteur de détresse jusqu'au même jour :
+ * une liste rédigée d'un trait couvre ce qu'on a en tête, pas ce que les gens tapent. Le seul
+ * remède est de l'exercer sur des phrases réelles — d'où les formes énumérées dans
+ * `tests/unit/notification/promised-delivery.test.ts`.
+ */
+const ENCLITIC = "(?:(?:le|la|lui|les|leur|vous|nous|te|me) |[ltm]')";
 
 const SEND_VERBS_FUTURE = 'enverrai|transmettrai|expedierai|adresserai';
 
@@ -258,13 +289,18 @@ const HUMAN_GATED_PATTERN =
   /\b(?:apres|qu'apres|une fois) (?:ton |votre |le |la )?(?:clic|validation|confirmation)|\bne part(?:ira)? qu'apres\b|\bclic sur\b/;
 
 /**
- * ⚠️ « il n'y en a aucun dans ce système » a été retiré : c'est de l'architecture, et la
- * personne n'a que faire de savoir POURQUOI rien ne partira. Ce qu'il lui faut est le fait, et
- * le geste suivant. Le fait — rien ne part tout seul — est conservé mot pour mot dans sa
- * substance, et un test le verrouille.
+ * ⚠️ **CETTE NOTE A CHANGÉ DE SENS LE 2026-08-21, parce que le produit a changé.**
+ *
+ * Elle disait : « je ne sais pas te relancer tout seul le jour venu — repasse me le demander ».
+ * C'était exact et c'était le défaut : ce n'est pas ce qu'on attend d'un rappel. Le cron
+ * quotidien le fait désormais partir, donc la note n'a plus à s'excuser — elle a à dire QUAND,
+ * puisque la remise a lieu le matin et non à l'heure demandée.
+ *
+ * Elle ne s'accole que lorsqu'une promesse de livraison a été faite SANS qu'aucun outil
+ * agissant n'ait tourné : là, rien n'a été enregistré, donc rien ne partira.
  */
 export const PROMISED_DELIVERY_NOTICE =
-  "\n\n_C'est noté. Par contre je ne sais pas te relancer tout seul le jour venu — repasse me le demander et je te le ressors._";
+  "\n\n_Je me relis : je n'ai rien enregistré à ce tour, donc rien ne partira. Redis-le-moi et je le note pour de bon._";
 
 export function detectUnsupportedDeliveryPromise(text: string): string | null {
   const normalized = normalizeForClaims(text);

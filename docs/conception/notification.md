@@ -182,19 +182,95 @@ identiques pouvaient rendre deux ordres différents.
 
 Rappel daté — outil exposé au LLM.
 
-## Ce que cet outil NE FAIT PAS, et pourquoi il le dit
+## Ce que cet outil ne faisait pas, et ce qu'il fait depuis le 2026-08-21
 
-Le statut `Scheduled` qu'il pose n'est lu **nulle part** : il n'existe ni cron ni
-poller dans ce dépôt, et `findPending()` — le seul lecteur imaginable — n'a aucun
-site d'appel et filtre de toute façon sur `Pending`. Aucun rappel enregistré ici
-n'a jamais été expédié, et aucun ne le sera tant que l'ordonnanceur n'existe pas.
+### L'état d'origine, et la décision qui l'accompagnait
 
-Décision assumée : **on ne construit pas l'ordonnanceur** (chantier d'infrastructure,
-hors de ce lot). Ce qui est corrigé, c'est le MENSONGE — un agent qui lisait
-« planifié » promettait un envoi qui n'aurait jamais lieu. La description et le
-tool-result disent maintenant « enregistré », et le verdict porte explicitement
-`willBeSentAutomatically: false`. Un mensonge silencieux est pire qu'une panne
-bruyante ; ici, il n'y a même pas de panne — seulement un mémo.
+Le statut `Scheduled` qu'il posait n'était lu **nulle part** : ni cron ni poller dans
+ce dépôt, et `findPending()` — le seul lecteur imaginable — n'avait aucun site
+d'appel. Aucun rappel enregistré ici n'a jamais été expédié.
+
+La décision assumée était : **on ne construit pas l'ordonnanceur** (chantier
+d'infrastructure). Ce qui était corrigé, c'était le MENSONGE — un agent qui lisait
+« planifié » promettait un envoi qui n'aurait jamais lieu. La description disait
+« enregistré » et le verdict portait `willBeSentAutomatically: false`.
+
+### ⚠️ CETTE DÉCISION A ÉTÉ RENVERSÉE, sur le verdict du propriétaire
+
+> « *C'est noté. Par contre je ne sais pas te relancer tout seul le jour venu — repasse
+> me le demander et je te le ressors.* — ce n'est pas le but d'un rappel. Pourquoi ne
+> peut-il pas le faire ? »
+
+Il avait raison, et la question était la bonne. L'honnêteté avait remplacé un mensonge
+par une **inutilité** : un rappel dont il faut se souvenir n'est pas un rappel. C'était
+un progrès, pas une fin.
+
+**Pourquoi il ne pouvait pas le faire** — et ce n'était ni un oubli ni une paresse.
+Dans un serverless, RIEN NE S'EXÉCUTE tant que personne ne frappe à la porte. La
+fonction Vercel ne vit que le temps d'une requête HTTP ; aucun `setTimeout` ne survit
+au gel ; aucun processus ne tourne entre deux messages Slack. `findPending()` était
+écrite et correcte, et n'avait aucun appelant **parce qu'il n'existait personne pour
+l'appeler**. Il manquait la seule chose qu'une fonction ne peut pas se donner à
+elle-même : une **horloge extérieure**.
+
+Le cron Vercel est cette horloge. Il frappe à la porte une fois par jour
+(`/internal/reminders/dispatch`, `0 6 * * *`), et c'est tout ce qui manquait.
+
+### ⚠️ La granularité est un fait de plateforme, pas un choix
+
+Le plan Hobby n'autorise **qu'une exécution par jour** — « *Cron expressions that would
+run more frequently will fail during deployment* » — et ne garantit l'heure qu'à
+±59 min. Un rappel demandé « pour lundi 9 h » ne peut donc pas partir à 9 h 00.
+
+Deux erreurs sont possibles, et elles ne se valent pas : arriver le **matin du bon
+jour**, ou arriver le **lendemain**. On choisit le bon jour — un rappel est un objet à
+granularité de JOURNÉE dans l'usage réel. `isDueForDispatch` compare donc des jours
+**locaux** (jamais UTC : à 23 h à Cotonou on est déjà demain en UTC+2).
+
+### ⚠️ Ce que le tool ne rend PLUS, et c'est le garde-fou
+
+Il rendait `scheduledAt` brut et `scheduledLabel: 'lundi 24 août 2026 à 09 h00'` —
+deux occasions, pour le modèle, d'annoncer une heure qu'aucune pièce du système ne
+tient. Il ne rend plus que `deliveredOn: 'le lundi 24 août 2026 au matin'`.
+
+**On ne lui interdit pas de mentir : on lui retire de quoi.** Une consigne est
+PROBABLE, l'absence d'information est GARANTIE. `buildReminderNotice` accole la même
+phrase côté handler (coût ZÉRO, `RequestContext`) pour le cas où le modèle reprendrait
+l'heure de la demande, qu'il a sous les yeux.
+
+### ⚠️ La prise est l'écriture, et elle rend un compte
+
+`claimForDispatch(id)` fait un `UPDATE … WHERE status IN ('scheduled','pending')` et
+lit `rowsAffected`. Deux exécutions du cron — ou un rejeu Vercel — ne peuvent pas
+remettre deux fois le même rappel : le second appelant obtient `false`. Même contrat
+que `clear()` sur les emails d'entretien en attente, et pour la même raison.
+
+Sur un échec **réparable** (transport, base indisponible) la prise est RENDUE : la
+remise du lendemain rattrapera. Sur un destinataire **introuvable** elle ne l'est pas —
+rien ne fera revenir le dossier d'ici demain, et rendre la prise ferait repartir le
+même rappel en échec tous les matins jusqu'à la fin des temps.
+
+### ⚠️ Le détecteur de fausse promesse a dû bouger AVEC le câblage
+
+`onlyNonDeliveringTools` a été supprimée. Son ensemble ne contenait qu'un nom,
+`scheduleReminder`, et sa raison d'être tenait en une phrase : ce tool enregistrait une
+ligne que rien ne reprenait. Depuis le cron, la phrase « ton rappel partira lundi » est
+VRAIE — la démentir serait la faute exactement symétrique de celle que ce garde-fou
+corrigeait.
+
+**Un détecteur encode le CÂBLAGE.** Quand le câblage bouge, il doit bouger avec, sinon
+il ne devient pas inoffensif : il devient faux dans l'autre sens. Même famille que
+`READ_ONLY_TOOL_NAMES`, qui gardait `getTaskList` après son retrait. La condition passe
+de « seuls des outils non livrants ont tourné » à « **aucun outil agissant n'a
+tourné** » — la seule prémisse qui tienne encore.
+
+### Aucun appel de modèle sur le chemin de la remise
+
+Le sujet et le corps ont été rédigés au moment de la demande, sous les yeux de la
+personne. Les refabriquer à la remise reviendrait à envoyer un texte que personne n'a
+relu, et à payer un aller-retour par rappel. Seule la mise en contexte
+(« Tu m'avais demandé de te remettre ceci en tête pour le lundi 24 août 2026. ») est
+ajoutée, et elle est écrite par le CODE.
 
 ## Deux refus bruyants, alignés sur `sendNotification`
 

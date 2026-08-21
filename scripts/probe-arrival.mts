@@ -1,26 +1,31 @@
 /**
- * REJEU D'UNE ARRIVÉE COMPLÈTE, EN PRODUCTION.
- *
- * Le parcours réel d'un nouvel arrivant, de la demande de formulaire jusqu'à l'entretien :
- *   1. « je veux compléter mon profil »  → l'invite, puis la première question
- *   2. prénom → nom → email → poste       → une question par message
- *   3. « j'ai fini »                      → vérification du dossier
- *   4. les deux questions d'entretien     → quotidien, façon de travailler
+ * REJEU D'UNE ARRIVÉE COMPLÈTE, EN PRODUCTION — happy flow ET cas limites.
  *
  * ✅ **CE REJEU NE COÛTE AUCUN TOKEN DE MODÈLE.** Tout le parcours est une machine à états
  * déterministe (`profile-chat.ts`, `interview-chat.ts`) : chaque réponse est écrite en code.
  * C'est précisément ce qui le rend rejouable autant de fois qu'on veut.
  *
+ * ⚠️ **IL EST PILOTÉ PAR LA QUESTION POSÉE, PLUS PAR UN SCRIPT FIGÉ — et c'est la correction
+ * du 2026-08-21.** La première version envoyait prénom / nom / email / poste dans cet ordre.
+ * Or `knownProfileAnswers` pré-remplit le dossier depuis `slack_directory` : le bot demandait
+ * en réalité le NOM en premier, si bien que « Amina » partait en nom de famille, « SONDE-TEST »
+ * en poste, et l'email de rejeu n'était JAMAIS demandé. Tout le parcours était décalé d'un cran,
+ * et l'assertion finale portait sur une adresse que rien n'avait employée.
+ *
+ * ⚠️ Le défaut de fond était plus grave que le décalage : **une sonde qui suppose la question
+ * ne mesure pas le produit, elle mesure sa propre supposition.** Elle relit donc désormais la
+ * réponse du bot avec `pendingProfileStep` / `pendingInterviewStep` — les fonctions MÊMES que
+ * le handler utilise, importées, jamais recopiées.
+ *
  * ⚠️ **IL ÉCRIT DANS LA BASE DE PRODUCTION, puis NETTOIE.** La séquence est :
- *   sauvegarde JSON → mise à l'écart du dossier existant → rejeu → vérification → restauration.
+ *   sauvegarde JSON → mise à l'écart → rejeu → vérification → restauration → RELECTURE.
  * La sauvegarde est écrite AVANT toute modification et son chemin est affiché : si le script
  * meurt en vol, la restauration reste faisable à la main.
  *
- * ⚠️ **L'email de rejeu est DIFFÉRENT de l'email réel**, et ce n'est pas de la coquetterie :
- * on ne peut pas savoir sans risque si une contrainte d'unicité porte sur cette colonne, et
- * découvrir que oui au milieu d'un rejeu laisserait le dossier réel à l'écart et le nouveau
- * non créé — c'est-à-dire quelqu'un sans dossier, l'état exact que ce produit existe pour
- * éviter.
+ * ⚠️ **L'identité d'annuaire est mise de côté elle aussi** (prénom, nom, email), et pas par
+ * confort : tant qu'elle est là, le bot ne pose que les questions qui restent, donc la sonde
+ * ne peut vérifier ni la saisie, ni les refus, ni la reprise sur erreur. Elle est restaurée
+ * depuis la sauvegarde, colonne par colonne.
  *
  * Usage : npx tsx --env-file=.env scripts/probe-arrival.mts --yes
  */
@@ -28,19 +33,32 @@ import { createHmac } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { createClient } from '@libsql/client';
 
+import {
+  PROFILE_QUESTIONS,
+  pendingProfileStep,
+  type ProfileStep,
+} from '../src/features/onboarding/domain/services/profile-chat.js';
+import {
+  INTERVIEW_TOO_SHORT_REPLY,
+  pendingInterviewStep,
+} from '../src/features/onboarding/domain/services/interview-chat.js';
+
 const BASE_URL = 'https://mastra-71ya.vercel.app';
 const TEAM_ID = 'TMLKC4EPP';
 
 /** Le second compte du propriétaire — jamais celui d'un tiers. Voir l'en-tête. */
 const ARRIVAL_USER = 'U0BRRDEMSPN';
 
-const REPLAY = {
+const REPLAY: Readonly<Record<ProfileStep, string>> = {
   firstName: 'Amina',
   lastName: 'SONDE-TEST',
   email: 'amina.sonde-test@kissohq.com',
   position: 'Data Analyst',
-  daily: "je prépare les tableaux de bord et je réponds aux questions chiffrées de l'équipe",
-  style: "en asynchrone, avec peu de réunions et beaucoup d'écrit",
+};
+
+const INTERVIEW = {
+  dailyWork: "je prépare les tableaux de bord et je réponds aux questions chiffrées de l'équipe",
+  workStyle: "en asynchrone, avec peu de réunions et beaucoup d'écrit",
 } as const;
 
 const args = process.argv.slice(2);
@@ -71,14 +89,14 @@ const db = createClient({
  * minutes est à la merci d'un hoquet réseau d'une seconde — et l'échec ressemble alors à un
  * défaut du produit, ce qui est la pire forme de faux signal.
  */
-async function resilientFetch(url: string, init?: RequestInit, attempts = 4): Promise<Response> {
+async function resilientFetch(url: string, init?: RequestInit, attempts = 10): Promise<Response> {
   let lastError: unknown;
   for (let i = 0; i < attempts; i += 1) {
     try {
       return await fetch(url, { ...init, signal: AbortSignal.timeout(20000) });
     } catch (error) {
       lastError = error;
-      await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+      await new Promise((r) => setTimeout(r, 3000 * (i + 1)));
     }
   }
   throw lastError;
@@ -147,17 +165,23 @@ async function botRepliesSince(channel: string, since: number): Promise<string> 
     .join('\n');
 }
 
-async function step(channel: string, text: string, label: string): Promise<string> {
+const transcript: Array<[string, string]> = [];
+
+async function say(channel: string, text: string, label: string): Promise<string> {
   const since = Math.floor(Date.now() / 1000) - 1;
   const status = await post(channel, text);
   await wait(9000);
   const reply = await botRepliesSince(channel, since);
 
   console.log('─'.repeat(78));
-  console.log(`${label}\n→ « ${text} »   (ACK ${status})`);
+  console.log(`${label}\n→ « ${text.length > 90 ? `${text.slice(0, 90)}…` : text} »   (ACK ${status})`);
   console.log(reply || '(AUCUNE RÉPONSE)');
+  transcript.push([label, reply]);
   return reply;
 }
+
+const checks: Array<[string, boolean, string]> = [];
+const record = (label: string, ok: boolean, detail: string) => checks.push([label, ok, detail]);
 
 // ── 1. Le canal de DM ────────────────────────────────────────────────────────
 const opened = await slack<{ channel: { id: string } }>('conversations.open', {
@@ -171,7 +195,15 @@ const before = await db.execute({
   sql: 'SELECT * FROM slack_directory WHERE slack_user_id = ?',
   args: [ARRIVAL_USER],
 });
-const existingEmployeeId = before.rows[0]?.employee_id as string | null;
+const directoryRow = before.rows[0];
+if (!directoryRow) throw new Error(`Aucune ligne d'annuaire pour ${ARRIVAL_USER}`);
+
+const existingEmployeeId = directoryRow.employee_id as string | null;
+const realIdentity = {
+  first_name: (directoryRow.first_name ?? null) as string | null,
+  last_name: (directoryRow.last_name ?? null) as string | null,
+  email: (directoryRow.email ?? null) as string | null,
+};
 
 const employeeRow = existingEmployeeId
   ? await db.execute({ sql: 'SELECT * FROM employees WHERE id = ?', args: [existingEmployeeId] })
@@ -204,47 +236,116 @@ if (existingEmployeeId) {
     sql: 'UPDATE employees SET deleted_at = ? WHERE id = ?',
     args: [new Date().toISOString(), existingEmployeeId],
   });
-  console.log(`Dossier ${existingEmployeeId} mis à l'écart (réversible).\n`);
+  console.log(`Dossier ${existingEmployeeId} mis à l'écart (réversible).`);
 }
 
-// ── 4. Le parcours ───────────────────────────────────────────────────────────
-const transcript: Array<[string, string]> = [];
+/**
+ * ⚠️ **CET ÉTAT-CI EST LE CAS LIMITE, PAS UN ARTEFACT DE SONDE.** Awa TRAORE est dans
+ * exactement cette situation depuis le 2026-08-12 : une adresse d'annuaire qui pointe vers un
+ * dossier archivé. L'index unique `idx_employees_email` n'a PAS de prédicat `deleted_at`, là
+ * où les trois résolveurs en ont un — refaire le parcours donne donc éternellement le même
+ * conflit, et le message générique (« réessaie ») enfermait dans une boucle sans sortie.
+ */
+console.log(`\n${'═'.repeat(78)}\nCAS LIMITE — l’adresse est tenue par un dossier ARCHIVÉ\n${'═'.repeat(78)}`);
 
-transcript.push(['demande du formulaire', await step(channel, 'je veux compléter mon profil', '① DEMANDE')]);
-transcript.push(['prénom', await step(channel, REPLAY.firstName, '② PRÉNOM')]);
-transcript.push(['nom', await step(channel, REPLAY.lastName, '③ NOM')]);
-transcript.push(['email', await step(channel, REPLAY.email, '④ EMAIL')]);
-transcript.push(['poste', await step(channel, REPLAY.position, '⑤ POSTE')]);
-transcript.push(['vérification', await step(channel, "j'ai fini", '⑥ « J’AI FINI »')]);
-transcript.push(['entretien — quotidien', await step(channel, REPLAY.daily, '⑦ QUOTIDIEN')]);
-transcript.push(['entretien — façon de travailler', await step(channel, REPLAY.style, '⑧ FAÇON DE TRAVAILLER')]);
+await say(channel, "oublie ce que je t'ai dit", '⟲ remise à zéro du fil');
 
-// ── 5. Vérification en base ──────────────────────────────────────────────────
-console.log(`\n${'═'.repeat(78)}\nVÉRIFICATION EN BASE\n${'═'.repeat(78)}`);
+let reply = await say(channel, 'je veux compléter mon profil', '① demande du formulaire');
+for (let guard = 0; guard < 6; guard += 1) {
+  const step = pendingProfileStep(reply);
+  if (!step) break;
+  // Le poste n'est pas dans l'annuaire : c'est la seule question qui reste ici.
+  reply = await say(channel, REPLAY[step], `→ ${step}`);
+}
 
+record(
+  'une adresse tenue par un dossier archivé est NOMMÉE comme telle, et renvoie à Nazer',
+  /archiv/i.test(reply) && reply.includes('Nazer'),
+  reply.slice(0, 110).replace(/\n/g, ' '),
+);
+record(
+  'elle ne propose PAS de recommencer — ce serait la boucle sans sortie',
+  !/recommence|r[ée]essaie/i.test(reply),
+  reply.slice(0, 80).replace(/\n/g, ' '),
+);
+
+// ── 4. Le parcours nominal, identité d'annuaire mise de côté ─────────────────
+console.log(`\n${'═'.repeat(78)}\nPARCOURS NOMINAL — les quatre questions sont réellement posées\n${'═'.repeat(78)}`);
+
+await db.execute({
+  sql: 'UPDATE slack_directory SET first_name = NULL, last_name = NULL, email = NULL WHERE slack_user_id = ?',
+  args: [ARRIVAL_USER],
+});
+
+await say(channel, "oublie ce que je t'ai dit", '⟲ remise à zéro du fil');
+
+reply = await say(channel, 'je veux compléter mon profil', '① demande du formulaire');
+record(
+  'la première question posée est bien le PRÉNOM',
+  pendingProfileStep(reply) === 'firstName',
+  String(pendingProfileStep(reply)),
+);
+
+// ⚠️ Cas limite — un refus ne doit pas être capté comme une valeur. Sans ça, « je ne sais pas »
+// deviendrait un prénom, imprimé tel quel dans un document qui porte le nom de la personne.
+reply = await say(channel, 'je ne sais pas', '⚠ refus — ne doit RIEN capter');
+record(
+  'un refus ne devient pas un prénom : la même question est reposée',
+  pendingProfileStep(reply) === 'firstName',
+  String(pendingProfileStep(reply)),
+);
+
+const asked: ProfileStep[] = [];
+let emailRetryDone = false;
+for (let guard = 0; guard < 10; guard += 1) {
+  const step = pendingProfileStep(reply);
+  if (!step) break;
+  asked.push(step);
+
+  // ⚠️ Cas limite — une adresse mal formée doit être REDEMANDÉE avec de quoi la corriger,
+  // jamais acceptée : c'est la seule clé de rapprochement du dossier.
+  if (step === 'email' && !emailRetryDone) {
+    emailRetryDone = true;
+    const retry = await say(channel, 'amina point sonde arobase kissohq', '⚠ email mal formé');
+    record(
+      "une adresse mal formée est redemandée, et la réponse dit ce qui manque",
+      pendingProfileStep(retry) === 'email' && retry.includes('@'),
+      retry.slice(0, 90).replace(/\n/g, ' '),
+    );
+  }
+
+  reply = await say(channel, REPLAY[step], `→ ${step}`);
+}
+
+record(
+  'les quatre questions ont été posées, dans l’ordre',
+  asked.join(',') === 'firstName,lastName,email,position',
+  asked.join(' → '),
+);
+
+// ── 5. Vérification du dossier créé ─────────────────────────────────────────
 const created = await db.execute({
   sql: 'SELECT id, first_name, last_name, email, position FROM employees WHERE email = ?',
   args: [REPLAY.email],
 });
 
-const checks: Array<[string, boolean, string]> = [];
-checks.push([
+record(
   'un dossier a bien été CRÉÉ par la conversation',
   created.rows.length === 1,
   created.rows.length === 1 ? String(created.rows[0]!.id) : `${created.rows.length} ligne(s)`,
-]);
+);
 
 const createdId = created.rows[0]?.id as string | undefined;
 
 if (createdId) {
   const row = created.rows[0]!;
-  checks.push([
+  record(
     'les quatre champs sont ceux qui ont été DITS, sans reformulation',
     row.first_name === REPLAY.firstName &&
       row.last_name === REPLAY.lastName &&
       row.position === REPLAY.position,
     `${row.first_name} / ${row.last_name} / ${row.position}`,
-  ]);
+  );
 
   const linked = await db.execute({
     sql: 'SELECT employee_id FROM slack_directory WHERE slack_user_id = ?',
@@ -252,22 +353,54 @@ if (createdId) {
   });
   // ⚠️ La cause racine du 2026-08-19 : `slack_directory.employee_id` n'était écrite par AUCUN
   // chemin de production. L'entretien répondait « Noté » et n'enregistrait rien.
-  checks.push([
+  record(
     "l'annuaire est RELIÉ au dossier (cause racine du 2026-08-19)",
     linked.rows[0]?.employee_id === createdId,
     String(linked.rows[0]?.employee_id ?? 'null'),
-  ]);
+  );
+}
 
+// ── 6. « j'ai fini » puis l'entretien ───────────────────────────────────────
+console.log(`\n${'═'.repeat(78)}\nVÉRIFICATION DU DOSSIER, PUIS L’ENTRETIEN\n${'═'.repeat(78)}`);
+
+reply = await say(channel, "j'ai fini", '⑥ « j’ai fini »');
+record(
+  'le verdict de complétion ne redemande pas un dossier qui existe',
+  !reply.includes('Je ne trouve pas encore de dossier'),
+  reply.slice(0, 90).replace(/\n/g, ' '),
+);
+
+// ⚠️ Cas limite — une réponse trop courte ne doit pas devenir la description du métier de
+// quelqu'un : ce champ est IMPRIMÉ dans un document qui porte son nom.
+if (pendingInterviewStep(reply)) {
+  const tooShort = await say(channel, 'ok', '⚠ réponse trop courte');
+  record(
+    'une réponse trop courte est refusée sans perdre la question',
+    tooShort.includes(INTERVIEW_TOO_SHORT_REPLY.slice(0, 30)),
+    tooShort.slice(0, 80).replace(/\n/g, ' '),
+  );
+  reply = tooShort;
+}
+
+for (let guard = 0; guard < 4; guard += 1) {
+  const step = pendingInterviewStep(reply);
+  if (!step) break;
+  reply = await say(channel, INTERVIEW[step], `→ entretien : ${step}`);
+}
+
+if (createdId) {
   const interview = await db.execute({
     sql: 'SELECT daily_work, work_style FROM onboarding_interview WHERE employee_id = ?',
     args: [createdId],
   });
-  checks.push([
+  record(
     "l'entretien est enregistré, et mot pour mot",
     interview.rows.length === 1 &&
       String(interview.rows[0]!.daily_work ?? '').includes('tableaux de bord'),
-    interview.rows.length === 1 ? String(interview.rows[0]!.daily_work).slice(0, 60) : 'aucune ligne',
-  ]);
+    interview.rows.length === 1
+      ? String(interview.rows[0]!.daily_work).slice(0, 60)
+      : 'aucune ligne',
+  );
 
   const progress = await db.execute({
     sql: 'SELECT status, current_step, total_steps FROM onboarding_progress WHERE employee_id = ?',
@@ -275,31 +408,40 @@ if (createdId) {
   });
   // ⚠️ `ONBOARDING_TOTAL_STEPS` vaut 1 depuis le retrait du suivi de tâches. Une ligne à 5
   // annoncerait « étape 1 sur 5 » pour quatre étapes qui n'existent plus.
-  checks.push([
+  record(
     'le suivi annonce 1 étape, pas les 5 d’un plan supprimé',
     progress.rows.length === 1 && Number(progress.rows[0]!.total_steps) === 1,
     progress.rows.length === 1
       ? `${progress.rows[0]!.status} ${progress.rows[0]!.current_step}/${progress.rows[0]!.total_steps}`
       : 'aucune ligne',
-  ]);
+  );
 }
 
-const marcelNamed = transcript.some(([, reply]) => reply.includes('Marcel'));
-checks.push(["Marcel s'est nommé au moins une fois", marcelNamed, String(marcelNamed)]);
+// ── 7. Le ton, sur l'ensemble du parcours ───────────────────────────────────
+const whole = transcript.map(([, r]) => r).join('\n');
+record("Marcel s'est nommé au moins une fois", whole.includes('Marcel'), String(whole.includes('Marcel')));
 
 const machineTalk = transcript.filter(([, r]) =>
   /je suis (?:un |une )?(?:outil|agent|bot|robot|assistant|ia)\b/i.test(r),
 );
-checks.push([
+record(
   "il ne s'est jamais annoncé comme une machine",
   machineTalk.length === 0,
   machineTalk.map(([l]) => l).join(', ') || 'aucune occurrence',
-]);
+);
 
-console.log();
+// ⚠️ Les textes en dur ne passent par AUCUN filtre : `sanitizeAgentOutput` n'a qu'un seul site
+// d'appel, `response.text`. Un `**gras**` s'afficherait littéralement — constaté le 2026-08-18.
+record(
+  'aucun markdown GitHub dans les réponses déterministes',
+  !whole.includes('**'),
+  whole.includes('**') ? 'un ** est sorti tel quel' : 'aucun',
+);
+
+console.log(`\n${'═'.repeat(78)}\nVÉRIFICATION\n${'═'.repeat(78)}\n`);
 for (const [label, ok, detail] of checks) console.log(`${ok ? '✅' : '❌'} ${label} — ${detail}`);
 
-// ── 6. Nettoyage ─────────────────────────────────────────────────────────────
+// ── 8. Nettoyage ────────────────────────────────────────────────────────────
 console.log(`\n${'═'.repeat(78)}\nNETTOYAGE\n${'═'.repeat(78)}`);
 
 if (createdId) {
@@ -314,6 +456,11 @@ if (createdId) {
   await db.execute({ sql: 'DELETE FROM employees WHERE id = ?', args: [createdId] });
   console.log(`Dossier de sonde ${createdId} supprimé.`);
 }
+
+await db.execute({
+  sql: 'UPDATE slack_directory SET first_name = ?, last_name = ?, email = ? WHERE slack_user_id = ?',
+  args: [realIdentity.first_name, realIdentity.last_name, realIdentity.email, ARRIVAL_USER],
+});
 
 if (existingEmployeeId) {
   await db.execute({
@@ -330,16 +477,19 @@ if (existingEmployeeId) {
 // ⚠️ On RELIT après restauration. Écrire puis supposer est exactement ce que `role:set` refuse
 // de faire, et pour la même raison : une restauration qu'on n'a pas constatée n'a pas eu lieu.
 const after = await db.execute({
-  sql: `SELECT d.employee_id, e.deleted_at, e.email
+  sql: `SELECT d.employee_id, d.first_name, d.last_name, d.email AS dir_email, e.deleted_at
         FROM slack_directory d LEFT JOIN employees e ON e.id = d.employee_id
         WHERE d.slack_user_id = ?`,
   args: [ARRIVAL_USER],
 });
 console.log('État relu :', JSON.stringify(after.rows[0] ?? null));
 
+const back = after.rows[0];
 const restored =
-  !existingEmployeeId ||
-  (after.rows[0]?.employee_id === existingEmployeeId && after.rows[0]?.deleted_at === null);
+  back?.first_name === realIdentity.first_name &&
+  back?.last_name === realIdentity.last_name &&
+  back?.dir_email === realIdentity.email &&
+  (!existingEmployeeId || (back?.employee_id === existingEmployeeId && back?.deleted_at === null));
 console.log(restored ? '✅ Restauration vérifiée.' : `❌ RESTAURATION INCOMPLÈTE — ${backupPath}`);
 
 const failures = checks.filter(([, ok]) => !ok).length;

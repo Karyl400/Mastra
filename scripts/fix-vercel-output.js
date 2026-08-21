@@ -201,6 +201,58 @@ async function fixOutput() {
 
   // 4. LE PORTIER D'ACK — la seule chose qui garantisse les 3 secondes de Slack.
   await buildSlackAckFunction();
+
+  // 5. L'HORLOGE EXTÉRIEURE — sans elle, aucun rappel enregistré ne part jamais.
+  await copyCronsFromVercelJson();
+}
+
+/**
+ * Recopie `crons` de `vercel.json` vers `.vercel/output/config.json`.
+ *
+ * ## Pourquoi une RECOPIE et non une seconde déclaration
+ *
+ * Ce projet livre du Build Output API (`outputDirectory: .vercel/output`), et la référence de
+ * la plateforme pour cette forme est `config.json`. Mais `vercel.json` reste le seul endroit
+ * qu'un humain ouvre pour savoir à quelle heure tourne le cron. Écrire la planification aux
+ * deux endroits, c'est garantir qu'un jour elles diront deux choses — et le symptôme d'une
+ * divergence n'est pas une erreur : le rappel part simplement à la mauvaise heure, sans que
+ * rien ne le signale. La source est donc `vercel.json`, et ceci n'en est que le transport.
+ *
+ * ⚠️ `tests/unit/notification/reminder-dispatch-wiring.test.ts` vérifie de son côté que
+ * `vercel.json` s'accorde avec les constantes du domaine — celles dont le code se sert pour
+ * annoncer à quelqu'un QUAND son rappel lui reviendra.
+ *
+ * ⚠️ **Le plan Hobby refuse toute expression plus fréquente qu'une fois par jour, et l'échec a
+ * lieu AU DÉPLOIEMENT.** On le vérifie ici plutôt que de le découvrir en poussant.
+ */
+async function copyCronsFromVercelJson() {
+  const vercelJsonPath = join(root, 'vercel.json');
+  if (!existsSync(vercelJsonPath)) return;
+
+  const { crons } = JSON.parse(await readFile(vercelJsonPath, 'utf8'));
+  if (!Array.isArray(crons) || crons.length === 0) return;
+
+  for (const cron of crons) {
+    const [minute, hour] = String(cron.schedule ?? '').split(' ');
+    if (minute === '*' || hour === '*' || String(minute).includes('/') || String(hour).includes('/')) {
+      console.error(
+        `\u274c Planification refusée par le plan Hobby : « ${cron.schedule} » tournerait\n` +
+          "   plus d'une fois par jour, et Vercel rejette le DÉPLOIEMENT dans ce cas."
+      );
+      process.exit(1);
+    }
+  }
+
+  const configPath = join(target, 'config.json');
+  const config = existsSync(configPath)
+    ? JSON.parse(await readFile(configPath, 'utf8'))
+    : { version: 3, routes: [] };
+
+  config.crons = crons;
+  await writeFile(configPath, JSON.stringify(config), 'utf8');
+  console.log(
+    `\u2705 Cron : ${crons.map((c) => `${c.path} @ ${c.schedule}`).join(', ')} (recopié depuis vercel.json)`
+  );
 }
 
 /**

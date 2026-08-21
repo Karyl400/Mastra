@@ -57,6 +57,8 @@ function makeDeps(
     findPending: vi.fn().mockResolvedValue([]),
     save: vi.fn().mockResolvedValue(undefined),
     update: vi.fn().mockResolvedValue(undefined),
+    claimForDispatch: vi.fn().mockResolvedValue(true),
+    releaseClaim: vi.fn().mockResolvedValue(undefined),
     ...overrides.notificationRepo,
   };
 

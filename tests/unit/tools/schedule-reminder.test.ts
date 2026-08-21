@@ -1,18 +1,23 @@
 /**
- * `scheduleReminder` — un puits sans fond rendu HONNÊTE.
+ * `scheduleReminder` — un puits sans fond, rendu HONNÊTE, puis rendu UTILE.
  *
- * Constat (campagne du 2026-08-11) : le statut `Scheduled` posé par ce tool n'est lu
- * NULLE PART — aucun cron, aucun poller, et `findPending()` n'a aucun site d'appel et
- * filtre de toute façon sur `Pending`. Le tool ne vérifiait ni l'existence du
- * destinataire (contrairement à `sendNotification`) ni que la date était future.
- * Résultat : l'agent promettait un envoi qui n'aurait jamais lieu.
+ * Constat (campagne du 2026-08-11) : le statut `Scheduled` posé par ce tool n'était lu NULLE
+ * PART — aucun cron, aucun poller, et `findPending()` n'avait aucun site d'appel. Le tool a
+ * d'abord été rendu honnête : il ENREGISTRE, il n'expédie pas, et il refuse bruyamment ce qui
+ * ne peut pas être vrai (destinataire inconnu, date passée).
  *
- * Décision : on ne construit PAS l'ordonnanceur (chantier d'infrastructure). On rend
- * le tool honnête — il ENREGISTRE un rappel, il ne l'expédie pas — et on refuse
- * bruyamment ce qui ne peut pas être vrai (destinataire inconnu, date passée).
+ * ⚠️ **LA DÉCISION « ON NE CONSTRUIT PAS L'ORDONNANCEUR » A ÉTÉ RENVERSÉE LE 2026-08-21**, sur
+ * le verdict du propriétaire : « ce n'est pas le but d'un rappel ». Un rappel dont il faut se
+ * souvenir n'est pas un rappel — l'honnêteté avait remplacé le mensonge par une inutilité, ce
+ * qui était un progrès et pas une fin.
  *
- * C'est la même règle que partout ailleurs dans ce dépôt : un mensonge silencieux est
- * pire qu'une panne bruyante.
+ * Ce qui manquait n'était pas du code mais une HORLOGE EXTÉRIEURE : dans un serverless, rien
+ * ne s'exécute tant que personne ne frappe à la porte. Un cron Vercel quotidien appelle
+ * désormais `/internal/reminders/dispatch`, et `willBeSentAutomatically: true` est enfin vrai.
+ *
+ * ⚠️ **CE QUI RESTE INTERDIT : ANNONCER UNE HEURE.** Le plan Hobby ne permet qu'un passage par
+ * jour, à ±59 min. Le tool ne rend donc plus la date DEMANDÉE mais le moment de REMISE, et
+ * sans heure — le modèle ne peut pas répéter une précision qu'on ne lui donne pas.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 
@@ -60,23 +65,39 @@ describe('scheduleReminder', () => {
   };
 
   describe('honnêteté du verdict', () => {
-    it("dit qu'il a ENREGISTRÉ le rappel et qu'aucun envoi automatique n'aura lieu", async () => {
+    it("dit qu'il a ENREGISTRÉ le rappel, et que la remise aura bien lieu", async () => {
       const result = (await tool().execute!(validInput as never, {} as never)) as Record<
         string,
         unknown
       >;
 
       expect(result.stored).toBe(true);
-      expect(result.willBeSentAutomatically).toBe(false);
-      expect(result.scheduledAt).toBe(FUTURE);
+      expect(result.willBeSentAutomatically).toBe(true);
       // Le corps rédigé par le modèle ne lui est pas refacturé.
       expect(JSON.stringify(result)).not.toContain('signer ton contrat');
     });
 
-    it('ne promet aucun envoi dans sa description', () => {
+    it('ne rend PAS la date demandée — seulement le moment de remise, sans heure', async () => {
+      // ⚠️ C'est le cœur du garde-fou. Le tool rendait `scheduledAt` brut et un
+      // `scheduledLabel` portant l'heure : deux occasions, pour le modèle, d'annoncer une
+      // précision que le cron quotidien ne tient pas.
+      const result = (await tool().execute!(validInput as never, {} as never)) as Record<
+        string,
+        unknown
+      >;
+
+      expect(result.scheduledAt).toBeUndefined();
+      expect(result.deliveredOn).toMatch(/au matin$/);
+      expect(String(result.deliveredOn)).not.toMatch(/\d{1,2}\s*[h:]\s*\d{2}/);
+    });
+
+    it('sa description dit la remise, et ne dit pas « planifié »', () => {
+      // « planifié » promet une heure ; « remis le matin » dit ce qui a réellement lieu. Le mot
+      // que lit le modèle est celui qu'il répétera — relevé en production le 2026-08-19.
       const description = String(tool().description);
       expect(description).toMatch(/enregistr/i);
-      expect(description).not.toMatch(/planifie\b|envoie|expédi/i);
+      expect(description).toMatch(/matin/i);
+      expect(description).not.toMatch(/planifie\b|planifié\b/i);
     });
 
     it('persiste bien le rappel', async () => {
@@ -151,19 +172,24 @@ describe('scheduleReminder — le libellé de date vient du CODE', () => {
         scheduledAt: '2026-08-22T09:00:00.000Z',
       } as never,
       {} as never,
-    )) as { scheduledLabel: string; willBeSentAutomatically: boolean };
+    )) as { deliveredOn: string; willBeSentAutomatically: boolean };
 
-    expect(out.scheduledLabel).toContain('samedi');
-    expect(out.scheduledLabel).not.toContain('lundi');
-    expect(out.scheduledLabel).toContain('2026');
-    // L'offset est imprimé : c'est ce qui rend l'heure vérifiable au lieu d'implicite.
-    expect(out.scheduledLabel).toMatch(/UTC[+-]\d{2}:\d{2}|UTC/);
+    // ⚠️ Le jour reste le contrôle qui compte : c'est LUI que le modèle avait faux
+    // (« lundi prochain » rendait « samedi 22 août »), et c'est LUI que la remise respecte.
+    // L'heure et l'offset ont disparu du libellé — non par oubli, mais parce qu'aucune pièce
+    // de ce système ne les tient. Voir `reminder-dispatch.ts`.
+    expect(out.deliveredOn).toContain('samedi');
+    expect(out.deliveredOn).not.toContain('lundi');
+    expect(out.deliveredOn).toContain('2026');
+    expect(out.deliveredOn).not.toMatch(/UTC/);
   });
 
-  it('n’a pas cessé de dire qu’aucun automate n’enverra le rappel', async () => {
-    // Le libellé rend la date lisible ; il ne doit rien promettre de plus. Le verdict qui
-    // empêche la promesse reste `willBeSentAutomatically: false`.
-    const tool = makeScheduleReminder(notificationRepoOf(), await employeeRepoOf());
+  it('le rappel est bien ENREGISTRÉ en état reprenable par la remise quotidienne', async () => {
+    // ⚠️ Le lien entre le tool et le cron n'est pas un appel mais un ÉTAT : `Scheduled`. Si le
+    // tool écrivait autre chose, `findPending()` ne le verrait jamais et le rappel dormirait
+    // pour toujours — le défaut d'origine sous une autre forme, et tout aussi silencieux.
+    const repo = notificationRepoOf();
+    const tool = makeScheduleReminder(repo, await employeeRepoOf());
 
     const out = (await tool.execute!(
       {
@@ -175,7 +201,8 @@ describe('scheduleReminder — le libellé de date vient du CODE', () => {
       {} as never,
     )) as { willBeSentAutomatically: boolean };
 
-    expect(out.willBeSentAutomatically).toBe(false);
+    expect(out.willBeSentAutomatically).toBe(true);
+    expect(await repo.findPending()).toHaveLength(1);
   });
 });
 

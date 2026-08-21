@@ -9,5 +9,11 @@
     "env": {
       "NODE_VERSION": "22"
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/internal/reminders/dispatch",
+      "schedule": "0 6 * * *"
+    }
+  ]
 }

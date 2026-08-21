@@ -31,11 +31,7 @@ import {
 import { GREETING_REPLIES } from '../../../src/shared/greeting';
 import { DISTRESS_REPLY } from '../../../src/shared/distress';
 import { ERASURE_FAILED_REPLY } from '../../../src/shared/forget';
-import {
-  CONTENT_FREE_REPLIES,
-  TOO_LONG_REPLIES,
-  TOO_LONG_REPLY,
-} from '../../../src/shared/message-shape';
+import { CONTENT_FREE_REPLIES, TOO_LONG_REPLIES } from '../../../src/shared/message-shape';
 import { wrapAgentInput, MAX_USER_INPUT_LENGTH } from '../../../src/shared/security/llm-guardrail';
 import { NEUTRAL_REFUSAL } from '../../../src/shared/security/agent-output';
 import {
@@ -2140,7 +2136,19 @@ describe('SlackEventsHandler — réconciliation fait / narration', () => {
    * la formulation. Il n'y a rien à détecter — seulement à dire.
    * ───────────────────────────────────────────────────────────────────────── */
 
-  it('accole la note même SANS aucun mot de promesse — c’est la date qui promet', async () => {
+  /* ─────────────────────────────────────────────────────────────────────────
+   * ⚠️ **CE TEST A ÉTÉ RETOURNÉ LE 2026-08-21, et le retournement EST le point.**
+   *
+   * Il vérifiait que la note s'accolait à « Rappel enregistré … le jeudi 20 août à 17 h ».
+   * C'était juste tant que rien ne partait. Le cron quotidien existe désormais : la même
+   * phrase est VRAIE, et la démentir serait la faute exactement symétrique de celle que ce
+   * garde-fou corrigeait.
+   *
+   * Un détecteur encode le CÂBLAGE. Quand le câblage bouge, il doit bouger avec — sinon il ne
+   * devient pas inoffensif, il devient faux dans l'autre sens. Même famille que
+   * `READ_ONLY_TOOL_NAMES`, qui a gardé `getTaskList` après son retrait.
+   * ───────────────────────────────────────────────────────────────────────── */
+  it('n’accole PLUS la note quand scheduleReminder a tourné — le rappel part vraiment', async () => {
     const agent = makeAgentMock({
       text: "Rappel enregistré pour Karyl : relire le guide d'accueil le jeudi 20 août à 17 h.",
       toolCalls: [{ type: 'tool-call', payload: { toolName: 'scheduleReminder' } }],
@@ -2148,6 +2156,20 @@ describe('SlackEventsHandler — réconciliation fait / narration', () => {
     const { handler, slack } = makeHandler({ mastra: agent.mastra });
 
     await handler.handleEvent(envelope(dm({ text: 'rappel pour Karyl', ts: nextTs() }), 'EvPD1'));
+
+    expect(lastPosted(slack)).not.toContain(PROMISED_DELIVERY_NOTICE.trim());
+  });
+
+  it('l’accole quand une livraison est promise SANS qu’aucun outil agissant n’ait tourné', async () => {
+    // La prémisse qui reste vraie : promettre un envoi alors que rien n'a été enregistré est
+    // un mensonge, et c'est le seul cas où il faut encore parler.
+    const agent = makeAgentMock({
+      text: 'Je te l’enverrai lundi matin.',
+      toolCalls: [{ type: 'tool-call', payload: { toolName: 'getEmployeeProfile' } }],
+    });
+    const { handler, slack } = makeHandler({ mastra: agent.mastra });
+
+    await handler.handleEvent(envelope(dm({ text: 'un rappel lundi', ts: nextTs() }), 'EvPD1b'));
 
     expect(lastPosted(slack)).toContain(PROMISED_DELIVERY_NOTICE.trim());
   });
@@ -2166,9 +2188,9 @@ describe('SlackEventsHandler — réconciliation fait / narration', () => {
     expect(lastPosted(slack)).not.toContain(PROMISED_DELIVERY_NOTICE.trim());
   });
 
-  it('ne l’accole pas non plus quand SEULES des lectures ont tourné', async () => {
-    // C'est alors l'AUTRE détecteur qui parle, et deux notes accolées à la même réponse se
-    // contrediraient : l'une dit « rien n'a été exécuté », l'autre « c'est enregistré ».
+  it('ne l’accole pas sur une lecture qui ne promet RIEN', async () => {
+    // Le détecteur cherche une promesse de livraison, pas un tour sans action : sur « voici ce
+    // que je trouve », il n'y a rien à démentir, et une note serait du bruit pur.
     const agent = makeAgentMock({
       text: 'Voici ce que je trouve.',
       toolCalls: [{ type: 'tool-call', payload: { toolName: 'getNotificationHistory' } }],
@@ -2579,7 +2601,13 @@ describe('SlackEventsHandler — court-circuits sans appel LLM', () => {
 
     expect(generate).not.toHaveBeenCalled();
     const posted = slack.chat.postMessage.mock.calls.at(-1)?.[0] as { text: string };
-    expect(posted.text).toBe(TOO_LONG_REPLY);
+    // ⚠️ **ON VÉRIFIE L'APPARTENANCE, PAS L'ÉGALITÉ — corrigé le 2026-08-21.** L'assertion
+    // était `toBe(TOO_LONG_REPLY)`, c'est-à-dire la PREMIÈRE variante. Or le choix est
+    // déterministe SUR LE `ts` du message, et `nextTs()` est un compteur partagé : ajouter un
+    // test n'importe où plus haut dans ce fichier décalait tous les `ts` et faisait rougir
+    // celui-ci, sans qu'aucun comportement n'ait changé. Un test qui dépend de son rang dans
+    // le fichier ne mesure plus le produit.
+    expect(TOO_LONG_REPLIES).toContain(posted.text);
     // ⚠️ Le cœur du correctif : ce n'était pas « rien à signaler », c'était un refus de
     // SÉCURITÉ. Quelqu'un qui colle un compte rendu recevait « Je ne peux pas répondre à
     // cette demande », sans jamais apprendre que le problème était la taille.

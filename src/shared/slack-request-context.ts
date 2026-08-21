@@ -48,6 +48,28 @@ export function readAuthorizationNotice(requestContext: unknown): string | undef
   return readContextNote(requestContext, SLACK_AUTHZ_NOTICE_KEY);
 }
 
+/**
+ * ⚠️ **LE MOMENT DE REMISE EST NOMMÉ PAR LE CODE, jamais par le modèle** — même raison que
+ * ci-dessus, et même famille de défaut.
+ *
+ * Le rappel part désormais pour de bon (cron quotidien, voir `reminder-dispatch.ts`), mais la
+ * plateforme ne garantit qu'un passage PAR JOUR, à ±59 min. Laisser le modèle annoncer l'heure
+ * demandée — « lundi 24 août à 09 h00 » — serait une précision que rien ne tient : la famille
+ * exacte d'`emailSent: false` sous `status: 'success'`.
+ *
+ * Le tool écrit donc ici le moment RÉEL, le handler l'accole, et le modèle n'a jamais l'heure
+ * dans sa fenêtre. On ne lui interdit pas de mentir : on lui retire de quoi.
+ */
+export const SLACK_REMINDER_DELIVERY_KEY = 'slackReminderDelivery';
+
+export function writeReminderDelivery(requestContext: unknown, label: string): void {
+  writeContextNote(requestContext, SLACK_REMINDER_DELIVERY_KEY, label);
+}
+
+export function readReminderDelivery(requestContext: unknown): string | undefined {
+  return readContextNote(requestContext, SLACK_REMINDER_DELIVERY_KEY);
+}
+
 function writeContextNote(requestContext: unknown, key: string, value: string): void {
   if (!value.trim()) return;
   if (typeof requestContext !== 'object' || requestContext === null) return;

@@ -58,6 +58,7 @@ import { DocxService } from '../features/document/infrastructure/services/docx.s
 import { createEmployeeOnboardingWorkflow } from '../features/onboarding/application/workflows/employee-onboarding';
 
 import { slackEventsRoute, slackEventsWorkRoute } from '../api/slack-events.route';
+import { remindersDispatchRoute } from '../api/reminders-dispatch.route';
 import {
   slackInteractionsRoute,
   slackInteractionsWorkRoute,
@@ -238,6 +239,9 @@ export const mastra = new Mastra({
     apiRoutes: [
       slackEventsRoute,
       slackEventsWorkRoute,
+      // L'horloge extérieure : sans elle, `findPending()` n'a aucun appelant et un rappel
+      // enregistré ne part jamais. Voir `reminders-dispatch.route.ts`.
+      remindersDispatchRoute,
       slackInteractionsRoute,
       slackInteractionsWorkRoute,
     ],

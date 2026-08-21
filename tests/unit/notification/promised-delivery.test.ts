@@ -43,6 +43,30 @@ describe('la promesse d’envoi automatique est détectée', () => {
   });
 });
 
+/**
+ * ⚠️ **LES DEUX FORMES LES PLUS COURANTES N'ÉTAIENT DÉTECTÉES PAR RIEN — 2026-08-21.**
+ *
+ * Le motif `je … enverrai` énumérait les pronoms `le `, `la `, `lui `, `les `, `leur `, `vous `
+ * et l'élidé `t'`. Il lui manquait l'élidé **`l'`**, c'est-à-dire précisément ce que produit
+ * l'usage : « je te l'enverrai », « je vous l'enverrai ». Le motif couvrait « je le enverrai »,
+ * que personne n'écrit.
+ *
+ * Trouvé en écrivant un test pour tout autre chose, comme « je veux en finir » dans le
+ * détecteur de détresse le même jour. C'est la leçon : un détecteur ne se relit pas, il
+ * s'exerce sur des phrases que des gens diraient.
+ */
+describe('les formes élidées, celles que les gens tapent vraiment', () => {
+  it.each([
+    "Je te l'enverrai lundi matin.",
+    'Je te l’enverrai lundi matin.',
+    "Je vous l'enverrai dans la semaine.",
+    'Je le lui transmettrai demain.',
+    "Je m'en occupe et je te l'adresserai vendredi.",
+  ])('« %s »', (text) => {
+    expect(detectUnsupportedDeliveryPromise(text)).not.toBeNull();
+  });
+});
+
 describe('ce qui ne doit PAS déclencher — la liste est FERMÉE, comme celle de l’accompli', () => {
   it.each([
     // Une OFFRE n'est pas une promesse : « je peux » a toujours été hors motif, et c'est le
@@ -73,10 +97,14 @@ describe('la note', () => {
     // aurait donc interdit la correction du ton en gardant l'apparence de protéger le fond.
     //
     // Les deux moitiés sont désormais nommées : ce qui A eu lieu, et ce qui n'aura pas lieu.
-    expect(PROMISED_DELIVERY_NOTICE, "l'enregistrement a bien eu lieu").toMatch(
-      /not[ée]|enregistr/i,
-    );
-    expect(PROMISED_DELIVERY_NOTICE, 'rien ne partira seul').toMatch(/tout seul|automatiquement/i);
+    // ⚠️ **CETTE ASSERTION A ÉTÉ RETOURNÉE LE 2026-08-21.** Elle exigeait « rien ne partira
+    // tout seul ». Depuis le cron quotidien, cette phrase est FAUSSE dans le cas nominal —
+    // un rappel enregistré part. La note ne s'accole plus que lorsqu'une livraison a été
+    // promise SANS aucun enregistrement : ce qu'elle doit dire est donc que rien n'a été
+    // NOTÉ, et le geste qui répare.
+    expect(PROMISED_DELIVERY_NOTICE, "rien n'a été enregistré").toMatch(/enregistr/i);
+    expect(PROMISED_DELIVERY_NOTICE, 'et donc rien ne partira').toMatch(/rien ne partira/i);
+    expect(PROMISED_DELIVERY_NOTICE, 'le geste qui répare').toMatch(/redis-le-moi/i);
     expect(PROMISED_DELIVERY_NOTICE).not.toMatch(/aucune action n'a été exécutée/i);
   });
 
@@ -199,8 +227,9 @@ describe('les deux notes parlent comme Marcel', () => {
     expect(UNSUPPORTED_CLAIM_NOTICE).not.toContain('Note :');
   });
 
-  it('disent toujours que rien ne partira tout seul — c’est leur seule raison d’être', () => {
-    expect(PROMISED_DELIVERY_NOTICE).toMatch(/tout seul|automatiquement/i);
+  it('avouent, sans jargon : rien n’a été enregistré, donc rien ne partira', () => {
+    expect(PROMISED_DELIVERY_NOTICE).toMatch(/rien ne partira/i);
+    expect(PROMISED_DELIVERY_NOTICE).not.toMatch(/tool|outil|automate/i);
   });
 
   it('ne parlent plus du « système » — la personne n’a que faire de son architecture', () => {

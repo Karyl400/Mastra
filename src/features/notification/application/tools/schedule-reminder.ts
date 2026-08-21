@@ -7,8 +7,11 @@ import { uuidSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { NotificationChannel, NotificationStatus, RecipientType } from '../../../../shared/types';
 import { NotFoundError, ValidationError } from '../../../../shared/errors';
-import { canPerformSideEffects } from '../../../../shared/slack-request-context';
-import { DISPLAY_TIMEZONE, frenchFullLabel } from '../../../../shared/french-datetime';
+import {
+  canPerformSideEffects,
+  writeReminderDelivery,
+} from '../../../../shared/slack-request-context';
+import { deliveryLabel } from '../../domain/services/reminder-dispatch';
 
 const TRANSPORTED_CHANNELS = ['email', 'slack'] as const;
 const RECIPIENT_TYPES = ['employee', 'manager', 'hr', 'admin'] as const;
@@ -19,7 +22,8 @@ export function makeScheduleReminder(
 ) {
   return createTool({
     id: 'scheduleReminder',
-    description: 'Enregistre un rappel daté. Aucun automate ne le reprend : rien ne part seul.',
+    description:
+      'Enregistre un rappel daté. Il est remis automatiquement le matin du jour demandé.',
     inputSchema: z.object({
       recipientId: uuidSchema.describe('UUID annuaire'),
       subject: z.string().min(1).max(200).describe('rédige-le, ne le demande pas'),
@@ -92,14 +96,27 @@ export function makeScheduleReminder(
       await repo.save(scheduled);
       logger.info('Rappel enregistré', { id: scheduled.id, scheduledAt: scheduled.scheduledAt });
 
+      /**
+       * ⚠️ **ON REND LE MOMENT DE REMISE, PAS LE MOMENT DEMANDÉ.**
+       *
+       * Ce tool rendait `scheduledLabel: 'lundi 24 août 2026 à 09 h00'` — l'heure que la
+       * personne avait dite. Le cron ne passe qu'UNE FOIS PAR JOUR (limite du plan Hobby,
+       * ±59 min de précision) : annoncer une heure serait promettre ce qu'aucune pièce de ce
+       * système ne tient. Le modèle ne peut pas répéter une précision qu'on ne lui donne pas.
+       *
+       * `willBeSentAutomatically` passe à `true`, et c'est enfin vrai — voir
+       * `reminder-dispatch.ts` et `/internal/reminders/dispatch`.
+       */
+      const delivery = deliveryLabel(scheduled.scheduledAt, new Date());
+      if (delivery) writeReminderDelivery(_ctx?.requestContext, delivery);
+
       return {
         id: scheduled.id,
         recipientId: scheduled.recipientId,
         channel: scheduled.channel,
-        scheduledAt: scheduled.scheduledAt,
-        scheduledLabel: frenchFullLabel(new Date(when), DISPLAY_TIMEZONE),
+        deliveredOn: delivery,
         stored: true,
-        willBeSentAutomatically: false,
+        willBeSentAutomatically: true,
       };
     },
   });
