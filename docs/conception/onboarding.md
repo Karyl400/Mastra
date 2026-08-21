@@ -247,8 +247,11 @@ pour trois raisons :
     pour vérifier que la personne existe, et créerait donc volontiers un
     parcours orphelin. Un tool nommé « update » qui insère six lignes est de
     surcroît un effet de bord que rien n'annonce.
- 3. Le rattrapage a déjà un propriétaire : `scripts/backfill-onboarding.mts`,
-    idempotent, en dry-run par défaut, exécuté sciemment par un humain.
+ 3. Le rattrapage a un propriétaire HUMAIN, exécuté sciemment, jamais un tool.
+    ⚠️ Ce point citait `scripts/backfill-onboarding.mts`, **supprimé le 2026-08-14** avec le
+    suivi de tâches dont il dérivait les `onboarding_steps`. L'argument tient toujours — un
+    rattrapage se décide, il ne se déclenche pas par effet de bord — mais le script nommé
+    n'existe plus. Corrigé le 2026-08-21.
 
 Reste donc à faire ce que `find-employee-by-email.ts` fait déjà : rendre un
 résultat qui INSTRUIT le modèle. `hint` lui interdit nommément de proposer

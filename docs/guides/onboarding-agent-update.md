@@ -1,3 +1,17 @@
+> # ⚠️ DOCUMENT PÉRIMÉ — conservé comme trace, à ne pas suivre
+>
+> Ce plan date d'avant la refonte « Screaming Architecture ». Il décrit une structure
+> `src/agents/` qui **n'existe plus**, et des outils **supprimés depuis** : `createEmployee`
+> (retiré — le modèle substituait une valeur d'allowlist valide avant l'appel) et `getTaskList`
+> (retiré le 2026-08-14 avec tout le suivi de tâches).
+>
+> Il est conservé plutôt que supprimé parce qu'il documente une INTENTION datée, et que
+> réécrire un plan a posteriori falsifie le registre — même raison que la règle « ne jamais
+> modifier un ADR, en créer un nouveau ».
+>
+> **Pour l'état réel** : `CLAUDE.md`, puis `docs/conception/onboarding.md`.
+> Marqué le 2026-08-21 par l'audit.
+
 # Point d'Avancement : Agent d'Onboarding (OnboardingOrchestrator)
 
 *Date : 29 Juillet 2026*

@@ -59,6 +59,22 @@ const tok = (s: string) => Math.round(s.length / CHARS_PER_TOKEN);
  * demande. Une divergence casse donc un routage vérifié par test, au lieu de fausser un
  * chiffre en silence.
  */
+/**
+ * ⚠️ **CE `WIRING` NE VÉRIFIE RIEN DU CÂBLAGE, et il ne l'a jamais fait.**
+ *
+ * `const WIRING = AGENT_TOOLS` compare la table à elle-même. Le commentaire ci-dessus affirmait
+ * pourtant qu'« une divergence casse un routage vérifié par test » — vrai du ROUTAGE, faux de
+ * ce fichier-ci, qui n'a aucune prise. L'audit du 2026-08-21 l'a relevé : c'est le contrôle
+ * anti-faux-négatif manquant sous sa forme la plus pure.
+ *
+ * La confrontation au câblage RÉEL (`src/mastra/index.ts`) vit désormais dans
+ * `tests/unit/quality/agent-wiring-is-derived.test.ts`, et elle a été vérifiée ROUGE sur une
+ * divergence introduite exprès.
+ *
+ * Ici, `AGENT_TOOLS` sert uniquement de jeu d'essai pour MESURER le coût des instructions —
+ * c'est son seul rôle légitime dans ce fichier, et il est suffisant : ce qu'on veut savoir,
+ * c'est combien coûte un agent portant ces outils-là.
+ */
 const WIRING = AGENT_TOOLS;
 
 const toolsOf = (names: readonly string[]) =>

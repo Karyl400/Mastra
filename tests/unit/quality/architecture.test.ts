@@ -195,3 +195,105 @@ describe('règle de dépendance — couche application', () => {
     ).toEqual([]);
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// LA DÉPENDANCE TRANSITIVE — `src/shared/` était l'angle mort
+// ════════════════════════════════════════════════════════════════════════════
+//
+// ⚠️ Les deux tests ci-dessus ne regardent que les imports DIRECTS des fichiers `domain/`.
+// L'audit du 2026-08-21 a montré que la règle se contourne d'un cran : `domain/` importe
+// `shared/`, que rien ne surveille, et `shared/` importe ce qu'il veut. Trois chemins réels :
+//
+//   employee/domain/value-objects/email.ts        → shared/validation      → zod
+//   notification/domain/services/deterministic-…  → shared/…/llm-guardrail → @opentelemetry/api
+//   document/domain/services/document-template.ts → shared/…/agent-output
+//
+// `src/shared/` pèse 4 760 lignes — un cinquième du code — et aucun test ne voyait ses
+// dépendances. Ce n'est pas un cycle (`shared/` n'importe aucune feature, c'est vérifié
+// ailleurs) : c'est une frontière non gardée, et la règle qu'elle laisse contourner est
+// précisément celle que ce fichier existe pour tenir.
+//
+// ⚠️ **La liste des paquets interdits est INCHANGÉE, à dessein.** Elle nomme les frameworks
+// d'infrastructure (Mastra, Drizzle, libsql, Slack, nodemailer, pdfmake) et pas les
+// bibliothèques de validation ou d'observabilité. Élargir la liste ET la portée dans le même
+// lot rendrait impossible de dire ce qui a cassé — et ferait rougir un test sur du code que
+// personne n'a décidé d'interdire. La PORTÉE d'abord ; la liste est une décision séparée.
+
+/** Résout un import relatif vers un fichier réel, en essayant les suffixes usuels. */
+function resolveRelative(fromFile: string, spec: string): string | undefined {
+  if (!spec.startsWith('.')) return undefined;
+  const base = path.resolve(path.dirname(fromFile), spec);
+  const candidates = [
+    base,
+    `${base}.ts`,
+    `${base}.js`.replace(/\.js$/, '.ts'),
+    path.join(base, 'index.ts'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Depuis un fichier `domain/`, suit les imports RELATIFS de proche en proche et rend le premier
+ * paquet interdit atteint, avec le CHEMIN qui y mène — sans le chemin, un tel échec est
+ * indéchiffrable : on voit un paquet interdit sans savoir par où il entre.
+ */
+function reachesForbidden(entry: string): string | undefined {
+  const seen = new Set<string>([entry]);
+  const queue: Array<{ file: string; trail: string[] }> = [{ file: entry, trail: [] }];
+
+  while (queue.length > 0) {
+    const { file, trail } = queue.shift()!;
+    const source = fs.readFileSync(file, 'utf8');
+
+    for (const spec of importSpecifiers(source)) {
+      if (spec.startsWith('.')) {
+        const next = resolveRelative(file, spec);
+        if (next && !seen.has(next)) {
+          seen.add(next);
+          queue.push({ file: next, trail: [...trail, path.relative(REPO_ROOT, next)] });
+        }
+        continue;
+      }
+
+      const rule = FORBIDDEN_IMPORTS.filter((r) => r.label !== 'couche infrastructure').find((r) =>
+        r.matches(spec),
+      );
+      if (rule) {
+        const via = trail.length > 0 ? ` via ${trail.join(' → ')}` : ' (import direct)';
+        return `${path.relative(REPO_ROOT, entry)}${via} → "${spec}" (interdit : ${rule.label})`;
+      }
+    }
+  }
+  return undefined;
+}
+
+describe('Règle de dépendance — y compris À TRAVERS src/shared/', () => {
+  it("n'atteint aucun paquet d'infrastructure, même par un module partagé", () => {
+    const violations = listFeatures()
+      .flatMap((feature) => domainFilesOf(feature))
+      .map(reachesForbidden)
+      .filter((v): v is string => v !== undefined);
+
+    expect(
+      violations,
+      `Le domaine atteint un framework par transitivité :\n  - ${violations.join('\n  - ')}`,
+    ).toEqual([]);
+  });
+
+  it('suit effectivement les imports relatifs (anti faux-négatif)', () => {
+    // Sans cette assertion, une erreur de résolution rendrait le test vert à vide — le défaut
+    // exact de la version 2026-08 de ce fichier, qui ne scannait qu'une feature sur cinq.
+    const anyDomainFile = listFeatures()
+      .flatMap((feature) => domainFilesOf(feature))
+      .find((file) => /import .* from '\.\./.test(fs.readFileSync(file, 'utf8')));
+
+    expect(
+      anyDomainFile,
+      'aucun fichier domain n’a d’import relatif — résolution douteuse',
+    ).toBeDefined();
+    expect(resolveRelative(anyDomainFile!, '../../../../shared/logger')).toBeDefined();
+  });
+});

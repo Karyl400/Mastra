@@ -41,8 +41,14 @@ donc 10 % de la journée entière, et le résultat restait ensuite dans l'histor
 TOUS les tours suivants, où il était repayé à chaque aller-retour.
 
 C'est exactement le défaut corrigé pour `getEmployeeProfile` (2 506 → 329 tokens) et
-jamais appliqué ici. Le remède est le même que dans
-`src/features/employee/application/mappers/task-summary.mapper.ts` :
+jamais appliqué ici. Le remède est le même que celui appliqué alors aux tâches — un mapper de
+projection dédié :
+
+> ⚠️ Ce paragraphe citait `src/features/employee/application/mappers/task-summary.mapper.ts`,
+> **supprimé le 2026-08-14** avec tout le suivi de tâches. La phrase était au PRÉSENT et
+> renvoyait à un fichier absent ; corrigée le 2026-08-21. La technique, elle, reste celle
+> décrite ci-dessous, et elle est vivante dans ce fichier même.
+
 
 1. **BORNE** — au plus `MAX_NOTIFICATIONS_IN_RESULT` entrées, pour que la taille du
    résultat soit INDÉPENDANTE du nombre de notifications en base.

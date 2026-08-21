@@ -81,3 +81,117 @@ describe('les invariants ANNONCÉS dans les commentaires citent un fichier réel
     expect(walk(join(ROOT, 'src')).length).toBeGreaterThan(100);
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// LA PORTÉE S'ÉLARGIT — le corpus a déménagé, le garde-fou pas
+// ════════════════════════════════════════════════════════════════════════════
+//
+// ⚠️ L'audit du 2026-08-21 a mesuré que la garde ci-dessus **ne gardait plus rien** :
+// `grep -rhoE 'verrouill.* par \`[^\`]+\`' src/` rend ZÉRO correspondance. Ce n'est pas qu'elle
+// ait été respectée — c'est que le corpus a bougé. Le 2026-08-20, les commentaires ont été
+// extraits du code vers `docs/conception/` : `src/` ne porte plus que **5** citations de chemin,
+// `docs/` en porte **211**.
+//
+// Une garde dont l'objet a déménagé est une garde vide, et elle se lit comme une protection.
+//
+// ⚠️ **TROIS EXCLUSIONS, chacune pour une raison, aucune par confort :**
+//
+//  1. `docs/audit-*` — un rapport d'audit LISTE les références mortes ; c'est son sujet. L'y
+//     interdire rendrait impossible d'écrire ce que ce test existe pour prévenir.
+//  2. `docs/plans/` et `docs/superpowers/plans/` — des plans DATÉS décrivent une intention
+//     passée. Les réécrire a posteriori falsifie le registre, exactement ce que la règle
+//     « ne jamais modifier un ADR, en créer un nouveau » protège.
+//  3. Toute citation dont le VOISINAGE annonce une suppression (« supprimé », « retiré »,
+//     « périmé », « n'existe plus »…). Une mention historique explicite est légitime — et une
+//     garde qui crie sur du texte juste finit désactivée. C'est déjà l'arbitrage du test
+//     ci-dessus, appliqué au nouveau corpus.
+
+const DOC_ROOTS = ['docs', '.claude'] as const;
+
+const EXCLUDED_DOCS = [/\/audit-/, /\/plans\//];
+
+/** Un chemin du dépôt, cité entre accents graves. */
+const CITED_PATH = /`((?:src|tests|scripts|drizzle)\/[\w./-]+\.(?:ts|mts|mjs|js|sql))`/g;
+
+/**
+ * Marqueurs qui rendent une citation LÉGITIME bien que le fichier n'existe plus.
+ *
+ * ⚠️ La fenêtre est de trois lignes de part et d'autre : dans la prose de ce dépôt, la mention
+ * de suppression et le chemin ne sont presque jamais sur la même ligne.
+ */
+const REMOVAL_MARKER =
+  /supprim|retir|périm|perim|n'existe plus|n’existe plus|disparu|jamais existé|n'a jamais|n’a jamais|caduque|avant sa suppression|remplacé|fantôme|inexistant/i;
+
+/**
+ * Un document qui se DÉCLARE périmé dans son en-tête est exempté en entier.
+ *
+ * ⚠️ **Cette règle rend la bannière OPÉRANTE plutôt que décorative.** Sans elle, marquer un
+ * document obsolète en tête ne suffisait pas : chaque citation devait porter sa propre mention,
+ * ce qui poussait soit à réécrire un document historique (donc à falsifier le registre), soit à
+ * exclure son chemin à la main dans ce test (donc à recopier une liste, la faute que tout ce
+ * fichier combat).
+ *
+ * La marque doit être dans les 20 premières lignes : un avertissement enterré au milieu d'un
+ * document ne prévient personne.
+ */
+const OBSOLETE_BANNER = /DOCUMENT\s+PÉRIMÉ|DOCUMENT\s+OBSOLÈTE|⚠️\s*PÉRIMÉ/i;
+
+function declaresItselfObsolete(file: string): boolean {
+  return OBSOLETE_BANNER.test(readFileSync(file, 'utf8').split('\n').slice(0, 20).join('\n'));
+}
+
+function walkDocs(dir: string, out: string[] = []): string[] {
+  if (!existsSync(dir)) return out;
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) walkDocs(full, out);
+    else if (full.endsWith('.md')) out.push(full);
+  }
+  return out;
+}
+
+describe('la documentation VERSIONNÉE ne cite aucun fichier disparu', () => {
+  const files = DOC_ROOTS.flatMap((root) => walkDocs(join(ROOT, root)))
+    .filter((file) => !EXCLUDED_DOCS.some((pattern) => pattern.test(file)))
+    .filter((file) => !declaresItselfObsolete(file));
+
+  it('scanne effectivement le corpus — anti faux-négatif', () => {
+    // C'est exactement l'assertion qui manquait : la garde d'origine est devenue vide sans que
+    // rien ne le signale. Ici, un corpus qui rétrécit fait rougir le test.
+    expect(files.length).toBeGreaterThan(15);
+
+    const citations = files.flatMap((file) => [
+      ...readFileSync(file, 'utf8').matchAll(CITED_PATH),
+    ]).length;
+    expect(citations).toBeGreaterThan(50);
+  });
+
+  it('chaque chemin cité existe, ou sa disparition est ANNONCÉE dans la phrase', () => {
+    const broken: string[] = [];
+
+    for (const file of files) {
+      const lines = readFileSync(file, 'utf8').split('\n');
+      lines.forEach((line, index) => {
+        for (const match of line.matchAll(CITED_PATH)) {
+          const cited = match[1]!;
+          if (existsSync(join(ROOT, cited))) continue;
+
+          const context = lines.slice(Math.max(0, index - 3), index + 4).join(' ');
+          if (REMOVAL_MARKER.test(context)) continue;
+
+          broken.push(`${file.slice(ROOT.length + 1)}:${index + 1} cite « ${cited} », absent`);
+        }
+      });
+    }
+
+    expect(
+      broken,
+      broken.length
+        ? `Documentation citant un fichier disparu, sans le dire :\n  - ${broken.join('\n  - ')}\n` +
+            `Soit le chemin est faux, soit la phrase doit annoncer la suppression ` +
+            `(« supprimé », « retiré », « n'existe plus »…). Une phrase au PRÉSENT qui nomme un ` +
+            `fichier absent est la forme exacte du défaut que ce fichier existe pour empêcher.`
+        : undefined,
+    ).toEqual([]);
+  });
+});

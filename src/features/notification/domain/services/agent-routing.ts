@@ -1,4 +1,4 @@
-import { agentHasTool } from '../../../../shared/agent-capabilities';
+import { AGENT_TOOLS, agentHasTool } from '../../../../shared/agent-capabilities';
 
 const ESCAPE_INTENTS: ReadonlyArray<readonly [agentId: string, keywords: readonly string[]]> = [
   ['recruitmentAgent', ['candidat', 'candidate', 'recrutement', 'entretien']],
@@ -130,12 +130,20 @@ const VERB_SUFFIX_PATTERN = '(?:s|r|z|nt)?';
 
 export const DEFAULT_AGENT_ID = 'onboardingOrchestrator';
 
-const KNOWN_AGENT_IDS: ReadonlySet<string> = new Set([
-  'onboardingOrchestrator',
-  'notificationAgent',
-  'knowledgeAgent',
-  'recruitmentAgent',
-]);
+/**
+ * ⚠️ **DÉRIVÉE de `AGENT_TOOLS`, plus recopiée — 2026-08-21.**
+ *
+ * C'était une TROISIÈME copie du câblage agent→outils, après `src/mastra/index.ts` (le vrai) et
+ * `AGENT_TOOLS`. Aucun test ne la confrontait aux deux autres : un agent ajouté au registre et
+ * oublié ici aurait vu son fil COLLANT ignoré en silence, donc reroute à chaque message — et le
+ * symptôme (« il perd le fil ») ne désigne jamais une liste d'identifiants.
+ *
+ * L'ensemble est maintenant impossible à désynchroniser de la table qui déclare les outils :
+ * un agent sans outil déclaré n'existe pas pour le routage, ce qui est exactement la propriété
+ * qu'on veut — le palier collant ne doit jamais renvoyer vers un agent dont on ignore ce qu'il
+ * sait faire.
+ */
+const KNOWN_AGENT_IDS: ReadonlySet<string> = new Set(Object.keys(AGENT_TOOLS));
 
 export function matchesKeyword(lowerText: string, keyword: string): boolean {
   const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
