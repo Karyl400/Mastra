@@ -69,9 +69,13 @@ describe('le cron déclaré à Vercel EST celui que le code croit', () => {
     expect(apiRoutes.slice(0, apiRoutes.indexOf(']'))).toContain('remindersDispatchRoute');
   });
 
-  it('le build recopie les crons de vercel.json vers config.json, il n’en tient pas une copie', () => {
+  it('le build CONTRÔLE les crons sans en tenir une seconde copie', () => {
+    // ⚠️ La première version les RECOPIAIT dans `.vercel/output/config.json`, sur la foi de la
+    // doc du Build Output API. Le déploiement a échoué : « A duplicated cron job with the same
+    // schedule and path was found ». Vercel lit AUSSI `vercel.json` et fusionne les deux.
+    // `vercel.json` est donc la source unique, et le build se contente de vérifier.
     const script = readFileSync(resolve(process.cwd(), 'scripts/fix-vercel-output.js'), 'utf8');
-    expect(script).toContain('copyCronsFromVercelJson');
+    expect(script).toContain('assertCronsAreDeployable');
     // Une expression cron écrite en dur dans le script serait la seconde copie qu'on refuse.
     expect(script).not.toMatch(/schedule:\s*['"][\d*]/);
   });

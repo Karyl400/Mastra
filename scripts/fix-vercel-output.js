@@ -203,29 +203,40 @@ async function fixOutput() {
   await buildSlackAckFunction();
 
   // 5. L'HORLOGE EXTÉRIEURE — sans elle, aucun rappel enregistré ne part jamais.
-  await copyCronsFromVercelJson();
+  await assertCronsAreDeployable();
 }
 
 /**
- * Recopie `crons` de `vercel.json` vers `.vercel/output/config.json`.
+ * Vérifie que les `crons` de `vercel.json` sont DÉPLOYABLES — sans rien recopier.
  *
- * ## Pourquoi une RECOPIE et non une seconde déclaration
+ * ## ⚠️ La première version les recopiait dans `config.json`, et le déploiement a ÉCHOUÉ
  *
- * Ce projet livre du Build Output API (`outputDirectory: .vercel/output`), et la référence de
- * la plateforme pour cette forme est `config.json`. Mais `vercel.json` reste le seul endroit
- * qu'un humain ouvre pour savoir à quelle heure tourne le cron. Écrire la planification aux
- * deux endroits, c'est garantir qu'un jour elles diront deux choses — et le symptôme d'une
- * divergence n'est pas une erreur : le rappel part simplement à la mauvaise heure, sans que
- * rien ne le signale. La source est donc `vercel.json`, et ceci n'en est que le transport.
+ * ```
+ * Error: A duplicated cron job with the same schedule (0 6 * * *) and
+ *        path (/internal/reminders/dispatch) was found.
+ * ```
+ *
+ * La documentation du Build Output API présente `config.json.crons` comme LA façon de déclarer
+ * un cron pour cette forme de livraison. C'est vrai — mais Vercel lit AUSSI `vercel.json`, et
+ * fusionne les deux sources. Écrire aux deux endroits produit un doublon, et le doublon est
+ * refusé au déploiement.
+ *
+ * `vercel.json` est donc la source UNIQUE, et ce n'était pas déductible des docs : il a fallu
+ * un déploiement rouge. La leçon est la même que partout ici — une déclaration écrite deux fois
+ * finit par poser un problème, et l'on a eu de la chance que celui-ci soit bruyant.
+ *
+ * ## Ce qui reste utile, et qui n'a rien à voir
+ *
+ * Le plan Hobby REFUSE au déploiement toute expression tournant plus d'une fois par jour
+ * (« Cron expressions that would run more frequently will fail during deployment »). On le
+ * constate ici, au build, plutôt qu'en poussant — cinq secondes contre cinq minutes.
  *
  * ⚠️ `tests/unit/notification/reminder-dispatch-wiring.test.ts` vérifie de son côté que
  * `vercel.json` s'accorde avec les constantes du domaine — celles dont le code se sert pour
- * annoncer à quelqu'un QUAND son rappel lui reviendra.
- *
- * ⚠️ **Le plan Hobby refuse toute expression plus fréquente qu'une fois par jour, et l'échec a
- * lieu AU DÉPLOIEMENT.** On le vérifie ici plutôt que de le découvrir en poussant.
+ * annoncer à quelqu'un QUAND son rappel lui reviendra. Une divergence là ne casserait rien :
+ * le rappel partirait simplement à un moment différent de celui qu'on a promis.
  */
-async function copyCronsFromVercelJson() {
+async function assertCronsAreDeployable() {
   const vercelJsonPath = join(root, 'vercel.json');
   if (!existsSync(vercelJsonPath)) return;
 
@@ -236,7 +247,7 @@ async function copyCronsFromVercelJson() {
     const [minute, hour] = String(cron.schedule ?? '').split(' ');
     if (minute === '*' || hour === '*' || String(minute).includes('/') || String(hour).includes('/')) {
       console.error(
-        `\u274c Planification refusée par le plan Hobby : « ${cron.schedule} » tournerait\n` +
+        `\u274c Planification refusée par le plan Hobby : \u00ab ${cron.schedule} \u00bb tournerait\n` +
           "   plus d'une fois par jour, et Vercel rejette le DÉPLOIEMENT dans ce cas."
       );
       process.exit(1);
@@ -244,16 +255,22 @@ async function copyCronsFromVercelJson() {
   }
 
   const configPath = join(target, 'config.json');
-  const config = existsSync(configPath)
-    ? JSON.parse(await readFile(configPath, 'utf8'))
-    : { version: 3, routes: [] };
+  if (existsSync(configPath)) {
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    if (config.crons) {
+      console.error(
+        "\u274c config.json déclare des crons : Vercel les FUSIONNE avec ceux de vercel.json\n" +
+          '   et refuse le doublon au déploiement. La source unique est vercel.json.'
+      );
+      process.exit(1);
+    }
+  }
 
-  config.crons = crons;
-  await writeFile(configPath, JSON.stringify(config), 'utf8');
   console.log(
-    `\u2705 Cron : ${crons.map((c) => `${c.path} @ ${c.schedule}`).join(', ')} (recopié depuis vercel.json)`
+    `\u2705 Cron : ${crons.map((c) => `${c.path} @ ${c.schedule}`).join(', ')} (déclaré dans vercel.json, source unique)`
   );
 }
+
 
 /**
  * Construit `functions/slack-ack.func` et lui route `/slack/events` et `/slack/interactions`.
