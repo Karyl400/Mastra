@@ -499,6 +499,11 @@ export class SlackEventsHandler {
       this.limiter = new SlackRateLimiter({
         repository: new DrizzleRateLimitRepository(),
         rules: [
+          // ⚠️ CES VARIABLES ÉCRASENT LES CONSTANTES, ET LE PIÈGE S'EST REFERMÉ LE 2026-08-21.
+          // `SLACK_DAILY_LIMIT` et `SLACK_WORKSPACE_TOKEN_BUDGET` étaient posées en production
+          // depuis une semaine : relever les défauts dans `rate-limit-policy.ts` n'a RIEN
+          // changé, et le journal continuait d'afficher l'ancien plafond. Avant de conclure
+          // qu'un plafond n'a pas bougé, lire `npx vercel env ls production`.
           { ...BURST_RULE, limit: readRuleLimit(process.env.SLACK_BURST_LIMIT, BURST_RULE.limit) },
           { ...DAILY_RULE, limit: readRuleLimit(process.env.SLACK_DAILY_LIMIT, DAILY_RULE.limit) },
         ],
