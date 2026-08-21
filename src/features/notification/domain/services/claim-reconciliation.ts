@@ -22,18 +22,23 @@ const RECEIVED_VERBS = '(?:recu|recue|recus|recues)';
  * d'une phrase et le début de la suivante formeraient des expressions qu'aucune des deux ne
  * contient.
  */
-function assertiveText(normalized: string): string {
+function splitSentences(normalized: string): Array<{ text: string; delimiter: string }> {
   const parts = normalized.split(/([.!?]+)/);
-  const kept: string[] = [];
+  const sentences: Array<{ text: string; delimiter: string }> = [];
 
   for (let i = 0; i < parts.length; i += 2) {
-    const delimiter = parts[i + 1] ?? '';
-    if (delimiter.includes('?')) continue;
-    const segment = parts[i];
-    if (segment) kept.push(segment);
+    const text = parts[i];
+    if (text) sentences.push({ text, delimiter: parts[i + 1] ?? '' });
   }
 
-  return kept.join(' . ');
+  return sentences;
+}
+
+function assertiveText(normalized: string): string {
+  return splitSentences(normalized)
+    .filter((s) => !s.delimiter.includes('?'))
+    .map((s) => s.text)
+    .join(' . ');
 }
 
 /**
@@ -142,8 +147,16 @@ export function hasActingToolCall(toolCalls: readonly string[]): boolean {
   return toolCalls.some((name) => !READ_ONLY_TOOL_NAMES.has(name));
 }
 
+/**
+ * ⚠️ CETTE NOTE CONTREDIT MARCEL, donc elle doit parler comme lui — sans quoi le changement de
+ * registre trahit à lui seul qu'une machine vient de reprendre la main.
+ *
+ * Elle s'ouvrait par « Note : » et disait « aucune action n'a été exécutée à ce tour » : deux
+ * marques d'un système qui s'annote lui-même. Ce qui ne change PAS est ce qu'elle affirme —
+ * l'aveu doit rester net, c'est toute sa raison d'être.
+ */
 export const UNSUPPORTED_CLAIM_NOTICE =
-  "\n\n_Note : aucune action n'a été exécutée à ce tour. Si tu attendais un envoi, un document ou un enregistrement, il n'a pas eu lieu._";
+  "\n\n_Je me relis : je n'ai rien fait à ce tour. Si tu attendais un envoi, un document ou un enregistrement, il n'a pas eu lieu._";
 
 export function normalizeForClaims(text: string): string {
   return text
@@ -205,14 +218,62 @@ const FUTURE_DELIVERY_CLAIMS: ReadonlyArray<{ label: string; pattern: RegExp }> 
   { label: 'recevra', pattern: /\b(?:recevra|recevront)\b/ },
 ];
 
+/**
+ * ⚠️ UNE PHRASE QUI NIE LA LIVRAISON EST LE CONTRAIRE D'UNE PROMESSE DE LIVRAISON.
+ *
+ * Relevé en production le 2026-08-21, sur une sonde `scheduleReminder`. Le modèle a répondu
+ * exactement ce qu'on lui demande — « Aucun automate ne l'enverra, rien ne partira tout seul
+ * le moment venu » — et le motif `partira` s'est déclenché dessus. Une note a donc été accolée
+ * pour redire la même chose, en moins bien : la personne lisait l'information deux fois, la
+ * seconde sous forme de démenti administratif.
+ *
+ * C'est la famille de défaut corrigée dans `forget.ts` le 2026-08-13, où « je ne veux surtout
+ * pas que tu oublies » DÉCLENCHAIT l'effacement : un verbe lu sans sa négation dit l'inverse
+ * de la phrase qui le porte.
+ *
+ * ⚠️ LE FILTRE EST APPLIQUÉ PHRASE PAR PHRASE, jamais au message entier — à la différence de
+ * `HUMAN_GATED_PATTERN`, qui court-circuite globalement. Sinon il suffirait d'ajouter « rien ne
+ * part tout seul » n'importe où pour faire taire le détecteur sur tout le reste du message,
+ * c'est-à-dire d'offrir une formule magique à ce qu'on surveille.
+ */
+const NEGATED_DELIVERY_PATTERNS: readonly RegExp[] = [
+  /\b(?:rien|aucun|aucune) ne\b/,
+  /\bne (?:sera|seront|serai) pas\b/,
+  /\bne (?:partira|partiront)\b/,
+  /\bn'est pas (?:planifie|programme|envoye)\b/,
+  /\bne (?:recevras|recevra|recevrez)\b/,
+  /\bn'enverra\b/,
+  /\benverrai pas\b/,
+  /\baucun automate\b/,
+];
+
+// ⚠️ Une LISTE et non une seule alternation : le motif unique franchissait le seuil de
+// complexité du linter (21 pour 20), et surtout il devenait illisible — or c'est un garde-fou
+// qu'on relira en cherchant pourquoi une phrase n'a pas été attrapée. Un test par formule.
+function negatesDelivery(sentence: string): boolean {
+  return NEGATED_DELIVERY_PATTERNS.some((pattern) => pattern.test(sentence));
+}
+
 const HUMAN_GATED_PATTERN =
   /\b(?:apres|qu'apres|une fois) (?:ton |votre |le |la )?(?:clic|validation|confirmation)|\bne part(?:ira)? qu'apres\b|\bclic sur\b/;
 
+/**
+ * ⚠️ « il n'y en a aucun dans ce système » a été retiré : c'est de l'architecture, et la
+ * personne n'a que faire de savoir POURQUOI rien ne partira. Ce qu'il lui faut est le fait, et
+ * le geste suivant. Le fait — rien ne part tout seul — est conservé mot pour mot dans sa
+ * substance, et un test le verrouille.
+ */
 export const PROMISED_DELIVERY_NOTICE =
-  "\n\n_Note : c'est enregistré, mais aucun automate ne l'enverra — il n'y en a aucun dans ce système. Reviens me le demander le moment venu._";
+  "\n\n_C'est noté. Par contre je ne sais pas te relancer tout seul le jour venu — repasse me le demander et je te le ressors._";
 
 export function detectUnsupportedDeliveryPromise(text: string): string | null {
   const normalized = normalizeForClaims(text);
   if (HUMAN_GATED_PATTERN.test(normalized)) return null;
-  return FUTURE_DELIVERY_CLAIMS.find((claim) => claim.pattern.test(normalized))?.label ?? null;
+
+  const promissory = splitSentences(normalized)
+    .filter((sentence) => !negatesDelivery(sentence.text))
+    .map((sentence) => sentence.text)
+    .join(' . ');
+
+  return FUTURE_DELIVERY_CLAIMS.find((claim) => claim.pattern.test(promissory))?.label ?? null;
 }

@@ -925,3 +925,43 @@ Doublure de test. Elle partage le CONTRAT de la version Drizzle, y compris le co
 par `clear` — c'est ce qui garantit que les tests ne soient pas verts sur un comportement que
 la production n'a pas. Le dépôt a payé cet écart le 2026-08-19 sur `linkEmployee`.
 
+
+---
+
+# Seul le General Manager prépare un entretien — et le refus le DIT (2026-08-21)
+
+La règle était déjà appliquée, et correctement : `scheduleCandidateInterview` appelle
+`canPerformSideEffects(requestContext)` **sans employé cible**, donc `mayTouchRecord` retombe
+sur `accessLevel === 'full'` — que seul `slack_directory.role = 'manager'` accorde. Il n'y a
+pas de cas « son propre dossier » ici : un candidat externe n'est le dossier de personne.
+
+Ce qui manquait n'était pas la règle mais sa LISIBILITÉ. Sonde de production du 2026-08-21,
+depuis un compte non manager :
+
+> « Je ne peux pas créer cette invitation. »
+
+Exact, et muet. **Un refus qui ne dit pas pourquoi se lit comme une panne** — et la personne
+n'a aucun moyen de savoir qu'il existe quelqu'un à qui la demande peut être adressée.
+
+## Deux mécanismes, et le second est celui qui garantit
+
+- Le `hint` du refus nomme désormais le détenteur du droit : *« Seul Nazer, le General Manager,
+  peut préparer une invitation à un entretien. »* L'agent a pour instruction de reprendre les
+  hints — c'est ce qui produit la réponse la plus naturelle quand cela fonctionne.
+- `writeAuthorizationNotice` pose la même phrase dans le `RequestContext`, et le handler
+  l'accole. C'est la GARANTIE.
+
+⚠️ **CINQUIÈME consigne d'agent mesurée en échec dans ce dépôt**, après la couverture des
+extraits, la rédaction du contenu de document, le `recipient` d'un document et les codes
+internes récités par Gemini. La conclusion ne bouge pas : **une consigne est PROBABLE, le code
+est GARANTI.**
+
+⚠️ **La note S'EFFACE quand la réponse nomme déjà la personne** (`textMentionsName`) — même
+arbitrage que `buildRecipientNotice`. Une redite sur une réponse déjà juste n'est que du bruit,
+et le bruit finit par faire ignorer les notes qui comptent.
+
+⚠️ **Coût : ZÉRO token.** Le `RequestContext` est un canal d'injection de dépendances côté
+serveur ; il ne traverse ni le prompt, ni les schémas de tools, ni le tool-result.
+
+Un test vérifie aussi qu'**aucune note n'est écrite quand le droit est accordé** : sans lui, la
+note serait accolée à des réponses parfaitement légitimes.

@@ -76,10 +76,12 @@ import { DrizzleSlackEventDedupRepository } from '../repositories/drizzle-slack-
 import {
   buildSlackRequestContext,
   readExcerptCoverage,
+  readAuthorizationNotice,
   readDocumentRecipient,
   type SlackAccessLevel,
 } from '../../../../shared/slack-request-context';
 import { textMentionsName } from '../../../../shared/name-matching';
+import { escalationName } from '../../../../shared/escalation';
 import { SlackAccessGuard } from '../../../directory/application/services/access-guard';
 import type { OnboardingInterviewRepository } from '../../../onboarding/domain/ports/onboarding-interview.repository';
 import {
@@ -343,6 +345,24 @@ function buildRecipientNotice(requestContext: unknown, answer: string): string {
   const recipient = readDocumentRecipient(requestContext);
   if (!recipient || textMentionsName(answer, recipient)) return '';
   return `\n\n_(Ce document a été produit pour ${recipient}.)_`;
+}
+
+/**
+ * ⚠️ UN REFUS QUI NE DIT PAS POURQUOI SE LIT COMME UNE PANNE.
+ *
+ * Mesuré en production : « Je ne peux pas créer cette invitation. » — exact, et muet. Le `hint`
+ * du tool demandait la raison, l'agent a pour instruction de le reprendre, et il ne l'a pas
+ * fait. Cinquième consigne mesurée en échec dans ce dépôt.
+ *
+ * ⚠️ La note S'EFFACE quand la réponse nomme déjà la personne — même arbitrage que
+ * `buildRecipientNotice` : une redite sur une réponse déjà juste n'est que du bruit, et le
+ * bruit finit par faire ignorer les notes qui comptent.
+ */
+function buildAuthorizationNotice(requestContext: unknown, answer: string): string {
+  const notice = readAuthorizationNotice(requestContext);
+  if (!notice) return '';
+  if (textMentionsName(answer, escalationName())) return '';
+  return `\n\n_(${notice})_`;
 }
 
 export class SlackEventsHandler {
@@ -1413,12 +1433,14 @@ export class SlackEventsHandler {
       const excerptCoverage = readExcerptCoverage(requestContext);
 
       const recipientNotice = buildRecipientNotice(requestContext, safeOutput.text);
+      const authorizationNotice = buildAuthorizationNotice(requestContext, safeOutput.text);
 
       await progress.resolve(
         safeOutput.text +
           (unsupportedClaim ? UNSUPPORTED_CLAIM_NOTICE : '') +
           (registeredWithoutDelivery ? PROMISED_DELIVERY_NOTICE : '') +
           recipientNotice +
+          authorizationNotice +
           appendNotes([
             shape.truncated ? MODEL_TRUNCATED_NOTICE : undefined,
             excerptCoverage,

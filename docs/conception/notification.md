@@ -8776,3 +8776,52 @@ instance froide : c'est la protection du quota journalier qui disparaît entièr
 
 La ligne porte désormais `firstInThisInstance`, ce qui permet de distinguer une panne
 naissante d'une panne installée sans perdre les occurrences suivantes.
+
+---
+
+# La phrase HONNÊTE déclenchait le démenti (2026-08-21)
+
+Sonde de production sur `scheduleReminder`. Le modèle a répondu exactement ce qu'on lui
+demande :
+
+> « Sache que ce rappel est seulement enregistré. Aucun automate ne l'enverra, **rien ne partira
+> tout seul** le moment venu. »
+
+C'est le comportement voulu. Et le motif `partira` de `FUTURE_DELIVERY_CLAIMS` s'est déclenché
+dessus : une note a été accolée pour redire la même chose, en moins bien. La personne lisait
+l'information deux fois, la seconde sous forme de démenti administratif — et c'est ce doublon
+qui faisait « machine », bien plus que le vocabulaire.
+
+⚠️ **Une phrase qui NIE la livraison est le contraire d'une promesse de livraison.** C'est la
+famille de défaut corrigée dans `forget.ts` le 2026-08-13, où « je ne veux surtout pas que tu
+oublies » DÉCLENCHAIT l'effacement : un verbe lu sans sa négation dit l'inverse de la phrase qui
+le porte.
+
+## Le filtre est appliqué PHRASE PAR PHRASE
+
+`NEGATED_DELIVERY_PATTERN` écarte les phrases qui nient, puis les motifs sont testés sur ce qui
+reste. À la différence de `HUMAN_GATED_PATTERN`, qui court-circuite globalement.
+
+La raison est concrète : un filtre global ferait qu'il suffit d'ajouter « rien ne part tout
+seul » n'importe où dans un message pour faire taire le détecteur sur tout le reste —
+c'est-à-dire offrir une formule magique à ce qu'on surveille. Un test le vérifie explicitement
+(« Rien ne partira tout seul. Elle recevra le message demain. » reste requalifié).
+
+`splitSentences` est partagé avec `assertiveText`, qui écarte les interrogations pour le
+détecteur d'accompli. Deux filtres, une seule façon de découper.
+
+## Les deux notes parlent comme Marcel
+
+Elles s'ouvraient par « Note : » et disaient « aucune action n'a été exécutée à ce tour » et
+« il n'y en a aucun dans ce système » : trois marques d'un système qui s'annote lui-même. La
+seconde est de l'architecture — la personne n'a que faire de savoir POURQUOI rien ne partira ;
+il lui faut le fait, et le geste suivant.
+
+⚠️ **Ce qu'elles AFFIRMENT n'a pas changé.** L'aveu doit rester net, c'est toute leur raison
+d'être, et deux tests le verrouillent : la note de livraison dit toujours que l'enregistrement a
+eu lieu ET que rien ne partira tout seul.
+
+⚠️ **Un test verrouillait le MOT « automate »** alors que son propre commentaire décrivait une
+PROPRIÉTÉ. Ce mot appartenait à la formulation d'architecte qu'on retirait : le test aurait
+interdit la correction du ton tout en gardant l'apparence de protéger le fond. Réécrit sur les
+deux moitiés de la propriété — ce qui a eu lieu, ce qui n'aura pas lieu.

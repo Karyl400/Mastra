@@ -23,6 +23,31 @@ export function readDocumentRecipient(requestContext: unknown): string | undefin
   return readContextNote(requestContext, SLACK_DOCUMENT_RECIPIENT_KEY);
 }
 
+/**
+ * ⚠️ POURQUOI UN REFUS D'AUTORISATION PASSE PAR LE CONTEXTE, ET NON PAR LE SEUL `hint`.
+ *
+ * Mesuré en production le 2026-08-21 : « Prépare un email d'entretien pour … » a reçu
+ * « Je ne peux pas créer cette invitation. » — exact, et muet sur la RAISON. Le `hint` du tool
+ * demandait pourtant de l'expliquer, et l'agent a pour instruction de le reprendre.
+ *
+ * C'est la CINQUIÈME consigne d'agent mesurée en échec dans ce dépôt, après la couverture des
+ * extraits, la rédaction du contenu, le `recipient` d'un document et les codes internes récités
+ * par Gemini. La conclusion ne change pas : une consigne est PROBABLE, le code est GARANTI.
+ *
+ * Un refus qui ne dit pas pourquoi est vécu comme une panne. Nommer la seule personne qui
+ * détient le droit transforme un mur en information exploitable — et coûte ZÉRO token, le
+ * `RequestContext` ne traversant ni le prompt ni les schémas.
+ */
+export const SLACK_AUTHZ_NOTICE_KEY = 'slackAuthorizationNotice';
+
+export function writeAuthorizationNotice(requestContext: unknown, notice: string): void {
+  writeContextNote(requestContext, SLACK_AUTHZ_NOTICE_KEY, notice);
+}
+
+export function readAuthorizationNotice(requestContext: unknown): string | undefined {
+  return readContextNote(requestContext, SLACK_AUTHZ_NOTICE_KEY);
+}
+
 function writeContextNote(requestContext: unknown, key: string, value: string): void {
   if (!value.trim()) return;
   if (typeof requestContext !== 'object' || requestContext === null) return;

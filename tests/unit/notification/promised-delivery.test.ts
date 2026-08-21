@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
   PROMISED_DELIVERY_NOTICE,
+  UNSUPPORTED_CLAIM_NOTICE,
   detectUnsupportedDeliveryPromise,
 } from '../../../src/features/notification/domain/services/claim-reconciliation';
 
@@ -64,7 +65,18 @@ describe('la note', () => {
     // ⚠️ Contrat différent de `UNSUPPORTED_CLAIM_NOTICE` : là-bas rien n'a été exécuté, ici
     // l'enregistrement a bel et bien eu lieu. Dire « aucune action n'a été exécutée »
     // serait faux et détruirait la seule partie vraie du message.
-    expect(PROMISED_DELIVERY_NOTICE).toMatch(/automate/i);
+    //
+    // ⚠️ CETTE ASSERTION DISAIT `toMatch(/automate/i)` jusqu'au 2026-08-21. Elle verrouillait
+    // un MOT là où son propre commentaire décrit une PROPRIÉTÉ — et ce mot appartenait à une
+    // formulation d'architecte (« aucun automate ne l'enverra — il n'y en a aucun dans ce
+    // système ») qu'on retire précisément parce qu'elle ne parle pas comme Marcel. Le test
+    // aurait donc interdit la correction du ton en gardant l'apparence de protéger le fond.
+    //
+    // Les deux moitiés sont désormais nommées : ce qui A eu lieu, et ce qui n'aura pas lieu.
+    expect(PROMISED_DELIVERY_NOTICE, "l'enregistrement a bien eu lieu").toMatch(
+      /not[ée]|enregistr/i,
+    );
+    expect(PROMISED_DELIVERY_NOTICE, 'rien ne partira seul').toMatch(/tout seul|automatiquement/i);
     expect(PROMISED_DELIVERY_NOTICE).not.toMatch(/aucune action n'a été exécutée/i);
   });
 
@@ -123,5 +135,77 @@ describe('la promesse de PLANIFICATION, mesurée en production', () => {
     expect(
       detectUnsupportedDeliveryPromise('Je l’ai enregistré. Aucun automate ne l’enverra.'),
     ).toBeNull();
+  });
+});
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * LA PHRASE HONNÊTE DÉCLENCHAIT LE DÉMENTI — relevé en production le 2026-08-21
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Sonde réelle sur `scheduleReminder`. Le modèle a répondu, exactement comme on le lui
+ * demande :
+ *
+ *   « Sache que ce rappel est seulement enregistré. Aucun automate ne l'enverra, rien ne
+ *     partira tout seul le moment venu. »
+ *
+ * C'est le comportement VOULU. Et le motif `partira` s'est déclenché dessus, si bien qu'une
+ * note a été accolée pour dire… la même chose, en moins bien. La personne lisait deux fois
+ * l'information, dont une sous forme de démenti administratif.
+ *
+ * ⚠️ Le détecteur cherche une PROMESSE de livraison future. Une phrase qui NIE cette livraison
+ * est le contraire d'une promesse. C'est exactement le défaut corrigé dans `forget.ts` le
+ * 2026-08-13 — « je ne veux surtout pas que tu oublies » qui effaçait — et il faut le même
+ * remède : la négation se lit AVEC le verbe, jamais en l'ignorant.
+ */
+describe('une phrase qui NIE la livraison n’est pas une promesse de livraison', () => {
+  const HONNETES = [
+    "Sache que ce rappel est seulement enregistré. Aucun automate ne l'enverra, rien ne partira tout seul le moment venu.",
+    "C'est noté, mais rien ne partira automatiquement.",
+    'Il ne sera pas envoyé tout seul — reviens me le demander.',
+    'Tu ne recevras aucune relance de ma part.',
+    "Je ne l'enverrai pas sans que tu me le redemandes.",
+    "Ce rappel n'est pas planifié : il est seulement enregistré.",
+  ];
+
+  for (const texte of HONNETES) {
+    it(`ne requalifie pas « ${texte.slice(0, 46)}… »`, () => {
+      expect(detectUnsupportedDeliveryPromise(texte), texte).toBeNull();
+    });
+  }
+
+  it('attrape toujours la VRAIE promesse — sinon le garde-fou serait mort', () => {
+    // ⚠️ Sans ces assertions, désarmer complètement le détecteur ferait passer ce fichier au
+    // vert. C'est le défaut qu'ont eu `READ_ONLY_TOOL_NAMES` et `matchesKeyword` avec `\b`.
+    expect(detectUnsupportedDeliveryPromise('Ton rappel partira lundi matin.')).not.toBeNull();
+    expect(detectUnsupportedDeliveryPromise('Elle recevra le message demain.')).not.toBeNull();
+    expect(detectUnsupportedDeliveryPromise('Le rappel est planifié pour lundi.')).not.toBeNull();
+  });
+
+  it('juge PHRASE PAR PHRASE, pas sur le message entier', () => {
+    // Une négation quelque part ne doit pas blanchir une promesse ailleurs : sinon il
+    // suffirait d'ajouter « rien ne part tout seul » pour faire taire le détecteur.
+    expect(
+      detectUnsupportedDeliveryPromise(
+        'Rien ne partira tout seul. Elle recevra le message demain.',
+      ),
+    ).not.toBeNull();
+  });
+});
+
+describe('les deux notes parlent comme Marcel', () => {
+  it('ne s’ouvrent plus par « Note : » — un collègue n’annote pas sa propre phrase', () => {
+    expect(PROMISED_DELIVERY_NOTICE).not.toContain('Note :');
+    expect(UNSUPPORTED_CLAIM_NOTICE).not.toContain('Note :');
+  });
+
+  it('disent toujours que rien ne partira tout seul — c’est leur seule raison d’être', () => {
+    expect(PROMISED_DELIVERY_NOTICE).toMatch(/tout seul|automatiquement/i);
+  });
+
+  it('ne parlent plus du « système » — la personne n’a que faire de son architecture', () => {
+    for (const note of [PROMISED_DELIVERY_NOTICE, UNSUPPORTED_CLAIM_NOTICE]) {
+      expect(note, note).not.toMatch(/dans ce système|aucune action n'a été exécutée/i);
+    }
   });
 });

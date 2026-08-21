@@ -9,7 +9,9 @@ import {
   SLACK_CHANNEL_KEY,
   SLACK_USER_ID_KEY,
   SLACK_ACCESS_LEVEL_KEY,
+  readAuthorizationNotice,
 } from '../../../src/shared/slack-request-context';
+import { ESCALATION_CONTACT } from '../../../src/shared/escalation';
 
 const NOW = new Date('2026-08-14T10:00:00.000Z');
 const FUTURE = '2026-08-20T14:00:00+01:00';
@@ -173,6 +175,42 @@ describe('scheduleCandidateInterview — il PRÉPARE, il n’envoie jamais', () 
     expect(out.reason).toBe('forbidden');
     // Le refus tombe AVANT toute lecture et tout rendu.
     expect(sendText).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ⚠️ SEUL LE GENERAL MANAGER PRÉPARE UN ENTRETIEN, et le refus doit le DIRE.
+   *
+   * La règle était déjà appliquée : sans employé cible, `canPerformSideEffects` retombe sur
+   * `accessLevel === 'full'`, que seul `slack_directory.role = 'manager'` accorde. Mais la
+   * sonde de production du 2026-08-21 a reçu « Je ne peux pas créer cette invitation. » —
+   * exact, et muet sur la raison. Un refus sans motif se lit comme une panne, et la personne
+   * n'a aucun moyen de savoir qu'il existe quelqu'un à qui demander.
+   */
+  it('NOMME le seul détenteur du droit, dans le hint ET dans le contexte', async () => {
+    const { tool } = toolWith();
+    const ctx = slackCtx({ [SLACK_ACCESS_LEVEL_KEY]: 'readonly' });
+
+    const out = (await tool.execute!(INPUT as never, ctx as never)) as { hint: string };
+
+    // Le hint INVITE le modèle à l'expliquer…
+    expect(out.hint).toContain(ESCALATION_CONTACT);
+    expect(out.hint).toMatch(/seul/i);
+
+    // …et la note du contexte le GARANTIT, parce qu'une consigne est probable et que celle-ci
+    // a été mesurée en échec. Coût : zéro token — le `RequestContext` ne traverse ni le prompt
+    // ni les schémas de tools.
+    expect(readAuthorizationNotice(ctx.requestContext)).toContain(ESCALATION_CONTACT);
+  });
+
+  it('n’écrit AUCUNE note d’autorisation quand le droit est accordé', async () => {
+    // Sinon la note serait accolée à des réponses parfaitement légitimes — le bruit qui fait
+    // qu'on finit par ne plus lire les notes qui comptent.
+    const { tool } = toolWith();
+    const ctx = slackCtx();
+
+    await tool.execute!(INPUT as never, ctx as never);
+
+    expect(readAuthorizationNotice(ctx.requestContext)).toBeUndefined();
   });
 
   it('REFUSE hors de Slack — il n’y aurait nulle part où confirmer', async () => {
