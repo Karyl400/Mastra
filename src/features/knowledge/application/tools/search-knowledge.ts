@@ -192,36 +192,90 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
     const targets = readable ? channelIds.filter((id) => readable.has(id)) : channelIds;
 
     const perChannel = await Promise.all(
-      targets.map(async (channelId) => {
-        try {
-          const messages = await deps.channels.fetchRecent(channelId, {
-            sinceMs: LIVE_WINDOW_MS,
-            limit: LIVE_SCAN_LIMIT,
-          });
-
-          return messages
-            .filter((message) => !message.isBot && matchedTermCount(message.text, query) > 0)
-            .map<Line>((message) => ({
-              channelId,
-              slackUserId: message.authorId,
-              postedAt: message.at.getTime(),
-              kind: null,
-              text: message.text,
-            }));
-        } catch (error) {
-          logger.warn('Knowledge — canal illisible pendant la lecture en direct', {
-            channelId,
-            error: String(error),
-          });
-          return [];
-        }
-      }),
+      targets.map((channelId) => sweepOneChannel(channelId, query)),
     );
 
     return perChannel
       .flat()
       .sort((a, b) => b.postedAt - a.postedAt)
       .slice(0, SCAN_LIMIT);
+  }
+
+  /** Un canal illisible est SAUTÉ : le pire cas reste « je ne sais pas ». */
+  async function sweepOneChannel(channelId: string, query: string): Promise<Line[]> {
+    try {
+      const messages = await deps.channels.fetchRecent(channelId, {
+        sinceMs: LIVE_WINDOW_MS,
+        limit: LIVE_SCAN_LIMIT,
+      });
+
+      return messages
+        .filter((message) => !message.isBot && matchedTermCount(message.text, query) > 0)
+        .map<Line>((message) => ({
+          channelId,
+          slackUserId: message.authorId,
+          postedAt: message.at.getTime(),
+          kind: null,
+          text: message.text,
+        }));
+    } catch (error) {
+      logger.warn('Knowledge — canal illisible pendant la lecture en direct', {
+        channelId,
+        error: String(error),
+      });
+      return [];
+    }
+  }
+
+  /**
+   * ⚠️ **LE VERDICT TOMBE AVANT TOUTE LECTURE, et c'est ce qui empêche l'ORACLE** : sans cela,
+   * « personne inconnue » et « tu n'as pas le droit » se distinguent, et l'annuaire s'énumère
+   * une adresse à la fois. Même règle que le chemin email de `getEmployeeProfile`.
+   *
+   * Extrait d'`execute` le 2026-08-21 — non pour le chiffre de complexité, mais parce que cette
+   * séquence EST la frontière : la voir d'un bloc vaut mieux que la lire entre deux lectures de
+   * base.
+   */
+  async function admit(
+    requesterId: string,
+    person: string | undefined,
+  ): Promise<{ requester: Requester; target: string | null } | { reason: SearchVerdict }> {
+    let requesterPerson: DirectoryPerson | null = null;
+    try {
+      requesterPerson = await deps.directory.findBySlackUserId(requesterId);
+    } catch (error) {
+      logger.warn('Knowledge — annuaire indisponible, demandeur traité comme inconnu', {
+        requesterId,
+        error,
+      });
+    }
+
+    const requester: Requester = { slackUserId: requesterId, subject: requesterPerson };
+
+    const nominative = classifyPerson(person, requesterId, requesterPerson);
+    if (nominative.kind === 'unparsable') return { reason: 'person_not_resolved' };
+
+    if (nominative.kind === 'other') {
+      const verdict = authorizeOtherMemoryRead(requester);
+      if (!verdict.allowed) {
+        logger.warn('Knowledge — recherche nominative refusée', {
+          scope: 'knowledge_base',
+          requesterId,
+          reason: verdict.reason,
+        });
+        return { reason: verdict.reason };
+      }
+    }
+
+    if (nominative.kind === 'self') {
+      const verdict = authorizeMemoryRead(requester, requesterId);
+      if (!verdict.allowed) return { reason: verdict.reason };
+    }
+
+    const target = await resolveTarget(deps.directory, nominative);
+    if (target === 'not_found') return { reason: 'person_not_found' };
+
+    return { requester, target };
   }
 
   return createTool({
@@ -253,44 +307,10 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
       }
 
       const requesterId = slack.slackUserId;
+      const admission = await admit(requesterId, data.person);
+      if ('reason' in admission) return refuse(admission.reason);
 
-      let requesterPerson: DirectoryPerson | null = null;
-      try {
-        requesterPerson = await deps.directory.findBySlackUserId(requesterId);
-      } catch (error) {
-        logger.warn('Knowledge — annuaire indisponible, demandeur traité comme inconnu', {
-          requesterId,
-          error,
-        });
-      }
-
-      const requester: Requester = { slackUserId: requesterId, subject: requesterPerson };
-
-      const nominative = classifyPerson(data.person, requesterId, requesterPerson);
-      if (nominative.kind === 'unparsable') return refuse('person_not_resolved');
-
-      // ⚠️ LE VERDICT TOMBE AVANT TOUTE LECTURE, et c'est ce qui empêche l'ORACLE : sans cela,
-      // « personne inconnue » et « tu n'as pas le droit » se distinguent, et l'annuaire
-      // s'énumère une adresse à la fois. Même règle que le chemin email de `getEmployeeProfile`.
-      if (nominative.kind === 'other') {
-        const verdict = authorizeOtherMemoryRead(requester);
-        if (!verdict.allowed) {
-          logger.warn('Knowledge — recherche nominative refusée', {
-            scope: 'knowledge_base',
-            requesterId,
-            reason: verdict.reason,
-          });
-          return refuse(verdict.reason);
-        }
-      }
-
-      if (nominative.kind === 'self') {
-        const verdict = authorizeMemoryRead(requester, requesterId);
-        if (!verdict.allowed) return refuse(verdict.reason);
-      }
-
-      const target = await resolveTarget(deps.directory, nominative);
-      if (target === 'not_found') return refuse('person_not_found');
+      const { requester, target } = admission;
 
       const scope = {
         channelId: data.channelId?.toUpperCase(),
@@ -385,15 +405,16 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
   });
 }
 
+const COVERAGE_SOURCES: Readonly<Record<string, string>> = {
+  facts: "Ces éléments viennent de ce que j'ai retenu au fil des canaux",
+  messages: "Ces éléments sont des messages bruts d'archive",
+  live: 'Ces éléments viennent de canaux que je viens de relire à l’instant, sur le dernier mois',
+};
+
 function describeSearchCoverage(shown: number, matched: number, tier: string): string {
   // ⚠️ La provenance est DITE, et elle change ce que la personne doit en conclure : une lecture
   // en direct ne voit que la fenêtre récente, une archive ne voit que ce qui a été capté.
-  const source =
-    tier === 'facts'
-      ? "Ces éléments viennent de ce que j'ai retenu au fil des canaux"
-      : tier === 'live'
-        ? 'Ces éléments viennent de canaux que je viens de relire à l’instant, sur le dernier mois'
-        : "Ces éléments sont des messages bruts d'archive";
+  const source = COVERAGE_SOURCES[tier] ?? COVERAGE_SOURCES.messages;
 
   const truncation = matched > shown ? ` sur ${matched} correspondances` : '';
 
