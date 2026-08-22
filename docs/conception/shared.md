@@ -6350,3 +6350,63 @@ Les tests ne recopient plus de numéro. Ils lisent `EMERGENCY_LINES.crisis.numbe
 d'abord verrouillé le 3114, puis SURPIN — deux chiffres recopiés qu'aucun mécanisme ne reliait
 au pays réel des salariés. **Un numéro écrit en dur dans un test est un numéro que personne ne
 revérifiera.**
+
+---
+
+## Décisions du 2026-08-22 — deux contournements de sécurité fermés
+
+### `src/shared/security/agent-output.ts`
+
+**Avant `function hostnameOf(`**
+
+⚠️ **LE PARSEUR MAISON ET LE NAVIGATEUR LISAIENT DEUX HÔTES DIFFÉRENTS.** Il cherchait la
+fin de l'autorité sur `[/?#]` et ignorait `\`. Or les navigateurs et Slack traitent `\` comme
+un séparateur de chemin en http(s) :
+
+    https://evil.com\@slack.com/steal   analyse maison → « slack.com » → AUTORISÉ
+                                        navigateur     → « evil.com »  → où le clic mène
+
+Reproduit avant correctif : le lien traversait **intact**, et `strippedUrls` restait vide —
+donc l'événement n'était même pas journalisé, alors qu'un `https://evil.com/normal` nu était
+bien retiré. Le même filtre sert les réponses Slack, les corps d'email et les documents
+produits : c'était un canal d'hameçonnage signé par le bot, avec le pire des symptômes —
+aucun.
+
+⚠️ **On délègue au parseur WHATWG plutôt que de rattraper `\`.** Rattraper un caractère, c'est
+parier qu'on a la liste complète des divergences entre son analyse et celle du navigateur. La
+seule façon de garantir que les deux lectures coïncident est d'employer la même. `new URL()`
+lève sur une entrée non analysable, ce qui rend `''`, ce qui retire le lien : **fail-closed
+par construction**.
+
+Le fichier des entretiens (`interview-email.ts`) faisait déjà ainsi — la bonne forme existait
+dans le dépôt, elle n'avait pas été portée ici.
+
+### `src/shared/security/llm-guardrail.ts`
+
+**Avant `const suspiciousTagPattern =`**
+
+⚠️ **REDOS QUADRATIQUE, MESURÉ.** Le motif portait `<\s*\/?\s*(?:user_input|…)` : deux
+quantificateurs de BLANCS séparés par un `/` optionnel, donc une espace pouvait être consommée
+par l'un ou par l'autre — N²/2 découpes avant de conclure à l'échec.
+
+Mesuré sur `wrapExternalData` : 20 k → **215 ms**, 50 k → **1 357 ms** (ratio 6,25 = (50/20)²,
+la signature d'un coût quadratique). Après correctif : **0 ms**.
+
+⚠️ **Atteignable par un simple DM.** `archiveChannelMessage` stocke le texte BRUT — sans
+`cleanText`, sans borne de longueur — et s'exécute à l'ingestion, avant la garde de forme et
+avant la limitation de débit. Le rideau à faits en concatène cinq et les passe à
+`wrapExternalData`.
+
+⚠️ **Le garde-fou existant restait VERT**, et pour deux raisons cumulées : ses charges pour
+`wrapExternalData` commençaient par `<a` — or `a` n'est pas un blanc, donc le motif ne
+s'amorçait jamais ; et son budget de 2 s laissait passer un défaut à 1 357 ms. Les deux ont
+été corrigés : charges `<`+espaces et `</`+espaces ajoutées, budget resserré à 400 ms pour ce
+groupe (200× la marge du coût réel une fois linéaire).
+
+⚠️ **Zéro divergence de détection**, vérifiée sur 14 formes une à une avant/après : c'est un
+correctif de COÛT, pas de sémantique. Un correctif ReDoS qui affaiblit la détection serait pire
+que le défaut.
+
+Signe qui ne trompe pas : la désactivation `sonarjs/super-linear-regex` en tête de fichier est
+devenue **inutile** et a été retirée. La règle signalait un motif réel ; la désactivation le
+masquait.

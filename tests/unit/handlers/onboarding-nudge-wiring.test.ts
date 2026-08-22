@@ -52,7 +52,7 @@ function makeHandler(options: { lastAssistant?: string; agentText: string }) {
           ]
         : [],
     ),
-    prune: vi.fn(async () => 0),
+    pruneOlderThan: vi.fn(async () => 0),
     forget: vi.fn(async () => 0),
   };
 

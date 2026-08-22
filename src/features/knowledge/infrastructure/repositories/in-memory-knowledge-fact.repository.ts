@@ -48,10 +48,10 @@ export class InMemoryKnowledgeFactRepository implements KnowledgeFactRepository 
     return removed;
   }
 
-  async prune(before: number): Promise<number> {
+  async pruneOlderThan(cutoffMs: number): Promise<number> {
     let removed = 0;
     for (const [id, row] of this.rows) {
-      if (row.postedAt < before) {
+      if (row.postedAt < cutoffMs) {
         this.rows.delete(id);
         removed += 1;
       }

@@ -1305,7 +1305,7 @@ describe('SlackEventsHandler — mémoire conversationnelle', () => {
     const broken: ConversationRepository = {
       append: vi.fn().mockRejectedValue(new Error('no such table: conversation_turns')),
       recentTurns: vi.fn().mockRejectedValue(new Error('no such table: conversation_turns')),
-      prune: vi.fn().mockResolvedValue(0),
+      pruneOlderThan: vi.fn().mockResolvedValue(0),
       forget: vi.fn().mockRejectedValue(new Error('no such table: conversation_turns')),
     };
     const { handler, slack } = makeHandler({ conversationRepository: broken });
@@ -2736,7 +2736,7 @@ describe('SlackEventsHandler — court-circuits sans appel LLM', () => {
     const broken: ConversationRepository = {
       append: vi.fn().mockResolvedValue(undefined),
       recentTurns: vi.fn().mockResolvedValue([]),
-      prune: vi.fn().mockResolvedValue(0),
+      pruneOlderThan: vi.fn().mockResolvedValue(0),
       forget: vi.fn().mockRejectedValue(new Error('no such table: conversation_turns')),
     };
 

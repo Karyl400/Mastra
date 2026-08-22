@@ -53,7 +53,7 @@ function makeHandler(member: Record<string, unknown>, profileRepo: Record<string
       slackClient: slack as never,
       conversationRepository: null,
       pinnedFactRepository: null,
-      dedupRepository: { claim: async () => true, prune: async () => 0 } as never,
+      dedupRepository: { claim: async () => true, pruneOlderThan: async () => 0 } as never,
       rateLimiter: null,
       pruneProbability: 0,
       directoryRepository: { findBySlackUserId: async () => member } as never,

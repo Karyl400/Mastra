@@ -37,20 +37,6 @@ describe('NotificationAgent Agent', () => {
     expect(agent.name).toBe('Notification Agent');
   });
 
-  it('should include security prompt in instructions', () => {
-    const agent = makeNotificationAgent({});
-    expect(agent).toBeDefined();
-    // agent.instructions est privé dans Mastra 0.2
-  });
-
-  it('should inject provided tools', () => {
-    const mockTools = { sendNotification: { execute: vi.fn() } };
-    const agent = makeNotificationAgent(mockTools);
-
-    expect(agent).toBeDefined();
-    // agent.tools est privé dans Mastra 0.2
-  });
-
   describe('chaîne de modèles Gemini → Groq → Mistral', () => {
     beforeEach(() => {
       vi.stubEnv('GROQ_API_KEY', 'test-groq-key');

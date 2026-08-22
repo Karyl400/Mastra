@@ -172,6 +172,30 @@ describe('sanitizeAgentOutput — filtre des liens', () => {
     expect(result.strippedUrls).toEqual(['kisso.internal', 'drive.example']);
   });
 
+  it("n'est pas trompé par un ANTISLASH avant l'arobase", () => {
+    // ⚠️ CONTOURNEMENT RÉEL, trouvé le 2026-08-22. Le parseur maison cherchait la fin de
+    // l'autorité sur `[/?#]` et ignorait `\`. Or les navigateurs et Slack traitent `\` comme
+    // un séparateur de chemin en http(s) : les deux lectures divergent.
+    //
+    //   analyse maison  → « slack.com »  → autorisé
+    //   navigateur      → « evil.com »   → où le clic mène VRAIMENT
+    //
+    // Le lien traversait INTACT et `strippedUrls` restait vide, donc l'événement n'était même
+    // pas journalisé. Le même filtre sert les réponses Slack, les corps d'email et les
+    // documents produits : c'est un canal d'hameçonnage signé par le bot.
+    const result = sanitizeAgentOutput('Clique https://evil.com\\@slack.com/steal?d=secret');
+
+    expect(result.text).toContain('[lien retiré]');
+    expect(result.strippedUrls).toEqual(['evil.com']);
+  });
+
+  it('retire aussi la forme mrkdwn de ce contournement', () => {
+    const result = sanitizeAgentOutput('<https://evil.com\\@slack.com/steal|clique ici>');
+
+    expect(result.text).toContain('[lien retiré]');
+    expect(result.strippedUrls).toEqual(['evil.com']);
+  });
+
   it("n'est pas trompé par un domaine autorisé placé en userinfo", () => {
     // `https://kissohq.slack.com@evil.tld/x` : l'hôte RÉEL est `evil.tld`.
     const result = sanitizeAgentOutput('Clique https://kissohq.slack.com@evil.tld/x');

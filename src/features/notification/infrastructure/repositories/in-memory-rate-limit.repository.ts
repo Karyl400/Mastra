@@ -21,7 +21,7 @@ export class InMemoryRateLimitRepository implements RateLimitRepository {
     return existing.count;
   }
 
-  async prune(now: Date): Promise<number> {
+  async pruneExpired(now: Date): Promise<number> {
     const cutoff = now.getTime();
     let removed = 0;
 

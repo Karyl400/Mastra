@@ -143,7 +143,7 @@ describe('InMemoryConversationRepository', () => {
     });
   });
 
-  describe('prune', () => {
+  describe('pruneOlderThan', () => {
     it('supprime les tours antérieurs à la date et renvoie leur nombre', async () => {
       await repo.append(draft({ content: 'vieux-1' }));
       await repo.append(draft({ content: 'vieux-2' }));
@@ -151,7 +151,7 @@ describe('InMemoryConversationRepository', () => {
       vi.setSystemTime(new Date(T0.getTime() + CONVERSATION_TTL_MS + 60_000));
       await repo.append(draft({ content: 'récent' }));
 
-      const removed = await repo.prune(new Date(Date.now() - CONVERSATION_TTL_MS));
+      const removed = await repo.pruneOlderThan(new Date(Date.now() - CONVERSATION_TTL_MS));
 
       expect(removed).toBe(2);
       const turns = await repo.recentTurns('D0BJGBVB5HP', {
@@ -167,12 +167,12 @@ describe('InMemoryConversationRepository', () => {
 
       vi.setSystemTime(new Date(T0.getTime() + CONVERSATION_TTL_MS + 60_000));
 
-      expect(await repo.prune(new Date(Date.now() - CONVERSATION_TTL_MS))).toBe(2);
+      expect(await repo.pruneOlderThan(new Date(Date.now() - CONVERSATION_TTL_MS))).toBe(2);
     });
 
     it('renvoie 0 quand rien ne dépasse la date', async () => {
       await repo.append(draft());
-      expect(await repo.prune(new Date(T0.getTime() - 60_000))).toBe(0);
+      expect(await repo.pruneOlderThan(new Date(T0.getTime() - 60_000))).toBe(0);
     });
   });
 

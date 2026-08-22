@@ -32,9 +32,9 @@ export class InMemoryConversationRepository implements ConversationRepository {
     return options.limit > 0 ? alive.slice(-options.limit) : [];
   }
 
-  async prune(olderThan: Date): Promise<number> {
+  async pruneOlderThan(cutoff: Date): Promise<number> {
     const before = this.turns.length;
-    this.turns = this.turns.filter((turn) => turn.createdAt.getTime() >= olderThan.getTime());
+    this.turns = this.turns.filter((turn) => turn.createdAt.getTime() >= cutoff.getTime());
     return before - this.turns.length;
   }
 

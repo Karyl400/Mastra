@@ -134,14 +134,14 @@ describe.each(implementations)('$nom — contrat de compteur', ({ make }) => {
     // ligne : une clé très sollicitée survivrait indéfiniment à sa propre fenêtre.
     await repo.increment('burst:2:U1:0', T0, PLUS_1_H);
 
-    expect(await repo.prune(PLUS_1_MIN)).toBe(1);
+    expect(await repo.pruneExpired(PLUS_1_MIN)).toBe(1);
   });
 
   it('purge les fenêtres expirées et ÉPARGNE les vivantes', async () => {
     await repo.increment('expire:1', T0, PLUS_1_MIN);
     await repo.increment('vivante:1', T0, PLUS_1_H);
 
-    const supprimees = await repo.prune(new Date(PLUS_1_MIN.getTime() + 1));
+    const supprimees = await repo.pruneExpired(new Date(PLUS_1_MIN.getTime() + 1));
 
     expect(supprimees).toBe(1);
     // La ligne expirée a bien disparu : son compteur repart à 1.
@@ -155,12 +155,12 @@ describe.each(implementations)('$nom — contrat de compteur', ({ make }) => {
 
     // `expiresAt` porte déjà la marge de purge de `rate-limit-policy.ts` : une ligne dont
     // l'expiration est atteinte n'a plus rien à protéger.
-    expect(await repo.prune(PLUS_1_MIN)).toBe(1);
+    expect(await repo.pruneExpired(PLUS_1_MIN)).toBe(1);
   });
 
   it('rend 0 quand il n’y a rien à purger', async () => {
     await repo.increment('vivante:1', T0, PLUS_1_H);
-    expect(await repo.prune(T0)).toBe(0);
+    expect(await repo.pruneExpired(T0)).toBe(0);
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -250,7 +250,7 @@ describe('DrizzleRateLimitRepository — un SEUL énoncé, et il est le bon', ()
     await repo.increment('mort:1', T0, PLUS_1_MIN);
     await repo.increment('vif:1', T0, PLUS_1_H);
 
-    await repo.prune(PLUS_1_MIN);
+    await repo.pruneExpired(PLUS_1_MIN);
 
     const rows = await client!.execute('SELECT key FROM rate_limit_counters');
     expect(rows.rows.map((r) => r.key)).toEqual(['vif:1']);

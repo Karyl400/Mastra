@@ -110,9 +110,12 @@ export class DrizzleKnowledgeFactRepository implements KnowledgeFactRepository {
     return result.rowsAffected;
   }
 
-  async prune(before: number): Promise<number> {
+  async pruneOlderThan(cutoffMs: number): Promise<number> {
     const db = getDb();
-    const result = await db.delete(knowledgeFacts).where(lt(knowledgeFacts.postedAt, before)).run();
+    const result = await db
+      .delete(knowledgeFacts)
+      .where(lt(knowledgeFacts.postedAt, cutoffMs))
+      .run();
 
     return result.rowsAffected;
   }

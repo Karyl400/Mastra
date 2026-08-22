@@ -23,5 +23,5 @@ export interface KnowledgeFactRepository {
   search(query: string, options?: KnowledgeFactSearchOptions): Promise<readonly KnowledgeFact[]>;
   recent(options?: KnowledgeFactSearchOptions): Promise<readonly KnowledgeFact[]>;
   forgetUser(scope: ForgetScope): Promise<number>;
-  prune(before: number): Promise<number>;
+  pruneOlderThan(cutoffMs: number): Promise<number>;
 }

@@ -3521,3 +3521,19 @@ Non configurée : on ne vérifie pas, et l'appelant journalise UNE fois que le c
 **Avant `if (!got) return { accepted: true, checked: true };`**
 
 Slack, et le refuser transformerait une défense en profondeur en panne intermittente.
+
+---
+
+## Décisions du 2026-08-22 — le sens du verbe entre dans le nom
+
+### Les cinq `prune()` devenus `pruneExpired` / `pruneOlderThan`
+
+⚠️ **UN NOM, TROIS SÉMANTIQUES D'ARGUMENT.** `prune(olderThan: Date)` sur la conversation et
+la déduplication, `prune(now: Date)` sur la limitation de débit, `prune(before: number)` sur
+l'archive et les faits. Le même appel `prune(new Date())` supprimait **tout** sur quatre
+dépôts et **rien** sur le cinquième, et aucun type ne s'y opposait : les deux premiers
+prennent une `Date`, l'un comme seuil d'ancienneté, l'autre comme instant courant.
+
+Le verbe seul ne pouvait pas porter la distinction. Elle est maintenant dans le nom
+(`pruneExpired` supprime ce qui a expiré à l'instant donné ; `pruneOlderThan` supprime ce qui
+précède un seuil) et l'unité est dans le paramètre (`cutoff: Date`, `cutoffMs: number`).

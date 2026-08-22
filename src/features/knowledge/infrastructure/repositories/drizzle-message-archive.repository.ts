@@ -90,11 +90,11 @@ export class DrizzleMessageArchiveRepository implements MessageArchiveRepository
     return result.rowsAffected;
   }
 
-  async prune(before: number): Promise<number> {
+  async pruneOlderThan(cutoffMs: number): Promise<number> {
     const db = getDb();
     const result = await db
       .delete(channelMessages)
-      .where(lt(channelMessages.postedAt, before))
+      .where(lt(channelMessages.postedAt, cutoffMs))
       .run();
 
     return result.rowsAffected;

@@ -1,4 +1,4 @@
-/* eslint-disable sonarjs/super-linear-regex, sonarjs/regex-complexity, security/detect-unsafe-regex, security/detect-non-literal-regexp, no-control-regex */
+/* eslint-disable sonarjs/regex-complexity, security/detect-unsafe-regex, security/detect-non-literal-regexp, no-control-regex */
 
 import {
   createHash,
@@ -491,7 +491,7 @@ class DelimiterGenerator {
     }
 
     const suspiciousTagPattern =
-      /<\s*\/?\s*(?:user_input|external_data|system|instruction|prompt|security)[^>]*>/gi;
+      /<\s*(?:\/\s*)?(?:user_input|external_data|system|instruction|prompt|security)[^<>]*>/gi;
     if (suspiciousTagPattern.test(text)) {
       return { valid: false, reason: 'Suspicious tag injection detected' };
     }
@@ -511,7 +511,7 @@ function sanitizeInputAdvanced(input: string, delimiters: DelimiterSet): string 
     return match.replace(/</g, '&lt;').replace(/>/g, '&gt;');
   });
 
-  sanitized = sanitized.replace(/<\/?\s*[a-zA-Z_][^>]*>/g, (match) => {
+  sanitized = sanitized.replace(/<\/?\s*[a-zA-Z_][^<>]*>/g, (match) => {
     if (match.includes(tagPrefix)) {
       return match;
     }

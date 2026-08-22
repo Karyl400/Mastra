@@ -41,11 +41,11 @@ export class InMemorySlackEventDedupRepository implements SlackEventDedupReposit
     this.rows.delete(key);
   }
 
-  async prune(olderThan: Date): Promise<number> {
-    const cutoff = olderThan.getTime();
+  async pruneOlderThan(cutoff: Date): Promise<number> {
+    const cutoffMs = cutoff.getTime();
     let removed = 0;
     for (const [key, row] of this.rows) {
-      if (row.startedAt < cutoff) {
+      if (row.startedAt < cutoffMs) {
         this.rows.delete(key);
         removed += 1;
       }

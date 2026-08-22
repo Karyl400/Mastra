@@ -51,11 +51,11 @@ export class DrizzleConversationRepository implements ConversationRepository {
     return rows.reverse().map(toDomain);
   }
 
-  async prune(olderThan: Date): Promise<number> {
+  async pruneOlderThan(cutoff: Date): Promise<number> {
     const db = getDb();
     const result = await db
       .delete(conversationTurns)
-      .where(lt(conversationTurns.createdAt, olderThan));
+      .where(lt(conversationTurns.createdAt, cutoff));
     return (result as { rowsAffected?: number }).rowsAffected ?? 0;
   }
 

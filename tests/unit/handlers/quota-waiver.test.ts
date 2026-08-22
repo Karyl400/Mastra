@@ -55,7 +55,7 @@ function futureIso(): string {
 function countingRepository(counts: Readonly<Record<string, number>>): RateLimitRepository {
   return {
     increment: vi.fn(async (key: string) => counts[key.split(':')[0] ?? ''] ?? 0),
-    prune: vi.fn(async () => 0),
+    pruneOlderThan: vi.fn(async () => 0),
   } as unknown as RateLimitRepository;
 }
 
@@ -112,7 +112,7 @@ function makeHandler(options?: {
           ]
         : [],
     ),
-    prune: vi.fn(async () => 0),
+    pruneOlderThan: vi.fn(async () => 0),
     forget: vi.fn(async () => 0),
   };
 

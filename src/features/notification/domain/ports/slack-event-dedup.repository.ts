@@ -21,5 +21,5 @@ export interface SlackEventDedupRepository {
 
   release(key: string): Promise<void>;
 
-  prune(olderThan: Date): Promise<number>;
+  pruneOlderThan(cutoff: Date): Promise<number>;
 }

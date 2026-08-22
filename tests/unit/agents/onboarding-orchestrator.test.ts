@@ -37,20 +37,6 @@ describe('OnboardingOrchestrator Agent', () => {
     expect(agent.name).toBe('Onboarding Orchestrator');
   });
 
-  it('should include security prompt in instructions', () => {
-    const agent = makeOnboardingOrchestrator({});
-    expect(agent).toBeDefined();
-    // agent.instructions est privé
-  });
-
-  it('should inject provided tools', () => {
-    const mockTools = { testTool: {} };
-    const agent = makeOnboardingOrchestrator(mockTools);
-
-    expect(agent).toBeDefined();
-    // agent.tools est privé
-  });
-
   describe('chaîne de modèles Gemini → Groq → Mistral', () => {
     beforeEach(() => {
       vi.stubEnv('GROQ_API_KEY', 'test-groq-key');

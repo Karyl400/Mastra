@@ -16,7 +16,7 @@ function countingRepository(): RateLimitRepository & { calls: number } {
       counts.set(key, next);
       return next;
     },
-    async prune() {
+    async pruneExpired() {
       return 0;
     },
   };
@@ -27,7 +27,7 @@ function failingRepository(): RateLimitRepository {
     async increment() {
       throw new Error('no such table: rate_limit_counters');
     },
-    async prune() {
+    async pruneExpired() {
       throw new Error('no such table: rate_limit_counters');
     },
   };
@@ -123,7 +123,7 @@ describe('SlackRateLimiter', () => {
           counts.set(key, next);
           return next;
         },
-        async prune() {
+        async pruneExpired() {
           return 0;
         },
       };
@@ -193,7 +193,7 @@ describe('SlackRateLimiter', () => {
           counts.set(key, next);
           return next;
         },
-        async prune() {
+        async pruneExpired() {
           return 0;
         },
       };
@@ -261,7 +261,7 @@ describe('SlackRateLimiter', () => {
           if (key.startsWith('burst:')) await new Promise((resolve) => setTimeout(resolve, 30));
           return 999;
         },
-        async prune() {
+        async pruneExpired() {
           return 0;
         },
       };
@@ -281,7 +281,7 @@ describe('SlackRateLimiter', () => {
           if (key.startsWith('daily:')) throw new Error('no such table: rate_limit_counters');
           return 1;
         },
-        async prune() {
+        async pruneExpired() {
           return 0;
         },
       };
@@ -294,16 +294,16 @@ describe('SlackRateLimiter', () => {
     });
   });
 
-  describe('prune', () => {
+  describe('pruneExpired', () => {
     it('ne lève jamais, même si le store échoue', async () => {
       const limiter = new SlackRateLimiter({ rules: [RULE], repository: failingRepository() });
-      await expect(limiter.prune(new Date(0))).resolves.toBeUndefined();
+      await expect(limiter.pruneExpired(new Date(0))).resolves.toBeUndefined();
     });
 
     it('ne fait rien sans store', async () => {
       const spy = vi.fn();
       const limiter = new SlackRateLimiter({ rules: [RULE], repository: null });
-      await limiter.prune(new Date(0));
+      await limiter.pruneExpired(new Date(0));
       expect(spy).not.toHaveBeenCalled();
     });
   });

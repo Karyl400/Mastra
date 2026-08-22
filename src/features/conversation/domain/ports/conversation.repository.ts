@@ -17,7 +17,7 @@ export interface ConversationRepository {
 
   recentTurns(conversationId: string, options: RecentTurnsOptions): Promise<ConversationTurn[]>;
 
-  prune(olderThan: Date): Promise<number>;
+  pruneOlderThan(cutoff: Date): Promise<number>;
 
   forget(scope: ForgetScope): Promise<number>;
 }

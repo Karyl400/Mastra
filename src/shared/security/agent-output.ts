@@ -82,22 +82,11 @@ function trimTrailingPunctuation(url: string): string {
 }
 
 function hostnameOf(url: string): string {
-  const schemeEnd = url.indexOf('://');
-  if (schemeEnd === -1) return '';
-
-  const afterScheme = url.slice(schemeEnd + 3);
-  const pathStart = afterScheme.search(/[/?#]/);
-  let authority = pathStart === -1 ? afterScheme : afterScheme.slice(0, pathStart);
-
-  const userInfoEnd = authority.lastIndexOf('@');
-  if (userInfoEnd !== -1) authority = authority.slice(userInfoEnd + 1);
-
-  const portStart = authority.lastIndexOf(':');
-  if (portStart !== -1 && /^\d*$/.test(authority.slice(portStart + 1))) {
-    authority = authority.slice(0, portStart);
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return '';
   }
-
-  return authority.toLowerCase();
 }
 
 function isAllowedHost(host: string): boolean {

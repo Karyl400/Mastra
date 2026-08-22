@@ -16,7 +16,7 @@ export interface MessageArchiveRepository {
   archive(message: ArchivedMessage): Promise<boolean>;
   search(query: string, options?: MessageSearchOptions): Promise<readonly ArchivedMessage[]>;
   forgetUser(scope: ForgetScope): Promise<number>;
-  prune(before: number): Promise<number>;
+  pruneOlderThan(cutoffMs: number): Promise<number>;
 
   pendingDistillation(sinceMs: number, limit: number): Promise<readonly ArchivedMessage[]>;
 

@@ -33,8 +33,8 @@ export async function pruneKnowledge(deps: PruneDeps): Promise<PruneReport> {
   let messages = 0;
 
   try {
-    if (deps.facts) facts = await deps.facts.prune(window.before);
-    messages = await deps.archive.prune(window.before);
+    if (deps.facts) facts = await deps.facts.pruneOlderThan(window.before);
+    messages = await deps.archive.pruneOlderThan(window.before);
     logger.info('Rétention appliquée', { days: window.days, messages, facts });
   } catch (error) {
     logger.error('Rétention interrompue — sans conséquence sur la remise des rappels', {

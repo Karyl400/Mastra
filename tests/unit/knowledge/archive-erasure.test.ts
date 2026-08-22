@@ -3,7 +3,7 @@
  * L'EFFACEMENT DE L'ARCHIVE — implémenté quatre fois, appelé zéro fois
  * ════════════════════════════════════════════════════════════════════════════
  *
- * `forgetUser` et `prune` existent dans les deux ports de la feature `knowledge`, sont
+ * `forgetUser` et `pruneOlderThan` existent dans les deux ports de la feature `knowledge`, sont
  * implémentées dans les quatre dépôts… et l'audit du 2026-08-21 a mesuré **zéro appelant, dans
  * tout `src/` et tout `scripts/`**. Le port le dit pourtant lui-même : *« `forgetUser` emporte
  * l'archive d'une personne (c'est le droit à l'effacement) »*.
@@ -106,7 +106,7 @@ describe("l'archive des messages", () => {
   });
 
   it('purge par ancienneté — la rétention que rien n’appelait', async () => {
-    const removed = await archive.prune(BASE_TS + 2500);
+    const removed = await archive.pruneOlderThan(BASE_TS + 2500);
 
     expect(removed).toBe(2);
     expect(await archive.pendingDistillation(ALL, 100)).toHaveLength(2);

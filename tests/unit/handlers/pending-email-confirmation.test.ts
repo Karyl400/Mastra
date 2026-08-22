@@ -97,7 +97,7 @@ function makeHandler(options?: {
           ]
         : [],
     ),
-    prune: vi.fn(async () => 0),
+    pruneOlderThan: vi.fn(async () => 0),
     forget: vi.fn(async () => 0),
   };
 

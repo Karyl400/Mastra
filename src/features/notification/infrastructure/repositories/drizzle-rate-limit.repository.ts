@@ -23,7 +23,7 @@ export class DrizzleRateLimitRepository implements RateLimitRepository {
     return row?.count ?? 0;
   }
 
-  async prune(now: Date): Promise<number> {
+  async pruneExpired(now: Date): Promise<number> {
     const db = this.resolveDb();
     const result = await db.delete(rateLimitCounters).where(lte(rateLimitCounters.expiresAt, now));
     return rowsAffected(result);

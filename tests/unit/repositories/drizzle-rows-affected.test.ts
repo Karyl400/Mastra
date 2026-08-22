@@ -148,12 +148,12 @@ describe('DrizzleSlackEventDedupRepository — contre un vrai libsql en mémoire
     });
   });
 
-  it('`prune` rend le NOMBRE de lignes purgées, et épargne les récentes', async () => {
+  it('`pruneOlderThan` rend le NOMBRE de lignes purgées, et épargne les récentes', async () => {
     await repo.claim('ts:D0:1', { inFlightGraceMs: GRACE_MS });
     await repo.claim('ts:D0:2', { inFlightGraceMs: GRACE_MS });
 
-    expect(await repo.prune(new Date(Date.now() - 10 * 60 * 1000))).toBe(0);
-    expect(await repo.prune(new Date(Date.now() + 1000))).toBe(2);
+    expect(await repo.pruneOlderThan(new Date(Date.now() - 10 * 60 * 1000))).toBe(0);
+    expect(await repo.pruneOlderThan(new Date(Date.now() + 1000))).toBe(2);
   });
 
   it('LE PILOTE LIBSQL RENSEIGNE BIEN `rowsAffected` — le `?? 0` n’est jamais pris', async () => {
@@ -314,7 +314,7 @@ describe('DrizzleSlackEventDedupRepository — ce que dit exactement `rowsAffect
     expect(claim).toMatchObject({ status: 'in-flight' });
   });
 
-  it('⚠️ `rowsAffected` absent sur `prune` ⇒ 0 purgée annoncée, purge réelle inconnue', async () => {
+  it('⚠️ `rowsAffected` absent sur `pruneOlderThan` ⇒ 0 purgée annoncée, purge réelle inconnue', async () => {
     // Ici la conséquence est bénigne — un chiffre faux dans un journal — mais elle est la même
     // lecture, au même endroit. La figer rend visible que les deux usages partagent un sort.
     const db = {
@@ -326,7 +326,9 @@ describe('DrizzleSlackEventDedupRepository — ce que dit exactement `rowsAffect
     };
     holder.db = db;
 
-    await expect(new DrizzleSlackEventDedupRepository().prune(new Date())).resolves.toBe(0);
+    await expect(new DrizzleSlackEventDedupRepository().pruneOlderThan(new Date())).resolves.toBe(
+      0,
+    );
   });
 });
 

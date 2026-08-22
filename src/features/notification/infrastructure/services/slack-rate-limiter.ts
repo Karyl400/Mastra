@@ -267,11 +267,11 @@ export class SlackRateLimiter {
     this.degradationLogged = true;
   }
 
-  async prune(now: Date = new Date()): Promise<void> {
+  async pruneExpired(now: Date = new Date()): Promise<void> {
     if (!this.repository) return;
 
     try {
-      const removed = await this.repository.prune(now);
+      const removed = await this.repository.pruneExpired(now);
       if (removed > 0) logger.info('Pruned expired rate limit windows', { removed });
     } catch (error) {
       logger.warn('Rate limit pruning failed', { error });

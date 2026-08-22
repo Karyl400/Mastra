@@ -84,8 +84,8 @@ describe('SlackEventDedupRepository — contrat de prise de clé', () => {
     await repo.claim('ts:D1:4.1', { inFlightGraceMs: GRACE_MS });
     await repo.markDone('ts:D1:4.1');
 
-    expect(await repo.prune(new Date(Date.now() - 10 * 60 * 1000))).toBe(0);
-    expect(await repo.prune(new Date(Date.now() + 1))).toBe(1);
+    expect(await repo.pruneOlderThan(new Date(Date.now() - 10 * 60 * 1000))).toBe(0);
+    expect(await repo.pruneOlderThan(new Date(Date.now() + 1))).toBe(1);
 
     // Purgée, la clé redevient prenable — sans danger : passé la fenêtre de rejeu de Slack
     // (~10 min), plus aucun renvoi n'arrive.

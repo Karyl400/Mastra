@@ -36,7 +36,7 @@ function sharedRepository(): RateLimitRepository & { counts: Map<string, number>
       counts.set(key, next);
       return next;
     },
-    async prune() {
+    async pruneExpired() {
       return 0;
     },
   };
@@ -116,7 +116,7 @@ describe('dépôt partagé indisponible', () => {
       async increment() {
         throw new Error('turso down');
       },
-      async prune() {
+      async pruneExpired() {
         return 0;
       },
     };

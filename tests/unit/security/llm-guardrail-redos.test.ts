@@ -157,9 +157,30 @@ describe('ReDoS — wrapExternalData reste linéaire sur une charge adverse', ()
   // de 50 000 est ce que la fonction PROMET, et c'est sur sa promesse qu'on la mesure.
   const EXTERNAL_LENGTH = 50000;
 
+  /**
+   * ⚠️ BUDGET SERRÉ ICI, ET C'EST DÉLIBÉRÉ — 2026-08-22.
+   *
+   * Le budget global de 2 s protège la batterie générique du bruit d'une machine de CI
+   * chargée. Mais un défaut QUADRATIQUE mesuré à 1 357 ms passait sous ce seuil : le
+   * garde-fou était vert et ne gardait rien. Les charges ci-dessous s'exécutent en 0 à 2 ms
+   * une fois le motif linéaire — 200 fois sous ce plafond. On garde donc une marge énorme
+   * contre le bruit tout en attrapant réellement la classe de défaut.
+   */
+  const EXTERNAL_BUDGET_MS = 400;
+
   it.each([
     ['balise ouverte suivie d’espaces', '<a' + ' '.repeat(EXTERNAL_LENGTH - 2)],
     ['chevrons alternés', '<' + '<>'.repeat((EXTERNAL_LENGTH - 1) / 2)],
+    // ⚠️ TROU DE COUVERTURE, trouvé le 2026-08-22. Les deux charges ci-dessus laissaient
+    // `validateDelimiterIntegrity` intact : son motif porte `<\s*\/?\s*(?:user_input|…)`,
+    // deux quantificateurs de BLANCS séparés par un `/` optionnel, donc une espace pouvait
+    // être consommée par l'un ou par l'autre — N²/2 découpes. Or `<a` commence par une
+    // lettre, qui n'est pas un blanc : le motif ne s'amorçait jamais.
+    // Mesuré avant correctif : 54 ms à 8 k, 258 ms à 20 k, 1 841 ms à 50 k.
+    // Atteignable par un simple DM : `archiveChannelMessage` stocke le texte BRUT, sans
+    // `cleanText` et sans borne de longueur, et le rideau à faits en concatène cinq.
+    ['chevron nu suivi d’espaces', '<' + ' '.repeat(EXTERNAL_LENGTH - 1)],
+    ['chevron et barre oblique suivis d’espaces', '</' + ' '.repeat(EXTERNAL_LENGTH - 2)],
   ])('%s', (_label, payload) => {
     const started = Date.now();
 
@@ -169,6 +190,6 @@ describe('ReDoS — wrapExternalData reste linéaire sur une charge adverse', ()
       /* idem */
     }
 
-    expect(Date.now() - started).toBeLessThan(TIME_BUDGET_MS);
+    expect(Date.now() - started).toBeLessThan(EXTERNAL_BUDGET_MS);
   });
 });

@@ -924,7 +924,7 @@ export class SlackEventsHandler {
   private scheduleRateLimitPruneIfDue(): void {
     if (!this.pruneIsDue()) return;
 
-    void this.getRateLimiter()?.prune();
+    void this.getRateLimiter()?.pruneExpired();
   }
 
   private scheduleDedupPruneIfDue(): void {
@@ -934,7 +934,7 @@ export class SlackEventsHandler {
     if (!repo) return;
 
     void repo
-      .prune(new Date(Date.now() - SLACK_EVENT_DEDUP_RETENTION_MS))
+      .pruneOlderThan(new Date(Date.now() - SLACK_EVENT_DEDUP_RETENTION_MS))
       .then((removed) => logger.info('Pruned expired Slack dedup keys', { removed }))
       .catch((error) => logger.warn('Slack dedup prune failed', { error }));
   }
@@ -2450,7 +2450,7 @@ export class SlackEventsHandler {
     if (!repo) return;
 
     void repo
-      .prune(new Date(Date.now() - this.conversationTtlMs))
+      .pruneOlderThan(new Date(Date.now() - this.conversationTtlMs))
       .then((removed) => logger.info('Pruned expired conversation turns', { removed }))
       .catch((error) => logger.warn('Conversation prune failed', { error }));
   }

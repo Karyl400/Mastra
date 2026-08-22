@@ -67,9 +67,9 @@ export class DrizzleSlackEventDedupRepository implements SlackEventDedupReposito
     await db.delete(slackEventDedup).where(eq(slackEventDedup.key, key));
   }
 
-  async prune(olderThan: Date): Promise<number> {
+  async pruneOlderThan(cutoff: Date): Promise<number> {
     const db = getDb();
-    const result = await db.delete(slackEventDedup).where(lt(slackEventDedup.startedAt, olderThan));
+    const result = await db.delete(slackEventDedup).where(lt(slackEventDedup.startedAt, cutoff));
     return rowsAffected(result);
   }
 }
