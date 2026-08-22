@@ -120,10 +120,21 @@ export const PROFILE_CHAT_INTRO_NO_RECORD =
   'Je ne trouve pas encore de dossier à ton nom — on va arranger ça ensemble, ici même. ' +
   'Quatre questions, une réponse par message, et on n’en parle plus.';
 
+export function profileChatIntroPartial(missing: readonly string[]): string {
+  return (
+    `Je n’ai pas encore de dossier à ton nom, mais j’ai déjà une partie de tes réponses — ` +
+    `il me manque ${listOf(missing)}. On finit ça ici, une réponse par message.`
+  );
+}
+
 export function profileChatIntroMissing(missing: readonly string[]): string {
-  const list =
-    missing.length === 1 ? missing[0]! : `${missing.slice(0, -1).join(', ')} et ${missing.at(-1)!}`;
-  return `J’ai bien un dossier à ton nom, mais il me manque ${list}. On complète ça ici, une réponse par message.`;
+  return `J’ai bien un dossier à ton nom, mais il me manque ${listOf(missing)}. On complète ça ici, une réponse par message.`;
+}
+
+function listOf(missing: readonly string[]): string {
+  return missing.length === 1
+    ? missing[0]!
+    : `${missing.slice(0, -1).join(', ')} et ${missing.at(-1)!}`;
 }
 
 export const PROFILE_CHAT_SAVE_FAILED =

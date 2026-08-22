@@ -8,6 +8,7 @@ import {
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
 import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
 import { PROFILE_QUESTIONS } from '../../../src/features/onboarding/domain/services/profile-chat';
+import { INTERVIEW_QUESTION_DAILY } from '../../../src/features/onboarding/domain/services/interview-chat';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -206,5 +207,89 @@ describe('un poste au sommet déclaré prévient le manager', () => {
     await declarePosition(handler, 'Général Manager');
 
     expect(postedTo(slack)).toContain(DM);
+  });
+});
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * L'AUTRE MOITIÉ — le déclarant doit l'apprendre aussi
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ Prévenir le manager SANS rien dire à la personne laisse celle-ci croire que sa
+ * déclaration a été enregistrée sans réserve, pendant qu'une conversation s'ouvre derrière
+ * son dos. C'est la même asymétrie que `emailSent: false` sous `status: 'success'` : ce n'est
+ * pas un mensonge, c'est un silence sur ce qui vient d'avoir lieu.
+ */
+
+const dmTexts = (slack: { chat: { postMessage: { mock: { calls: unknown[][] } } } }) =>
+  slack.chat.postMessage.mock.calls
+    .filter((c) => (c[0] as { channel?: string }).channel === DM)
+    .map((c) => (c[0] as { text: string }).text);
+
+describe('le déclarant apprend que le rôle est déjà tenu', () => {
+  it('reçoit la règle et le NOM de qui porte le rôle', async () => {
+    const { handler, slack } = makeHandler();
+
+    await declarePosition(handler, 'Général Manager');
+
+    const notice = dmTexts(slack).find((t) => /une seule personne/i.test(t));
+    expect(notice).toBeDefined();
+    expect(notice).toContain('Nazer');
+    expect(notice).toContain('Général Manager');
+  });
+
+  it('l’apprend AVANT la question suivante — sinon la remarque arrive après coup', async () => {
+    const { handler, slack } = makeHandler();
+
+    await declarePosition(handler, 'Général Manager');
+
+    const texts = dmTexts(slack);
+    const notice = texts.findIndex((t) => /une seule personne/i.test(t));
+    const question = texts.findIndex((t) => t.includes(INTERVIEW_QUESTION_DAILY));
+    expect(notice).toBeGreaterThanOrEqual(0);
+    expect(question).toBeGreaterThan(notice);
+  });
+
+  it('ne dit RIEN sur un poste ordinaire', async () => {
+    const { handler, slack } = makeHandler();
+
+    await declarePosition(handler, 'Backend Developer');
+
+    expect(dmTexts(slack).some((t) => /une seule personne/i.test(t))).toBe(false);
+  });
+
+  it('ne dit rien au manager qui refait SON PROPRE dossier', async () => {
+    // Il n'y a pas de conflit avec soi-même : lui annoncer la règle serait absurde.
+    const { handler, slack } = makeHandler({ managers: [NEWCOMER] });
+
+    await declarePosition(handler, 'Général Manager');
+
+    expect(dmTexts(slack).some((t) => /une seule personne/i.test(t))).toBe(false);
+  });
+
+  it('ne dit rien quand le siège est VIDE — on ne peut pas entrer en conflit avec personne', async () => {
+    // La colonne `role` naît vide : « aucun manager » est l'état de DÉPART, pas un accident.
+    // Énoncer la règle sans pouvoir nommer qui la porte ni prévenir personne n'apprend rien.
+    const { handler, slack } = makeHandler({ managers: [] });
+
+    await declarePosition(handler, 'Général Manager');
+
+    expect(dmTexts(slack).some((t) => /une seule personne/i.test(t))).toBe(false);
+  });
+
+  it('ne PROMET pas d’avoir prévenu quand Slack a refusé le DM', async () => {
+    // Le pire cas serait de dire « je viens de lui écrire » après un échec : la personne
+    // repartirait en croyant la situation traitée.
+    const { handler, slack } = makeHandler();
+    slack.chat.postMessage.mockImplementation(async (arg: { channel?: string }) => {
+      if (arg.channel === MANAGER) throw new Error('channel_not_found');
+      return { ok: true, ts: '1' };
+    });
+
+    await declarePosition(handler, 'Général Manager');
+
+    const notice = dmTexts(slack).find((t) => /une seule personne/i.test(t));
+    expect(notice).toBeDefined();
+    expect(notice).toMatch(/pas réussi à lui écrire/i);
   });
 });

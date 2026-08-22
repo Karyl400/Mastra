@@ -109,6 +109,7 @@ import {
 import {
   declaresTopRole,
   topRoleClaimNotice,
+  topRoleClaimReply,
 } from '../../../onboarding/domain/services/top-role-claim';
 import {
   onboardingNudge,
@@ -2000,7 +2001,8 @@ export class SlackEventsHandler {
           notify: (text) => this.sayAndRemember(input, text),
           onRecordReady: async (employeeId) => {
             await this.linkRequesterToRecord(input.user, employeeId);
-            void this.warnManagersOfTopRoleClaim(input.user, answers.position);
+            const claim = await this.warnManagersOfTopRoleClaim(input.user, answers.position);
+            if (claim) await this.sayAndRemember(input, claim);
             await this.sayAndRemember(input, INTERVIEW_QUESTION_DAILY);
           },
         },
@@ -2018,12 +2020,12 @@ export class SlackEventsHandler {
   private async warnManagersOfTopRoleClaim(
     slackUserId: string | undefined,
     position: string,
-  ): Promise<void> {
-    if (!slackUserId || !declaresTopRole(position)) return;
+  ): Promise<string | null> {
+    if (!slackUserId || !declaresTopRole(position)) return null;
 
     try {
       const repo = this.getDirectoryRepo();
-      if (!repo) return;
+      if (!repo) return null;
 
       const managers = (await repo.findManagers()).filter((m) => m.slackUserId !== slackUserId);
 
@@ -2032,7 +2034,7 @@ export class SlackEventsHandler {
           slackUserId,
           position,
         });
-        return;
+        return null;
       }
 
       const identity = await this.resolveRequesterIdentity(slackUserId);
@@ -2042,16 +2044,33 @@ export class SlackEventsHandler {
         slackUserId,
       });
 
+      let informed = 0;
       for (const manager of managers) {
-        await this.slack.chat.postMessage({ channel: manager.slackUserId, text: notice });
-        logger.info('Manager prévenu d’une déclaration de poste au sommet', {
-          managerId: manager.slackUserId,
-        });
+        try {
+          await this.slack.chat.postMessage({ channel: manager.slackUserId, text: notice });
+          informed += 1;
+          logger.info('Manager prévenu d’une déclaration de poste au sommet', {
+            managerId: manager.slackUserId,
+          });
+        } catch (error) {
+          logger.error('DM au manager refusé — le déclarant ne doit pas croire l’inverse', {
+            managerId: manager.slackUserId,
+            error: String(error),
+          });
+        }
       }
+
+      const holder = managers[0]!;
+      return topRoleClaimReply({
+        declaredPosition: position,
+        holderName: sanitizeDisplayName(holder.displayName || holder.realName) || null,
+        informed: informed > 0,
+      });
     } catch (error) {
       logger.error('Impossible de prévenir le manager d’une déclaration de poste', {
         error: String(error),
       });
+      return null;
     }
   }
 
@@ -2132,6 +2151,7 @@ export class SlackEventsHandler {
   }
 
   private async maybeCheckProfileDone(input: {
+    history: readonly ConversationTurn[];
     isDirectMessage: boolean;
     text: string;
     channel: string;
@@ -2147,18 +2167,44 @@ export class SlackEventsHandler {
   }
 
   private async runProfileDoneCheck(input: {
+    history: readonly ConversationTurn[];
     text: string;
     channel: string;
     threadTs: string | undefined;
     conversationId: string;
     user: string | undefined;
   }): Promise<void> {
-    const { text, channel, threadTs, conversationId, user } = input;
+    const { history, text, channel, threadTs, conversationId, user } = input;
 
     let reply: string;
     try {
       const member = user ? await this.getDirectoryRepo()?.findBySlackUserId(user) : null;
-      reply = verifyProfile(await this.findProfileRecord(member)).reply;
+      const record = await this.findProfileRecord(member);
+
+      const known: ProfileAnswers = {
+        ...answersFromDirectory(member),
+        ...answersFromRecord(record),
+        ...collectProfileAnswers(history),
+      };
+
+      const verdict = verifyProfile(record, known);
+
+      if (record === null && nextProfileStep(known) === null) {
+        await this.rememberTurn({
+          conversationId,
+          role: 'user',
+          content: text,
+          agentId: DEFAULT_AGENT_ID,
+          slackUserId: user ?? null,
+        });
+        await this.submitProfile(
+          { channel, threadTs, conversationId, user },
+          known as Required<ProfileAnswers>,
+        );
+        return;
+      }
+
+      reply = verdict.reply;
     } catch (error) {
       logger.error('Vérification « j’ai fini » impossible — on ne l’impute pas à la personne', {
         error: String(error),

@@ -2,9 +2,13 @@ import { INTERVIEW_QUESTION_DAILY } from './interview-chat';
 import {
   PROFILE_CHAT_INTRO_NO_RECORD,
   PROFILE_QUESTIONS,
+  PROFILE_STEP_ORDER,
+  type ProfileAnswers,
+  type ProfileStep,
   answersFromRecord,
   nextProfileStep,
   profileChatIntroMissing,
+  profileChatIntroPartial,
 } from './profile-chat';
 
 export interface ProfileSnapshot {
@@ -25,49 +29,45 @@ const NEXT_STEP =
   `Ton dossier est complet, je l’ai vérifié. *Parlons de toi*, maintenant — deux questions, ` +
   `pas plus.\n\n${INTERVIEW_QUESTION_DAILY}`;
 
-const FIELD_LABELS: Readonly<Record<keyof ProfileSnapshot, string>> = {
+const FIELD_LABELS: Readonly<Record<ProfileStep, string>> = {
   firstName: 'ton prénom',
   lastName: 'ton nom',
   email: 'ton adresse email',
   position: 'l’intitulé de ton poste',
 };
 
-const FIELD_ORDER: ReadonlyArray<keyof ProfileSnapshot> = [
-  'firstName',
-  'lastName',
-  'email',
-  'position',
-];
+export function verifyProfile(
+  snapshot: ProfileSnapshot | null,
+  known: ProfileAnswers = {},
+): ProfileVerdict {
+  const onRecord = answersFromRecord(snapshot);
 
-function filled(value: string | null | undefined): boolean {
-  return typeof value === 'string' && value.trim().length > 0;
-}
-
-export function verifyProfile(snapshot: ProfileSnapshot | null): ProfileVerdict {
-  if (snapshot === null) {
-    return {
-      complete: false,
-      missing: FIELD_ORDER.map((field) => FIELD_LABELS[field]),
-      reply: `${PROFILE_CHAT_INTRO_NO_RECORD}\n\n${PROFILE_QUESTIONS.firstName}`,
-      needsProfileChat: true,
-    };
-  }
-
-  const missing = FIELD_ORDER.filter((field) => !filled(snapshot[field])).map(
-    (field) => FIELD_LABELS[field],
-  );
-
-  if (missing.length === 0) {
+  if (snapshot !== null && nextProfileStep(onRecord) === null) {
     return { complete: true, missing: [], reply: NEXT_STEP, needsProfileChat: false };
   }
 
-  const step = nextProfileStep(answersFromRecord(snapshot))!;
+  const merged: ProfileAnswers = { ...known, ...onRecord };
+  const missing = PROFILE_STEP_ORDER.filter((step) => !merged[step]?.trim()).map(
+    (step) => FIELD_LABELS[step],
+  );
+
+  const step = nextProfileStep(merged) ?? nextProfileStep(onRecord) ?? PROFILE_STEP_ORDER[0]!;
+
+  const intro = introFor(snapshot, missing);
+
   return {
     complete: false,
     missing,
-    reply: `${profileChatIntroMissing(missing)}\n\n${PROFILE_QUESTIONS[step]}`,
+    reply: `${intro}\n\n${PROFILE_QUESTIONS[step]}`,
     needsProfileChat: true,
   };
+}
+
+function introFor(snapshot: ProfileSnapshot | null, missing: readonly string[]): string {
+  if (snapshot !== null) return profileChatIntroMissing(missing);
+  return missing.length === PROFILE_STEP_ORDER.length
+    ? PROFILE_CHAT_INTRO_NO_RECORD
+    : profileChatIntroPartial(missing);
 }
 
 export const PROFILE_CHECK_UNAVAILABLE =

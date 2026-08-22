@@ -1978,3 +1978,85 @@ n'atteignait personne. C'est la même famille que `emailSent: false` sous `statu
 ⚠️ Il ne cite NI la date d'archivage NI l'identifiant : ce sont des détails d'implémentation
 pour quelqu'un qui n'a aucun moyen d'agir dessus. Ce qu'il lui faut est le geste suivant, et
 la personne à qui le demander.
+
+---
+
+## Décisions du 2026-08-21 (nuit) — le rejeu des quatre cas de complétion de profil
+
+### `src/features/onboarding/domain/services/profile-completion.ts`
+
+**Avant `export function verifyProfile(`**
+
+⚠️ **« J'AI FINI » REDEMANDAIT CE QU'IL SAVAIT DÉJÀ.** Le verdict ne lisait QUE la table
+`employees`, alors que le parcours conversationnel part de `knownProfileAnswers` — annuaire
+Slack **plus** dossier — et fusionne l'historique du fil.
+
+Symptôme : quelqu'un écrit son prénom, dit « c'est fait » deux messages plus tard, et
+s'entend redemander son prénom. En production le cas est pire encore — l'annuaire porte
+prénom, nom **et** email pour toute personne dont le profil Slack est renseigné : la seule
+chose qui manque est le poste, et on reposait les quatre questions.
+
+C'est la forme exacte du défaut recensé le 2026-08-21 sur `pendingInterviewStep` :
+**deux machines à états qui suivent la même règle sans la partager finissent par diverger,
+et c'est celle qu'on a oubliée qui fait le mauvais travail.**
+
+⚠️ **LA SÉPARATION QUI COMPTE, et elle n'est pas cosmétique** : le VERDICT (`complete`) se
+prononce sur le DOSSIER, jamais sur ce qu'on croit savoir. Ce qui se prononce sur les
+réponses connues, c'est la QUESTION POSÉE. Les confondre ferait dire « ton dossier est
+complet » d'un dossier vide — `emailSent: false` sous `status: 'success'`, quatrième
+occurrence.
+
+Le second paramètre est donc OPTIONNEL et vaut `{}` : `slack-interactions.route.ts`, qui
+vérifie un dossier déjà écrit, garde exactement son comportement.
+
+**Avant `function introFor(`**
+
+Trois entrées en tête, et chacune doit être VRAIE :
+
+- aucun dossier, rien de connu → « Je ne trouve pas encore de dossier à ton nom … quatre
+  questions » ;
+- aucun dossier, une partie connue → `profileChatIntroPartial`. On ne peut dire ni « j'ai
+  bien un dossier » (faux) ni « quatre questions » (faux) ;
+- un dossier partiel → `profileChatIntroMissing`.
+
+### `src/features/onboarding/domain/services/profile-chat.ts`
+
+**Avant `export function profileChatIntroPartial(`**
+
+Le troisième cas d'entrée en matière. `PROFILE_CHAT_INTRO_NO_RECORD` annonce « quatre
+questions » — faux dès qu'on en sait une ; `profileChatIntroMissing` annonce « j'ai bien un
+dossier à ton nom » — faux quand il n'y en a pas. Aucun des deux ne pouvait servir ici, et
+en réemployer un aurait fait dire au produit une phrase fausse au premier message.
+
+**Avant `function listOf(`**
+
+Extrait de `profileChatIntroMissing` parce que les deux entrées en matière énumèrent la même
+liste. Recopier l'énumération, c'était garantir que « ton nom et ton poste » d'un côté
+devienne « ton nom, ton poste » de l'autre.
+
+### `src/features/onboarding/domain/services/top-role-claim.ts`
+
+**Avant `export function topRoleClaimReply(`**
+
+⚠️ **PRÉVENIR LE MANAGER SANS RIEN DIRE À LA PERSONNE EST UN SILENCE, pas une neutralité.**
+La déclaration était enregistrée sans réserve apparente pendant qu'une conversation
+s'ouvrait derrière son dos. Même asymétrie que `emailSent: false` sous `status: 'success'` :
+rien de faux n'est dit, et l'essentiel n'est pas dit.
+
+⚠️ **CE N'EST PAS UN REFUS, et le texte doit le dire dans sa première phrase.** Refuser le
+poste enfermerait la personne dans une boucle sans sortie — le défaut que
+`PROFILE_EMAIL_TAKEN_REPLY` existe pour fermer. Le poste est un champ DÉCLARATIF de son
+propre dossier ; ce qui est unique, c'est `slack_directory.role`, et il n'est pas écrit par
+le produit.
+
+⚠️ **`informed` VIENT DE CE QUI S'EST PASSÉ, jamais de l'intention.** Dire « je viens de lui
+écrire » après un `channel_not_found` renverrait la personne en croyant la situation traitée.
+Le handler compte les DM réellement acceptés.
+
+⚠️ **AUCUNE FORME GENRÉE** pour la personne qui porte le rôle — « lui écrire », jamais « le
+prévenir ». Un test le verrouille : le nom ne dit pas le genre, et se tromper sur une
+personne réelle est le genre de détail qui décrédibilise tout le reste.
+
+⚠️ **Rien ne se dit quand le siège est VIDE.** La colonne `role` naît vide : « aucun
+manager » est l'état de DÉPART. Énoncer la règle sans pouvoir nommer qui la porte ni
+prévenir personne n'apprend rien à personne.

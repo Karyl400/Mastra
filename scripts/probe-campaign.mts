@@ -27,6 +27,8 @@
  */
 import { createHmac } from 'node:crypto';
 
+import { DISPLAY_TIMEZONE, frenchDayLabel } from '../src/shared/french-datetime.js';
+
 const BASE_URL = 'https://mastra-71ya.vercel.app';
 const CHANNEL = 'D0BM9MK9QJV';
 const REQUESTER = 'U0BJBDGTJUD';
@@ -40,6 +42,27 @@ const paidOnly = args.includes('--paid');
 // tournait, et la campagne rendait « ✅ 0 conformes » — un vert qui ne prouve rien.
 const onlyIndex = args.indexOf('--only');
 const onlyTag = onlyIndex >= 0 ? args[onlyIndex + 1] : undefined;
+
+/**
+ * ⚠️ La date du jour, dans le fuseau d'affichage du produit — jamais celui de cette machine.
+ * `frenchDayLabel` est la fonction que le préambule emploie : « samedi 22 août 2026 ».
+ */
+const TODAY_LABEL = frenchDayLabel(new Date(), DISPLAY_TIMEZONE);
+
+/**
+ * ⚠️ Les trois parties viennent de `frenchDayLabel(new Date())` — produites par le produit
+ * lui-même, jamais par une entrée externe : il n'y a rien à injecter ici. La tolérance sur `û`
+ * couvre les claviers sans accent, piège déjà payé trois fois sur ce dépôt.
+ */
+function datePart(part: string): RegExp {
+  const escaped = part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('û', '[ûu]');
+  // eslint-disable-next-line security/detect-non-literal-regexp
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu');
+}
+
+const TODAY_DAY = datePart(/(\d{1,2})/.exec(TODAY_LABEL)?.[1] ?? '');
+const TODAY_MONTH = datePart(/\d{1,2}\s+(\p{L}+)/u.exec(TODAY_LABEL)?.[1] ?? 'août');
+const TODAY_YEAR = datePart(/(\d{4})\s*$/.exec(TODAY_LABEL)?.[1] ?? '');
 
 const signingSecret = process.env.SLACK_SIGNING_SECRET;
 const botToken = process.env.SLACK_BOT_TOKEN;
@@ -279,10 +302,20 @@ const SCENARIOS: readonly Scenario[] = [
     // Sonde signée du 2026-08-19 : « lundi prochain » rendait « samedi 22 août 2026 à 08:00 ».
     // Rien, dans toute la fenêtre, ne disait la date — toute date relative était une invention
     // obligée. 17 tokens de préambule ont fermé ça ; ce scénario le vérifie en production.
+    //
+    // ⚠️ **L'ATTENDU EST DÉRIVÉ, PLUS ÉCRIT EN DUR — 2026-08-22.** Il exigeait `/21/`, et il a
+    // rougi le lendemain sur une réponse JUSTE (« samedi 22 août 2026 »). Un scénario qui code
+    // en dur la date du jour se périme en une nuit, et son rouge accuse le produit. QUATRIÈME
+    // scénario de campagne trouvé faux, après « message trop long », « capacité supprimée » et
+    // le `/karyl/i` d'hier.
+    //
+    // ⚠️ La date est calculée dans le MÊME fuseau que le préambule (`DISPLAY_TIMEZONE`), via
+    // la fonction que le produit emploie — recopier le calcul ici, c'est se donner rendez-vous
+    // avec une divergence de fuseau à minuit.
     text: 'On est quel jour aujourd’hui ?',
     free: false,
     reset: true,
-    must: [/21/, /ao[ûu]t/i, /2026/],
+    must: [TODAY_DAY, TODAY_MONTH, TODAY_YEAR],
     mustNot: [...INTERNAL_LEAKS, ...MACHINE_TALK],
   },
   {

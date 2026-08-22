@@ -34,6 +34,7 @@ import { writeFileSync } from 'node:fs';
 import { createClient } from '@libsql/client';
 
 import {
+  PROFILE_QUESTIONS,
   pendingProfileStep,
   type ProfileStep,
 } from '../src/features/onboarding/domain/services/profile-chat.js';
@@ -45,8 +46,18 @@ import {
 const BASE_URL = 'https://mastra-71ya.vercel.app';
 const TEAM_ID = 'TMLKC4EPP';
 
-/** Le second compte du propriétaire — jamais celui d'un tiers. Voir l'en-tête. */
-const ARRIVAL_USER = 'U0BRRDEMSPN';
+/**
+ * ⚠️ **LE COMPTE CIBLE EST UN ARGUMENT, PAS UNE CONSTANTE — 2026-08-22.**
+ *
+ * `--as <email|U…>` ; à défaut, le second compte du propriétaire. **Jamais celui d'un tiers** :
+ * ce rejeu ARCHIVE le dossier de la personne visée, efface son identité d'annuaire, et lui
+ * envoie une vingtaine de messages en DM. Sur un compte qui n'est pas le sien, ce serait une
+ * intrusion, et la restauration ne la rattraperait pas.
+ *
+ * ⚠️ Le compte se résout par l'ANNUAIRE, jamais par une table de correspondance écrite ici :
+ * ce dépôt a déjà payé de recopier ce qu'il pouvait dériver.
+ */
+const DEFAULT_ARRIVAL_USER = 'U0BRRDEMSPN';
 
 const REPLAY: Readonly<Record<ProfileStep, string>> = {
   firstName: 'Amina',
@@ -54,6 +65,15 @@ const REPLAY: Readonly<Record<ProfileStep, string>> = {
   email: 'amina.sonde-test@kissohq.com',
   position: 'Data Analyst',
 };
+
+/**
+ * ⚠️ SECONDE ADRESSE, ET ELLE EST OBLIGATOIRE. Le cas « poste au sommet » exige une SECONDE
+ * création de dossier — la notification ne part que depuis `onRecordReady`. Or l'index unique
+ * `idx_employees_email` n'a pas de prédicat `deleted_at` : réutiliser la première adresse
+ * rejouerait le conflit d'archive au lieu du cas qu'on veut mesurer.
+ */
+const TOP_ROLE_EMAIL = 'amina.sonde-gm@kissohq.com';
+const TOP_ROLE_POSITION = 'Général Manager';
 
 const INTERVIEW = {
   dailyWork: "je prépare les tableaux de bord et je réponds aux questions chiffrées de l'équipe",
@@ -78,6 +98,30 @@ const db = createClient({
   url: process.env.DATABASE_URL!,
   authToken: process.env.DATABASE_AUTH_TOKEN,
 });
+
+const asIndex = args.indexOf('--as');
+const asTarget = asIndex >= 0 ? args[asIndex + 1] : undefined;
+
+const ARRIVAL_USER = await resolveArrivalUser();
+
+async function resolveArrivalUser(): Promise<string> {
+  if (!asTarget) return DEFAULT_ARRIVAL_USER;
+  if (/^U[A-Z0-9]{6,}$/.test(asTarget)) return asTarget;
+
+  const found = await db.execute({
+    sql: 'SELECT slack_user_id, display_name FROM slack_directory WHERE lower(email) = lower(?) AND is_deleted = 0 AND is_bot = 0',
+    args: [asTarget],
+  });
+
+  // ⚠️ Une ambiguïté ne se tranche pas au hasard : le propriétaire a DEUX comptes Slack, et se
+  // tromper de cible archiverait le mauvais dossier.
+  if (found.rows.length !== 1) {
+    throw new Error(
+      `--as ${asTarget} : ${found.rows.length} compte(s) d'annuaire, il en faut exactement un.`,
+    );
+  }
+  return String(found.rows[0]!.slack_user_id);
+}
 
 /**
  * ⚠️ REPRISE OBLIGATOIRE SUR LES APPELS SLACK — apprise en plein rejeu le 2026-08-21.
@@ -111,7 +155,7 @@ async function resilientFetch(url: string, init?: RequestInit, attempts = 10): P
  */
 async function dbExec(
   statement: { sql: string; args: unknown[] },
-  attempts = 5,
+  attempts = 8,
 ): Promise<{ rows: Record<string, unknown>[]; rowsAffected: number }> {
   let lastError: unknown;
   for (let i = 0; i < attempts; i += 1) {
@@ -120,13 +164,38 @@ async function dbExec(
     } catch (error) {
       lastError = error;
       console.log(`  ⏳ base injoignable (${i + 1}/${attempts}) — nouvelle tentative`);
-      await new Promise((r) => setTimeout(r, 2000 * (i + 1)));
+      await new Promise((r) => setTimeout(r, Math.min(2000 * (i + 1), 12_000)));
     }
   }
   throw lastError;
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * ⚠️ **LE DOSSIER N'EXISTE PAS À LA SECONDE OÙ LA DERNIÈRE RÉPONSE PART — 2026-08-21 au soir.**
+ *
+ * `submitProfile` lance le workflow d'accueil, qui envoie l'email de bienvenue par SMTP : une
+ * connexion TCP avec des délais de 10 s, sur une fonction qui peut être froide. Le rejeu a
+ * mesuré `(AUCUNE RÉPONSE)` après « Data Analyst », a lu la base dans la foulée, et a conclu
+ * qu'AUCUN dossier n'avait été créé — alors que le nettoyage en a supprimé un, deux minutes
+ * plus tard.
+ *
+ * Une cadence fixe ne peut pas mesurer une tâche de fond : **on attend le FAIT, pas le délai.**
+ */
+async function waitForRecord(email: string, timeoutMs = 120_000): Promise<string | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const rows = await dbExec({
+      sql: 'SELECT id FROM employees WHERE email = ? AND deleted_at IS NULL',
+      args: [email],
+    });
+    if (rows.rows.length === 1) return String(rows.rows[0]!.id);
+    if (Date.now() > deadline) return undefined;
+    console.log('  ⏳ le dossier n’est pas encore écrit — le workflow tourne');
+    await wait(5_000);
+  }
+}
 
 async function slack<T>(method: string, body: Record<string, unknown>): Promise<T> {
   const res = await resilientFetch(`https://slack.com/api/${method}`, {
@@ -346,6 +415,38 @@ async function runJourney(): Promise<void> {
     args: [ARRIVAL_USER],
   });
 
+  /**
+   * ⚠️ **« J'AI FINI » ALORS QU'IL MANQUE DES CHAMPS.** Le verdict ne lisait que la table
+   * `employees` : quelqu'un qui venait d'écrire son prénom se l'entendait redemander. Ce
+   * contrôle porte sur la seule chose qui compte pour la personne — la question SUIVANTE.
+   */
+  console.log(
+    `\n${'═'.repeat(78)}\nCAS LIMITE — « j'ai fini » avec des champs manquants\n${'═'.repeat(78)}`,
+  );
+
+  await say(channel, "oublie ce que je t'ai dit", '⟲ remise à zéro du fil');
+
+  reply = await say(channel, 'je veux compléter mon profil', '① demande du formulaire');
+  await say(channel, REPLAY.firstName, `→ ${pendingProfileStep(reply) ?? '?'}`);
+
+  reply = await say(channel, "j'ai fini", '② « j’ai fini » — trois champs manquent');
+  record(
+    '« j’ai fini » ne redemande PAS le prénom déjà donné',
+    !reply.includes(PROFILE_QUESTIONS.firstName),
+    reply.slice(0, 110).replace(/\n/g, ' '),
+  );
+  record(
+    'il enchaîne sur le champ suivant — le NOM',
+    pendingProfileStep(reply) === 'lastName',
+    String(pendingProfileStep(reply)),
+  );
+  record(
+    'il ne nomme comme manquant que ce qui manque vraiment',
+    !/ton prénom/i.test(reply) && /ton nom/i.test(reply),
+    reply.slice(0, 140).replace(/\n/g, ' '),
+  );
+
+  // ── 4 bis. Le parcours nominal ──────────────────────────────────────────────
   await say(channel, "oublie ce que je t'ai dit", '⟲ remise à zéro du fil');
 
   // Un arrivant dit bonjour avant de remplir quoi que ce soit. C'est aussi le seul moment du
@@ -370,6 +471,7 @@ async function runJourney(): Promise<void> {
 
   const asked: ProfileStep[] = [];
   let emailRetryDone = false;
+  let tldRetryDone = false;
   for (let guard = 0; guard < 10; guard += 1) {
     const step = pendingProfileStep(reply);
     if (!step) break;
@@ -387,6 +489,30 @@ async function runJourney(): Promise<void> {
       );
     }
 
+    // ⚠️ Une TERMINAISON absente est le cas le plus traître : la chaîne a un `@`, un domaine,
+    // et ne ressemble à une faute qu'au dernier caractère. `…@kissohq` et `…@kissohq.c` ne
+    // sont pas des adresses, et l'email est la seule clé de rapprochement du dossier.
+    if (step === 'email' && emailRetryDone && !tldRetryDone) {
+      tldRetryDone = true;
+      const noTld = await say(channel, 'amina.sonde-test@kissohq', '⚠ email sans terminaison');
+      record(
+        'une adresse sans terminaison est refusée, pas enregistrée',
+        pendingProfileStep(noTld) === 'email',
+        noTld.slice(0, 90).replace(/\n/g, ' '),
+      );
+
+      const shortTld = await say(
+        channel,
+        'amina.sonde-test@kissohq.c',
+        '⚠ terminaison à une lettre',
+      );
+      record(
+        'une terminaison à une seule lettre est refusée elle aussi',
+        pendingProfileStep(shortTld) === 'email',
+        shortTld.slice(0, 90).replace(/\n/g, ' '),
+      );
+    }
+
     reply = await say(channel, REPLAY[step], `→ ${step}`);
   }
 
@@ -397,6 +523,8 @@ async function runJourney(): Promise<void> {
   );
 
   // ── 5. Vérification du dossier créé ─────────────────────────────────────────
+  await waitForRecord(REPLAY.email);
+
   const created = await dbExec({
     sql: 'SELECT id, first_name, last_name, email, position FROM employees WHERE email = ?',
     args: [REPLAY.email],
@@ -507,6 +635,124 @@ async function runJourney(): Promise<void> {
     );
   }
 
+  // ── 6 bis. LE POSTE AU SOMMET ───────────────────────────────────────────────
+  /**
+   * ⚠️ **CE CAS ENVOIE UN VRAI DM À UN VRAI MANAGER.** C'est la seule façon de le mesurer :
+   * `findManagers()` lit `slack_directory.role`, et déplacer cette colonne pour les besoins
+   * d'une sonde modifierait la frontière d'autorisation de la production.
+   *
+   * ⚠️ Il faut une SECONDE création de dossier — la notification ne part que depuis
+   * `onRecordReady`. On met donc le dossier de sonde à l'écart et on repart avec une autre
+   * adresse.
+   */
+  console.log(
+    `\n${'═'.repeat(78)}\nCAS LIMITE — un poste au sommet est déclaré\n${'═'.repeat(78)}`,
+  );
+
+  const managers = await dbExec({
+    sql: "SELECT slack_user_id, display_name, real_name FROM slack_directory WHERE role = 'manager' AND is_deleted = 0",
+    args: [],
+  });
+  record(
+    'un manager est désigné en base — sans quoi ce cas ne peut RIEN prouver',
+    managers.rows.length > 0,
+    managers.rows.map((r) => String(r.display_name || r.real_name)).join(', ') || 'aucun',
+  );
+
+  if (createdId) {
+    await dbExec({
+      sql: 'UPDATE slack_directory SET employee_id = NULL WHERE slack_user_id = ?',
+      args: [ARRIVAL_USER],
+    });
+    await dbExec({
+      sql: 'UPDATE employees SET deleted_at = ? WHERE id = ?',
+      args: [new Date().toISOString(), createdId],
+    });
+  }
+
+  await say(channel, "oublie ce que je t'ai dit", '⟲ remise à zéro du fil');
+
+  reply = await say(channel, 'je veux compléter mon profil', '① demande du formulaire');
+  for (let guard = 0; guard < 6; guard += 1) {
+    const step = pendingProfileStep(reply);
+    if (!step) break;
+    const overrides: Partial<Record<ProfileStep, string>> = {
+      position: TOP_ROLE_POSITION,
+      email: TOP_ROLE_EMAIL,
+    };
+    reply = await say(channel, overrides[step] ?? REPLAY[step], `→ ${step}`);
+  }
+
+  record(
+    'le déclarant apprend qu’une SEULE personne porte ce rôle',
+    /une seule personne/i.test(reply),
+    reply.slice(0, 130).replace(/\n/g, ' '),
+  );
+  record(
+    'la réponse NOMME qui le porte aujourd’hui',
+    managers.rows.some((r) =>
+      reply.includes(String(r.display_name || r.real_name).split(' ')[0] ?? '\u0000'),
+    ),
+    reply.slice(0, 130).replace(/\n/g, ' '),
+  );
+  record(
+    'ce n’est PAS un refus : le poste est enregistré tel qu’écrit',
+    /j['’]ai noté/i.test(reply) && reply.includes(TOP_ROLE_POSITION),
+    reply.slice(0, 130).replace(/\n/g, ' '),
+  );
+  record(
+    'elle dit que l’intitulé n’ouvre aucun accès — sinon elle se lit comme une alerte',
+    /n['’]ouvre aucun acc[èe]s/i.test(reply),
+    reply.slice(0, 130).replace(/\n/g, ' '),
+  );
+
+  await waitForRecord(TOP_ROLE_EMAIL);
+
+  const gmRecord = await dbExec({
+    sql: 'SELECT position FROM employees WHERE email = ? AND deleted_at IS NULL',
+    args: [TOP_ROLE_EMAIL],
+  });
+  record(
+    'le dossier existe bel et bien, avec le poste déclaré',
+    gmRecord.rows.length === 1 && String(gmRecord.rows[0]!.position) === TOP_ROLE_POSITION,
+    gmRecord.rows.length === 1 ? String(gmRecord.rows[0]!.position) : 'aucune ligne',
+  );
+
+  /**
+   * ⚠️ **ON VÉRIFIE LE DM CHEZ SON DESTINATAIRE, pas dans nos logs.** « Le code a appelé
+   * `postMessage` » et « le manager a reçu quelque chose » sont deux affirmations différentes,
+   * et c'est la seconde qui compte.
+   */
+  for (const row of managers.rows) {
+    const managerId = String(row.slack_user_id);
+
+    // ⚠️ Une lecture qui ÉCHOUE ne doit pas emporter le rejeu : `slack()` lève sur `ok: false`,
+    // et le reste du parcours — dont la restauration — n'a rien à voir avec elle.
+    let warned: { text?: string } | undefined;
+    try {
+      const dm = await slack<{ channel: { id: string } }>('conversations.open', {
+        users: managerId,
+      });
+      const history = await slack<{ messages: Array<{ text?: string; ts?: string }> }>(
+        'conversations.history',
+        { channel: dm.channel.id, limit: 5 },
+      );
+      warned = history.messages.find((m) => (m.text ?? '').includes(TOP_ROLE_POSITION));
+    } catch (error) {
+      console.log(`  ⚠️ DM du manager illisible : ${String(error).slice(0, 80)}`);
+    }
+    record(
+      `le manager ${String(row.display_name || row.real_name)} a REÇU l’avertissement`,
+      Boolean(warned),
+      (warned?.text ?? '(rien dans les 5 derniers messages)').slice(0, 110).replace(/\n/g, ' '),
+    );
+    record(
+      'l’avertissement dit que rien n’a changé de son côté',
+      /rien n['’]a changé/i.test(warned?.text ?? ''),
+      (warned?.text ?? '').slice(0, 110).replace(/\n/g, ' '),
+    );
+  }
+
   // ── 7. Le ton, sur l'ensemble du parcours ───────────────────────────────────
   const whole = transcript.map(([, r]) => r).join('\n');
   record(
@@ -533,10 +779,29 @@ async function runJourney(): Promise<void> {
   );
 }
 
+/**
+ * ⚠️ **UN REJEU INTERROMPU NE DOIT PAS POUVOIR S'ANNONCER CONFORME — 2026-08-21 au soir.**
+ * Turso est resté injoignable trente secondes en plein parcours ; le rejeu s'est arrêté après
+ * la quatrième question, et la dernière ligne disait « ✅ Parcours d'arrivée conforme ». Les
+ * contrôles ENREGISTRÉS étaient bien tous verts — mais la moitié n'avait jamais tourné.
+ * C'est le défaut que ce dépôt traque partout ailleurs : un vert qui ne prouve pas ce qu'il
+ * paraît prouver.
+ */
+let interrupted = false;
+
+function finalVerdict(): string {
+  if (interrupted) {
+    return '❌ Rejeu INTERROMPU — les contrôles verts ci-dessus ne couvrent qu’une partie du parcours.';
+  }
+  if (failures === 0 && restored) return '✅ Parcours d’arrivée conforme.';
+  return `❌ ${failures} contrôle(s) en défaut.`;
+}
+
 try {
   await runJourney();
 } catch (error) {
   console.error(`\n❌ REJEU INTERROMPU : ${String(error).slice(0, 200)}`);
+  interrupted = true;
   process.exitCode = 1;
 }
 
@@ -562,10 +827,10 @@ console.log(`\n${'═'.repeat(78)}\nNETTOYAGE\n${'═'.repeat(78)}`);
 // la création du dossier et son enregistrement dans une variable, le nettoyage doit quand même
 // savoir quoi purger. L'adresse est une constante de ce fichier — elle, elle est toujours là.
 const leftovers = await dbExec({
-  sql: 'SELECT id FROM employees WHERE email = ?',
-  args: [REPLAY.email],
+  sql: 'SELECT id FROM employees WHERE email IN (?, ?)',
+  args: [REPLAY.email, TOP_ROLE_EMAIL],
 });
-const createdId = leftovers.rows[0]?.id as string | undefined;
+const probeIds = leftovers.rows.map((row) => String(row.id));
 
 if (existingEmployeeId) {
   await dbExec({
@@ -586,19 +851,19 @@ await dbExec({
 });
 if (existingEmployeeId) console.log(`Dossier réel ${existingEmployeeId} restauré et relié.`);
 
-if (createdId) {
+for (const probeId of probeIds) {
   for (const [table, column] of [
     ['onboarding_interview', 'employee_id'],
     ['onboarding_progress', 'employee_id'],
     ['notifications', 'recipient_id'],
     ['documents', 'employee_id'],
   ] as const) {
-    await dbExec({ sql: `DELETE FROM ${table} WHERE ${column} = ?`, args: [createdId] }).catch(
+    await dbExec({ sql: `DELETE FROM ${table} WHERE ${column} = ?`, args: [probeId] }).catch(
       (error) => console.log(`  ${table} : ${String(error).slice(0, 60)}`),
     );
   }
-  await dbExec({ sql: 'DELETE FROM employees WHERE id = ?', args: [createdId] });
-  console.log(`Dossier de sonde ${createdId} supprimé, dépendances comprises.`);
+  await dbExec({ sql: 'DELETE FROM employees WHERE id = ?', args: [probeId] });
+  console.log(`Dossier de sonde ${probeId} supprimé, dépendances comprises.`);
 }
 
 /**
@@ -647,7 +912,27 @@ const restored =
 console.log(restored ? '✅ Restauration vérifiée.' : `❌ RESTAURATION INCOMPLÈTE — ${backupPath}`);
 
 const failures = checks.filter(([, ok]) => !ok).length;
+/**
+ * ⚠️ **LA BASE EST RESTAURÉE, LE CACHE DES INSTANCES NE L'EST PAS — 2026-08-22.**
+ *
+ * `resolveRequesterIdentity` met l'identité du demandeur en cache (LRU 12 h, PAR INSTANCE), et
+ * seul `linkRequesterToRecord` l'invalide. Ce rejeu délie puis relie le dossier EN SQL DIRECT :
+ * aucune instance vivante n'en sait rien.
+ *
+ * Mesuré juste après un rejeu : « Montre-moi mon propre profil » → « Je ne peux pas accéder aux
+ * profils employés, même au tien. » La base était pourtant juste, `probe:authz` le confirmait.
+ * Sur le compte d'un collègue, cela le priverait de son propre dossier pendant douze heures, et
+ * RIEN ne le signalerait.
+ *
+ * Le seul levier est de faire tourner de NOUVELLES instances. On le dit ici plutôt que de
+ * laisser quelqu'un le découvrir en croyant à une régression.
+ */
 console.log(
-  `\n${failures === 0 && restored ? '✅ Parcours d’arrivée conforme.' : `❌ ${failures} contrôle(s) en défaut.`}`,
+  '\n⚠️  Le cache d’identité des instances vivantes garde l’état du rejeu (LRU 12 h, par\n' +
+    '    instance). Si « Montre-moi mon propre profil » est refusé après ce rejeu, la base\n' +
+    '    n’est PAS en cause : redéployer (`npx vercel --prod`) fait repartir des instances\n' +
+    '    neuves. Vérifiable sans rien écrire : `npm run probe:authz`.',
 );
+
+console.log(`\n${finalVerdict()}`);
 if (failures > 0 || !restored) process.exitCode = 1;

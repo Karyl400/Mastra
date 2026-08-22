@@ -7773,3 +7773,45 @@ implémentations par la même suite — `tests/unit/notification/notification-cl
 **Avant `const abandoned =`**
 
 de la grâce — sinon le rappel resterait `sending` à jamais, perdu en silence.
+
+---
+
+## Décisions du 2026-08-21 (nuit) — complétion de profil
+
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
+**Avant `private async runProfileDoneCheck(input: {`**
+
+⚠️ **L'ORDRE DE PRÉCÉDENCE EST CELUI DE `handleProfileAnswer`, et il doit le rester** :
+annuaire, puis dossier, puis historique du fil. L'historique gagne parce que c'est ce que la
+personne vient d'écrire. Toute divergence entre ces deux fusions réintroduirait exactement le
+défaut qu'on ferme ici.
+
+⚠️ **LA PROMESSE DE `PROFILE_CHAT_SAVE_FAILED` EST ENFIN TENUE.** Ce texte dit mot pour mot
+« redis-moi "j'ai fini" dans un instant et je réessaie ». Tant que « j'ai fini » ne faisait
+que relire la base, il ne réessayait rien : la personne redisait la formule et s'entendait
+reposer les quatre questions. Quand tout est connu et qu'il n'y a AUCUN dossier, on
+réenregistre.
+
+⚠️ **`record === null`, et surtout PAS `!verdict.complete`.** Une ligne existante mais
+incomplète repasserait par le workflow de CRÉATION, or `employees.email` est UNIQUE : le
+symptôme serait un conflit d'adresse sur son propre dossier, et le message d'aide parlerait
+d'archivage là où rien n'est archivé. Un dossier partiel se complète par la question suivante,
+jamais par une seconde création.
+
+⚠️ Le tour `user` est mémorisé À LA MAIN sur ce chemin : `sayAndRemember` réécrit `input.text`
+à chaque appel, et `submitProfile` en fait plusieurs. On passe donc un `input` SANS `text`.
+
+**Avant `private async warnManagersOfTopRoleClaim(`**
+
+⚠️ **ELLE REND LE MESSAGE DU DÉCLARANT AU LIEU DE NE RIEN RENDRE, et l'appel n'est plus
+`void`.** Le détachement se justifiait tant que la fonction n'avait d'effet que sur un tiers ;
+il devient un défaut dès qu'elle décide ce que l'arrivant doit lire — le message serait parti
+après la question suivante, ou pas du tout.
+
+⚠️ **CHAQUE DM EST DANS SON PROPRE `try`, et c'est ce qui rend `informed` honnête.** Un seul
+`try` englobant comptait un échec sur le premier manager comme un échec total, et surtout
+n'aurait pas permis de distinguer « aucun n'a reçu » de « le troisième n'a pas reçu ».
+
+⚠️ Le nom du porteur est ASSAINI (`sanitizeDisplayName`) : il vient du profil Slack, donc de
+son propre porteur, et ce message entre dans l'historique conversationnel rejoué au modèle.

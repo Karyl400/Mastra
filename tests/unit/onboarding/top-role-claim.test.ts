@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import {
   declaresTopRole,
   topRoleClaimNotice,
+  topRoleClaimReply,
 } from '../../../src/features/onboarding/domain/services/top-role-claim';
 
 /**
@@ -93,5 +94,46 @@ describe('topRoleClaimNotice — ce que le manager reçoit', () => {
 
   it('ne PROMET rien sur le refus — il n’y a rien à défaire', () => {
     expect(notice).toMatch(/rien à défaire/i);
+  });
+});
+
+describe('topRoleClaimReply — ce que le DÉCLARANT reçoit', () => {
+  const reply = topRoleClaimReply({
+    declaredPosition: 'Général Manager',
+    holderName: 'Nazer A.',
+    informed: true,
+  });
+
+  it('énonce la règle et NOMME qui porte le rôle aujourd’hui', () => {
+    expect(reply).toMatch(/une seule personne/i);
+    expect(reply).toContain('Nazer A.');
+  });
+
+  it('reprend le poste tel qu’il a été écrit — la personne doit se reconnaître', () => {
+    expect(reply).toContain('Général Manager');
+  });
+
+  it('DIT que le dossier est enregistré : ce n’est pas un refus', () => {
+    expect(reply).toMatch(/j['’]ai (?:not|enregistr)/i);
+    expect(reply).toMatch(/n['’]ouvre aucun acc[èe]s|n['’]accorde aucun droit/i);
+  });
+
+  it('ne PROMET pas d’avoir écrit quand il n’a pas écrit', () => {
+    const failed = topRoleClaimReply({
+      declaredPosition: 'CEO',
+      holderName: 'Nazer A.',
+      informed: false,
+    });
+
+    expect(failed).not.toMatch(/je viens de lui écrire/i);
+    expect(failed).toMatch(/pas réussi à lui écrire/i);
+  });
+
+  it('reste en mrkdwn Slack — aucun texte en dur ne passe par sanitizeAgentOutput', () => {
+    expect(reply).not.toContain('**');
+  });
+
+  it('n’emploie aucune forme genrée pour la personne qui porte le rôle', () => {
+    expect(reply).not.toMatch(/\ble prévenir|\bla prévenir|il est|elle est/i);
   });
 });

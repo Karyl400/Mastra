@@ -38,3 +38,24 @@ export function topRoleClaimNotice(input: {
     `Si non, il n'y a rien à défaire — dis-le-lui simplement.`
   );
 }
+
+export function topRoleClaimReply(input: {
+  readonly declaredPosition: string;
+  readonly holderName: string | null;
+  readonly informed: boolean;
+}): string {
+  const holder = input.holderName?.trim()
+    ? `et c'est *${input.holderName.trim()}* aujourd'hui`
+    : 'et ce rôle est déjà attribué';
+
+  const contact = input.informed
+    ? 'Je viens de lui écrire pour que vous en parliez ensemble.'
+    : "Je n'ai pas réussi à lui écrire — dis-le-lui directement.";
+
+  return (
+    `J'ai noté « ${input.declaredPosition} » sur ton dossier. Un point à savoir : ` +
+    `chez Kisso, une seule personne porte ce rôle, ${holder}. ${contact}\n\n` +
+    `Ton dossier reste enregistré tel que tu me l'as donné — un intitulé de poste ` +
+    `n'ouvre aucun accès ici, et rien ne change de ton côté.`
+  );
+}
