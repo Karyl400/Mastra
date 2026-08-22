@@ -105,7 +105,7 @@ function projectEmployee(
       ...(identified ? { id: found.id, status: found.status } : {}),
       firstName: sanitizeDisplayName(found.firstName),
       lastName: sanitizeDisplayName(found.lastName),
-      position: found.position,
+      position: sanitizeDisplayName(found.position),
     },
     ...(identified ? {} : { hint: WITHHELD_HINT }),
   };

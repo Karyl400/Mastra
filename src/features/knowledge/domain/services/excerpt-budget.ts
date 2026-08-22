@@ -1,6 +1,7 @@
 import type { ConversationExcerpt } from '../entities/conversation-excerpt';
 import { selectSalientExcerpts } from './excerpt-salience';
 import { resolveMentions, type NameLookup } from './mention-names';
+import { frenchDaySpan } from '../../../../shared/french-datetime';
 
 export const MAX_EXCERPTS = 6;
 
@@ -77,9 +78,7 @@ export function describeCoverageForHuman(
   if (all.length === 0 || shown >= all.length) return undefined;
 
   const stamps = all.map((excerpt) => excerpt.at.getTime()).sort((a, b) => a - b);
-  const from = new Date(stamps[0]!).toISOString().slice(0, 10);
-  const to = new Date(stamps[stamps.length - 1]!).toISOString().slice(0, 10);
-  const span = from === to ? `le ${from}` : `du ${from} au ${to}`;
+  const span = frenchDaySpan(new Date(stamps[0]!), new Date(stamps[stamps.length - 1]!));
 
   return `_Je n'ai lu que ${shown} messages sur ${all.length}, ${span} — les plus porteurs d'information, pas les plus récents. D'autres choses ont pu être dites._`;
 }

@@ -223,7 +223,6 @@ function maskPlainObject(
   }
 
   return masked;
-  return masked;
 }
 
 const NOT_SPECIAL = Symbol('not-a-special-type');
@@ -544,10 +543,6 @@ export const logger: ChildLogger = new Logger({
     version: process.env.APP_VERSION || '0.0.0',
   },
 });
-
-export function createLogger(options: Partial<LoggerOptions>): ChildLogger {
-  return new Logger(options);
-}
 
 export {
   Logger,

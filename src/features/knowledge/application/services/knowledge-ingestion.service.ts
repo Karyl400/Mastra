@@ -1,4 +1,5 @@
 import { logger } from '../../../../shared/logger';
+import { distressKind } from '../../../../shared/distress';
 import type {
   ArchivedMessage,
   MessageArchiveRepository,
@@ -30,6 +31,13 @@ export class KnowledgeIngestionService implements KnowledgeIngestionPort {
   }
 
   async ingest(message: ArchivedMessage): Promise<void> {
+    if (distressKind(message.text) !== null) {
+      logger.info('Message de détresse — non archivé, non distillé, non transmis', {
+        channel: message.channelId,
+      });
+      return;
+    }
+
     const stored = await this.archive.archive(message);
     if (!stored) return;
 

@@ -54,3 +54,17 @@ export function frenchDayLabel(at: Date, timeZone: string = DISPLAY_TIMEZONE): s
 export function frenchFullLabel(at: Date, timeZone: string): string {
   return `${frenchDate(at, timeZone, { dateStyle: 'full', timeStyle: 'short' })} (${frenchOffsetLabel(at, timeZone)})`;
 }
+
+export function frenchDaySpan(from: Date, to: Date, timeZone: string = DISPLAY_TIMEZONE): string {
+  const full: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'long', year: 'numeric' };
+  const start = frenchDate(from, timeZone, full);
+  const end = frenchDate(to, timeZone, full);
+  if (start === end) return `le ${start}`;
+
+  const month: Intl.DateTimeFormatOptions = { month: 'long', year: 'numeric' };
+  if (frenchDate(from, timeZone, month) === frenchDate(to, timeZone, month)) {
+    return `du ${frenchDate(from, timeZone, { day: 'numeric' })} au ${end}`;
+  }
+
+  return `du ${start} au ${end}`;
+}

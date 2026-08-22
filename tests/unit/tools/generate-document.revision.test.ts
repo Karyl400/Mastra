@@ -169,7 +169,9 @@ describe('corriger un document existant', () => {
 
   it('RELIVRE le document corrigé — une correction que personne ne reçoit n’en est pas une', async () => {
     const t = tool();
-    const premier = (await t.execute!(input() as never, slackCtx('1.1') as never)) as Result;
+    // Premier rendu : on n'en garde rien, seul son EFFET compte — c'est le document que la
+    // correction ci-dessous doit retrouver, puis relivrer.
+    await t.execute!(input() as never, slackCtx('1.1') as never);
 
     const corrige = (await t.execute!(
       input({ revises: true, content: 'Texte corrigé.' }) as never,
@@ -185,7 +187,8 @@ describe('corriger un document existant', () => {
     // correction de contenu. Sans traitement particulier, la correction serait rejetée comme
     // un doublon et le modèle annoncerait avoir corrigé sans que rien ne bouge.
     const t = tool();
-    const premier = (await t.execute!(input() as never, slackCtx('1.1') as never)) as Result;
+    // Idem : le premier rendu n'est ici que la cible de la correction, on ne lit pas son verdict.
+    await t.execute!(input() as never, slackCtx('1.1') as never);
 
     const corrige = (await t.execute!(
       input({ revises: true, content: 'Autre texte.' }) as never,

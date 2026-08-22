@@ -2551,11 +2551,6 @@ export class SlackEventsHandler {
       return undefined;
     }
   }
-
-  async handleUrlVerification(body: SlackEventEnvelope): Promise<{ challenge: string }> {
-    logger.info('Handling Slack URL verification');
-    return { challenge: body.challenge ?? '' };
-  }
 }
 
 export { FILE_ATTACHMENT_REPLY };

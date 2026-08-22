@@ -6,6 +6,7 @@ import { logger } from '../../../../shared/logger';
 import { OnboardingStatus } from '../../../../shared/types';
 import { canPerformSideEffects } from '../../../../shared/slack-request-context';
 import { ESCALATION_CONTACT } from '../../../../shared/escalation';
+import { clampToPlan } from '../../domain/services/onboarding-plan';
 
 const NO_PROGRESS_HINT =
   "Cet employé n'a aucun suivi d'intégration en base. Tu n'as aucun outil pour en créer un : " +
@@ -57,8 +58,8 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
       const now = new Date().toISOString();
       const updated = {
         ...progress,
+        ...clampToPlan(data.currentStep ?? progress.currentStep),
         status: data.status,
-        currentStep: data.currentStep ?? progress.currentStep,
         updatedAt: now,
         startedAt: progress.startedAt ?? (data.status === OnboardingStatus.InProgress ? now : null),
         completedAt: data.status === OnboardingStatus.Completed ? now : null,

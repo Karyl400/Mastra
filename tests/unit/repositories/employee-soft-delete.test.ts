@@ -138,14 +138,17 @@ describe.each(implementations)('$nom — contrat de soft delete', ({ make }) => 
     await expect(repo.delete('emp-inexistant')).resolves.toBeUndefined();
   });
 
-  it('ne ressuscite pas une fiche supprimée par un simple update()', async () => {
+  it('ne ressuscite pas une fiche supprimée par un simple upsert', async () => {
     await repo.save(employe('emp-5', 'awa.diop@kisso.com'));
     await repo.delete('emp-5');
 
-    // `update()` délègue à l'upsert, donc il retombe sur la ligne supprimée. Côté SQL,
-    // l'upsert ne NOMME pas `deleted_at` : la colonne reste intacte. La doublure doit dire la
-    // même chose, sans quoi une réapparition passerait inaperçue en test et pas en production.
-    await repo.update(employe('emp-5', 'awa.diop@kisso.com'));
+    // ⚠️ Ce test passait par `repo.update()`, RETIRÉ du port le 2026-08-22 faute d'appelant de
+    // production — il ne faisait que déléguer à `save()`. La PROPRIÉTÉ, elle, n'a pas disparu
+    // avec le raccourci : elle appartenait déjà à `save()`, seul chemin réellement emprunté.
+    // Côté SQL, l'upsert ne NOMME pas `deleted_at` : la colonne reste intacte. La doublure doit
+    // dire la même chose, sans quoi une réapparition passerait inaperçue en test et pas en
+    // production.
+    await repo.save(employe('emp-5', 'awa.diop@kisso.com'));
 
     expect(await repo.findById('emp-5')).toBeNull();
   });
@@ -224,10 +227,11 @@ describe('DrizzleEmployeeRepository — la donnée SURVIT à la suppression', ()
     await repo.save(employe('emp-40', 'awa.diop@kisso.com'));
     await repo.delete('emp-40');
 
-    // `update()` délègue à `save()`, donc un upsert sur le MÊME id retombe sur la ligne
-    // supprimée. Il ne doit pas la faire réapparaître à l'insu de l'appelant : la
-    // réactivation, si elle doit exister un jour, sera un geste EXPLICITE.
-    await repo.update(employe('emp-40', 'awa.diop@kisso.com'));
+    // ⚠️ Écrit à l'origine contre `repo.update()`, retiré du port le 2026-08-22 : il déléguait
+    // à `save()`, et c'est bien `save()` que la production appelle. Un upsert sur le MÊME id
+    // retombe sur la ligne supprimée. Il ne doit pas la faire réapparaître à l'insu de
+    // l'appelant : la réactivation, si elle doit exister un jour, sera un geste EXPLICITE.
+    await repo.save(employe('emp-40', 'awa.diop@kisso.com'));
 
     expect(await repo.findById('emp-40')).toBeNull();
     expect(await deletedAtInDb('emp-40')).toEqual(expect.any(String));

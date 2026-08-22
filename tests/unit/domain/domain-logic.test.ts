@@ -1,23 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { createEmployee } from '../../../src/features/employee/domain/entities/employee';
-import {
-  createProgress,
-  createStep as createOnboardingStep,
-} from '../../../src/features/onboarding/domain/entities/onboarding-progress';
+import { createProgress } from '../../../src/features/onboarding/domain/entities/onboarding-progress';
 import { createNotification } from '../../../src/features/notification/domain/entities/notification';
 import {
   EmployeeStatus,
   OnboardingStatus,
-  TaskStatus,
-  QuestionnaireStatus,
-  ResponseStatus,
   NotificationStatus,
   NotificationChannel,
   RecipientType,
-  isValidTaskTransition,
-  isTaskFinalStatus,
-  isTaskActiveStatus,
-  TASK_STATUS_TRANSITIONS,
 } from '../../../src/shared/types';
 
 // ─────────────────────────────────────────────────────────────
@@ -95,27 +85,6 @@ describe('Domain: OnboardingProgress entity', () => {
   });
 });
 
-describe('Domain: OnboardingStep entity', () => {
-  const base = {
-    id: 'step-001',
-    progressId: 'prog-001',
-    taskId: 'task-001',
-    stepOrder: 1,
-  };
-
-  it('defaults to Pending status', () => {
-    expect(createOnboardingStep(base).status).toBe(TaskStatus.Pending);
-  });
-
-  it('preserves stepOrder', () => {
-    expect(createOnboardingStep(base).stepOrder).toBe(1);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────
-// Questionnaire entity
-// ─────────────────────────────────────────────────────────────
-
 // ─────────────────────────────────────────────────────────────
 // Notification entity
 // ─────────────────────────────────────────────────────────────
@@ -148,72 +117,5 @@ describe('Domain: Notification entity', () => {
     const n = createNotification(base);
     expect(n.subject).toBe('Bienvenue');
     expect(n.body).toContain('Bonjour');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────
-// Task status transitions
-// ─────────────────────────────────────────────────────────────
-
-describe('Domain: Task status transitions', () => {
-  it('Pending → InProgress is valid', () => {
-    expect(isValidTaskTransition(TaskStatus.Pending, TaskStatus.InProgress)).toBe(true);
-  });
-
-  it('Pending → Completed is invalid', () => {
-    expect(isValidTaskTransition(TaskStatus.Pending, TaskStatus.Completed)).toBe(false);
-  });
-
-  it('InProgress → Completed is valid', () => {
-    expect(isValidTaskTransition(TaskStatus.InProgress, TaskStatus.Completed)).toBe(true);
-  });
-
-  it('Completed → Archived is valid', () => {
-    expect(isValidTaskTransition(TaskStatus.Completed, TaskStatus.Archived)).toBe(true);
-  });
-
-  it('Archived has no valid outgoing transitions', () => {
-    expect(TASK_STATUS_TRANSITIONS[TaskStatus.Archived]).toHaveLength(0);
-  });
-
-  it('isTaskFinalStatus returns true for Completed, Cancelled, Archived', () => {
-    expect(isTaskFinalStatus(TaskStatus.Completed)).toBe(true);
-    expect(isTaskFinalStatus(TaskStatus.Cancelled)).toBe(true);
-    expect(isTaskFinalStatus(TaskStatus.Archived)).toBe(true);
-  });
-
-  it('isTaskFinalStatus returns false for InProgress', () => {
-    expect(isTaskFinalStatus(TaskStatus.InProgress)).toBe(false);
-  });
-
-  it('isTaskActiveStatus returns true for Pending, InProgress, Blocked, InReview', () => {
-    expect(isTaskActiveStatus(TaskStatus.Pending)).toBe(true);
-    expect(isTaskActiveStatus(TaskStatus.InProgress)).toBe(true);
-    expect(isTaskActiveStatus(TaskStatus.Blocked)).toBe(true);
-    expect(isTaskActiveStatus(TaskStatus.InReview)).toBe(true);
-  });
-
-  it('isTaskActiveStatus returns false for Completed', () => {
-    expect(isTaskActiveStatus(TaskStatus.Completed)).toBe(false);
-  });
-
-  it('InProgress → Blocked is valid', () => {
-    expect(isValidTaskTransition(TaskStatus.InProgress, TaskStatus.Blocked)).toBe(true);
-  });
-
-  it('Blocked → InProgress is valid (unblocked)', () => {
-    expect(isValidTaskTransition(TaskStatus.Blocked, TaskStatus.InProgress)).toBe(true);
-  });
-
-  it('InProgress → InReview is valid', () => {
-    expect(isValidTaskTransition(TaskStatus.InProgress, TaskStatus.InReview)).toBe(true);
-  });
-
-  it('InReview → Completed is valid', () => {
-    expect(isValidTaskTransition(TaskStatus.InReview, TaskStatus.Completed)).toBe(true);
-  });
-
-  it('InReview → InProgress is valid (sent back)', () => {
-    expect(isValidTaskTransition(TaskStatus.InReview, TaskStatus.InProgress)).toBe(true);
   });
 });

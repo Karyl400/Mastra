@@ -39,7 +39,16 @@ function facts(overrides: Partial<DirectoryMemberFacts> & { slackUserId: string 
   } satisfies DirectoryMemberFacts;
 }
 
-const NOW = new Date('2026-08-12T09:00:00.000Z');
+// ⚠️ `NOW` EST L'HORLOGE RÉELLE, ET C'EST DÉLIBÉRÉ (2026-08-22).
+// Il valait `new Date('2026-08-12T09:00:00.000Z')`. Les extraits sont horodatés
+// RELATIVEMENT à lui (`NOW.getTime() - minutesAgo * 60_000`), mais les dépôts filtrent
+// contre l'horloge réelle (`Date.now() - KNOWLEDGE_LOOKBACK_MS`, fenêtre de 30 jours).
+// Le 2026-09-11 à 09:00 UTC, les fixtures seraient sorties de la fenêtre et ces tests
+// auraient rougi sur « found: false » — c'est-à-dire en accusant l'absence de la personne,
+// jamais la fenêtre. Un rouge qui ne désigne pas sa cause.
+// Dériver de `now` plutôt que figer l'horloge : ce que le code exige est que les messages
+// soient RÉCENTS, et c'est exactement ce que la fixture doit exprimer.
+const NOW = new Date();
 
 function message(text: string, minutesAgo: number, author = HR): ChannelMessage {
   return {

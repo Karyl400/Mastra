@@ -70,49 +70,6 @@ export enum Position {
   OfficeManager = 'Office Manager',
 }
 
-export enum TaskStatus {
-  Pending = 'pending',
-  InProgress = 'in_progress',
-  Blocked = 'blocked',
-  InReview = 'in_review',
-  Completed = 'completed',
-  Skipped = 'skipped',
-  Cancelled = 'cancelled',
-  Archived = 'archived',
-}
-
-export const TASK_STATUS_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
-  [TaskStatus.Pending]: [TaskStatus.InProgress, TaskStatus.Skipped, TaskStatus.Cancelled],
-  [TaskStatus.InProgress]: [
-    TaskStatus.Blocked,
-    TaskStatus.InReview,
-    TaskStatus.Completed,
-    TaskStatus.Cancelled,
-  ],
-  [TaskStatus.Blocked]: [TaskStatus.InProgress, TaskStatus.Cancelled],
-  [TaskStatus.InReview]: [TaskStatus.InProgress, TaskStatus.Completed, TaskStatus.Cancelled],
-  [TaskStatus.Completed]: [TaskStatus.Archived],
-  [TaskStatus.Skipped]: [TaskStatus.Archived, TaskStatus.Pending],
-  [TaskStatus.Cancelled]: [TaskStatus.Archived],
-  [TaskStatus.Archived]: [],
-};
-
-export enum QuestionnaireStatus {
-  Draft = 'draft',
-  Published = 'published',
-  Closed = 'closed',
-  Archived = 'archived',
-}
-
-export enum ResponseStatus {
-  Pending = 'pending',
-  InProgress = 'in_progress',
-  Submitted = 'submitted',
-  InReview = 'in_review',
-  Reviewed = 'reviewed',
-  Rejected = 'rejected',
-}
-
 export enum DocumentType {
   Contract = 'contract',
   Amendment = 'amendment',
@@ -184,21 +141,4 @@ export interface Timestamps {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
-}
-
-export function isValidTaskTransition(from: TaskStatus, to: TaskStatus): boolean {
-  return TASK_STATUS_TRANSITIONS[from]?.includes(to) ?? false;
-}
-
-export function isTaskFinalStatus(status: TaskStatus): boolean {
-  return [TaskStatus.Completed, TaskStatus.Cancelled, TaskStatus.Archived].includes(status);
-}
-
-export function isTaskActiveStatus(status: TaskStatus): boolean {
-  return [
-    TaskStatus.Pending,
-    TaskStatus.InProgress,
-    TaskStatus.Blocked,
-    TaskStatus.InReview,
-  ].includes(status);
 }

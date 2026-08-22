@@ -19,7 +19,7 @@
  * jour, à ±59 min. Le tool ne rend donc plus la date DEMANDÉE mais le moment de REMISE, et
  * sans heure — le modèle ne peut pas répéter une précision qu'on ne lui donne pas.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { makeScheduleReminder } from '../../../src/features/notification/application/tools/schedule-reminder';
 import { InMemoryNotificationRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-notification.repository';
@@ -161,6 +161,27 @@ describe('scheduleReminder', () => {
  * doctrine du dépôt : une prose se produit, un fait se calcule.
  */
 describe('scheduleReminder — le libellé de date vient du CODE', () => {
+  /**
+   * ⚠️ L'HORLOGE EST FIGÉE, ET CE N'EST PAS UN CONFORT.
+   *
+   * Ce test codait en dur `2026-08-22` comme date de rappel et attendait « samedi ». Il est
+   * passé au vert pendant des semaines, puis est devenu ROUGE TOUT SEUL le matin du
+   * 2026-08-22 : le rappel était programmé pour 9 h, il était 9 h 19, `nextDeliveryAt` rendait
+   * donc `null` et le libellé disparaissait. Aucune ligne de code n'avait bougé.
+   *
+   * C'est le R de FIRST — un test doit rendre le même verdict quel que soit le jour où on
+   * l'exécute. Un test qui dépend de l'heure murale n'échoue pas quand le produit casse : il
+   * échoue quand le calendrier avance, et son rouge ne désigne alors jamais sa cause.
+   */
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-19T10:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('rend le jour de la semaine EXACT, celui que le modèle avait faux', async () => {
     const tool = makeScheduleReminder(notificationRepoOf(), await employeeRepoOf());
 

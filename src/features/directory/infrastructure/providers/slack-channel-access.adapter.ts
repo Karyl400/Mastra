@@ -7,11 +7,11 @@ import type {
 import type {
   SlackChannelMembershipPage,
   SlackJoinOutcome,
-} from '../../../notification/infrastructure/providers/slack-workspace.service';
+} from '../../../notification/domain/ports/slack-workspace.port';
 import {
   SLACK_MAX_PAGES,
   SLACK_PAGE_LIMIT,
-} from '../../../notification/infrastructure/providers/slack-workspace.service';
+} from '../../../notification/domain/ports/slack-workspace.port';
 import { logger } from '../../../../shared/logger';
 
 export interface SlackChannelReader {

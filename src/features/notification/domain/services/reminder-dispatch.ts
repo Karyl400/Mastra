@@ -13,10 +13,21 @@ export const STALE_AFTER_DAYS = 7;
 
 const DAY_MS = 86_400_000;
 
-const DISPATCHABLE: ReadonlySet<string> = new Set([
+export const DISPATCHABLE_STATUSES: readonly NotificationStatus[] = [
   NotificationStatus.Scheduled,
   NotificationStatus.Pending,
-]);
+];
+
+export const DISPATCH_LOOKUP_STATUSES: readonly NotificationStatus[] = [
+  ...DISPATCHABLE_STATUSES,
+  NotificationStatus.Sending,
+];
+
+const DISPATCHABLE: ReadonlySet<string> = new Set(DISPATCHABLE_STATUSES);
+
+export function isDispatchableStatus(status: string): boolean {
+  return DISPATCHABLE.has(status);
+}
 
 export const STRANDED_CLAIM_MS = 6 * 60 * 60 * 1000;
 

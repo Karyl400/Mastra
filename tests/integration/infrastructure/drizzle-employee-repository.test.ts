@@ -8,8 +8,9 @@ describe('Integration: DrizzleEmployeeRepository', () => {
   let repository: DrizzleEmployeeRepository;
 
   beforeAll(() => {
-    // getDb() will use 'test.db' because of NODE_ENV='test' in setup.ts
-    const db = getDb();
+    // getDb() will use 'test.db' because of NODE_ENV='test' in setup.ts — on l'appelle pour
+    // son EFFET (ouverture de la connexion), l'instance elle-même n'est pas relue ici.
+    getDb();
     repository = new DrizzleEmployeeRepository();
   });
 

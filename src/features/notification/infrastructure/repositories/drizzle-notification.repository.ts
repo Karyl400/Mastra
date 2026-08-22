@@ -1,8 +1,12 @@
 import { and, eq, inArray, lt, or } from 'drizzle-orm';
 import { getDb, type DatabaseInstance } from '../../../../infrastructure/database/connection';
 import { notifications } from '../../../../infrastructure/database/schema';
-import { Notification } from '../../domain/entities/notification';
-import { NotificationRepository } from '../../domain/ports/notification.repository';
+import type { Notification } from '../../domain/entities/notification';
+import type { NotificationRepository } from '../../domain/ports/notification.repository';
+import {
+  DISPATCHABLE_STATUSES,
+  DISPATCH_LOOKUP_STATUSES,
+} from '../../domain/services/reminder-dispatch';
 import { NotificationStatus } from '../../../../shared/types';
 
 export class DrizzleNotificationRepository implements NotificationRepository {
@@ -41,23 +45,14 @@ export class DrizzleNotificationRepository implements NotificationRepository {
     const result = await db
       .select()
       .from(notifications)
-      .where(
-        inArray(notifications.status, [
-          NotificationStatus.Pending,
-          NotificationStatus.Scheduled,
-          NotificationStatus.Sending,
-        ]),
-      );
+      .where(inArray(notifications.status, [...DISPATCH_LOOKUP_STATUSES]));
     return result as Notification[];
   }
 
   async claimForDispatch(id: string, strandedBefore?: Date): Promise<boolean> {
     const db = this.resolveDb();
 
-    const free = inArray(notifications.status, [
-      NotificationStatus.Pending,
-      NotificationStatus.Scheduled,
-    ]);
+    const free = inArray(notifications.status, [...DISPATCHABLE_STATUSES]);
     const takeable = strandedBefore
       ? or(
           free,

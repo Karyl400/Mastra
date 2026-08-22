@@ -54,10 +54,6 @@ export class InMemoryEmployeeRepository implements EmployeeRepository {
     this.store.set(employee.id, employee);
   }
 
-  async update(employee: Employee): Promise<void> {
-    await this.save(employee);
-  }
-
   async delete(id: string): Promise<void> {
     if (!this.store.has(id) || this.deletedAt.has(id)) return;
     this.deletedAt.set(id, new Date().toISOString());

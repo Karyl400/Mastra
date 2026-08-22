@@ -8,9 +8,6 @@ const SELF_HARM_PHRASES_FR: readonly string[] = [
   'je veux mourir',
   'je veux meurir',
   'envie de mourir',
-  'envie d en finir',
-  'en finir avec la vie',
-  'veux en finir',
   'je n en peux plus',
   'j en peux plus',
   'me suicider',
@@ -254,6 +251,21 @@ function guessLanguage(forms: readonly string[]): DistressLanguage {
   return 'both';
 }
 
+const ENDING_IT_DESIRE = /(?:veux|voudrais|aimerais|envie d|souhaite|pense a) en finir(?!\p{L})/u;
+
+const ENDING_IT_LIFE_COMPLEMENT =
+  /en finir avec (?:la |ma |cette |tout |toute )?(?:vie|tout|ca)(?!\p{L})/u;
+
+const ENDING_IT_HAS_COMPLEMENT = /en finir avec(?!\p{L})/u;
+
+function wantsToEndTheirLife(forms: readonly string[]): boolean {
+  return forms.some((form) => {
+    if (!ENDING_IT_DESIRE.test(form)) return false;
+    if (!ENDING_IT_HAS_COMPLEMENT.test(form)) return true;
+    return ENDING_IT_LIFE_COMPLEMENT.test(form);
+  });
+}
+
 export function distressKind(text: string | undefined | null): DistressKind | null {
   const raw = (text ?? '').trim();
   if (raw.length === 0 || raw.length > MAX_DISTRESS_LENGTH) return null;
@@ -263,7 +275,8 @@ export function distressKind(text: string | undefined | null): DistressKind | nu
   if (
     matchesAny(forms, SELF_HARM_PHRASES_FR) ||
     matchesAny(forms, SELF_HARM_PHRASES_EN) ||
-    matchesAny(forms, SELF_HARM_PHRASES_SHARED)
+    matchesAny(forms, SELF_HARM_PHRASES_SHARED) ||
+    wantsToEndTheirLife(forms)
   ) {
     return 'self_harm';
   }
@@ -286,7 +299,9 @@ export function distressLanguage(text: string | undefined | null): DistressLangu
   const forms = normalizedForms(raw);
 
   const french =
-    matchesAny(forms, SELF_HARM_PHRASES_FR) || matchesAny(forms, AGGRESSION_PHRASES_FR);
+    matchesAny(forms, SELF_HARM_PHRASES_FR) ||
+    matchesAny(forms, AGGRESSION_PHRASES_FR) ||
+    wantsToEndTheirLife(forms);
   const english =
     matchesAny(forms, SELF_HARM_PHRASES_EN) || matchesAny(forms, AGGRESSION_PHRASES_EN);
 

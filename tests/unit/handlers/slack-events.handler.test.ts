@@ -1221,15 +1221,6 @@ describe('SlackEventsHandler — contexte Slack transmis à l’agent', () => {
   });
 });
 
-describe('SlackEventsHandler — handleUrlVerification()', () => {
-  it('echoes the challenge', async () => {
-    const { handler } = makeHandler();
-    await expect(
-      handler.handleUrlVerification({ type: 'url_verification', challenge: 'abc123' }),
-    ).resolves.toEqual({ challenge: 'abc123' });
-  });
-});
-
 /* ------------------------------------------------------------------------- *
  * Mémoire conversationnelle et routage collant
  *

@@ -5,13 +5,9 @@ import type { Mastra } from '@mastra/core';
 import {
   SlackEventsHandler,
   type SlackEventsHandlerOptions,
-  type SlackMessageEvent,
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
 import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
-import {
-  PROFILE_QUESTIONS,
-  type ProfileStep,
-} from '../../../src/features/onboarding/domain/services/profile-chat';
+import { PROFILE_QUESTIONS } from '../../../src/features/onboarding/domain/services/profile-chat';
 import { INTERVIEW_QUESTION_DAILY } from '../../../src/features/onboarding/domain/services/interview-chat';
 
 /**
@@ -139,10 +135,6 @@ function historyOfCompletedProfile() {
     { role: 'user' as const, content: 'karyl@kisso.com' },
     { role: 'assistant' as const, content: PROFILE_QUESTIONS.position as string },
   ];
-}
-
-function dm(text: string, ts = '1700000000.000200'): SlackMessageEvent {
-  return { type: 'message', user: HUMAN, text, channel: DM, channel_type: 'im', ts };
 }
 
 type Probe = {

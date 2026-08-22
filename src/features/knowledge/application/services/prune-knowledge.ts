@@ -1,7 +1,10 @@
 import { logger } from '../../../../shared/logger';
 import type { MessageArchiveRepository } from '../../domain/ports/message-archive.repository';
 import type { KnowledgeFactRepository } from '../../domain/ports/knowledge-fact.repository';
-import { resolveRetentionWindow } from '../../domain/services/knowledge-retention';
+import {
+  MIN_RETENTION_DAYS,
+  resolveRetentionWindow,
+} from '../../domain/services/knowledge-retention';
 
 export interface PruneReport {
   readonly enabled: boolean;
@@ -22,10 +25,15 @@ export async function pruneKnowledge(deps: PruneDeps): Promise<PruneReport> {
   const window = resolveRetentionWindow(deps.retentionDays, deps.now?.() ?? new Date());
 
   if (!window.enabled || window.before === null) {
-    logger.info('Rétention de la base de connaissance non appliquée', {
-      reason: window.reason,
-      days: window.days,
-    });
+    const rejectedAValue = window.reason !== 'not_configured';
+    const report =
+      'Aucune rétention appliquée — messages archivés et faits distillés sont conservés ' +
+      'SANS BORNE, DM compris. Poser KNOWLEDGE_RETENTION_DAYS (minimum ' +
+      `${MIN_RETENTION_DAYS}) pour y remédier.`;
+
+    if (rejectedAValue) logger.error(report, { reason: window.reason, days: window.days });
+    else logger.warn(report, { reason: window.reason });
+
     return { enabled: false, days: window.days, messages: 0, facts: 0, reason: window.reason };
   }
 

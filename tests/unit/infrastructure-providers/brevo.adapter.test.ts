@@ -1,7 +1,4 @@
-import {
-  htmlEmailBody,
-  textEmailBody,
-} from '../../../src/features/notification/domain/services/email-body';
+import { htmlEmailBody } from '../../../src/features/notification/domain/services/email-body';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { BrevoAdapter } from '../../../src/features/notification/infrastructure/providers/brevo.adapter';
 import { MAX_EMAIL_ATTACHMENTS_BYTES } from '../../../src/features/notification/domain/services/email-attachment-policy';

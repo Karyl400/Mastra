@@ -6,6 +6,7 @@ import type { EmployeeRepository } from '../../../employee/domain/ports/employee
 import type { OnboardingInterviewRepository } from '../../../onboarding/domain/ports/onboarding-interview.repository';
 import { fullName, matchesName } from '../../../../shared/name-matching';
 import { logger } from '../../../../shared/logger';
+import { mayReadOthersPrivateNotes } from '../../../../shared/slack-request-context';
 import { sanitizeDisplayName } from '../../../notification/domain/services/context-preamble';
 
 const MAX_EXPERTS = 6;
@@ -49,10 +50,12 @@ export function makeFindExpertise(deps: FindExpertiseDeps) {
     inputSchema: z.object({
       skill: z.string().min(2).max(60).describe('Le sujet ou la compétence. Ex. « backend ».'),
     }),
-    execute: async ({ skill }) => {
+    execute: async ({ skill }, ctx) => {
+      const mayReadPrivateNotes = mayReadOthersPrivateNotes(ctx?.requestContext);
+
       const [fromDirectory, fromEmployees] = await Promise.all([
         matchDirectory(deps, skill),
-        matchEmployees(deps, skill),
+        matchEmployees(deps, skill, mayReadPrivateNotes),
       ]);
 
       const experts = dedupe([...fromDirectory.experts, ...fromEmployees.experts]);
@@ -115,10 +118,14 @@ async function matchDirectory(deps: FindExpertiseDeps, skill: string): Promise<S
   }
 }
 
-async function matchEmployees(deps: FindExpertiseDeps, skill: string): Promise<SourceResult> {
+async function matchEmployees(
+  deps: FindExpertiseDeps,
+  skill: string,
+  mayReadPrivateNotes: boolean,
+): Promise<SourceResult> {
   try {
     const employees = await deps.employeeRepo.findAll();
-    const dailyWork = await loadDailyWork(deps);
+    const dailyWork = mayReadPrivateNotes ? await loadDailyWork(deps) : new Map<string, string>();
 
     const experts: Expert[] = [];
     for (const employee of employees) {

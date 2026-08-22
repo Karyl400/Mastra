@@ -118,15 +118,30 @@ Un seul champ de date au lieu de quatre — le modèle n'a pas à arbitrer entre
 
 Traduction du statut brut vers ce que le modèle doit en comprendre.
 
-⚠️ **`scheduled` MENT dès qu'il ressort d'ici, et c'est un défaut relevé le 2026-08-18.**
-`scheduleReminder` prend soin de neutraliser l'illusion dans son propre résultat
-(`willBeSentAutomatically: false`, et sa description dit « enregistre », jamais
-« planifie »). Mais ce contre-poids ne survit pas au tour suivant : cet outil réexposait
-`status: 'scheduled'` BRUT, et le modèle relisait alors une promesse tenue.
+⚠️ **`scheduled` MENTAIT dès qu'il ressortait d'ici — défaut relevé le 2026-08-18.**
+`scheduleReminder` neutralisait l'illusion dans son propre résultat, mais ce contre-poids
+ne survivait pas au tour suivant : cet outil réexposait `status: 'scheduled'` BRUT, et le
+modèle relisait une promesse tenue. La traduction posée alors disait
+« enregistré, aucun envoi automatique ».
 
-Il n'existe dans ce système ni cron, ni poller, ni file de reprise : `findPending()` n'a
-aucun site d'appel. Un rappel « planifié » ne partira JAMAIS tout seul. Le statut le dit
-désormais lui-même, à l'endroit où il est relu.
+⚠️ **ET CETTE TRADUCTION EST DEVENUE FAUSSE DANS L'AUTRE SENS LE 2026-08-21**, jour où le
+cron `/internal/reminders/dispatch` a été branché. Elle ne mentait plus par omission mais
+par AFFIRMATION : elle niait explicitement un mécanisme qui tourne tous les matins à 6 h.
+Un demandeur consultant son historique s'entendait dire qu'un rappel enregistré ne partirait
+pas, alors qu'il partait le matin du jour dit. Corrigé le 2026-08-22.
+
+⚠️ **C'est la troisième occurrence de la même forme** — après `READ_ONLY_TOOL_NAMES` gardant
+`getTaskList` après son retrait, et `onlyNonDeliveringTools` gardant `scheduleReminder` après
+le branchement du cron. **Un détecteur encode un CÂBLAGE ; quand le câblage bouge, il ne
+devient pas inoffensif, il devient faux dans l'autre sens.**
+
+D'où la forme actuelle : la phrase n'est plus RÉDIGÉE, elle est **DÉRIVÉE** de
+`DISPATCHABLE_STATUSES` — la liste que `claimForDispatch` consomme réellement. Retirer un
+statut du dispatch lui retire sa promesse tout seul ; en ajouter un la lui donne. La même
+liste alimente désormais `findPending()` et les deux implémentations du dépôt, qui la
+recopiaient chacune à leur façon (dont une en littéraux de chaîne).
+Verrouillé par `tests/unit/tools/get-notification-history.test.ts`, qui compare l'ensemble
+des statuts porteurs de promesse à `DISPATCHABLE_STATUSES` — et non à un libellé.
 
 **Avant `export function makeGetNotificationHistory(`**
 

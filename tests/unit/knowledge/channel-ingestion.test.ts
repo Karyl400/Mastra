@@ -29,9 +29,14 @@ import { routeToAgent } from '../../../src/features/notification/domain/services
  * qui accorde 3 secondes ; y ajouter une écriture Turso par message ferait grossir le seul
  * chemin qui n'a pas le droit de grossir. `ingest()` est une entrée de TÂCHE DE FOND.
  *
- * ⚠️ LES MESSAGES PERSONNELS NE SONT JAMAIS ARCHIVÉS. Un DM est l'espace privé d'une
- * personne. La garde porte sur `channel_type`, fourni par Slack, jamais sur une heuristique
- * de contenu — une heuristique se trompe, et elle se trompe en silence.
+ * ⚠️ LA GARDE DE PÉRIMÈTRE PORTE SUR `channel_type`, fourni par Slack — jamais sur une
+ * heuristique de contenu, qui se tromperait en silence. Les DM (`im`) sont DEDANS depuis le
+ * 2026-08-21 (décision de produit, voir plus bas) ; `mpim` reste dehors.
+ * ⚠️ L'en-tête de ce fichier a affirmé « les messages personnels ne sont JAMAIS archivés »
+ * jusqu'au 2026-08-22, alors que trois tests de ce même fichier vérifiaient le contraire
+ * depuis le 2026-08-21. Un commentaire d'en-tête ne se relit pas quand on modifie le corps.
+ *
+ * ⚠️ UNE SEULE EXCEPTION DE CONTENU, ET ELLE EST ASSUMÉE : la détresse. Voir plus bas.
  */
 
 const HUMAN = 'U0BJBDGTJUD';
@@ -161,12 +166,75 @@ describe('ingestion des messages de canal', () => {
     expect(archive.size).toBe(0);
   });
 
-  it('n’archive pas un salon de groupe privé entre personnes (`mpim`)', async () => {
-    const { handler, archive } = makeHandler();
+  /**
+   * ⚠️ LA DÉTRESSE NE S'ARCHIVE PAS, ET C'EST UNE PROMESSE ÉCRITE.
+   *
+   * Les quatre variantes de la réponse de détresse portent, mot pour mot, « Je n'ai transmis
+   * ce message à personne : il reste entre nous ». Cette phrase était FAUSSE sur TROIS canaux
+   * simultanés, parce que `ingest()` tourne AVANT le court-circuit de `handleMessage` :
+   *   1. `channel_messages` — le texte brut écrit en base, et sans rétention configurée il y
+   *      restait indéfiniment ;
+   *   2. `knowledge_facts` — le motif `blocage` couvre `probleme|urgent|panne|incident`,
+   *      vocabulaire qu'un message de détresse porte volontiers ;
+   *   3. LE SECOND RIDEAU — le texte non classé part RÉELLEMENT chez Gemini/Groq/Mistral.
+   *      Celui-là est le plus fort : « transmis à personne » y devient littéralement faux.
+   *
+   * La garde est posée dans `ingest()` et non au site d'appel : c'est la taille par laquelle
+   * les trois écritures descendent, donc un futur appelant est couvert d'avance.
+   *
+   * ⚠️ L'ASYMÉTRIE COMMANDE LE SENS DU DOUTE. Un faux positif coûte un message absent de la
+   * base de connaissance ; un faux négatif rend le produit menteur envers quelqu'un de
+   * vulnérable. On s'abstient donc largement.
+   */
+  it('n’archive RIEN d’un message de détresse — la phrase « il reste entre nous » doit être vraie', async () => {
+    const { handler, archive, facts } = makeHandler();
 
-    await deliver(handler, envelope({ channel: 'G0GROUPE1', channel_type: 'mpim' }));
+    await deliver(handler, envelope({ text: 'je veux en finir, je n’en peux plus' }));
 
     expect(archive.size).toBe(0);
+    expect(await facts.search('finir')).toHaveLength(0);
+  });
+
+  it('n’archive rien non plus d’une AGRESSION — même promesse, même garde', async () => {
+    const { handler, archive } = makeHandler();
+
+    await deliver(handler, envelope({ text: 'je suis harcelé par mon manager tous les jours' }));
+
+    expect(archive.size).toBe(0);
+  });
+
+  it('ne livre AUCUN texte de détresse au second rideau', async () => {
+    const summarizer = vi.fn(async () => []);
+    const archive = new InMemoryMessageArchiveRepository();
+    const facts = new InMemoryKnowledgeFactRepository();
+    const ingestion = new KnowledgeIngestionService({
+      archive,
+      facts,
+      summarizer: { summarize: summarizer } as never,
+    });
+
+    await ingestion.ingest({
+      id: 'C1:1',
+      channelId: CHANNEL,
+      slackUserId: HUMAN,
+      text: 'je veux en finir',
+      threadTs: null,
+      postedAt: Date.now(),
+    });
+
+    expect(summarizer).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ⚠️ CONTRÔLE POSITIF — sans lui, les trois tests ci-dessus passeraient si l'ingestion
+   * n'archivait plus RIEN du tout. Ils mesureraient alors leur propre panne.
+   */
+  it('mais un message ordinaire du même canal est bien archivé', async () => {
+    const { handler, archive } = makeHandler();
+
+    await deliver(handler, envelope({ text: 'je veux en finir avec ce ticket avant jeudi' }));
+
+    expect(archive.size).toBe(1);
   });
 
   it('archive un canal privé (`group`) — le bot y a été invité', async () => {

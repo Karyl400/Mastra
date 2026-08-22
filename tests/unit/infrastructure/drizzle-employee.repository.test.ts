@@ -1,9 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { getDb, closeDb } from '../../../src/infrastructure/database/connection';
+import { closeDb } from '../../../src/infrastructure/database/connection';
 import { DrizzleEmployeeRepository } from '../../../src/features/employee/infrastructure/repositories/drizzle-employee.repository';
 import { createEmployee } from '../../../src/features/employee/domain/entities/employee';
-import { EmployeeStatus } from '../../../src/shared/types';
-import { sql } from 'drizzle-orm';
 
 describe('Infrastructure: DrizzleEmployeeRepository', () => {
   const repo = new DrizzleEmployeeRepository();

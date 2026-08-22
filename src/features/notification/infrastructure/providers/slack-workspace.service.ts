@@ -3,7 +3,11 @@ import type {
   SlackWorkspaceProvider,
   SlackChannel,
   SlackMember,
+  SlackMemberPage,
+  SlackChannelMembershipPage,
+  SlackJoinOutcome,
 } from '../../domain/ports/slack-workspace.port';
+import { SLACK_PAGE_LIMIT, SLACK_MAX_PAGES } from '../../domain/ports/slack-workspace.port';
 import { logger } from '../../../../shared/logger';
 
 interface SlackApiUser {
@@ -24,42 +28,6 @@ interface SlackApiUser {
     real_name?: string | null;
     title?: string | null;
   };
-}
-
-export const SLACK_PAGE_LIMIT = 200;
-
-export const SLACK_MAX_PAGES = 50;
-
-export interface SlackMemberPage {
-  members: SlackMember[];
-  nextCursor?: string;
-}
-
-export interface SlackChannelMembership {
-  id: string;
-  name: string;
-  isPrivate: boolean;
-  isArchived: boolean;
-  isMember: boolean;
-}
-
-export interface SlackChannelMembershipPage {
-  channels: SlackChannelMembership[];
-  nextCursor?: string;
-}
-
-export type SlackJoinStatus =
-  | 'joined'
-  | 'already_member'
-  | 'not_public'
-  | 'archived'
-  | 'missing_scope'
-  | 'not_found'
-  | 'failed';
-
-export interface SlackJoinOutcome {
-  status: SlackJoinStatus;
-  error?: string;
 }
 
 function splitRealName(realName: string): { firstName: string; lastName: string } {

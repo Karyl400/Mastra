@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { buildWelcomeEmail } from '../../../src/features/onboarding/domain/services/welcome-email';
 
@@ -48,6 +48,27 @@ describe('buildWelcomeEmail — ne promet que ce qui existe', () => {
 });
 
 describe('buildWelcomeEmail — la réalité de la personne', () => {
+  /**
+   * ⚠️ HORLOGE FIGÉE — sans quoi ce test rougissait le 2026-09-01 (2026-08-22).
+   *
+   * `isFutureDay` compare la date de début à `new Date()` RÉEL et n'a aucun point
+   * d'injection ; la phrase « On t'attend le … » n'est émise que si la date est future. Le
+   * matin du 1ᵉʳ septembre 2026, l'égalité tue le `>`, la phrase disparaît et l'assertion
+   * sur « septembre 2026 » tombe — sans qu'aucune ligne de code ait bougé.
+   *
+   * On fige ici plutôt que de dériver la date de `now`, parce que le libellé attendu est un
+   * MOIS écrit en toutes lettres : le dériver obligerait le test à recalculer le mois, donc
+   * à réimplémenter ce qu'il vérifie.
+   */
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-20T00:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('cite le poste et le premier jour EN TOUTES LETTRES — sans l’équipe', () => {
     const mail = buildWelcomeEmail({
       ...BASE,

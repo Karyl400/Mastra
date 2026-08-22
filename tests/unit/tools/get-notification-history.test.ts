@@ -21,9 +21,11 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   makeGetNotificationHistory,
   MAX_NOTIFICATIONS_IN_RESULT,
+  type NotificationHistoryPage,
 } from '../../../src/features/notification/application/tools/get-notification-history';
 import { InMemoryNotificationRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-notification.repository';
 import type { Notification } from '../../../src/features/notification/domain/entities/notification';
+import { DISPATCHABLE_STATUSES } from '../../../src/features/notification/domain/services/reminder-dispatch';
 import { NotificationChannel, NotificationStatus, RecipientType } from '../../../src/shared/types';
 
 const RECIPIENT_ID = '11111111-1111-4111-8111-111111111111';
@@ -135,13 +137,43 @@ describe('getNotificationHistory — budget et honnêteté du tool-result', () =
     const result = await run();
 
     expect(result.notifications[0]!.at).toBe('2026-09-01T08:00:00.000Z');
-    // ⚠️ Le statut n'est plus rendu BRUT, et c'est le correctif du 2026-08-18.
-    // `scheduleReminder` neutralise soigneusement l'illusion dans son propre résultat
-    // (`willBeSentAutomatically: false`), mais ce contre-poids ne survivait pas au tour
-    // suivant : cet outil réexposait « scheduled », que le modèle relisait comme une promesse
-    // tenue. Il n'existe ni cron ni poller dans ce système — rien ne partira seul.
-    expect(result.notifications[0]!.status).toBe('enregistré, aucun envoi automatique');
+    // ⚠️ Le statut n'est jamais rendu BRUT — correctif du 2026-08-18, quand le tour suivant
+    // relisait « scheduled » comme une promesse tenue.
+    // ⚠️ ET LA PHRASE A DÛ CHANGER DE SENS le 2026-08-22 : elle disait « aucun envoi
+    // automatique », ce qui était vrai jusqu'au cron du 2026-08-21 et faux depuis. Un
+    // détecteur encode un câblage ; quand le câblage bouge, il ne devient pas inoffensif,
+    // il devient faux dans l'AUTRE sens — même famille que `READ_ONLY_TOOL_NAMES` gardant
+    // `getTaskList` après son retrait.
+    expect(result.notifications[0]!.status).toBe(
+      'enregistré, remise automatique le matin du jour prévu',
+    );
     expect(result.notifications[0]!.status).not.toBe(NotificationStatus.Scheduled);
+  });
+
+  /**
+   * ⚠️ LE GARDE-FOU QUI EMPÊCHE LA PHRASE DE SE PÉRIMER UNE TROISIÈME FOIS.
+   *
+   * On ne vérifie pas un libellé : on vérifie que la promesse de remise est DÉRIVÉE de la
+   * liste que le cron consomme réellement (`DISPATCHABLE_STATUSES`, la même que
+   * `claimForDispatch`). Retirer un statut du dispatch fait donc tomber sa promesse tout
+   * seul, et en ajouter un la lui donne. C'est la seule forme qui survive au prochain
+   * changement de câblage.
+   */
+  it('ne promet une remise QUE pour les statuts que le cron sait réellement prendre', async () => {
+    const promising = new Set<string>();
+
+    for (const status of Object.values(NotificationStatus)) {
+      const repoForStatus = new InMemoryNotificationRepository();
+      await repoForStatus.save(makeNotification(1, { status, sentAt: null }));
+      const out = (await makeGetNotificationHistory(repoForStatus).execute!(
+        { recipientId: RECIPIENT_ID } as never,
+        {} as never,
+      )) as NotificationHistoryPage;
+
+      if (/remise automatique/.test(out.notifications[0]!.status)) promising.add(status);
+    }
+
+    expect([...promising].sort()).toEqual([...DISPATCHABLE_STATUSES].sort());
   });
 
   it("n'expose plus de paramètre `limit` au modèle (coût de schéma inutile)", () => {

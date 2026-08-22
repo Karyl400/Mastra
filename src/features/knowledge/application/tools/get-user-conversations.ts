@@ -3,7 +3,6 @@ import { z } from 'zod';
 
 import { logger } from '../../../../shared/logger';
 import { readSlackContext, writeExcerptCoverage } from '../../../../shared/slack-request-context';
-import {} from '../../../directory/domain/services/access-policy';
 import type { ConversationExcerpt } from '../../domain/entities/conversation-excerpt';
 import type { BotMemoryReadPort } from '../../domain/ports/bot-memory.repository';
 import type {

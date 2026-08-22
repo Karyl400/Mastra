@@ -401,3 +401,51 @@ describe('AGGRESSION_REPLY', () => {
     expect(distressReplyFor('je veux mourir')).toBe(DISTRESS_REPLY);
   });
 });
+
+/**
+ * ⚠️ « EN FINIR » EST AMBIGU EN FRANÇAIS DE TRAVAIL, et le motif nu s'y trompait six fois
+ * sur neuf. Trouvé le 2026-08-22 par le CONTRÔLE POSITIF d'un test d'archivage : la phrase
+ * neutre choisie pour prouver que l'ingestion fonctionnait encore — « je veux en finir avec
+ * ce ticket avant jeudi » — déclenchait le message de prévention du suicide.
+ *
+ * Le motif était `'veux en finir'` en sous-chaîne, donc « en finir avec ce projet », « avec
+ * cette réunion », « avec la migration » déclenchaient tous. Dans un bot d'onboarding
+ * d'entreprise, ce ne sont pas des cas limites : c'est le vocabulaire quotidien.
+ *
+ * ⚠️ CE QUI REND LE RESSERREMENT SÛR, ce n'est pas le raisonnement, c'est la mesure : le
+ * corpus ci-dessous porte les DEUX colonnes. Un motif de détresse ne se relit pas, il
+ * s'exerce sur des phrases que des gens diraient — et sur celles qu'ils diraient SANS être
+ * en détresse, sans quoi on ne mesure qu'une moitié.
+ *
+ * Le resserrement a fait GAGNER deux vraies détresses au passage (« j'aimerais en finir »,
+ * « je voudrais en finir ») : le motif n'énumérait que `veux` et `envie d`.
+ */
+describe('« en finir » — les deux colonnes du corpus', () => {
+  const DETRESSE_REELLE = [
+    'je veux en finir',
+    'je veux en finir.',
+    "j'aimerais en finir",
+    'je voudrais en finir',
+    "j'ai envie d'en finir",
+    'je veux en finir avec la vie',
+    'je veux en finir avec tout ça',
+    'je veux en finir avec cette vie',
+  ];
+
+  const TOURNURE_DE_TRAVAIL = [
+    'je veux en finir avec ce ticket avant jeudi',
+    'je veux en finir avec cette réunion',
+    'je veux en finir avec ce projet',
+    'je veux en finir avec la migration',
+    'je veux en finir avec cette tâche',
+    'je veux en finir avec les tests qui flottent',
+  ];
+
+  it.each(DETRESSE_REELLE)('reconnaît « %s »', (phrase) => {
+    expect(distressKind(phrase)).toBe('self_harm');
+  });
+
+  it.each(TOURNURE_DE_TRAVAIL)('ne se déclenche PAS sur « %s »', (phrase) => {
+    expect(distressKind(phrase)).toBeNull();
+  });
+});

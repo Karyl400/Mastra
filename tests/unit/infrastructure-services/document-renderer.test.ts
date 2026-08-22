@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from 'vitest';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
 import { join } from 'node:path';
 import JSZip from 'jszip';

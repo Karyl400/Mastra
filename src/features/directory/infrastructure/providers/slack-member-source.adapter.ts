@@ -1,8 +1,10 @@
 import type { DirectoryMemberFacts } from '../../domain/entities/directory-member';
 import type { MemberSource } from '../../domain/ports/member-source';
-import type { SlackMember } from '../../../notification/domain/ports/slack-workspace.port';
-import type { SlackMemberPage } from '../../../notification/infrastructure/providers/slack-workspace.service';
-import { SLACK_MAX_PAGES } from '../../../notification/infrastructure/providers/slack-workspace.service';
+import type {
+  SlackMember,
+  SlackMemberPage,
+} from '../../../notification/domain/ports/slack-workspace.port';
+import { SLACK_MAX_PAGES } from '../../../notification/domain/ports/slack-workspace.port';
 import { logger } from '../../../../shared/logger';
 
 export interface SlackMemberReader {

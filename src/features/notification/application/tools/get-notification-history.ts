@@ -6,6 +6,7 @@ import { uuidSchema, emailSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { canReadPersonRecord } from '../../../../shared/slack-request-context';
 import { NotificationStatus, type NotificationChannel } from '../../../../shared/types';
+import { isDispatchableStatus } from '../../domain/services/reminder-dispatch';
 
 const NOT_AUTHORIZED_HINT =
   "Tu n'as pas accès aux messages reçus par cette personne. Dis-le simplement, sans détour " +
@@ -34,7 +35,9 @@ function dateOf(n: Notification): string {
 }
 
 function honestStatus(status: NotificationStatus): string {
-  return status === NotificationStatus.Scheduled ? 'enregistré, aucun envoi automatique' : status;
+  if (isDispatchableStatus(status)) return 'enregistré, remise automatique le matin du jour prévu';
+  if (status === NotificationStatus.Sending) return 'remise en cours';
+  return status;
 }
 
 function toSummary(n: Notification): NotificationSummary {

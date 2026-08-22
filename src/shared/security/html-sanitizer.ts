@@ -7,10 +7,3 @@ export function sanitizeHtml(value: string): string {
     disallowedTagsMode: 'discard',
   });
 }
-
-export function sanitizeRichHtml(value: string): string {
-  return sanitizeHtmlLib(value, {
-    allowedTags: ['b', 'i', 'strong', 'em', 'p', 'ul', 'ol', 'li', 'br'],
-    allowedAttributes: {},
-  });
-}

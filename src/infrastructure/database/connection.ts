@@ -242,7 +242,7 @@ export class DatabaseConnectionError extends Error {
 
   constructor(
     message: string,
-    public readonly cause?: Error,
+    public override readonly cause?: Error,
   ) {
     super(message);
     this.name = 'DatabaseConnectionError';
@@ -254,7 +254,7 @@ export class DatabaseMigrationError extends Error {
 
   constructor(
     message: string,
-    public readonly cause?: Error,
+    public override readonly cause?: Error,
   ) {
     super(message);
     this.name = 'DatabaseMigrationError';

@@ -1,4 +1,5 @@
 import { normalizeIntentText } from './intent-text';
+import { isNegatedNear } from './negation';
 import { ESCALATION_CONTACT } from './escalation';
 
 const ERASURE_STEMS: readonly string[] = ['oubli', 'supprim', 'efface', 'delete', 'forget'];
@@ -16,8 +17,6 @@ const REQUEST_MARKERS: readonly string[] = [
 ];
 
 const REQUEST_LOOKBACK_WORDS = 3;
-
-const NEGATION_WINDOW_WORDS = 4;
 
 const MEMORY_OBJECTS: readonly string[] = [
   'ce que je t ai dit',
@@ -52,23 +51,11 @@ const NEGATIONS: ReadonlySet<string> = new Set([
   'aucun',
   'aucune',
   'rien',
-  'surtout',
   'never',
   'dont',
 ]);
 
 const MAX_ERASURE_LENGTH = 200;
-
-function isNegated(words: readonly string[], verbIndex: number): boolean {
-  const from = Math.max(0, verbIndex - NEGATION_WINDOW_WORDS);
-  const to = Math.min(words.length, verbIndex + NEGATION_WINDOW_WORDS + 1);
-
-  for (let i = from; i < to; i += 1) {
-    if (i !== verbIndex && NEGATIONS.has(words[i])) return true;
-  }
-
-  return false;
-}
 
 function isAnOrder(words: readonly string[], verbIndex: number): boolean {
   if (verbIndex === 0) return true;
@@ -92,7 +79,8 @@ export function requestsErasure(text: string | undefined | null): boolean {
   const words = normalized.split(' ');
 
   return words.some(
-    (word, index) => isErasureVerb(word) && isAnOrder(words, index) && !isNegated(words, index),
+    (word, index) =>
+      isErasureVerb(word) && isAnOrder(words, index) && !isNegatedNear(words, index, NEGATIONS),
   );
 }
 

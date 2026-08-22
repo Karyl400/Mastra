@@ -4,14 +4,7 @@ import { join } from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
 
 import { verifyProfile } from '../../../src/features/onboarding/domain/services/profile-completion';
-import {
-  PROFILE_QUESTIONS,
-  answersFromRecord,
-  captureProfileAnswer,
-  collectProfileAnswers,
-  nextProfileStep,
-  pendingProfileStep,
-} from '../../../src/features/onboarding/domain/services/profile-chat';
+import { PROFILE_QUESTIONS } from '../../../src/features/onboarding/domain/services/profile-chat';
 import {
   INTERVIEW_QUESTION_DAILY,
   INTERVIEW_QUESTION_STYLE,

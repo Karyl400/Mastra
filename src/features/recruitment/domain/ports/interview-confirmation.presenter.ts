@@ -15,6 +15,4 @@ export interface InterviewConfirmationPresenter {
     subject: string;
     body: string;
   }): string;
-
-  fallbackText(candidateName?: string): string;
 }

@@ -35,8 +35,18 @@ export function buildOnboardingPlan(input: OnboardingPlanInput): OnboardingPlan 
   };
 }
 
+export function clampToPlan(currentStep: number): {
+  currentStep: number;
+  totalSteps: number;
+} {
+  return {
+    currentStep: Math.max(0, Math.min(currentStep, ONBOARDING_TOTAL_STEPS)),
+    totalSteps: ONBOARDING_TOTAL_STEPS,
+  };
+}
+
 export function reconcileProgress(progress: OnboardingProgress): OnboardingProgress {
-  const currentStep = Math.min(progress.currentStep, ONBOARDING_TOTAL_STEPS);
+  const { currentStep } = clampToPlan(progress.currentStep);
   const done = currentStep >= ONBOARDING_TOTAL_STEPS;
   const status = done ? OnboardingStatus.Completed : progress.status;
 

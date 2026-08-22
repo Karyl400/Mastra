@@ -32,3 +32,39 @@ export interface SlackWorkspaceProvider {
   inviteToChannel(channelId: string, userId: string): Promise<void>;
   getChannelMembers(channelId: string): Promise<string[]>;
 }
+
+export const SLACK_PAGE_LIMIT = 200;
+
+export const SLACK_MAX_PAGES = 50;
+
+export interface SlackMemberPage {
+  members: SlackMember[];
+  nextCursor?: string;
+}
+
+export interface SlackChannelMembership {
+  id: string;
+  name: string;
+  isPrivate: boolean;
+  isArchived: boolean;
+  isMember: boolean;
+}
+
+export interface SlackChannelMembershipPage {
+  channels: SlackChannelMembership[];
+  nextCursor?: string;
+}
+
+export type SlackJoinStatus =
+  | 'joined'
+  | 'already_member'
+  | 'not_public'
+  | 'archived'
+  | 'missing_scope'
+  | 'not_found'
+  | 'failed';
+
+export interface SlackJoinOutcome {
+  status: SlackJoinStatus;
+  error?: string;
+}

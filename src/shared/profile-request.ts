@@ -1,4 +1,5 @@
 import { normalizeIntentText } from './intent-text';
+import { isNegatedNear } from './negation';
 
 const EDIT_VERB_STEMS: readonly string[] = [
   'complet',
@@ -59,8 +60,6 @@ const REQUEST_MARKERS: readonly string[] = [
 
 const REQUEST_LOOKBACK_WORDS = 6;
 
-const NEGATION_WINDOW_WORDS = 4;
-
 const NEGATIONS: ReadonlySet<string> = new Set([
   'ne',
   'n',
@@ -70,7 +69,6 @@ const NEGATIONS: ReadonlySet<string> = new Set([
   'aucun',
   'aucune',
   'rien',
-  'inutile',
   'never',
   'dont',
 ]);
@@ -78,17 +76,6 @@ const NEGATIONS: ReadonlySet<string> = new Set([
 const MOTIVE_MARKERS: readonly string[] = ['pourquoi', 'why'];
 
 const MAX_REQUEST_LENGTH = 200;
-
-function isNegated(words: readonly string[], verbIndex: number): boolean {
-  const from = Math.max(0, verbIndex - NEGATION_WINDOW_WORDS);
-  const to = Math.min(words.length, verbIndex + NEGATION_WINDOW_WORDS + 1);
-
-  for (let i = from; i < to; i += 1) {
-    if (i !== verbIndex && NEGATIONS.has(words[i]!)) return true;
-  }
-
-  return false;
-}
 
 function isARequest(words: readonly string[], verbIndex: number): boolean {
   if (verbIndex === 0) return true;
@@ -120,7 +107,7 @@ export function requestsProfileForm(text: string | undefined | null): boolean {
     const isSend = aboutTheForm && startsWithAny(word, SEND_VERB_STEMS);
     if (!isEdit && !isSend) return false;
 
-    return isARequest(words, index) && !isNegated(words, index);
+    return isARequest(words, index) && !isNegatedNear(words, index, NEGATIONS);
   });
 }
 

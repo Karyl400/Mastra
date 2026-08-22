@@ -8,6 +8,5 @@ export interface EmployeeRepository {
 
   findAll(): Promise<Employee[]>;
   save(employee: Employee): Promise<void>;
-  update(employee: Employee): Promise<void>;
   delete(id: string): Promise<void>;
 }

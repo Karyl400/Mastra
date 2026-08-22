@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { makeUpdateOnboardingStatus } from '../../../src/features/onboarding/application/tools/update-onboarding-status';
 import { InMemoryOnboardingRepository } from '../../../src/features/onboarding/infrastructure/repositories/in-memory-onboarding.repository';
 import { OnboardingStatus } from '../../../src/shared/types';
+import { ONBOARDING_TOTAL_STEPS } from '../../../src/features/onboarding/domain/services/onboarding-plan';
 
 /**
  * `updateOnboardingStatus` levait `NotFoundError` dès que l'employé n'avait pas
@@ -52,8 +53,16 @@ describe('updateOnboardingStatus — suivi existant', () => {
 
     expect(result.updated).toBe(true);
     expect(result.status).toBe(OnboardingStatus.InProgress);
-    expect(result.currentStep).toBe(2);
-    expect(result.totalSteps).toBe(5);
+    // ⚠️ CE TEST VERROUILLAIT L'ANCIEN BARÈME — corrigé le 2026-08-22.
+    // La ligne de départ porte `totalSteps: 5`, héritage des cinq tâches d'onboarding
+    // supprimées le 2026-08-14 ; `ONBOARDING_TOTAL_STEPS` vaut 1 depuis. Le tool recopiait
+    // `totalSteps` par spread et n'appliquait aucun plafond à `currentStep`, si bien qu'il
+    // répondait « étape 2 sur 5 » là où `getEmployeeProfile` — qui, lui, réconcilie — répond
+    // « étape 1 sur 1 ». DEUX OUTILS DU MÊME AGENT donnaient deux barèmes dans le même fil.
+    // Le barème est désormais dérivé une seule fois (`clampToPlan`), et la ligne héritée est
+    // ramenée à l'échelle courante au lieu d'être propagée.
+    expect(result.currentStep).toBe(ONBOARDING_TOTAL_STEPS);
+    expect(result.totalSteps).toBe(ONBOARDING_TOTAL_STEPS);
 
     const persisted = await repo.findByEmployee(EMPLOYEE_ID);
     expect(persisted?.status).toBe(OnboardingStatus.InProgress);

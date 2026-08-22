@@ -2087,6 +2087,38 @@ Rend `true` si le code a su classer ce message — donc si le rideau n'a rien à
 
 Classé par le CODE : plus rien à examiner, et le rideau ne le reverra jamais.
 
+### `src/features/knowledge/application/services/knowledge-ingestion.service.ts`
+
+**Avant `if (distressKind(message.text) !== null) {`**
+
+⚠️ **LA DÉTRESSE NE S'ARCHIVE PAS — correctif du 2026-08-22, et il rend VRAIE une phrase qui
+était fausse.**
+
+Les quatre variantes de la réponse de détresse portent, mot pour mot, « Je n'ai transmis ce
+message à personne : il reste entre nous ». Or `ingest()` tourne AVANT le court-circuit de
+`handleMessage` — ligne 1010 contre ligne 1737 — donc au moment où le bot prononçait cette
+phrase, le texte était déjà écrit. La promesse était fausse sur **trois** canaux à la fois :
+
+ 1. `channel_messages` — le texte brut en base, et sans rétention configurée il y restait
+    indéfiniment (voir ci-dessous : les deux défauts s'aggravaient l'un l'autre) ;
+ 2. `knowledge_facts` — le motif `blocage` couvre `probleme|urgent|panne|incident`,
+    vocabulaire qu'un message de détresse porte volontiers ;
+ 3. **le SECOND RIDEAU** — le texte non classé par le code part RÉELLEMENT chez
+    Gemini/Groq/Mistral. Celui-là est le plus fort : « transmis à personne » y devient
+    littéralement faux, et le destinataire est un tiers hors de l'entreprise.
+
+⚠️ **LA GARDE EST DANS `ingest()`, PAS AU SITE D'APPEL.** C'est la taille par laquelle les
+trois écritures descendent : un futur appelant est couvert d'avance. La poser dans
+`archiveChannelMessage` aurait fermé le chemin connu et laissé le suivant ouvert.
+
+⚠️ **L'ASYMÉTRIE COMMANDE LE SENS DU DOUTE**, et elle est inverse de celle qui gouverne le
+reste de l'ingestion : un faux positif coûte un message absent de la base de connaissance, un
+faux négatif rend le produit menteur envers quelqu'un de vulnérable. On s'abstient largement.
+
+⚠️ **Ce que la garde NE ferme PAS** : le message existe toujours dans Slack, où la personne
+l'a écrit. La phrase ne dit pas « ce message n'existe pas », elle dit que *Marcel* ne l'a
+transmis à personne — et c'est maintenant exact.
+
 ### `src/features/knowledge/application/services/prune-knowledge.ts`
 
 **Avant `export async function pruneKnowledge(deps: PruneDeps): Promise<PruneReport> {`**
@@ -2099,9 +2131,28 @@ demain, le second ne l'est pas — la personne aura manqué son échéance.
 intermédiaire acceptable est « des messages sans faits » (rejouable par distillation), jamais
 « des faits sans messages » (une affirmation dont la source a disparu).
 
-**Avant `logger.info('Rétention de la base de connaissance non appliquée', {`**
+**Avant `const rejectedAValue = window.reason !== 'not_configured';`**
 
 Une rétention qui ne tourne pas EN SILENCE est indiscernable d'une rétention qui marche.
+
+⚠️ **Et elle l'a été jusqu'au 2026-08-22 : cette phrase était écrite ici pendant que le code
+sortait en `logger.info`**, au même niveau qu'une purge réussie. Constat de production :
+`KNOWLEDGE_RETENTION_DAYS` n'est posée ni en local ni sur Vercel, `.env.example` la déclare
+VIDE — donc la copier ne suffit pas — et le cron appelle fidèlement `pruneKnowledge` tous les
+matins pour ressortir aussitôt en `enabled: false`. **Tout ce qui est archivé l'est sans
+borne, DM compris**, et depuis le 2026-08-21 le manager peut les relire.
+
+⚠️ **DEUX NIVEAUX, ET LE PLUS GRAVE N'EST PAS L'ABSENCE.** Une variable absente est un choix
+qu'on n'a pas fait : `warn`. Une valeur POSÉE puis rejetée — `KNOWLEDGE_RETENTION_DAYS=3`,
+sous le plancher de 7 — est un choix qu'on CROIT avoir fait : l'exploitant pense avoir une
+rétention de trois jours et tout est conservé pour toujours. Celui-là est `error`.
+
+⚠️ Le message nomme la CONSÉQUENCE (« conservés SANS BORNE, DM compris ») et non la cause
+technique : `reason: 'not_configured'` ne dit à personne ce qui est en jeu.
+
+Toute cette mécanique n'avait **aucun test** avant le 2026-08-22 — ni `resolveRetentionWindow`,
+ni `pruneKnowledge` n'étaient nommés dans `tests/`. Le seul mécanisme qui borne la conservation
+de données personnelles n'était vérifié par rien.
 
 ### `src/features/knowledge/application/tools/search-knowledge.ts`
 

@@ -114,10 +114,6 @@ export function confirmFacts(payload: InterviewConfirmPayload, whenLabel: string
   return [`*À* ${payload.to}`, `*Quand* ${whenLabel}`];
 }
 
-export function interviewConfirmFallback(candidateName?: string): string {
-  return candidateName ? `Entretien à confirmer pour ${candidateName}` : 'Entretien à confirmer';
-}
-
 export const INTERVIEW_SENT_REPLY = (to: string, whenLabel: string): string =>
   `C'est envoyé à ${to}, pour ${whenLabel}.`;
 
@@ -131,7 +127,6 @@ export const INTERVIEW_SEND_FAILED_REPLY =
 
 export const slackInterviewConfirmationPresenter: InterviewConfirmationPresenter = {
   buildConfirmationText: (input) => buildInterviewConfirmText(input),
-  fallbackText: (candidateName) => interviewConfirmFallback(candidateName),
 };
 
 export function buildInterviewConfirmText(input: {

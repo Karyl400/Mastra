@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest';
 
 import { makeFindExpertise } from '../../../src/features/knowledge/application/tools/find-expertise';
 import { InMemoryDirectoryRepository } from '../../../src/features/directory/infrastructure/repositories/in-memory-directory.repository';
-import { InMemoryEmployeeRepository } from '../../../src/features/employee/infrastructure/repositories/in-memory-employee.repository';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -493,5 +492,99 @@ describe('findExpertise — deux personnes, un même nom', () => {
     };
 
     expect(out.people).toHaveLength(1);
+  });
+});
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * LA SOURCE PRIVÉE EST DERRIÈRE LA FRONTIÈRE — correctif du 2026-08-22
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * `findExpertise` était le seul outil du dépôt touchant des données de personnes SANS
+ * consulter la moindre garde — sa signature `execute: async ({ skill }) =>` ne déclarait
+ * même pas de second paramètre, si bien que le `requestContext` n'existait pas dans sa
+ * portée : la garde n'était pas oubliée, elle était structurellement inatteignable.
+ *
+ * ⚠️ CE QUI FUYAIT N'ÉTAIT PAS LE TEXTE, C'ÉTAIT UN ORACLE. Le tool ne cite jamais un mot
+ * de l'entretien — il rend « X — d'après ce qu'iel a décrit de son travail au quotidien ».
+ * Mais `matchesName` compare par PRÉFIXE et le schéma accepte deux caractères : en variant
+ * « ps », « po », « pos »… on reconstruit, mot par mot et ATTRIBUÉ À UN NOM, le vocabulaire
+ * du texte que quelqu'un a écrit sur lui-même. Un bit par requête suffit à tout lire.
+ *
+ * ⚠️ LA FRONTIÈRE NE FERME PAS L'OUTIL, elle ferme la SOURCE PRIVÉE. Les postes déclarés
+ * (`slack_directory.title`, `employees.position`) restent interrogeables par tout le monde :
+ * ils sont déjà visibles dans le profil Slack de chacun, et « qui s'occupe du backend ? »
+ * doit continuer de marcher pour un salarié ordinaire — c'est la raison d'être du tool, et
+ * la réponse alternative est celle que le modèle inventerait.
+ *
+ * ⚠️ LES DEUX MOITIÉS SONT TESTÉES. Un refus généralisé est indiscernable d'une frontière
+ * qui fonctionne : sans le second test, une panne qui vide `dailyWork` pour tout le monde
+ * passerait pour de la sécurité.
+ */
+describe('findExpertise — l’entretien est une source privée', () => {
+  const KARYL_ID = '11111111-1111-4111-8111-111111111111';
+
+  const soloEmployee = {
+    findAll: async () => [
+      { id: KARYL_ID, firstName: 'Karyl', lastName: 'SOUMAILA', position: 'Developer' },
+    ],
+  } as never;
+
+  const emptyDirectory = { listAll: async () => [] } as never;
+
+  const interviewRepo = {
+    listAll: async () => [
+      { employeeId: KARYL_ID, dailyWork: 'je fais du support technique sur les tickets' },
+    ],
+  } as never;
+
+  function slackContext(accessLevel: 'readonly' | 'full') {
+    return {
+      requestContext: new Map<string, unknown>([
+        ['slackChannel', 'D0PRIVE01'],
+        ['slackUserId', 'U0AUTRE00'],
+        ['slackAccessLevel', accessLevel],
+      ]),
+    } as never;
+  }
+
+  async function search(accessLevel: 'readonly' | 'full') {
+    const tool = makeFindExpertise({
+      directoryRepo: emptyDirectory,
+      employeeRepo: soloEmployee,
+      interviewRepo,
+    });
+    return (await tool.execute!({ skill: 'support' } as never, slackContext(accessLevel))) as {
+      found: boolean;
+      people?: string[];
+    };
+  }
+
+  it('ne consulte PAS l’entretien pour un demandeur ordinaire — l’oracle est fermé', async () => {
+    const result = await search('readonly');
+
+    expect(result.found).toBe(false);
+  });
+
+  it('le consulte pour le manager — la frontière filtre, elle n’éteint pas', async () => {
+    const result = await search('full');
+
+    expect(result.found).toBe(true);
+    expect(result.people?.join(' ')).toContain('Karyl');
+  });
+
+  it('le poste déclaré, lui, reste interrogeable par tout le monde', async () => {
+    const tool = makeFindExpertise({
+      directoryRepo: emptyDirectory,
+      employeeRepo: soloEmployee,
+      interviewRepo,
+    });
+
+    const result = (await tool.execute!(
+      { skill: 'developer' } as never,
+      slackContext('readonly'),
+    )) as { found: boolean };
+
+    expect(result.found).toBe(true);
   });
 });

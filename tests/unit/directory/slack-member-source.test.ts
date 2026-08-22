@@ -4,8 +4,10 @@ import {
   SlackMemberSource,
   type SlackMemberReader,
 } from '../../../src/features/directory/infrastructure/providers/slack-member-source.adapter';
-import type { SlackMember } from '../../../src/features/notification/domain/ports/slack-workspace.port';
-import type { SlackMemberPage } from '../../../src/features/notification/infrastructure/providers/slack-workspace.service';
+import type {
+  SlackMember,
+  SlackMemberPage,
+} from '../../../src/features/notification/domain/ports/slack-workspace.port';
 
 /**
  * `SlackMemberSource` — la seule implémentation de `MemberSource`.

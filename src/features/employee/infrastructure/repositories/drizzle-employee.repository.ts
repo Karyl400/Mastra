@@ -1,8 +1,8 @@
 import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 import { getDb, type DatabaseInstance } from '../../../../infrastructure/database/connection';
 import { employees } from '../../../../infrastructure/database/schema';
-import { Employee } from '../../domain/entities/employee';
-import { EmployeeRepository } from '../../domain/ports/employee.repository';
+import type { Employee } from '../../domain/entities/employee';
+import type { EmployeeRepository } from '../../domain/ports/employee.repository';
 import { EmployeeStatus } from '../../../../shared/types';
 import { ConflictError } from '../../../../shared/errors';
 import { matchesName } from '../../../../shared/name-matching';
@@ -66,10 +66,6 @@ export class DrizzleEmployeeRepository implements EmployeeRepository {
       await this.explainEmailConflict(employee.email, error);
       throw error;
     }
-  }
-
-  async update(employee: Employee): Promise<void> {
-    await this.save(employee);
   }
 
   async delete(id: string): Promise<void> {

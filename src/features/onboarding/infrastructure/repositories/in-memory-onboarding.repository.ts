@@ -1,9 +1,8 @@
-import type { OnboardingProgress, OnboardingStep } from '../../domain/entities/onboarding-progress';
+import type { OnboardingProgress } from '../../domain/entities/onboarding-progress';
 import type { OnboardingRepository } from '../../domain/ports/onboarding.repository';
 
 export class InMemoryOnboardingRepository implements OnboardingRepository {
   private progressStore = new Map<string, OnboardingProgress>();
-  private stepStore = new Map<string, OnboardingStep>();
 
   async findByEmployee(employeeId: string): Promise<OnboardingProgress | null> {
     for (const p of this.progressStore.values()) {
@@ -20,17 +19,5 @@ export class InMemoryOnboardingRepository implements OnboardingRepository {
     if (!this.progressStore.has(p.id)) return 0;
     this.progressStore.set(p.id, p);
     return 1;
-  }
-
-  async findSteps(progressId: string): Promise<OnboardingStep[]> {
-    return Array.from(this.stepStore.values()).filter((s) => s.progressId === progressId);
-  }
-
-  async saveStep(s: OnboardingStep): Promise<void> {
-    this.stepStore.set(s.id, s);
-  }
-
-  async updateStep(s: OnboardingStep): Promise<void> {
-    this.stepStore.set(s.id, s);
   }
 }

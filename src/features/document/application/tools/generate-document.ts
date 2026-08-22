@@ -672,7 +672,6 @@ async function deliver(params: {
     title,
     rendered,
   });
-  return { delivery, reason };
 }
 
 async function uploadToSlack(

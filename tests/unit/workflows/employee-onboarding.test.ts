@@ -35,7 +35,6 @@ function makeDeps(
     findByEmail: vi.fn().mockResolvedValue(null),
     findByName: vi.fn().mockResolvedValue([]),
     save: vi.fn().mockResolvedValue(undefined),
-    update: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn().mockResolvedValue(undefined),
     findAll: vi.fn().mockResolvedValue([]),
     ...overrides.employeeRepo,
@@ -45,9 +44,6 @@ function makeDeps(
     findByEmployee: vi.fn().mockResolvedValue(null),
     save: vi.fn().mockResolvedValue(undefined),
     update: vi.fn().mockResolvedValue(undefined),
-    findSteps: vi.fn().mockResolvedValue([]),
-    saveStep: vi.fn().mockResolvedValue(undefined),
-    updateStep: vi.fn().mockResolvedValue(undefined),
     ...overrides.onboardingRepo,
   };
 
@@ -136,8 +132,14 @@ describe('Workflow: employee-onboarding', () => {
     // après avoir constaté que la seule étape était faite, et rien ne l'avançait ensuite.
     expect(progress.currentStep).toBe(1);
     expect(progress.status).toBe('completed');
-    // Garde-fou de non-retour : aucune étape ne doit plus être écrite.
-    expect(deps.onboardingRepo.saveStep).not.toHaveBeenCalled();
+    // ⚠️ Le garde-fou de non-retour était ici : `expect(onboardingRepo.saveStep).not
+    // .toHaveBeenCalled()`. Il a perdu son objet le 2026-08-22 — `saveStep`, `updateStep` et
+    // `findSteps` ont été RETIRÉS du port `OnboardingRepository` et de ses deux
+    // implémentations, derniers résidus du suivi de tâches supprimé le 2026-08-14. La garantie
+    // n'est pas perdue, elle a CHANGÉ DE NATURE : elle ne dépend plus d'une assertion qu'il
+    // faut penser à écrire, mais du typage — écrire une étape exigerait de rouvrir le port, ce
+    // que `tsc` refuse en silence à personne. Une propriété tenue par le compilateur vaut mieux
+    // qu'une propriété tenue par un test qu'on peut oublier de porter.
   });
 
   /**

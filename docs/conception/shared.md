@@ -444,6 +444,36 @@ SANS rien mettre à la place, sinon « harcelé » deviendrait « harcel e ».
 
 
  Le message exprime-t-il explicitement une détresse ou un harcèlement subi ?
+
+### « EN FINIR » EST AMBIGU EN FRANÇAIS DE TRAVAIL — resserré le 2026-08-22
+
+Le motif nu `'veux en finir'` était comparé en SOUS-CHAÎNE. Il déclenchait donc le message
+de prévention du suicide sur « je veux en finir avec ce ticket avant jeudi », « avec ce
+projet », « avec cette réunion », « avec la migration ». Mesuré : **six phrases de travail
+sur neuf** déclenchaient. Dans un bot d'onboarding d'entreprise, ce n'est pas un cas limite,
+c'est le vocabulaire quotidien.
+
+⚠️ **Le défaut n'a pas été trouvé par relecture, mais par un CONTRÔLE POSITIF écrit pour
+autre chose** : la phrase neutre choisie pour prouver que l'archivage fonctionnait encore
+était « je veux en finir avec ce ticket avant jeudi ». Le test a rougi, et il désignait un
+autre module que celui qu'il testait.
+
+⚠️ **CE QUI REND LE RESSERREMENT ADMISSIBLE**, c'est qu'il ne repose pas sur un raisonnement
+mais sur un CORPUS À DEUX COLONNES, ancré en test : les phrases que dirait quelqu'un en
+détresse, ET les phrases que dirait quelqu'un qui ne l'est pas. Un motif de détresse ne se
+relit pas, il s'exerce — et n'en exercer qu'une moitié ne mesure rien. Résultat : **0 faux
+négatif, 0 faux positif**, contre 2 et 6 avant.
+
+Le resserrement a par ailleurs FAIT GAGNER deux vraies détresses : le motif n'énumérait que
+`veux` et `envie d`, si bien que « j'aimerais en finir » et « je voudrais en finir » — deux
+formulations parfaitement courantes — n'étaient reconnues par rien.
+
+La règle est : « en finir » précédé d'un verbe de désir à la première personne compte comme
+détresse, SAUF s'il est suivi d'un complément en `avec` qui n'est pas la vie. « en finir avec
+la vie / tout / tout ça / cette vie » reste reconnu ; « en finir avec ce ticket » ne l'est
+plus. L'asymétrie continue de gouverner le reste du module : partout ailleurs, on s'abstient
+vers la détection.
+
 **Avant `export const DISTRESS_REPLY =`**
 
 Réponse rendue. Elle est écrite ici, en dur, et jamais produite par un modèle.

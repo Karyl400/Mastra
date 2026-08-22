@@ -138,6 +138,10 @@ export function canPerformSideEffects(
   return mayTouchRecord(requestContext, targetEmployeeId);
 }
 
+export function mayReadOthersPrivateNotes(requestContext: unknown): boolean {
+  return mayTouchRecord(requestContext, null);
+}
+
 export function canReadPersonRecord(
   requestContext: unknown,
   targetEmployeeId: string | undefined | null,

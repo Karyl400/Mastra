@@ -1,3 +1,7 @@
+import {
+  DISPATCH_LOOKUP_STATUSES,
+  isDispatchableStatus,
+} from '../../domain/services/reminder-dispatch';
 import { NotificationStatus } from '../../../../shared/types';
 import type { Notification } from '../../domain/entities/notification';
 import type { NotificationRepository } from '../../domain/ports/notification.repository';
@@ -14,8 +18,8 @@ export class InMemoryNotificationRepository implements NotificationRepository {
   }
 
   async findPending(): Promise<Notification[]> {
-    return Array.from(this.store.values()).filter(
-      (n) => n.status === 'pending' || n.status === 'scheduled' || n.status === 'sending',
+    return Array.from(this.store.values()).filter((n) =>
+      DISPATCH_LOOKUP_STATUSES.includes(n.status),
     );
   }
 
@@ -31,9 +35,7 @@ export class InMemoryNotificationRepository implements NotificationRepository {
     const current = this.store.get(id);
     if (!current) return false;
 
-    const free =
-      current.status === NotificationStatus.Pending ||
-      current.status === NotificationStatus.Scheduled;
+    const free = isDispatchableStatus(current.status);
     const abandoned =
       strandedBefore !== undefined &&
       current.status === NotificationStatus.Sending &&

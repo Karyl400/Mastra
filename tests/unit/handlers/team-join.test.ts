@@ -2,30 +2,18 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Mastra } from '@mastra/core';
 import { SlackEventsHandler } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
 /**
- * ⚠️ Décodeur RECOPIÉ ici le 2026-08-19 : `profile-modal.ts` a été supprimé avec les modales.
- * Ce test lit le `value` d'un bouton d'accueil pour vérifier ce que le DM transporte ; le
- * décodage lui-même n'est plus une pièce partagée, il ne sert qu'aux boutons DÉJÀ postés.
+ * ⚠️ Deux aides ont été RETIRÉES d'ici le 2026-08-22 : `decodePrefill` et `buttonValueOf`, qui
+ * lisaient le `value` du bouton « Compléter mon profil » posté par le DM d'accueil. Elles
+ * n'étaient plus appelées par aucun test, et la raison est en amont : `buildWelcomeBlocks` a
+ * cessé d'émettre le moindre bouton le 2026-08-19, quand les modales sont tombées (le
+ * `trigger_id` expire en 3 s, et sur une fonction froide le clic arrive trop tard). Il n'y a
+ * donc plus de `value` à décoder — ce n'est pas une assertion perdue, c'est une surface
+ * disparue. Ce que le DM d'accueil transporte se vérifie désormais sur son TEXTE — tous les
+ * tests ci-dessous sérialisent les blocs postés et lisent la chaîne obtenue.
  */
-function decodePrefill(value: string | undefined, fallbackUserId = '') {
-  if (!value) return { slackUserId: fallbackUserId };
-  try {
-    const p = JSON.parse(value) as { u?: string; e?: string; f?: string; l?: string; j?: string };
-    return {
-      slackUserId: p.u || fallbackUserId,
-      email: p.e ?? null,
-      firstName: p.f ?? null,
-      lastName: p.l ?? null,
-      joinedAt: p.j ?? null,
-    };
-  } catch {
-    return { slackUserId: value || fallbackUserId };
-  }
-}
 
-/** Forme minimale d'un bloc Slack, réduite à ce que ces tests lisent. */
-interface SlackBlockLike {
-  elements?: { value?: string }[];
-}
+/** Forme minimale d'un bloc Slack : ces tests ne font que le sérialiser. */
+type SlackBlockLike = Record<string, unknown>;
 
 /** Sous-ensemble de `DirectoryMemberFacts` réellement inspecté ici. */
 interface DirectoryFactsLike {
@@ -89,11 +77,6 @@ const EVENT = {
     profile: { first_name: 'Léa', last_name: 'Bamba', email: 'lea@kisso.com' },
   },
 };
-
-/** Le `value` du bouton « Compléter mon profil », extrait des blocs postés. */
-function buttonValueOf(blocks: SlackBlockLike[]): string | undefined {
-  return blocks.flatMap((b) => b.elements ?? []).find((e) => e.value)?.value;
-}
 
 describe('handleTeamJoin', () => {
   it("écrit l'arrivant dans l'annuaire dès la seconde zéro", async () => {

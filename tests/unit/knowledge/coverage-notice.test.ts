@@ -80,7 +80,14 @@ describe('la phrase destinée à l’HUMAIN', () => {
 
     expect(text).toContain('6');
     expect(text).toContain('8');
-    expect(text).toContain('2026-07-21');
+    // ⚠️ CETTE PHRASE EST POSTÉE TELLE QUELLE DANS SLACK, elle n'est pas un champ de
+    // tool-result : le handler la lit dans le `RequestContext` et l'accole à la réponse.
+    // Elle affichait « du 2026-07-21 au 2026-07-28 » — une date ISO, lue par un humain, dans
+    // un produit dont tout le reste (documents, emails, rappels) parle français. Le jumeau
+    // `describeCoverage`, lui, garde l'ISO : il s'adresse au MODÈLE, pour qui c'est la
+    // meilleure forme. Deux destinataires, deux formats — c'est la distinction qui manquait.
+    expect(text).toContain('21 au 28 juillet 2026');
+    expect(text).not.toMatch(/\d{4}-\d{2}-\d{2}/);
   });
 
   it('est ABSENTE quand tout a été montré', () => {
