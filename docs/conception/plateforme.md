@@ -40,7 +40,6 @@ les routes internes Mastra et le playground : rejetée, trop risquée.)
  ------------------------------------------------------------------------- *
 Prolongation de vie de la fonction serverless (`waitUntil`)
 
-
 Clé du contexte de requête posée par le lanceur Vercel sur `globalThis`.
 C'est le SEUL et unique contrat de `waitUntil` : `@vercel/functions@3.8.0`
 (`wait-until.js` + `get-context.js`) se réduit littéralement à
@@ -81,7 +80,6 @@ non géré.
 
  ------------------------------------------------------------------------- *
 Budget d'ACK Slack — instrumentation
-
 
 Slack rejoue tout événement qu'il n'a pas vu accusé dans ce délai. Ce n'est pas une
 recommandation : c'est le mécanisme qui a produit la DOUBLE RÉPONSE du 2026-08-11 12:38 UTC.
@@ -164,7 +162,6 @@ donc la double réponse du 2026-08-11. Le premier appel réseau n'a lieu qu'au p
 
 ⚠️ Injecté ICI et nulle part ailleurs : le handler n'a délibérément AUCUN repli
 
-
 paresseux vers Drizzle pour ce dépôt. Un repli ferait que tout handler construit en
 
 test toucherait la base — le piège qui a rendu onze tests d'`accept()` `rate_limited`
@@ -176,7 +173,6 @@ collecte et répond correctement, seule la trace manque.
 
 ⚠️ Le MÊME dépôt que celui de la route d'interactivité, et c'est voulu : le bouton
 
-
 « C'est fait » et la phrase « j'ai fini » doivent rendre le même verdict. Deux
 
 sources de vérité pour une seule vérification finiraient par ne plus dire la même
@@ -186,14 +182,12 @@ chose — la divergence corrigée deux fois en un jour sur ce même parcours.
 
 L'email d'entretien PRÉPARÉ, en attente d'un « oui » ou d'un « non ». Même contrat
 
-
 d'injection que les deux ci-dessus, et pour la même raison : aucun repli paresseux,
 
 donc aucun test de handler ne touche la base par accident.
 **Avant `sendEmail: (to, subject, body) => getEventsEmailProvider().sendEmail(to, subject, body),`**
 
 ⚠️ PARESSEUX à l'appel, jamais à la construction : `createEmailProvider` lit la
-
 
 configuration SMTP et construit un transport, et ce fichier est évalué à CHAQUE
 
@@ -207,7 +201,6 @@ autre, sans que rien ne le signale.
 **Avant `...handlerOptionsForTests,`**
 
 Les options de test l'emportent : un test qui neutralise les canaux doit pouvoir le
-
 
 faire, et l'ordre inverse rendrait l'injection silencieusement inopérante.
 **Avant `export function setSlackEventsHandlerOptionsForTests(`**
@@ -225,18 +218,15 @@ de ses dépôts Drizzle — survivrait à l'injection et la rendrait silencieuse
 
 Horloge du budget d'ACK. Prise AVANT toute lecture : le corps de la requête, la
 
-
 vérification HMAC et l'admission comptent tous dans les 3 s que Slack accorde.
 **Avant `const rawBody = await c.req.text();`**
 
 1. Corps BRUT obligatoire pour le HMAC. Parser puis re-sérialiser casserait la
 
-
    signature (espaces / ordre des clés).
 **Avant `logger.warn('Rejected Slack request', { reason: verification.reason });`**
 
 `url_verification` est signé lui aussi : la vérification s'applique à TOUS les
-
 
 types d'événements, sans exception.
 **Avant `if (body.type === 'url_verification') {`**
@@ -247,12 +237,10 @@ types d'événements, sans exception.
 
 3. Filtrage + déduplication SYNCHRONES, avant l'ACK, pour qu'un renvoi Slack ne
 
-
    déclenche pas un second traitement de fond.
 **Avant `const admissionStartedAt = Date.now();`**
 
 `accept()` est asynchrone depuis la déduplication partagée : la prise de clé fait un
-
 
 aller-retour vers Turso, et le contrôle de débit un second (les deux règles y partent
 
@@ -273,7 +261,6 @@ réponse qu'on cherche à empêcher, avec une étape de plus.
 
 4. Slack renvoie tout événement non accusé en moins de 3 s, et un appel agent
 
-
    prend 2 à 17 s (cf. TEST_REPORT.md) → traitement en tâche de fond.
 
    ⚠️ SERVERLESS (Vercel) : un simple `void promise` ne suffit PAS. La fonction est
@@ -289,7 +276,6 @@ réponse qu'on cherche à empêcher, avec une étape de plus.
 
 `retryNum` n'était journalisé QUE sur le chemin dupliqué. Sur le chemin
 
-
 accepté, l'en-tête était lu puis jeté — impossible de distinguer un rejeu
 
 Slack d'un événement jumeau (`message` + `app_mention`) quand deux
@@ -299,14 +285,12 @@ réponses partent pour un seul message. C'est la ligne qui tranche.
 
 Garde-fou d'observabilité : sur Vercel, `detached` signifie que le travail SERA
 
-
 tué au gel de la fonction. C'est la ligne à chercher dans les logs si le bot
 
 recommence à ne plus répondre.
 **Avant `const ackMs = Date.now() - startedAt;`**
 
 5. ACK immédiat — toujours 200, sinon Slack rejoue puis désactive l'endpoint.
-
 
    Le coût réel du chemin qui précède est mesuré et NOMMÉ : c'est le seul endroit d'où
 
@@ -398,7 +382,6 @@ proscrit dans ce dépôt (zod épinglé 3.25.76).
 laissé croire que ce module lit encore une saisie de formulaire — il n'y en a plus, et
 `handleViewSubmission` ne fait plus que prévenir la personne que rien n'a été gardé.
 
-
  Présents sur `block_actions` (pas sur `view_submission`) : où la carte a été cliquée.
 **Avant `function decodeLegacyProfileButton(`**
 
@@ -425,7 +408,6 @@ Format historique : le `value` ne portait que l'identifiant Slack brut.
  -------------------------------------------------------------------------- *
 Réponses
 
-
 Accusé de réception : `200` avec un corps **VIDE**.
 
 Sur `view_submission`, Slack n'accepte que deux formes : un corps vide (ferme
@@ -446,7 +428,6 @@ Adaptateur Slack mémorisé
  -------------------------------------------------------------------------- *
 Traitement
 
-
 Clic sur « Compléter mon profil ».
 
 `views.open` est appelé AVANT toute autre opération : le `trigger_id` expire
@@ -455,7 +436,6 @@ Clic sur « Compléter mon profil ».
 **Avant `const doneAction = actions.find((a) => a.action_id === PROFILE_DONE_ACTION_ID);`**
 
 ── « C'EST FAIT » — le nouveau point d'entrée du parcours, 2026-08-19 ────
-
 
 ⚠️ TRAITÉ EN PREMIER, et surtout AVANT la garde `trigger_id` : il n'ouvre aucune modale,
 
@@ -478,12 +458,10 @@ normal d'une conversation — jamais une erreur affichée par Slack.
 
 ── Recrutement : les deux boutons de la carte de confirmation ─────────────
 
-
 Ils n'ouvrent aucune modale, donc rien ne doit les faire dépendre d'un `trigger_id`.
 **Avant `if (!claimCard(payload)) {`**
 
 ⚠️ La prise se fait ICI, avant l'ACK, et pas dans la tâche de fond : c'est une décision
-
 
 synchrone sans E/S, et la mettre en tâche de fond rouvrirait la fenêtre qu'elle ferme.
 
@@ -494,14 +472,12 @@ annulation — l'annulation n'écrivait qu'une phrase et ne retirait rien.
 
 Même régime que l'envoi ci-dessous, et pour la même raison : ce sont des appels réseau
 
-
 à Slack. Awaités, ils portaient l'ACK à 5,3 s (mesuré) — au-delà des 3 secondes
 
 accordées, alors qu'une annulation n'a strictement rien à faire attendre.
 **Avant `if (!claimCard(payload)) {`**
 
 ⚠️ LA GARANTIE D'UN SEUL ENVOI, et elle est ici — synchrone, avant l'ACK. Un email vers
-
 
 un candidat est la seule action irréversible et SORTANTE de ce système ; le tool a sa
 
@@ -511,7 +487,6 @@ n'en avait aucune.
 **Avant `scheduleInteractionWork(`**
 
 ⚠️ TÂCHE DE FOND, et surtout PAS `await` — défaut mesuré en production le 2026-08-15 :
-
 
 un clic signé répondait 200 en **22,5 secondes**. L'email partait bien, mais Slack
 
@@ -535,7 +510,6 @@ chemin synchrone alors qu'il fait un SMTP complet PUIS un appel Slack.
 **Avant `logger.debug('block_actions sans action connue', {`**
 
 ⚠️ PLUS AUCUNE MODALE — 2026-08-19, et c'est une constatation, pas une préférence.
-
 
 Les deux boutons qui en ouvraient une (« Compléter mon profil », « Parlons de toi »)
 
@@ -603,7 +577,6 @@ fil sous la carte. Dans les deux cas la confirmation est attachée à ce qu'elle
 
 ⚠️ JAMAIS dans un DM, et c'est une règle établie de ce dépôt : threader un DM enfouit
 
-
 le message hors de la conversation principale, ce qui a déjà fait paraître ce bot muet
 
 pendant des heures. `resolveThreadTarget`, côté handler d'événements, applique
@@ -616,7 +589,6 @@ qu'elle confirme.
 **Avant `logger.error('Réponse de confirmation non postée', { error: String(error) });`**
 
 Ne jamais propager : Slack rejouerait l'interaction, donc l'email partirait DEUX FOIS.
-
 
 Un accusé perdu est bénin ; un second email à un candidat ne l'est pas.
 **Avant `const settledCards = new Set<string>();`**
@@ -682,14 +654,12 @@ feature est construite pour ne pas offrir.
 
 ⚠️ Le cliqueur DOIT être celui qui a préparé l'invitation. La carte est visible de tous
 
-
 ceux qui voient le fil : sans ce contrôle, un témoin écrirait à l'extérieur au nom de
 
 l'entreprise. Même famille de défaut que la modale de profil en canal.
 **Avant `releaseCard(payload);`**
 
 ⚠️ La carte n'est PAS neutralisée ici, et c'est voulu : le demandeur légitime doit
-
 
 encore pouvoir envoyer. Un témoin qui clique ne doit pas pouvoir détruire l'invitation
 
@@ -708,12 +678,10 @@ Neutralisée : cette carte ne pourra plus jamais rien envoyer, sa date est péri
 
 ⚠️ On ne prétend JAMAIS avoir envoyé. Troisième occurrence de cette discipline dans ce
 
-
 dépôt, après `emailSent: false` sous `status: 'success'` et `status = Sent` avant le try.
 **Avant `releaseCard(payload);`**
 
 ⚠️ On REND la prise : rien n'est parti, donc réessayer est légitime — et c'est même la
-
 
 seule chose à faire. Neutraliser la carte ici obligerait à tout redemander au modèle,
 
@@ -721,7 +689,6 @@ soit un aller-retour LLM complet pour une panne SMTP de trente secondes.
 **Avant `logger.info('Invitation d’entretien envoyée', {`**
 
 ⚠️ Aucune écriture en base, et c'est un choix : `RecipientType` n'a pas de valeur honnête
-
 
 pour un candidat, et en ajouter une contaminerait le schéma de `sendNotification`. Surtout,
 
@@ -734,7 +701,6 @@ chemin d'effacement — le trou que `TODO.md` recense déjà pour `notifications
 
 La carte porte désormais le verdict, à l'endroit exact où l'on a cliqué : c'est ce qui
 
-
 évite le second clic bien plus sûrement qu'un message posté à côté.
 **Avant `let cachedEmployeeRepo: DrizzleEmployeeRepository | undefined;`**
 
@@ -746,7 +712,6 @@ par nature, et `slackUserId` EST une clé de conversation directe valide pour
 
 Ne lève jamais : ce message accompagne un verdict, il ne doit pas pouvoir en produire un
 second. Un échec ici est journalisé et rien de plus.
-
 
 Dépôt employé, construit PARESSEUSEMENT — même raison que `interviewRepo` plus bas : ce
 module est évalué au chargement, donc sur le chemin de l'ACK. Ouvrir une connexion Turso à
@@ -767,7 +732,6 @@ est en défaut alors que c'est le nôtre.
 **Avant `await rememberAsked(prefill.slackUserId, verdict.reply);`**
 
 ⚠️ UN SEUL CHEMIN DEPUIS LE 2026-08-19, et c'est la disparition de la dernière modale du
-
 
 produit. Le cas incomplet posait ici un bouton « Compléter mon profil » ouvrant une
 
@@ -794,9 +758,7 @@ quand le dossier est complet, celle du premier champ manquant sinon. Les deux ma
 
 **Avant `const OBSOLETE_FORM_REPLY =`**
 
-
 IL N'Y A PLUS AUCUN FORMULAIRE — mais ce chemin ne se tait pas pour autant
-
 
 Les deux modales ont été SUPPRIMÉES du dépôt le 2026-08-19, pas seulement décâblées : elles
 ne s'ouvraient pas. Un `trigger_id` expire 3 secondes après le clic, et le démarrage à froid
@@ -819,7 +781,6 @@ suivre. Un formulaire disparu n'est pas une panne ; le taire en serait une.
 
 ⚠️ Un ACK NU, jamais `response_action: 'errors'`. Slack réafficherait la modale avec un
 
-
 message par champ, donc laisserait croire qu'un champ est à corriger — alors que c'est le
 
 formulaire entier qui n'existe plus. La fenêtre doit se fermer, et l'explication arriver
@@ -829,12 +790,10 @@ en DM, là où la personne pourra répondre.
 
 Corps BRUT d'abord : le HMAC porte dessus, et le lire autrement
 
-
 (`c.req.parseBody()`) consommerait le flux.
 **Avant `if (params.get('ssl_check') === '1') {`**
 
 À l'enregistrement de la Request URL, Slack envoie un POST `ssl_check=1`
-
 
 SANS champ `payload`. Répondre autrement qu'un 200 fait REFUSER l'URL —
 
@@ -842,7 +801,6 @@ et donc la fonctionnalité entière n'existe jamais.
 **Avant `const encoded = params.get('payload');`**
 
 `URLSearchParams.get` décode déjà le pourcentage : un `decodeURIComponent`
-
 
 supplémentaire lèverait « URI malformed » sur le moindre accent.
 **Avant `export const SLACK_INTERACTIONS_WORK_PATH = '/internal/slack/interactions';`**
@@ -854,7 +812,6 @@ signature, un chemin distinct pour que le routage Vercel ne boucle pas sur lui-m
 **Avant `requiresAuth: false,`**
 
 OBLIGATOIRE : `server.auth` est actif (src/mastra/index.ts). Sans cette
-
 
 ligne, chaque requête Slack prend un 401 et Slack finit par désactiver
 
@@ -924,7 +881,6 @@ une piste d'observabilité fiable en marche normale. La ligne à chercher quand 
 
 db/connection.ts - Production-Grade DB Connection Manager (LibSQL/Turso)
 
-
 Standards 2026: Serverless-safe, Migrations, Graceful Shutdown
 **Avant `type DatabaseInstance = LibSQLDatabase<typeof schema>;`**
 
@@ -962,7 +918,6 @@ Flag module-scope pour éviter l'enregistrement multiple des handlers OS
 
 PUBLIC API
 
-
 Récupère l'instance de base de données
 **Avant `async close(): Promise<void> {`**
 
@@ -980,12 +935,10 @@ Récupère les statistiques de la base de données
 
 PRIVATE METHODS
 
-
 Établit la connexion à la base de données
 **Avant `this.runMigrations().catch((e) => {`**
 
 En mode Turso/Serverless, c'est généralement déconseillé de migrer au runtime.
-
 
 Mais si config.autoMigrate est activé (ex: tests locaux), on le lance de manière asynchrone.
 **Avant `private async runMigrations(): Promise<void> {`**
@@ -1010,7 +963,6 @@ Configure le graceful shutdown
 
 db/schema.ts - Production-Grade Drizzle Schema
 
-
 Standards 2026: FKs, Indexes, Soft Delete, Audit Trail
 **Avant `export const employees = sqliteTable(`**
 
@@ -1029,7 +981,7 @@ valeur, mode d'échec récurrent de ce dépôt.
 déploiement. `idx_employees_department` y est supprimé et non recréé — une colonne
 qu'on ne renseigne plus n'a aucune raison d'être indexée.
 
-**Avant `onboardingStatus: text('onboarding_status').notNull().default('not_started'), // OnboardingStatu`**
+**Avant `onboardingStatus: text('onboarding_status').notNull().default('not_started'),`**
 
 EmployeeStatus
 
@@ -1040,7 +992,6 @@ OnboardingStatus
 **Avant `createdAt: text('created_at')`**
 
 Record<string, unknown>
-
 
 Timestamps
 **Avant `},`**
@@ -1059,7 +1010,7 @@ Contrainte: email doit contenir '@'
 
 2. TASKS
 
-**Avant `reviewerId: text('reviewer_id'), // Pour les tâches de type Review`**
+**Avant `reviewerId: text('reviewer_id'),`**
 
 La personne qui exécute (peut différer de employeeId)
 
@@ -1067,11 +1018,11 @@ La personne qui exécute (peut différer de employeeId)
 
 Pour les tâches de type Review
 
-**Avant `status: text('status').notNull().default('pending'), // TaskStatus`**
+**Avant `status: text('status').notNull().default('pending'),`**
 
 TaskType
 
-**Avant `priority: text('priority').notNull().default('medium'), // TaskPriority`**
+**Avant `priority: text('priority').notNull().default('medium'),`**
 
 TaskStatus
 
@@ -1079,14 +1030,13 @@ TaskStatus
 
 TaskPriority
 
-**Avant `metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>`**
+**Avant `metadata: text('metadata', { mode: 'json' }),`**
 
 string[]
 
 **Avant `createdAt: text('created_at')`**
 
 Record<string, unknown>
-
 
 Timestamps
 **Avant `},`**
@@ -1105,7 +1055,7 @@ Indexes
 
 3. DOCUMENTS
 
-**Avant `type: text('type').notNull(), // DocumentType`**
+**Avant `type: text('type').notNull(),`**
 
 Si généré depuis un template
 
@@ -1135,7 +1085,7 @@ objet n'existe, la base EST le stockage.
 
 Nullable, car les 6 lignes déjà écrites n'ont pas de contenu à rétablir.
 
-**Avant `storageKey: text('storage_key'), // Clé S3/GCS`**
+**Avant `storageKey: text('storage_key'),`**
 
 Stockage : on stocke la référence S3, pas le contenu
 
@@ -1147,7 +1097,7 @@ Clé S3/GCS
 
 En bytes
 
-**Avant `status: text('status').notNull().default('pending'), // DocumentStatus`**
+**Avant `status: text('status').notNull().default('pending'),`**
 
 DocumentFormat
 
@@ -1158,7 +1108,6 @@ DocumentStatus
 **Avant `createdAt: text('created_at')`**
 
 Record<string, unknown>
-
 
 Timestamps
 **Avant `},`**
@@ -1177,11 +1126,11 @@ Indexes
 
 4. NOTIFICATIONS
 
-**Avant `channel: text('channel').notNull(), // NotificationChannel`**
+**Avant `channel: text('channel').notNull(),`**
 
 RecipientType
 
-**Avant `priority: text('priority').notNull().default('normal'), // NotificationPriority`**
+**Avant `priority: text('priority').notNull().default('normal'),`**
 
 NotificationChannel
 
@@ -1201,7 +1150,6 @@ NotificationStatus
 
 Record<string, unknown>
 
-
 Timestamps
 **Avant `recipientIdx: index('idx_notifications_recipient').on(table.recipientId, table.recipientType),`**
 
@@ -1215,11 +1163,11 @@ Indexes
 
 Nullable: questionnaire peut être un template
 
-**Avant `questions: text('questions', { mode: 'json' }).notNull(), // Question[]`**
+**Avant `questions: text('questions', { mode: 'json' }).notNull(),`**
 
 'onboarding', 'feedback', 'evaluation', 'exit'
 
-**Avant `status: text('status').notNull().default('draft'), // QuestionnaireStatus`**
+**Avant `status: text('status').notNull().default('draft'),`**
 
 Question[]
 
@@ -1247,7 +1195,7 @@ Indexes
 
 6. QUESTIONNAIRE RESPONSES
 
-**Avant `status: text('status').notNull().default('pending'), // ResponseStatus`**
+**Avant `status: text('status').notNull().default('pending'),`**
 
 QuestionResponse[]
 
@@ -1271,7 +1219,6 @@ Foreign Keys
 
 Unique: un employé ne peut répondre qu'une fois à un questionnaire
 
-
 (sauf si le questionnaire le permet explicitement)
 **Avant `questionnaireIdx: index('idx_responses_questionnaire').on(table.questionnaireId),`**
 
@@ -1281,7 +1228,7 @@ Indexes
 
 7. ONBOARDING PROGRESS
 
-**Avant `status: text('status').notNull().default('not_started'), // OnboardingStatus`**
+**Avant `status: text('status').notNull().default('not_started'),`**
 
 Si basé sur un template d'onboarding
 
@@ -1293,14 +1240,13 @@ OnboardingStatus
 
 0-100
 
-**Avant `metadata: text('metadata', { mode: 'json' }), // Record<string, unknown>`**
+**Avant `metadata: text('metadata', { mode: 'json' }),`**
 
 Référent/parrain
 
 **Avant `createdAt: text('created_at')`**
 
 Record<string, unknown>
-
 
 Timestamps
 **Avant `employeeFk: foreignKey(() => ({`**
@@ -1323,7 +1269,7 @@ Indexes
 
 Optionnel: lié à une tâche existante
 
-**Avant `status: text('status').notNull().default('pending'), // TaskStatus`**
+**Avant `status: text('status').notNull().default('pending'),`**
 
 'documents', 'training', 'meetings', 'setup'
 
@@ -1339,7 +1285,6 @@ Qui est responsable de cette étape
 
 Record<string, unknown>
 
-
 Timestamps
 **Avant `progressFk: foreignKey(() => ({`**
 
@@ -1353,7 +1298,7 @@ Indexes
 
 9. EMPLOYEE DOCUMENTS (Junction Table)
 
-**Avant `status: text('status').notNull().default('pending'), // 'pending', 'acknowledged', 'signed', 'ex`**
+**Avant `status: text('status').notNull().default('pending'),`**
 
 Statut spécifique à l'association employé-document
 
@@ -1389,7 +1334,7 @@ e.g., 'CREATE_EMPLOYEE', 'SEND_NOTIFICATION'
 
 'user', 'system', 'api', 'webhook'
 
-**Avant `details: text('details', { mode: 'json' }), // { before, after, changes }`**
+**Avant `details: text('details', { mode: 'json' }),`**
 
 'Employee', 'Task', 'Document', etc.
 
@@ -1397,9 +1342,8 @@ e.g., 'CREATE_EMPLOYEE', 'SEND_NOTIFICATION'
 
 { before, after, changes }
 
-
 Contexte de la requête
-**Avant `status: text('status').notNull().default('success'), // 'success', 'failure', 'denied'`**
+**Avant `status: text('status').notNull().default('success'),`**
 
 Statut
 
@@ -1419,7 +1363,6 @@ Indexes
 
 11. CONVERSATION TURNS (Mémoire conversationnelle)
 
-
 Table unique de la feature `conversation`. L'agent « collant » d'un fil est simplement
 
 l'`agent_id` du dernier tour : la requête de fenêtre le ramène déjà, aucune seconde table
@@ -1437,26 +1380,25 @@ l'horodatage est le discriminant du TTL *et* de l'ordre des tours ; deux message
 chronologique dont dépend `selectWindow`. D'où un entier en millisecondes, qui donne aussi
 
 un `Date` natif côté Drizzle — donc pas de reparsing pour l'arithmétique du TTL.
-**Avant `role: text('role').notNull(), // 'user' | 'assistant'`**
+**Avant `role: text('role').notNull(),`**
 
 `${channel}` ou `${channel}:${threadTs}`
 
-**Avant `content: text('content').notNull(), // texte seul — jamais de tool-call ni de tool-result`**
+**Avant `content: text('content').notNull(),`**
 
 'user' | 'assistant'
 
-**Avant `agentId: text('agent_id').notNull(), // onboardingOrchestrator | questionnaireEngine | notificat`**
+**Avant `agentId: text('agent_id').notNull(),`**
 
 texte seul — jamais de tool-call ni de tool-result
 
-**Avant `slackUserId: text('slack_user_id'), // null sur un tour assistant`**
+**Avant `slackUserId: text('slack_user_id'),`**
 
 onboardingOrchestrator | questionnaireEngine | notificationAgent
 
 **Avant `createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),`**
 
 null sur un tour assistant
-
 
 Timestamp
 **Avant `conversationCreatedAtIdx: index('idx_conversation_turns_conversation_created_at').on(`**
@@ -1466,7 +1408,6 @@ Index unique servant les deux accès : fenêtre d'une conversation (égalité + 
 **Avant `export const onboardingInterview = sqliteTable(`**
 
 11 ter. ONBOARDING INTERVIEW (Entretien post-profil)
-
 
 Ce que la personne dit d'elle APRÈS avoir complété son profil : les canaux qui l'intéressent,
 
@@ -1522,12 +1463,10 @@ Les ID et non les NOMS : un canal se renomme sans que son `C…` bouge, et c'est
 
 Sert l'effacement par personne et la relecture depuis un identifiant Slack — le seul
 
-
 disponible sur le chemin d'un message.
 **Avant `export const pinnedFacts = sqliteTable(`**
 
 11 bis. PINNED FACTS (Mémoire longue, hors TTL)
-
 
 `conversation_turns` porte un TTL de 60 minutes et une fenêtre de 1 600 tokens : tout ce
 
@@ -1564,14 +1503,12 @@ non par le stockage — et parce qu'un dépassement doit ÉVINCER le plus ancien
 
 Sert les deux accès : lecture des faits d'une personne (égalité + tri) et éviction du
 
-
 plus ancien. Aucun index sur `created_at` seul — rien ne purge cette table par l'âge,
 
 et c'est tout son objet.
 **Avant `export const pendingInterviewEmail = sqliteTable('pending_interview_email', {`**
 
 11 bis. PENDING INTERVIEW EMAIL (email préparé, en attente d'un « oui »)
-
 
 Ajoutée le 2026-08-19, quand les boutons ont été retirés du produit. La confirmation d'envoi
 
@@ -1616,7 +1553,6 @@ Horodatage entier en millisecondes, comme `pinned_facts` et `conversation_turns`
 
 12. SLACK EVENT DEDUP (Déduplication multi-instance)
 
-
 Table unique de la déduplication PARTAGÉE des événements Slack. Le cache LRU du handler est
 
 en mémoire, donc par instance : il est incapable par construction d'écarter un rejeu routé
@@ -1636,7 +1572,7 @@ non `datetime('now')` en `text`. `started_at` est le discriminant de la grâce d
 (60 s) ; une résolution à la seconde y serait grossière, et le comparer exigerait un
 
 reparsing à chaque prise de clé — sur le chemin d'ACK, celui qui a 3 secondes.
-**Avant `status: text('status').notNull(), // 'in-flight' | 'done'`**
+**Avant `status: text('status').notNull(),`**
 
 `ts:<channel>:<ts>` ou `id:<event_id>`
 
@@ -1648,12 +1584,10 @@ reparsing à chaque prise de clé — sur le chemin d'ACK, celui qui a 3 seconde
 
 Sert la purge de rétention (~10 min, la fenêtre de rejeu de Slack). L'accès par clé
 
-
 passe déjà par l'index implicite de la PRIMARY KEY.
 **Avant `export const slackDirectory = sqliteTable(`**
 
 13. SLACK DIRECTORY (Annuaire du workspace — autorisation)
-
 
 Ce qui manquait pour que « qui parle ? » ait une réponse. `slack-events.handler.ts` lisait
 
@@ -1678,7 +1612,6 @@ sont désynchronisées et `drizzle-kit push` se bloque contre une base `libsql:/
 
 La PRIMARY KEY est `slack_user_id`, PAS l'email : un email se change dans le profil Slack,
 
-
 l'identifiant `U…` est immuable. Une clé portée par l'email ferait qu'un changement
 
 d'adresse crée un SECOND sujet avec ses propres droits — élévation de privilège par
@@ -1687,7 +1620,6 @@ simple édition de profil.
 **Avant `email: text('email'),`**
 
 NULLABLE, et ce n'est pas de la prudence de façade : `users.list` ne rend `profile.email`
-
 
 que si `users:read.email` est accordé ET que le compte en porte un ; les bots n'en ont
 
@@ -1698,12 +1630,10 @@ comparée à un domaine — une chaîne vide finirait par matcher.
 
 NOT NULL avec DEFAULT '' : ces champs sont affichés et concaténés, un NULL y imprimerait
 
-
 « null » plutôt qu'un blanc. Arbitrage inverse de `email`, qui est une CLÉ de recherche.
 **Avant `firstName: text('first_name'),`**
 
 Prénom, nom et poste — lus TELS QUELS dans `profile.first_name`, `profile.last_name` et
-
 
 `profile.title`, jamais dérivés de `real_name`. Sur les données réelles du workspace,
 
@@ -1730,7 +1660,6 @@ arbitrage à écrire entre eux.
 
 Flags de CONFIANCE — matière première de la politique d'autorisation. Aucun n'est
 
-
 nullable : « on ne sait pas si c'est un invité » ne doit pas exister comme état, la
 
 politique devrait alors décider sur un troisième cas où le défaut sûr serait
@@ -1741,7 +1670,6 @@ is_restricted = invité multi-canal ; is_ultra_restricted = invité mono-canal.
 **Avant `dmChannelId: text('dm_channel_id'),`**
 
 ⚠️ INDÉCOUVRABLE par balayage : `conversations.list({types:'im'})` répond `missing_scope`
-
 
 (il faudrait `im:read`, non accordé — vérifié le 2026-08-12). La colonne se remplit
 
@@ -1756,9 +1684,8 @@ champ-par-champ de l'upsert côté repository, qui ne la nomme jamais.
 
 Pont vers le métier, NULLABLE dans les deux sens : tout membre du workspace n'est pas un
 
-
 employé enregistré, et tout employé n'a pas forcément de compte Slack.
-**Avant `role: text('role').notNull().default('employee'), // EmployeeRole`**
+**Avant `role: text('role').notNull().default('employee'),`**
 
 RÔLE — la seule colonne de ce dépôt dont dépende une autorisation.
 
@@ -1786,7 +1713,6 @@ manager : la chaîne ne décide rien.
 
 EmployeeRole
 
-
 Même écart assumé que `conversation_turns` : entier en millisecondes plutôt que
 
 `datetime('now')` en text. `syncedAt` gouverne la fraîcheur, `firstSeenAt` n'est écrit
@@ -1796,14 +1722,12 @@ qu'à l'INSERT — une seule fois dans la vie de la ligne.
 
 NON UNIQUE à dessein : deux comptes peuvent porter la même adresse le temps d'une
 
-
 migration, et une contrainte d'unicité ferait échouer la synchronisation ENTIÈRE plutôt
 
 que de rapporter deux lignes.
 **Avant `export const rateLimitCounters = sqliteTable(`**
 
 14. RATE LIMIT COUNTERS (Limitation de débit partagée)
-
 
 Un compteur en mémoire est PAR INSTANCE et disparaît au gel de la fonction serverless. Sur un
 
@@ -1822,7 +1746,6 @@ lui aussi en mémoire. Un état par instance ne peut, par construction, rien dir
 
 `key` EST la clé primaire, et ce n'est pas un détail de modélisation : c'est elle qui rend
 
-
 l'incrément atomique via `INSERT … ON CONFLICT DO UPDATE`. Deux instances qui incrémentent
 
 au même instant sont départagées par la base, sans verrou applicatif — le seul mécanisme
@@ -1838,12 +1761,10 @@ rouvrir la course. Ici, changer de fenêtre change de ligne.
 
 Sans DEFAULT : une ligne n'existe que parce qu'un incrément l'a créée. Un DEFAULT 0
 
-
 laisserait croire qu'une ligne peut naître vide.
 **Avant `windowStart: integer('window_start', { mode: 'timestamp_ms' }).notNull(),`**
 
 Redondant avec le numéro de fenêtre encodé dans la clé, et c'est voulu : la clé est une
-
 
 chaîne opaque. Cette colonne répond à « depuis quand ce compteur court-il ? » sans
 
@@ -1852,12 +1773,10 @@ reparser un identifiant.
 
 Sert la PURGE : sans elle la table croîtrait indéfiniment, une ligne par sujet ET par
 
-
 fenêtre. L'accès par clé passe déjà par l'index implicite de la PRIMARY KEY.
 **Avant `export const slackChannels = sqliteTable(`**
 
 15. SLACK CHANNELS (Inventaire des canaux — feature `directory`)
-
 
 ⚠️⚠️ CES DEUX TABLES SONT UN INVENTAIRE D'OBSERVABILITÉ, JAMAIS UNE SOURCE D'AUTORISATION.
 
@@ -1898,7 +1817,6 @@ Ce que ces tables servent, et rien d'autre : « dans quels canaux le bot est-il 
 
 La PRIMARY KEY est l'identifiant, PAS le nom. Un canal se renomme (`#random` →
 
-
 `#random-fr`) sans que son `C…` bouge : une clé portée par le nom ferait qu'un renommage
 
 crée un SECOND canal et laisse l'ancien vivre à côté, avec ses membres périmés. Même
@@ -1908,12 +1826,10 @@ arbitrage que `slack_directory`, dont la clé est le `U…` et non l'email.
 
 NOT NULL DEFAULT '' : le nom est affiché et concaténé, un NULL y imprimerait « null ».
 
-
 Arbitrage identique à `real_name` / `display_name` de `slack_directory`.
 **Avant `isPrivate: integer('is_private', { mode: 'boolean' }).notNull().default(false),`**
 
 Faits d'accès, tels que `conversations.list` les rend. `isMember` est le seul qui
-
 
 détermine si `chat.postMessage` peut aboutir — c'est lui, et non « le bot est invité »,
 
@@ -1921,7 +1837,6 @@ qui décide d'un `not_in_channel`.
 **Avant `memberCountReported: integer('member_count_reported'),`**
 
 ⚠️ LE NOM DE CETTE COLONNE EST LE COMMENTAIRE. C'est une ASSERTION DE SLACK
-
 
 (`conversations.list` → `num_members`), pas un cache du `COUNT(*)` de
 
@@ -1942,18 +1857,15 @@ NULLABLE : Slack ne rend pas toujours `num_members` (canaux privés notamment). 
 
 Millisecondes (Drizzle `timestamp_ms`), comme `conversation_turns`, `slack_event_dedup` et
 
-
 `slack_directory` — et non le `datetime('now')` en text des 10 tables historiques.
 **Avant `syncedAtIdx: index('idx_slack_channels_synced_at').on(table.syncedAt),`**
 
 Sert « quand cet inventaire a-t-il été confirmé pour la dernière fois ? ». Sans fraîcheur
 
-
 lisible, une table sans chemin d'invalidation se lit « à jour ».
 **Avant `channelId: text('channel_id')`**
 
 FK DÉCLARÉE, et c'est un choix : les deux lignes sont écrites par la MÊME passe de
-
 
 synchronisation, le canal AVANT ses membres. `PRAGMA foreign_keys = 1` étant ACTIF sur la
 
@@ -1965,7 +1877,6 @@ rien.
 **Avant `slackUserId: text('slack_user_id').notNull(),`**
 
 ⚠️ AUCUNE FK VERS `slack_directory`, ET C'EST DÉLIBÉRÉ.
-
 
 Un membre de canal peut parfaitement être un compte que l'annuaire ne connaît pas encore :
 
@@ -1986,7 +1897,6 @@ pas la vérité référentielle des personnes.
 
 Survit aux resynchronisations d'une personne toujours présente : c'est le champ que
 
-
 `replaceMembers` ne nomme JAMAIS dans son `set`, exactement comme `upsertFacts` protège
 
 `dm_channel_id`. Le mode d'échec évité est celui, déjà payé, de `documents.content` : une
@@ -1995,7 +1905,6 @@ Survit aux resynchronisations d'une personne toujours présente : c'est le champ
 **Avant `syncedAt: integer('synced_at', { mode: 'timestamp_ms' }).notNull(),`**
 
 Marqueur de passe. Il porte à lui seul la sémantique de REMPLACEMENT : la passe réécrit
-
 
 `synced_at` sur les membres présents, puis supprime du canal tout ce qui porte encore un
 
@@ -2006,7 +1915,6 @@ T sont un ENSEMBLE, jamais une accumulation.
 
 PK COMPOSITE, sans clé de substitution : la ligne n'a pas d'identité propre, elle EST
 
-
 l'appartenance. Un `id` autogénéré autoriserait deux lignes identiques pour le même
 
 couple, et le doublon ne se verrait qu'au `COUNT(*)`, c'est-à-dire dans le seul chiffre
@@ -2015,7 +1923,6 @@ que cette table existe pour rendre.
 **Avant `userIdx: index('idx_slack_channel_members_user').on(table.slackUserId),`**
 
 « Dans quels canaux est cette personne ? » — la PK indexe (channel_id, slack_user_id),
-
 
 donc elle ne sait pas répondre dans ce sens.
 **Avant `syncedAtIdx: index('idx_slack_channel_members_synced_at').on(table.syncedAt),`**
@@ -2039,7 +1946,6 @@ Insert types (création)
 **Avant `void healthCheck().catch((error) => {`**
 
 AMORÇAGE DE LA CONNEXION — mesuré, et à contre-courant du commentaire précédent
-
 
 L'ancienne note disait « getDb() appelé ici forcerait l'ouverture au démarrage — inutile
 
@@ -2080,7 +1986,6 @@ gère déjà sa propre dégradation. On journalise, on ne relance pas.
 
 ⚠️ `createEmailProvider` a été EXTRAIT vers
 
-
 `features/notification/infrastructure/providers/email-provider.factory.ts` le 2026-08-14 :
 
 `slack-interactions.route.ts` en a besoin (l'email d'entretien part au clic) et ne peut pas
@@ -2104,7 +2009,6 @@ les deux vont ensemble, ajouter l'exigence sans ce câblage casserait le build.
 **Avant `const directoryRepo = new DrizzleDirectoryRepository();`**
 
 Annuaire des personnes et couverture des canaux (feature `directory`)
-
 
 UN SEUL WebClient : les deux adaptateurs consomment `slackWorkspace` déjà câblé. Deux
 
@@ -2138,7 +2042,6 @@ Exportés pour être appelables depuis un script ou une future route, jamais inv
 
 ⚠️ `inventory` était ABSENT jusqu'au 2026-08-14, et c'est le défaut que `TODO.md` [0 bis]
 
-
 recensait : sans lui, `recordInventory()` rend `undefined` et n'écrit RIEN. Le service
 
 n'a toujours aucun consommateur dans l'application — l'inventaire est alimenté par
@@ -2149,7 +2052,6 @@ mais il est désormais CORRECT si quelqu'un s'en sert, au lieu d'être muet.
 **Avant `const findEmployeeByEmail = makeFindEmployeeByEmail(employeeRepo, directoryRepo);`**
 
 L'annuaire Slack est le SECOND paramètre, et c'est le correctif de la panne du
-
 
 2026-08-12 (« il ne retrouve pas les autres profils à part le mien ») : `employees`
 
@@ -2163,7 +2065,6 @@ avec prénom, nom et poste. `directorySync` alimentait cette table depuis le
 **Avant `const findPersonByName = makeFindPersonByName(employeeRepo, directoryRepo);`**
 
 RÉSOLUTION PAR NOM — le manque qui a envoyé le document d'Awa à l'adresse de Karyl
-
 
 Relevé sur la Turso de production le 2026-08-13 : les DIX documents de la base portent
 
@@ -2183,7 +2084,6 @@ Les DEUX sources sont donc câblées, `employees` d'abord : Awa n'existe QUE dan
 **Avant `const generateDocument = makeGenerateDocument({`**
 
 ⚠️ `getTaskList` a été RETIRÉ le 2026-08-14, avec tout le suivi de tâches.
-
 
 Les cinq tâches d'intégration étaient un plan qu'AUCUN mécanisme ne faisait avancer : ni
 
@@ -2224,7 +2124,6 @@ depuis l'annuaire. Aucune destination ne transite par le modèle.
 
 `SlackAdapter` porte `uploadFile` en plus de `sendMessage` : un seul WebClient, un
 
-
 seul jeton. Le scope `files:write` EST accordé — vérifié en production le 2026-08-11,
 
 un PDF réellement posté dans un DM (`hasPermalink: true` dans les logs). L'ancienne
@@ -2233,7 +2132,6 @@ note affirmant le contraire a survécu à sa propre invalidation pendant une jou
 **Avant `interviewRepo,`**
 
 ── L'ENTRETIEN nourrit le gabarit, CÔTÉ SERVEUR ────────────────────────────────────
-
 
 Ces deux dépôts ne traversent jamais la fenêtre du modèle : `generateDocument` résout
 
@@ -2258,7 +2156,6 @@ l'identique. C'est ce qui rend ce câblage sûr même sur une base où
 
 L'annuaire est le SECOND paramètre, et il n'est pas décoratif : il permet de refuser un
 
-
 destinataire inexistant AVANT d'enregistrer un rappel. Sans lui le tool dégrade — il ne ment
 
 pas, mais il accepte.
@@ -2266,12 +2163,10 @@ pas, mais il accepte.
 
 ⚠️ `employeeRepo` est injecté UNIQUEMENT pour résoudre un email en identifiant, ce qui
 
-
 supprime une étape entière (mesuré : 3 étapes / 4 424 tokens → 2). Voir la factory.
 **Avant `const findExpertise = makeFindExpertise({`**
 
 `discoverSlackWorkspace` a été SUPPRIMÉ le 2026-08-18. Il avait d'abord été retiré des
-
 
 agents (schéma coûteux, mentionné dans aucune instruction), et ce commentaire affirmait
 
@@ -2332,14 +2227,12 @@ personne fait, avec ses mots. Coût en tokens : ZÉRO — le tool-result reste b
 
 ⚠️ REMONTÉ ICI le 2026-08-19 : `findExpertise` est désormais câblé sur TROIS agents, donc il
 
-
 doit être construit avant le premier. Voir juste en dessous pour la raison — et pour la
 
 frontière qui, elle, n'a PAS bougé.
 **Avant `findExpertise,`**
 
 ⚠️ « QUAND UNE INFORMATION RÉELLE EST REQUISE » — 2026-08-19, et il faut dire exactement
-
 
 ce qui a été fait et ce qui a été REFUSÉ.
 
@@ -2369,7 +2262,6 @@ jeton de canal `<#C…>` au `knowledgeAgent`, et peut déloger un fil pour cela.
 **Avant `const notificationAgent = makeNotificationAgent({`**
 
 `findEmployeeByEmail` est exposé à `onboardingOrchestrator` et `notificationAgent` depuis le
-
 
 2026-08-11, et c'est un correctif de CÂBLAGE, pas de rédaction.
 
@@ -2434,7 +2326,6 @@ schéma JSON + 426 de description). Voir CHANGELOG pour la mesure avant/après.
 
 Voir le commentaire de `questionnaireEngine` ci-dessus : sans ce tool, les quatre autres
 
-
 sont inatteignables dès que l'humain désigne quelqu'un par son email — c'est-à-dire
 
 presque toujours.
@@ -2442,14 +2333,12 @@ presque toujours.
 
 Même raison, et le cas est encore plus fréquent ici : « envoie un rappel à Pamela »
 
-
 ne porte jamais d'adresse. Sans ce tool, la boucle « donne-moi son identifiant » →
 
 « je ne l'ai pas » était garantie par le câblage.
 **Avant `findExpertise,`**
 
 Même arbitrage que sur l'orchestrateur, et la même frontière : la connaissance des
-
 
 PERSONNES, jamais la lecture agrégée des canaux. Ici le voisinage est `sendNotification`,
 
@@ -2461,7 +2350,6 @@ ne rende que des noms, et que `title` et `evidence` en sortent ASSAINIS (correct
 **Avant `const channelHistory = new SlackChannelHistoryAdapter(process.env.SLACK_BOT_TOKEN ?? '', {`**
 
 AGENT KNOWLEDGE — lecture des conversations, et rien d'autre
-
 
 Deux sources, et deux seulement : la mémoire propre du bot (`conversation_turns`, ses DM
 
@@ -2484,18 +2372,15 @@ détient l'UNION des droits de tous ses canaux ; les prêter au premier venu est
 
 Résolution des noms par l'ANNUAIRE et non par `users.info` : zéro appel Slack
 
-
 supplémentaire, et un nom absent retombe sur l'identifiant sans casser la lecture.
 **Avant `directory: directoryRepo,`**
 
 `DirectoryRepository` satisfait STRUCTURELLEMENT le port du tool : celui-ci ne voit que
 
-
 les deux lectures dont il a besoin, ni `upsertFacts` ni `listAll`.
 **Avant `const knowledgeAgent = makeKnowledgeAgent({`**
 
 ⚠️ AUCUN outil de SORTIE ici, et ce n'est pas une convention : `makeKnowledgeAgent` LÈVE au
-
 
 démarrage si on lui en câble un. Lecture agrégée + écriture externe dans la même chaîne =
 
@@ -2507,7 +2392,6 @@ un échec au démarrage, pas une fuite.
 **Avant `const pendingInterviewEmailRepo = new DrizzlePendingInterviewEmailRepository();`**
 
 ⚠️ AUCUN outil de LECTURE ici, et c'est la quarantaine INVERSE de celle ci-dessus :
-
 
 `makeRecruitmentAgent` LÈVE au démarrage si on lui en câble un. C'est le seul agent qui
 
@@ -2542,12 +2426,10 @@ base `libsql://` distante.
 
 ⚠️ Du TEXTE, plus des blocs — les boutons ont été retirés du produit le 2026-08-19. La
 
-
 relecture se conclut par une question à laquelle on répond oui ou non.
 **Avant `presenter: slackInterviewConfirmationPresenter,`**
 
 La présentation de la carte de relecture est injectée : la couche `application` ne
-
 
 connaît pas Block Kit — voir `domain/ports/interview-confirmation.presenter.ts`.
 **Avant `const employeeOnboardingWorkflow = createEmployeeOnboardingWorkflow({`**
@@ -2603,24 +2485,20 @@ quand une personne rejoint le workspace. Aucun LLM sur ce chemin.
 
 La clé du registre doit être IDENTIQUE à l'`id` de l'agent — c'est elle que résout
 
-
 `mastra.getAgent(id)`, et c'est cet identifiant que le routage collant relit en base.
 **Avant `workflows: {`**
 
 UN SEUL workflow, et c'est délibéré — voir le commentaire de `employeeOnboardingWorkflow`.
-
 
 Les trois autres ne faisaient aucune E/S et se déclaraient réussis.
 **Avant `server: {`**
 
 Une route HTTP n'existe QUE si elle est déclarée ici. Les fichiers de `src/api/`
 
-
 ne sont jamais montés automatiquement par Mastra.
 **Avant `apiRoutes: [`**
 
 ⚠️ QUATRE routes pour DEUX endpoints. Les deux `…WorkRoute` sont les chemins internes
-
 
 où le PORTIER D'ACK (`scripts/slack-ack-function/`) rejoue la requête : Slack n'accorde
 
@@ -2639,14 +2517,12 @@ pas la requête réexpédiée au portier — ce qui serait une boucle.
 
 Requalifie en 400 les erreurs de validation d'entrée que Mastra renvoie en 500.
 
-
 Monté sur `/api/*` UNIQUEMENT : `/slack/events` gère ses propres codes et le rejeu
 
 de Slack en dépend. Une vraie panne serveur reste un 500 (voir le module).
 **Avant `{ path: '*', handler: createSecurityHeadersMiddleware() },`**
 
 Les en-têtes de sécurité, sur TOUTE réponse — d'où le joker nu et non `/api/*` : la
-
 
 racine et `/agents` rendent du `text/html`, et c'est cette surface-là qui justifie
 
@@ -2658,7 +2534,6 @@ suivent.
 **Avant `{`**
 
 ⚠️ EN PREMIER, et l'ordre porte la sécurité : ce garde doit refuser AVANT que
-
 
 quoi que ce soit ne lise le contexte. Mastra fusionne `body.requestContext` dans le
 
@@ -2690,7 +2565,6 @@ garde teste le chemin lui-même.
 **Avant `cors: { origin: [], credentials: false },`**
 
 Sans `auth`, `getEffectiveAuthConfig()` renvoie null et `checkRouteAuth()` laisse
-
 
 passer TOUTES les routes /api/* sans authentification — n'importe qui sur Internet
 
@@ -2806,11 +2680,9 @@ raisons : `docs/conception/shared.md`, section `shared/startup-env-check.ts`.
 
 ### `src/api/reminders-dispatch.route.ts`
 
-**Avant `/**`**
-
+**Avant `export function authorizeCron(`**
 
 L'HORLOGE EXTÉRIEURE — la seule pièce qui manquait pour qu'un rappel parte
-
 
 Ce projet n'a JAMAIS pu envoyer un rappel, et la raison n'était ni un oubli ni une paresse :
 une fonction serverless n'existe que le temps d'une requête. Aucun `setTimeout` ne survit au
@@ -2825,9 +2697,6 @@ l'`apiPrefix`, et c'est un ÉCHEC AU DÉMARRAGE, pas un 404.
 ⚠️ **PAS DE BUDGET DE 3 SECONDES ICI**, contrairement à `/slack/events` : un cron n'attend
 pas. La remise est donc SYNCHRONE — et elle doit l'être, car `waitUntil` ne garantit rien
 après qu'on a répondu à un appelant qui, lui, ne réessaiera pas avant demain.
-
-**Avant `export function authorizeCron(`**
-
 ⚠️ **FAIL-CLOSED, à l'inverse du reste de ce dépôt.**
 
 Vercel ajoute automatiquement `Authorization: Bearer $CRON_SECRET` à ses invocations dès que
@@ -2870,28 +2739,16 @@ où changer une implémentation, et ce dépôt a déjà payé trois fois la dive
 deux copies. Surtout : effacer et archiver DOIVENT viser la même base, sinon
 l'effacement rendrait `0` en toute bonne foi.
 
-**Avant `// pas su classer, et seulement par lots de cinq : sur le chemin nominal, il ne coûte`**
-
-⚠️ Le SECOND RIDEAU. Il ne tourne que sur les messages que le code déterministe n'a
-
-**Avant `// pas un seul appel de modèle. Voir 'fact-curtain.service.ts'.`**
-
-pas su classer, et seulement par lots de cinq : sur le chemin nominal, il ne coûte
-
 **Avant `summarizer: new ModelFactSummarizer(),`**
 
+⚠️ Le SECOND RIDEAU. Il ne tourne que sur les messages que le code déterministe n'a
+pas su classer, et seulement par lots de cinq : sur le chemin nominal, il ne coûte
 pas un seul appel de modèle. Voir `fact-curtain.service.ts`.
-
-**Avant `// 'rejectMessage' ('not_a_dm') — c'est le cas nominal, et c'est justement celui qu'il faut`**
-
-⚠️ Écarté pour la RÉPONSE, pas pour la CONNAISSANCE. Un message de canal est écarté par
-
-**Avant `// archiver. Le rejet protège le budget de modèle ; il ne dit rien de ce qui mérite d'être su.`**
-
-`rejectMessage` (`not_a_dm`) — c'est le cas nominal, et c'est justement celui qu'il faut
 
 **Avant `scheduleBackgroundWork(`**
 
+⚠️ Écarté pour la RÉPONSE, pas pour la CONNAISSANCE. Un message de canal est écarté par
+`rejectMessage` (`not_a_dm`) — c'est le cas nominal, et c'est justement celui qu'il faut
 archiver. Le rejet protège le budget de modèle ; il ne dit rien de ce qui mérite d'être su.
 
 ### `src/api/slack-interactions.route.ts`
@@ -2912,12 +2769,9 @@ pas rejouer la divergence qui vient d'être corrigée ailleurs.
 clics d'un déploiement qui n'a pas posé la variable serait une panne indiscernable d'un bot
 mort. On journalise, on ne bloque pas.
 
-**Avant `// dans le client de quelqu'un dont on ignore délibérément l'action.`**
-
-On ACQUITTE : Slack ne doit pas réessayer, et un 4xx ferait apparaître une croix rouge
-
 **Avant `return ack();`**
 
+On ACQUITTE : Slack ne doit pas réessayer, et un 4xx ferait apparaître une croix rouge
 dans le client de quelqu'un dont on ignore délibérément l'action.
 
 ### `src/infrastructure/database/schema.ts`
@@ -2931,12 +2785,9 @@ chaque nouveau message — un appel de modèle par message, exactement ce qu'on 
 
 ### `src/mastra/index.ts`
 
-**Avant `// enregistré ne part jamais. Voir 'reminders-dispatch.route.ts'.`**
-
-L'horloge extérieure : sans elle, `findPending()` n'a aucun appelant et un rappel
-
 **Avant `remindersDispatchRoute,`**
 
+L'horloge extérieure : sans elle, `findPending()` n'a aucun appelant et un rappel
 enregistré ne part jamais. Voir `reminders-dispatch.route.ts`.
 
 **Avant `{`**
@@ -3006,12 +2857,9 @@ vol produirait des phrases estropiées, et un filtre qui mutile est pire qu'une 
 échoue parfois — c'est le raisonnement qui a fait garder le document plutôt que le remplacer
 quand un marqueur y est détecté.
 
-**Avant `// optionnel, ce que 'security/detect-unsafe-regex' signale. Même langage reconnu.`**
-
-`(?:a |an )?` et non `(?:an? )?` : le second imbrique un quantificateur dans un groupe
-
 **Avant `/\bi(?:'m| am) (?:a |an )?(?:tool|bot|robot|assistant|ai|chatbot)\b/i,`**
 
+`(?:a |an )?` et non `(?:an? )?` : le second imbrique un quantificateur dans un groupe
 optionnel, ce que `security/detect-unsafe-regex` signale. Même langage reconnu.
 
 ### `src/shared/distress.ts`
@@ -3034,32 +2882,10 @@ répondre par une procédure à une souffrance.
 valent pas : traiter une agression comme une détresse donne quand même un numéro
 d'urgence joignable, l'inverse remplace une aide vitale par une démarche administrative.
 
-**Avant `// « envie d en finir », ni par « en finir avec la vie ». C'est pourtant la formulation la`**
-
-⚠️ « je veux en finir » n'était détecté par RIEN jusqu'au 2026-08-21 — ni ici, ni par
-
-**Avant `// plus courante en français, et le faux négatif le plus cher que ce module puisse avoir.`**
-
-« envie d en finir », ni par « en finir avec la vie ». C'est pourtant la formulation la
-
-**Avant `// Trouvé par un test qui cherchait tout autre chose : la priorité détresse/agression.`**
-
-plus courante en français, et le faux négatif le plus cher que ce module puisse avoir.
-
-**Avant `'veux en finir',`**
-
-Trouvé par un test qui cherchait tout autre chose : la priorité détresse/agression.
-
-**Avant `// opinion : c'est le critère qui a fait écarter « violence » et « conflit » nus, trop`**
-
-Ajoutées le 2026-08-21 avec la séparation. Chacune décrit un FAIT subi, jamais une
-
-**Avant `// courants pour désigner une situation vécue.`**
-
-opinion : c'est le critère qui a fait écarter « violence » et « conflit » nus, trop
-
 **Avant `'me suis fait agresser',`**
 
+Ajoutées le 2026-08-21 avec la séparation. Chacune décrit un FAIT subi, jamais une
+opinion : c'est le critère qui a fait écarter « violence » et « conflit » nus, trop
 courants pour désigner une situation vécue.
 
 **Avant `export function distressKind(text: string | undefined | null): DistressKind | null {`**
@@ -3106,7 +2932,6 @@ Ce module existe parce que la règle ne tenait qu'à un commentaire. Elle tient 
 une STRUCTURE : chaque numéro porte sa source dans le champ `verified`, et il faut mentir
 dans ce champ pour introduire un numéro non vérifié.
 
-
 TROIS NUMÉROS ONT ÉTÉ ÉCARTÉS PENDANT LA VÉRIFICATION DU 2026-08-21, et chacun aurait été
 une faute plausible :
 
@@ -3125,7 +2950,6 @@ les apparences de la bonne.
 Le **138** béninois est réel et vérifié, mais il est délibérément ABSENT : c'est la ligne
 d'assistance aux ENFANTS victimes de violences (UNICEF Bénin). La citer à un salarié
 adulte l'enverrait vers un service qui ne peut pas le prendre en charge.
-
 
 **Avant `readonly number: string;`**
 
@@ -3147,36 +2971,15 @@ Ce qu'on compose quand quelqu'un est en danger immédiat, ou pense à en finir.
 
 L'urgence médicale.
 
-**Avant `//  1. Police Républicaine du Bénin — numéro vert gratuit, centre d'appels ouvert le`**
-
-Deux angles indépendants, ce qui est ce qui fait la force de ce numéro-ci :
-
-**Avant `//     2026-11-07 (couvert par banouto.bj, beninwebtv.bj, lanouvelletribune.info,`**
-
-1. Police Républicaine du Bénin — numéro vert gratuit, centre d'appels ouvert le
-
-**Avant `//     cappfm.com, mediapartbenin.bj), et repris dans la liste officielle des numéros`**
-
-2026-11-07 (couvert par banouto.bj, beninwebtv.bj, lanouvelletribune.info,
-
-**Avant `//     courts publiée par l'ARCEP Bénin.`**
-
-cappfm.com, mediapartbenin.bj), et repris dans la liste officielle des numéros
-
-**Avant `//  2. 'findahelpline.com/countries/bj' le liste comme « Benin Emergency Hotline »,`**
-
-courts publiée par l'ARCEP Bénin.
-
-**Avant `//     service 24h/24 pour toute personne en situation d'urgence OU en risque suicidaire.`**
-
-2. `findahelpline.com/countries/bj` le liste comme « Benin Emergency Hotline »,
-
-**Avant `// C'est le second point qui décide : il couvre les deux cas de ce module.`**
-
-service 24h/24 pour toute personne en situation d'urgence OU en risque suicidaire.
-
 **Avant `verified: 'ARCEP Bénin + Police Républicaine (numéro vert) + findahelpline.com/countries/bj',`**
 
+Deux angles indépendants, ce qui est ce qui fait la force de ce numéro-ci :
+1. Police Républicaine du Bénin — numéro vert gratuit, centre d'appels ouvert le
+2026-11-07 (couvert par banouto.bj, beninwebtv.bj, lanouvelletribune.info,
+cappfm.com, mediapartbenin.bj), et repris dans la liste officielle des numéros
+courts publiée par l'ARCEP Bénin.
+2. `findahelpline.com/countries/bj` le liste comme « Benin Emergency Hotline »,
+service 24h/24 pour toute personne en situation d'urgence OU en risque suicidaire.
 C'est le second point qui décide : il couvre les deux cas de ce module.
 
 **Avant `export function resolveEmergencyLines(env: NodeJS.ProcessEnv = process.env): EmergencyLines {`**
@@ -3299,28 +3102,13 @@ Relevé comparatif, 6 requêtes par modèle :
 Les deux retenus appellent les outils, vérifié par une requête portant un vrai schéma —
 le test qui avait écarté `qwen/qwen3.6-27b` le 2026-08-15.
 
-**Avant `// agent, donc lever ferait exploser le câblage entier — y compris dans neuf fichiers de`**
-
-⚠️ On ne LÈVE PAS, et c'est délibéré. Ce module est évalué à la construction de chaque
-
-**Avant `// tests qui ne testent pas la configuration LLM. Le contrat d'avant le 2026-08-20 était`**
-
-agent, donc lever ferait exploser le câblage entier — y compris dans neuf fichiers de
-
-**Avant `// déjà « la chaîne n'est jamais vide » : Groq y était poussé sans regarder sa clé.`**
-
-tests qui ne testent pas la configuration LLM. Le contrat d'avant le 2026-08-20 était
-
-**Avant `//`**
-
-déjà « la chaîne n'est jamais vide » : Groq y était poussé sans regarder sa clé.
-
-**Avant `// du fournisseur, à des étages de distance de sa cause.`**
-
-Ce qui change est la LISIBILITÉ : sans cette ligne, la panne se présente comme un 401
-
 **Avant `sharedLogger.error(`**
 
+⚠️ On ne LÈVE PAS, et c'est délibéré. Ce module est évalué à la construction de chaque
+agent, donc lever ferait exploser le câblage entier — y compris dans neuf fichiers de
+tests qui ne testent pas la configuration LLM. Le contrat d'avant le 2026-08-20 était
+déjà « la chaîne n'est jamais vide » : Groq y était poussé sans regarder sa clé.
+Ce qui change est la LISIBILITÉ : sans cette ligne, la panne se présente comme un 401
 du fournisseur, à des étages de distance de sa cause.
 
 ### `src/shared/security/agent-output.ts`
@@ -3361,11 +3149,9 @@ rédiger.
 
 ### `src/shared/security/tool-execution-guard.ts`
 
-**Avant `/** 403 et non 401 : l'appelant est authentifié, c'est la capacité qui n'existe pas pour lui. */`**
-
+**Avant `const FORBIDDEN = 403;`**
 
 L'EXÉCUTION D'UN OUTIL PAR HTTP EST FERMÉE
-
 
 `mayTouchRecord` (`shared/slack-request-context.ts`) rend `true` quand aucun contexte Slack
 n'accompagne l'appel. **Ce n'est pas un oubli** : c'est le cas normal du playground, d'un
@@ -3392,9 +3178,6 @@ capacité sans usage qui vaut l'usurpation totale n'est pas une capacité.
 
 ⚠️ **La frontière ne repose pas sur ce garde.** Le retirer un jour ramènerait à l'état du
 2026-08-20, pas plus bas. Il ferme une porte ; il ne porte pas la serrure.
-
-**Avant `const FORBIDDEN = 403;`**
-
 403 et non 401 : l'appelant est authentifié, c'est la capacité qui n'existe pas pour lui.
 
 **Avant `export function isToolExecutionPath(rawPath: string): boolean {`**
@@ -3418,12 +3201,9 @@ segments vides absorbent d'un coup le slash de fin, les slashs doublés et le `?
 
 `…/tools/<toolId>/execute` — au minimum `api`, `tools`, `<id>`, `execute`.
 
-**Avant `// et '/api/agents/<agentId>/tools/<id>/execute'.`**
-
-Deux formes exposées par Mastra, et deux seulement : `/api/tools/<id>/execute`
-
 **Avant `if (segments.length === 4) return true;`**
 
+Deux formes exposées par Mastra, et deux seulement : `/api/tools/<id>/execute`
 et `/api/agents/<agentId>/tools/<id>/execute`.
 
 ### `src/shared/slack-request-context.ts`
@@ -3488,9 +3268,7 @@ réponse est la même. Le jour où l'une des deux doit bouger, elle bougera seul
 
 **Avant `export type WorkspaceVerdict =`**
 
-
 L'APPARTENANCE AU WORKSPACE — une règle, deux portes d'entrée
-
 
 La signature HMAC prouve que **Slack** a émis la requête. Elle ne dit rien de **quel
 workspace** : une app installée ailleurs signerait tout aussi valablement. `SLACK_TEAM_ID`
@@ -3514,12 +3292,9 @@ mort — précisément ce que ce dépôt combat.
 
 Non configurée : on ne vérifie pas, et l'appelant journalise UNE fois que le contrôle dort.
 
-**Avant `// Slack, et le refuser transformerait une défense en profondeur en panne intermittente.`**
-
-⚠️ Un événement SANS `team_id` est accepté : le champ est absent de certaines charges
-
 **Avant `if (!got) return { accepted: true, checked: true };`**
 
+⚠️ Un événement SANS `team_id` est accepté : le champ est absent de certaines charges
 Slack, et le refuser transformerait une défense en profondeur en panne intermittente.
 
 ---

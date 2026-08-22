@@ -1,3 +1,5 @@
+import { errorMessage } from '../../../../shared/errors';
+import { slackErrorCode, slackErrorMentions } from '../../../../shared/slack/slack-error';
 import type {
   ChannelInviteResult,
   ChannelInviteStatus,
@@ -58,9 +60,8 @@ export class SlackWelcomeChannelSource implements WelcomeChannelSource {
 }
 
 function classify(error: unknown): ChannelInviteResult {
-  const message = error instanceof Error ? error.message : String(error);
-  const fromData = (error as { data?: { error?: unknown } } | null)?.data?.error;
-  const code = typeof fromData === 'string' ? fromData : undefined;
+  const message = errorMessage(error);
+  const code = slackErrorCode(error);
 
   if (code) {
     const status = STATUS_BY_SLACK_ERROR.get(code);
@@ -68,7 +69,7 @@ function classify(error: unknown): ChannelInviteResult {
   }
 
   for (const [slackError, status] of STATUS_BY_SLACK_ERROR) {
-    if (message.includes(slackError)) return { status, error: message };
+    if (slackErrorMentions(error, slackError)) return { status, error: message };
   }
 
   return { status: 'failed', error: message };

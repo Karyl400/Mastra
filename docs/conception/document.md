@@ -17,7 +17,6 @@
 
 Ports d'une AUTRE feature, importés depuis sa couche `domain`.
 
-
 C'est la règle de dépendance, pas une entorse : `application` peut dépendre d'un
 
 `domain`, y compris celui d'une feature voisine — précédent en place dans
@@ -162,9 +161,7 @@ appelable hors Zod (appel direct, workflow, test), et un `throw` y serait un pi�
 
 Ce que la personne a dit d'elle à l'entretien, prêt pour le gabarit.
 
-
 Côté SERVEUR, jamais par le modèle — et ne LÈVE jamais
-
 
 Même chemin que la fiche employé : l'entretien est résolu à partir de l'`employeeId`, sans
 qu'aucune de ces valeurs ne traverse la fenêtre du modèle. C'est ce qui rend un guide
@@ -204,12 +201,10 @@ le refus soit indiscernable.
 avant : lire un document pour décider ensuite si l'on avait le droit de le lire, c'est
 l'avoir déjà lu.
 
-
  Le plus récemment mis à jour d'abord. Comparaison de chaînes ISO : elles s'ordonnent.
 **Avant `const all = await documentRepo.findByEmployee(employeeId);`**
 
 ⚠️ Le tri est fait ICI et non dans le port : ni `DrizzleDocumentRepository` ni la doublure
-
 
 n'ordonnent `findByEmployee`, et un port qui ne promet pas d'ordre ne doit pas être lu
 
@@ -219,7 +214,6 @@ où deux appels identiques rendaient deux ordres différents.
 **Avant `logger.warn('Correction refusée — aucun document de ce type pour cette personne', {`**
 
 ⚠️ ON NE RETOMBE PAS SUR UNE CRÉATION : le modèle annoncerait « j'ai corrigé » alors
-
 
 qu'il viendrait de produire un premier document. Le hint lui dit quoi faire à la place.
 **Avant `async function persistDocument(`**
@@ -238,12 +232,10 @@ la complexité cognitive au-dessus du seuil, or ce dépôt est à zéro warning 
 
 `createDocument` repose un `createdAt` à l'instant présent : sur une correction, ce
 
-
 serait effacer la date de production réelle du document.
 **Avant `status: DocumentStatus.Generated,`**
 
 Toujours `Generated` ici : à cet instant RIEN n'est parti. `Sent` est posé ensuite
-
 
 par `markDeliveryOutcome`, et seulement si un transport a rendu la main — c'est la
 
@@ -278,12 +270,10 @@ est assurée par la clé (conversation) et le TTL, jamais par la durée de vie d
 
 Schéma dépouillé pour le budget de tokens (voir `schedule-reminder.ts`) :
 
-
 les `.describe()` qui ne faisaient que répéter le nom du champ ont été retirés.
 **Avant `employeeId: uuidSchema.optional().describe('UUID annuaire — omets-le pour le demandeur'),`**
 
 ⚠️ FACULTATIF depuis le 2026-08-20, et par défaut c'est le DEMANDEUR.
-
 
 Il était obligatoire, donc le modèle devait se le procurer — et le seul endroit qui
 
@@ -311,7 +301,6 @@ que le modèle fabriquait.
 **Avant `content: z`**
 
 ⚠️ Borne HAUTE ajoutée le 2026-08-13. `title`/`subject` étaient bornés à 200 sur la
-
 
 ligne voisine, ce champ ne l'était pas — asymétrie relevée par l'audit, et c'est le
 
@@ -366,7 +355,6 @@ inviterait à en inventer un, ce qui est exactement le bug de destinataire du
 
 ⚠️ RENFORCÉ le 2026-08-19 après une SECONDE mesure en production. « rédige-le, ne le
 
-
 demande pas » — cinq mots, posés le 2026-08-18 — n'a pas tenu : sur « Génère-moi le
 
 guide d'accueil en PDF », le modèle a répondu « Peux-tu me fournir le contenu ? ».
@@ -382,7 +370,6 @@ PRODUIT, un email ou un UUID se RETROUVENT.
 
 `pdf` par défaut, et non plus `txt`. L'attente produit est un PDF ; un défaut
 
-
 `txt` obligeait le modèle à deviner qu'il fallait demander autre chose, et
 
 produisait donc des documents que personne n'avait demandés dans ce format.
@@ -390,12 +377,10 @@ produisait donc des documents que personne n'avait demandés dans ce format.
 
 Destination — un seul champ, valeurs auto-explicites, aucun `.describe()`.
 
-
 Ni canal, ni thread, ni adresse : voir le modèle de menace en tête de fichier.
 **Avant `revises: z`**
 
 ⚠️ CORRIGER plutôt que REFAIRE — ajouté le 2026-08-19, et il ferme une cause écrite
-
 
 dans ce fichier depuis le 2026-08-12 : « le système ne sait que CRÉER — il n'existe
 
@@ -440,7 +425,6 @@ qu'on demande au modèle est un identifiant qu'il peut inventer.
 
 POUR QUI — résolu AVANT tout le reste
 
-
 Le champ est facultatif : absent, c'est le demandeur. Sans demandeur identifiable
 
 NON PLUS, on renonce — et on le DIT, plutôt que de produire un document au nom de
@@ -452,7 +436,6 @@ la ligne d'annuaire n'est reliée à aucun dossier.
 
 Assainissement — AVANT tout usage du titre et du corps
 
-
 Le titre est une feuille : rien à y traduire, on l'assainit à fond. Le corps
 
 conserve son balisage markdown, que `buildDocumentOutline` traduit ensuite en
@@ -461,7 +444,6 @@ titres, puces et paragraphes ; le retirer ici aplatirait le document.
 **Avant `const { effectiveDeliverTo, dedupKey } = resolveDeliveryIntent({`**
 
 Garde d'idempotence — un livrable par CONVERSATION, pas seulement par run
-
 
 Deux incidents distincts, même correctif.
 
@@ -510,7 +492,6 @@ Un store partagé coûterait une E/S Turso (Tokyo) sur un chemin déjà tendu c�
 
 ⚠️ Une CORRECTION change presque toujours le contenu, jamais le titre ni le type ni
 
-
 le format — c'est-à-dire aucun des composants de la clé. Sans cette empreinte, la
 
 garde rejetterait la correction comme un doublon et le modèle annoncerait avoir
@@ -522,14 +503,12 @@ garde elle-même a été écrite pour empêcher, retournée contre son propre bu
 
 Les deux incidents ne se diagnostiquent pas pareil : un second appel dans le
 
-
 MÊME message est un défaut de raisonnement du modèle, un second appel dans un
 
 message SUIVANT est l'utilisateur qui redemande faute d'avoir vu le fichier.
 **Avant `return {`**
 
 On rend le résultat du PREMIER appel, augmenté du fait qu'il n'y a rien à
-
 
 refaire. Sans cette mention, le modèle reste devant un résultat identique au
 
@@ -539,7 +518,6 @@ l'absence de « l'effet existe déjà » qui a produit les doublons.
 **Avant `if (!canReadPersonRecord(ctx?.requestContext, employeeId)) {`**
 
 Résolution de l'employé — le gabarit ET l'adresse en dépendent
-
 
 Un identifiant inconnu ne produit PAS d'exception : l'AI SDK v7 réinjecte au
 
@@ -553,9 +531,7 @@ Rien n'est enregistré dans ce cas : `documents.employee_id` porte une clé
 
 étrangère vers `employees`, une ligne orpheline serait refusée par la base.
 
-
 FRONTIÈRE D'AUTORISATION — le contournement le plus large des quatre
-
 
 Relevé par la revue adversariale du 2026-08-13, APRÈS que les trois lectures RH
 
@@ -598,7 +574,6 @@ autrui au niveau `full`.
 
 CORRECTION — on remplace une ligne, on n'en ajoute pas une seconde
 
-
 ⚠️ RÉSOLU APRÈS la frontière d'autorisation et APRÈS l'employé, jamais avant : lire
 
 un document pour décider ensuite si l'on avait le droit de le lire, c'est avoir déjà
@@ -626,7 +601,6 @@ repli lui-même.
 
 TRACE — un document produit POUR AUTRUI
 
-
 Aucun refus : un manager ou une RH qui produit la lettre de bienvenue d'un
 
 arrivant est le cas d'usage NORMAL — c'est même l'objet du produit. Mais c'est
@@ -653,7 +627,6 @@ Rendu
 **Avant `const generated = await persistDocument(documentRepo, {`**
 
 Enregistrement — AVANT la livraison, et c'est l'ordre qui compte
-
 
 ⚠️ CORRIGÉ LE 2026-08-20. `deliver()` était appelé EN PREMIER. Le commentaire qui
 
@@ -694,7 +667,6 @@ gagne ici, c'est le choix du pire cas.
 
 Persistance : les valeurs ASSAINIES, jamais celles du modèle. Une ligne
 
-
 enregistrée avec un marqueur ressortirait telle quelle au premier code qui la
 
 relirait — le filtre du rendu ne protège que le fichier, pas la base.
@@ -705,7 +677,6 @@ Livraison — aucune exception ne sort de ce bloc
 **Avant `const recipient = fullName(employee.firstName, employee.lastName);`**
 
 Tool-result — PROJETÉ, jamais l'entité
-
 
 L'outil retournait l'entité COMPLÈTE, `content` compris : il renvoyait au modèle
 
@@ -752,7 +723,6 @@ tokens, payés à chaque document produit.
 
 ⚠️ LE DESTINATAIRE REMONTE PAR LE CONTEXTE SERVEUR, en plus du tool-result.
 
-
 Le champ `recipient` du tool-result existe depuis le 2026-08-14 et le bloc DOCUMENTS
 
 impose de le citer : c'est la mesure de VISIBILITÉ contre l'erreur de destinataire —
@@ -772,7 +742,6 @@ ni le tool-result.
 
 ⚠️ Présent UNIQUEMENT sur une correction : le bloc DOCUMENTS impose au modèle de
 
-
 dire ce qui a eu lieu, et « corrigé » n'est pas « produit ». Un booléen toujours
 
 présent coûterait ses tokens à chaque document, pour ne rien dire dans le cas
@@ -781,7 +750,6 @@ fréquent.
 **Avant `if (dedupKey && (delivery === 'slack' || delivery === 'email')) {`**
 
 Mémorisé APRÈS le succès : un premier appel qui a échoué avant l'enregistrement
-
 
 ne doit pas condamner une seconde tentative du modèle. `eventTs` est conservé
 
@@ -813,12 +781,10 @@ modèle, pas une intention d'utilisateur.
 
 Même clé que `deriveConversationId` : en DM `threadTs` est absent par conception,
 
-
 donc le canal EST la conversation.
 **Avant `const effectiveDeliverTo =`**
 
 `none` est NEUTRALISÉ dans une conversation Slack — correctif du 2026-08-12
-
 
 Mesuré en production : sur « Génère un guide en PDF **et donne-le moi pour que je
 
@@ -841,7 +807,6 @@ d'utilisateur. On livre donc dans le fil d'où vient la demande.
 
 Hors Slack, `buildRunKey` rend `undefined` et la garde est INACTIVE : le
 
-
 playground, les workflows et les tests ne sont bornés par aucune conversation.
 **Avant `function warnIfForeignSubject(`**
 
@@ -855,7 +820,6 @@ paragraphes — le retirer ici aplatirait le document.
 seules détections d'exfiltration par document du dépôt. Un marqueur interne dans un
 livrable téléchargeable signifie que le modèle a écrit son propre garde-fou dans un fichier
 qui sort de l'entreprise ; il n'existait aucune ligne pour le voir avant le 2026-08-11.
-
 
 POUR QUI ce document est-il produit ?
 
@@ -888,7 +852,6 @@ un nom.
 
 `error`, comme dans le handler Slack : un marqueur interne dans un DOCUMENT
 
-
 signifie que le modèle a écrit son propre garde-fou dans un livrable
 
 téléchargeable. C'est la ligne qui manquait pour détecter une exfiltration
@@ -898,12 +861,10 @@ par document — il n'en existait aucune.
 
 Seuls les HÔTES : le chemin d'un lien fabriqué embarque un identifiant réel
 
-
 (celui du 2026-08-11 portait le vrai `Document.id`).
 **Avant `const title = safeTitle.text.length > 0 ? safeTitle.text : DEFAULT_TITLES[data.type];`**
 
 Le titre assaini peut être VIDE (un titre qui n'était qu'un emoji, ou qu'un lien
-
 
 fabriqué). On retombe alors sur le titre par défaut du type — le même que celui
 
@@ -928,7 +889,6 @@ base annoncerait un `csv` là où un PDF a été livré.
 
 Rendu
 
-
 Repli sur PDF quand le format demandé n'a pas de renderer : l'utilisateur reçoit
 
 un fichier réel plutôt que rien, et le résultat NOMME le format effectivement
@@ -946,12 +906,10 @@ Câblage incomplet : on enregistre quand même, on ne perd pas le texte produit.
 
 `?? undefined` : le gabarit distingue « absent » de « vide ». Un `null` qui
 
-
 traverserait finirait imprimé tel quel dans un PDF signé de l'entreprise.
 **Avant `const producedFormat = rendered ? (renderer?.format ?? format) : format;`**
 
 Le format ENREGISTRÉ est celui réellement produit, jamais celui demandé : sinon
-
 
 la base annoncerait un `csv` là où un PDF a été livré.
 **Avant `type DeliveryIntent = 'slack' | 'email' | 'none';`**
@@ -990,7 +948,6 @@ Le verdict reste honnête : `email` seulement si l'envoi a réussi, et `reason` 
 
 Le permalink est journalisé, JAMAIS retourné au modèle : le fichier est déjà dans le
 
-
 fil, et remettre une URL dans le contexte rouvrirait la porte par laquelle le faux lien
 
 de téléchargement est passé.
@@ -1011,12 +968,10 @@ l'échec, il ne le lève pas.
 
 Email demandé explicitement : un seul chemin, sans repli — il n'y a rien vers quoi se
 
-
 replier.
 **Avant `if (!slackCtx) {`**
 
 Slack demandé, mais sans canal : cas NORMAL, pas une panne — playground Mastra, route
-
 
 HTTP, workflow, test. Il n'y a personne à qui livrer, on le dit, on n'échoue pas.
 **Avant `async function uploadToSlack(`**
@@ -1026,7 +981,6 @@ HTTP, workflow, test. Il n'y a personne à qui livrer, on le dit, on n'échoue p
 **Avant `return await fileUpload.uploadFile({`**
 
 `threadTs` n'est posé que s'il existe : en DM il est `undefined` PAR CONCEPTION, et
-
 
 threader un DM enfouit le fichier hors de la conversation principale.
 **Avant `async function deliverByEmail(`**
@@ -1058,7 +1012,6 @@ la contrainte ne coûte donc rien au runtime et garde le port transportable.
 **Avant `position?: string;`**
 
 ⚠️ `department` a été RETIRÉ le 2026-08-20 : aucun gabarit ne l'imprime plus, à la
-
 
 demande du propriétaire. Le laisser dans cette signature en aurait fait un champ que
 
@@ -1120,7 +1073,6 @@ partir d'un texte utilisateur — il peut donc contenir n'importe quoi, y compri
 `../`, un `/`, un `\0` ou une chaîne vide. On ne fait pas confiance au titre :
 on en dérive un nom, on ne le reprend jamais tel quel.
 
-
  Repli quand le titre est vide ou entièrement filtré — jamais de chaîne vide.
 **Avant `const MAX_BASENAME_LENGTH = 80;`**
 
@@ -1146,12 +1098,10 @@ plutôt que de disparaître.
 
 Diacritiques Unicode combinants : classe explicite plutôt que `\p{M}`, les
 
-
 classes Unicode étant proscrites ailleurs dans le projet (Zod 3.25.76).
 **Avant `.replace(/^-+|-+$/g, '')`**
 
 Les trois motifs de tirets ci-dessous sont signalés comme super-linéaires, et ils le
-
 
 sont : `-+` suivi d'une ancre revient en arrière tiret par tiret. Ils s'appliquent
 
@@ -1207,7 +1157,6 @@ balisage aurait aplati toute la structure en un pavé, ce qui est le défaut
 d'origine sous une autre forme. Ce qui n'a pas d'équivalent (séparateur
 horizontal, barres résiduelles, emphase en ligne) est retiré au seuil du rendu
 par `sanitizeDocumentText`.
-
 
 L'indentation de tête est BORNÉE à 8 caractères dans tous ces motifs. Un `[ \t]*`
 
@@ -1302,7 +1251,6 @@ vecteur de diffusion de donnée personnelle, et un UUID n'apprendrait rien à qu
 
 ⚠️ La ligne « Département » a été RETIRÉE le 2026-08-20, à la demande du
 
-
 propriétaire : « les départements ne doivent plus apparaître ». Elle n'était déjà
 
 émise que si la valeur existait — le champ n'est plus collecté depuis le 2026-08-13 —
@@ -1313,7 +1261,6 @@ anciennes, et c'est ce qui s'est produit.
 **Avant `const positionClause = employee.position ? ` en tant que ${employee.position}` : '';`**
 
 ⚠️ Le POSTE suit désormais la même règle que le département, et il ne la suivait pas :
-
 
 `employee.position ?? 'N/A'` produisait « en tant que N/A » dans une lettre signée de
 
@@ -1326,14 +1273,12 @@ un champ absent fait disparaître sa phrase, jamais apparaître un « N/A ».
 
 ⚠️ La date était imprimée BRUTE : « ta date de début est le 2026-09-01T00:00:00.000Z ».
 
-
 Troisième écriture d'un formatage de date dans ce dépôt, et la seule fausse — d'où
 
 `shared/french-date.ts`, qui la rend une bonne fois.
 **Avant `{ kind: 'paragraph', text: `Bonjour ${recipientName(input)},` },`**
 
 ⚠️ TUTOIEMENT, comme partout ailleurs. Cette lettre vouvoyait (« Cher(e) », « Votre
-
 
 date ») alors que le guide produit par le MÊME bot, pour la MÊME personne, dit « Ton
 
@@ -1350,12 +1295,10 @@ Le département a disparu de cette phrase le 2026-08-20 — voir `buildContract`
 
 La phrase entière disparaît quand la date est inconnue — plutôt qu'un « à confirmer »
 
-
 qui promet une confirmation que personne n'enverra.
 **Avant `...interviewBlocks(input),`**
 
 ⚠️ Le bloc « Prochaines étapes » a été RETIRÉ le 2026-08-14, et ce n'est pas une
-
 
 simplification : il MENTAIT. Ses quatre puces étaient écrites en dur, donc
 
@@ -1380,9 +1323,7 @@ impossibles à un arrivant.
 
 Ce que la personne a dit d'elle à l'entretien post-profil, rendu en blocs.
 
-
 Pourquoi c'est le GABARIT qui l'imprime, et non le modèle
-
 
 L'alternative était d'exposer l'entretien au modèle pour qu'il en tire une prose. Écartée
 pour trois raisons, dont la dernière suffirait :
@@ -1406,12 +1347,10 @@ fait retirer « Département : N/A » de la lettre de bienvenue.
 
 Le `#` est rendu ICI et non stocké : c'est une convention d'AFFICHAGE Slack, et la
 
-
 base garde les identifiants `C…`, qui ne se lisent pas.
 **Avant `...recipientBlocks(input),`**
 
 ⚠️ LE DESTINATAIRE, NOMMÉ DANS LE DOCUMENT — ajouté le 2026-08-20 à la demande du
-
 
 propriétaire : « le contenu du document doit préciser à qui il s'adresse ».
 
@@ -1432,7 +1371,6 @@ fichier ; celle-ci, si.
 
 Le département a disparu de ce gabarit le 2026-08-20 — voir `buildContract`.
 
-
 Le poste, lui, est TOUJOURS connu (`employees.position` est `NOT NULL`) et il est la
 
 seule chose qui distingue le guide d'une personne de celui d'une autre. L'écrire ici
@@ -1441,7 +1379,6 @@ seule chose qui distingue le guide d'une personne de celui d'une autre. L'écrir
 **Avant `...interviewBlocks(input),`**
 
 ⚠️ Les quatre puces « Configuration poste de travail / Accès Slack-GitHub /
-
 
 Présentation équipe / Culture entreprise » ont été RETIRÉES le 2026-08-14. Écrites en
 
@@ -1471,7 +1408,6 @@ document, tout le contenu est dans `content` et aucun gabarit n'a de sens.
 
 Même raison que dans `buildGuide` : c'est le gabarit de repli, donc celui qui sert dans
 
-
 la moitié des cas, et il ne nommait personne du tout.
 **Avant `function clean(text: string): string {`**
 
@@ -1490,7 +1426,6 @@ filtrage dans un document signé de l'entreprise.
 **Avant `case 'heading':`**
 
 `heading` et `paragraph` partagent le traitement : un seul champ textuel,
-
 
 et le reste du bloc (`level`, `italic`) est reconduit tel quel.
 **Avant `export function buildDocumentOutline(input: DocumentRenderInput): DocumentOutline {`**
@@ -1521,10 +1456,8 @@ pdfmake refuse un `content` vide : on garantit au moins un bloc.
 
 CE QUE LA POLICE SAIT ÉCRIRE — et ce qu'elle imprimerait en carré.
 
-
 Le défaut, signalé par le propriétaire : « des caractères indésirables sont
 apparus dans les documents »
-
 
 Roboto est la SEULE police injectée dans le VFS de pdfmake. Tout code point qu'elle ne
 connaît pas s'imprime en `.notdef` — le carré. Le dépôt s'en protégeait déjà, mais par une
@@ -1556,7 +1489,6 @@ plus jamais produire un carré — il sera simplement inconnu de la police, donc
 La police est une affaire d'INFRASTRUCTURE : ce module reçoit un prédicat et ne connaît ni
 pdfmake, ni fontkit, ni Roboto. C'est ce qui le rend éprouvable sans charger 3 Mo de TTF.
 
-
  Ce que la couche de rendu sait dire de sa police.
 **Avant `const FALLBACKS: Readonly<Record<number, string>> = {`**
 
@@ -1574,43 +1506,43 @@ Tout le reste — emojis, symboles décoratifs — est SUPPRIMÉ sans substituti
 déjà tranché ce point pour les emojis : « [emoji] » rendrait visible, dans un document
 d'accueil, une trace de filtrage, là où l'absence se lit comme une phrase normale.
 
-**Avant `0x21d2: '=>', // ⇒`**
+**Avant `0x21d2: '=>',`**
 
 →
 
-**Avant `0x21a6: '->', // ↦`**
+**Avant `0x21a6: '->',`**
 
 ⇒
 
-**Avant `0x2190: '<-', // ←`**
+**Avant `0x2190: '<-',`**
 
 ↦
 
-**Avant `0x2194: '<->', // ↔`**
+**Avant `0x2194: '<->',`**
 
 ←
 
-**Avant `0x202f: ' ', // espace fine insécable`**
+**Avant `0x202f: ' ',`**
 
 ↔
 
-**Avant `0x2007: ' ', // espace chiffre`**
+**Avant `0x2007: ' ',`**
 
 espace fine insécable
 
-**Avant `0x2009: ' ', // espace fine`**
+**Avant `0x2009: ' ',`**
 
 espace chiffre
 
-**Avant `0x200a: ' ', // espace ultra-fine`**
+**Avant `0x200a: ' ',`**
 
 espace fine
 
-**Avant `0x2060: '', // gluon de mots — invisible, sans largeur`**
+**Avant `0x2060: '',`**
 
 espace ultra-fine
 
-**Avant `0xfeff: '', // BOM en milieu de texte`**
+**Avant `0xfeff: '',`**
 
 gluon de mots — invisible, sans largeur
 
@@ -1691,7 +1623,6 @@ appelant afficherait tel quel.
 
 ✅ défensive copy
 
-
 ✅ défensive copy
 
 ✅ stocke une copie
@@ -1731,7 +1662,6 @@ Vercel (FS en lecture seule hors `/tmp`, et éphémère).
 
 Le titre ASSAINI de l'outline, jamais `input.title` : le nom de fichier part
 
-
 dans Slack et en pièce jointe email (voir `pdfmake.service.ts`).
 **Avant `function renderBlock(block: DocumentBlock): Paragraph[] {`**
 
@@ -1759,7 +1689,6 @@ Fonts initialization
 **Avant `pdfmake.setUrlAccessPolicy(() => false);`**
 
 Sécurité :
-
 
 empêche pdfmake de charger des ressources externes
 **Avant `const STYLES: TDocumentDefinitions['styles'] = {`**
@@ -1791,7 +1720,6 @@ cinquante, et c'est le RÉPERTOIRE qui nous intéresse, pas le nombre d'occurren
 
 ⚠️ LE FILTRE EST POSÉ ICI, dans le renderer PDF, et NULLE PART AILLEURS.
 
-
 C'est une limitation de ROBOTO, pas du produit : Word embarque des polices complètes, et
 
 un DOCX rend parfaitement `→` et l'espace fine insécable. Poser ce filtre dans le domaine
@@ -1805,7 +1733,6 @@ deux formats ne les rendait correctement dans un document d'entreprise.
 
 `info` et non `warn` : ce n'est pas une anomalie, c'est le filtre qui fait son travail.
 
-
 Mais c'est la ligne qui dit ce que le modèle écrit RÉELLEMENT — et le seul moyen
 
 d'apprendre qu'un caractère nouveau circule avant qu'un humain ne le voie en carré.
@@ -1813,12 +1740,10 @@ d'apprendre qu'un caractère nouveau circule avant qu'un humain ne le voie en ca
 
 Roboto est la seule police injectée dans le VFS : tout autre nom ferait
 
-
 échouer le rendu au lieu de dégrader.
 **Avant `export class PdfmakeService implements DocumentRenderer {`**
 
 Service
-
 
 Rend un document en PDF.
 
@@ -1837,7 +1762,6 @@ jointe email, tous deux alimentés par les octets de `render()`.
 **Avant `filename: buildDocumentFilename(outline.title, DocumentFormat.Pdf),`**
 
 Le nom vient du titre ASSAINI de l'outline, jamais de `input.title`. La
-
 
 translittération de `buildDocumentFilename` ne protège que la FORME du nom :
 

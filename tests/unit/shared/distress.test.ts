@@ -449,3 +449,65 @@ describe('« en finir » — les deux colonnes du corpus', () => {
     expect(distressKind(phrase)).toBeNull();
   });
 });
+
+/**
+ * ⚠️ UN NOM NU NE SUFFIT PAS — la même faille que « en finir », mais sur toute la liste.
+ *
+ * Les motifs sont comparés en SOUS-CHAÎNE. Les entrées qui sont des PHRASES à la première
+ * personne (« je veux mourir », « me suicider », « on me harcèle ») s'en accommodent : leur
+ * forme porte déjà son sujet. Les entrées qui sont des NOMS NUS — `suicide`, `depression`,
+ * `burnout`, `harcelement`, `intimidation`, `discrimination`, `death threat` — n'en ont pas,
+ * et elles matchent donc n'importe quel usage figuré.
+ *
+ * Mesuré le 2026-08-22 : **huit phrases de travail sur neuf** déclenchaient, dont
+ * « déployer un vendredi c'est du suicide », « on a harcelé le support pour avoir une
+ * réponse » et — dans CE dépôt — « la discrimination des types en TypeScript », tournure qui
+ * figure littéralement dans `CLAUDE.md`.
+ *
+ * ⚠️ LA RÈGLE, ET SA SECONDE MOITIÉ QUI COMPTE AUTANT. Un nom nu ne compte que si le message
+ * parle de son AUTEUR (`je`, `me`, `mon`, `i`, `my`…) **ou** s'il est NU LUI-MÊME (≤ 3 mots).
+ * La seconde moitié n'est pas une commodité : un message d'un seul mot — « suicide » — n'a
+ * aucun contexte, et c'est justement ce qui en fait un signal. Deux tests l'exigeaient déjà,
+ * et ils avaient raison contre la première version de cette garde.
+ *
+ * ⚠️ Le compte de mots se fait sur la forme ESPACÉE, jamais sur la forme sans apostrophes :
+ * « l'intimidation des chiffres » y devient « lintimidation des chiffres », soit 3 mots, donc
+ * un faux positif fabriqué par la garde elle-même. Trouvé en mesurant, pas en relisant.
+ */
+describe('les NOMS NUS exigent un contexte — corpus à deux colonnes', () => {
+  const DETRESSE_REELLE = [
+    'suicide',
+    'burnout',
+    'je pense au suicide',
+    "j'ai des idées de suicide",
+    'je fais un burnout',
+    'je suis en dépression',
+    'je subis du harcèlement moral',
+    'je suis victime de discrimination',
+    "j'ai été agressé",
+    'my manager harasses me',
+    'i am burned out',
+    "i'm at breaking point",
+    'i received a death threat',
+  ];
+
+  const TOURNURE_DE_TRAVAIL = [
+    "déployer un vendredi c'est du suicide",
+    'ce refactor est un suicide commercial',
+    'la dépression du marché',
+    "l'intimidation des chiffres",
+    'on a harcelé le support pour avoir une réponse',
+    'la discrimination des types en TypeScript',
+    'the project is falling apart',
+    'the team is at breaking point',
+    'harassment training is mandatory next month',
+  ];
+
+  it.each(DETRESSE_REELLE)('reconnaît « %s »', (phrase) => {
+    expect(distressKind(phrase)).not.toBeNull();
+  });
+
+  it.each(TOURNURE_DE_TRAVAIL)('ne se déclenche PAS sur « %s »', (phrase) => {
+    expect(distressKind(phrase)).toBeNull();
+  });
+});

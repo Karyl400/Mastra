@@ -1,13 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { WebClient } from '@slack/web-api';
 import type { Mastra } from '@mastra/core';
 
 import {
-  SlackEventsHandler,
   type SlackEventsHandlerOptions,
   type SlackMessageEvent,
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
-import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
+import { makeSlackHandler } from '../../helpers/slack-handler';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -37,42 +35,19 @@ const HUMAN = 'U0BJBDGTJUD';
 
 function makeHandler() {
   const audit = vi.fn(async (_entry: { action: string; status?: string }) => undefined);
-  const slack = {
-    chat: {
-      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1700000000.000900' }),
-      update: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    auth: { test: vi.fn().mockResolvedValue({ user_id: 'U0BMBEJTBMJ' }) },
-  };
 
-  const handler = new SlackEventsHandler(
-    'xoxb-test-token',
-    {
-      // Le modèle échoue : c'est exactement le cas où « success » était un mensonge.
+  // Les HUIT dépendances neutralisables le sont par la fabrique partagée — voir son en-tête,
+  // qui porte le détail de ce que chaque oubli coûte. Ne restent ici que les deux pièces dont
+  // ce fichier a vraiment besoin : un agent qui ÉCHOUE (c'est exactement le cas où « success »
+  // était un mensonge) et le journal d'audit, qu'on observe.
+  const { handler } = makeSlackHandler({
+    mastra: {
       getAgent: vi.fn(() => {
         throw new Error('modèle indisponible');
       }),
     } as unknown as Mastra,
-    {
-      slackClient: slack as unknown as WebClient,
-      chatProvider: {
-        sendBlocks: vi.fn().mockResolvedValue({ ts: '1' }),
-      } as unknown as SlackEventsHandlerOptions['chatProvider'],
-      accessGuard: null,
-      workspaceProvider: { getUserById: async () => null },
-      auditSink: audit as unknown as SlackEventsHandlerOptions['auditSink'],
-      conversationRepository: null,
-      dedupRepository: new InMemorySlackEventDedupRepository(),
-      rateLimiter: null,
-      pinnedFactRepository: null,
-      directoryRepository: {
-        findBySlackUserId: vi.fn(async () => null),
-        rememberDmChannel: vi.fn(async () => undefined),
-        upsertFacts: vi.fn(async () => undefined),
-      } as unknown as SlackEventsHandlerOptions['directoryRepository'],
-      pruneProbability: 0,
-    },
-  );
+    auditSink: audit as unknown as SlackEventsHandlerOptions['auditSink'],
+  });
 
   return { handler, audit };
 }

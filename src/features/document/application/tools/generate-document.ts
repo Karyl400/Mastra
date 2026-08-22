@@ -31,6 +31,7 @@ import type { OnboardingInterviewRepository } from '../../../onboarding/domain/p
 import { buildRunKey, makeRunGuard } from '../../../../shared/tool-idempotency';
 import { DocumentFormat, DocumentStatus, DocumentType } from '../../../../shared/types';
 import { errorMessage } from '../../../../shared/errors';
+import { slackErrorMentions } from '../../../../shared/slack/slack-error';
 
 type DeliveryVerdict = 'slack' | 'email' | 'none' | 'failed';
 
@@ -64,16 +65,7 @@ const HINTS = {
 type HintKey = keyof typeof HINTS;
 
 function isMissingScope(error: unknown): boolean {
-  for (let current: unknown = error, depth = 0; current && depth < 4; depth++) {
-    const data = (current as { data?: { error?: unknown } }).data;
-    if (typeof data?.error === 'string' && data.error === 'missing_scope') return true;
-
-    const message = current instanceof Error ? current.message : '';
-    if (message.includes('missing_scope') || message.includes('files:write')) return true;
-
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
+  return slackErrorMentions(error, 'missing_scope') || slackErrorMentions(error, 'files:write');
 }
 
 export interface GenerateDocumentDeps {

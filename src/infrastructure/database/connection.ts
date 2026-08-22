@@ -3,6 +3,7 @@ import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 import { createClient, type Client } from '@libsql/client';
 import * as schema from './schema';
 import { logger } from '../../shared/logger';
+import { errorMessage } from '../../shared/errors';
 import { migrate } from 'drizzle-orm/libsql/migrator';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 
@@ -79,7 +80,7 @@ class LibSqlConnectionManager implements ConnectionManager {
     } catch (error) {
       span.setStatus({
         code: SpanStatusCode.ERROR,
-        message: error instanceof Error ? error.message : 'Unknown error',
+        message: errorMessage(error),
       });
       logger.error('Error closing database connection', { error });
       throw error;
@@ -113,7 +114,7 @@ class LibSqlConnectionManager implements ConnectionManager {
       span.setAttribute('health.status', 'error');
       span.setStatus({
         code: SpanStatusCode.ERROR,
-        message: error instanceof Error ? error.message : 'Unknown error',
+        message: errorMessage(error),
       });
       return false;
     } finally {
@@ -163,7 +164,7 @@ class LibSqlConnectionManager implements ConnectionManager {
     } catch (error) {
       span.setStatus({
         code: SpanStatusCode.ERROR,
-        message: error instanceof Error ? error.message : 'Unknown error',
+        message: errorMessage(error),
       });
 
       logger.error('Failed to connect to database', {
@@ -198,7 +199,7 @@ class LibSqlConnectionManager implements ConnectionManager {
     } catch (error) {
       span.setStatus({
         code: SpanStatusCode.ERROR,
-        message: error instanceof Error ? error.message : 'Unknown error',
+        message: errorMessage(error),
       });
 
       logger.error('Database migration failed', { error });

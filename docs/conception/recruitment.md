@@ -57,9 +57,7 @@ changement.
 
 Le « oui » — le seul acte IRRÉVERSIBLE du produit.
 
-
 Ce qui est REJOUÉ, et ce qui ne l'est jamais
-
 
 La table ne porte que des CHAMPS. Le sujet et le corps sont RE-RENDUS ici par le gabarit, et
 la date RE-VALIDÉE. C'est le contrat que portait le `value` du bouton « Envoyer », et sa
@@ -110,7 +108,6 @@ false` sous `status: 'success'`, appliquée à un oubli plutôt qu'à une panne.
 
 ⚠️ Le demandeur, et lui seul. La conversation peut avoir des témoins — en fil de canal,
 
-
 tout le monde voit la question. Sans ce contrôle, un tiers écrirait à l'extérieur au nom
 
 de l'entreprise en tapant trois lettres.
@@ -126,18 +123,15 @@ Périmée pour de bon : on efface, cette préparation ne pourra plus rien envoye
 
 ⚠️ LA PRISE. Effacer AVANT d'envoyer, et n'envoyer que si l'on a bien pris : c'est ce qui
 
-
 rend l'envoi unique face à deux instances. L'ordre inverse enverrait deux fois.
 **Avant `logger.error('Email d’entretien NON envoyé', { error: String(error) });`**
 
 ⚠️ On ne prétend JAMAIS avoir envoyé, et on REND la prise : rien n'est parti, donc
 
-
 réessayer est légitime. Même discipline que `emailSent: false` sous `status: 'success'`.
 **Avant `logger.info('Invitation d’entretien envoyée', {`**
 
 ⚠️ Aucune écriture en base, et c'est un choix inchangé : stocker l'adresse et l'invitation
-
 
 d'un NON-SALARIÉ créerait des données personnelles sans chemin d'effacement. La trace vit
 
@@ -146,9 +140,7 @@ dans le fil Slack et ici, en journal, sans jamais l'adresse complète.
 
 CE QU'IL FAUT FAIRE d'une préparation en attente — la DÉCISION, sans l'EXÉCUTION.
 
-
 Pourquoi cette fonction a été extraite du handler le 2026-08-20
-
 
 Elle vivait dans `resolvePendingEmail`, mêlée aux effets (effacer, envoyer, publier). Or il
 fallait poser exactement la même question à un SECOND endroit — le miroir exact du
@@ -169,12 +161,10 @@ inverser la règle de dépendance. Un booléen traverse la frontière ; un impor
 
 ⚠️ LA QUESTION D'ACCUEIL PRIME. Les deux erreurs ne se valent pas : capturer « oui » comme
 
-
 un prénom se corrige d'un message, envoyer une invitation à un candidat ne se corrige pas.
 **Avant `return 'unrelated';`**
 
 La personne parle d'autre chose. On ne l'interrompt pas — on lui répond, et l'email reste
-
 
 en attente.
 **Avant `export function settlesPendingEmail(verdict: PendingEmailVerdict): boolean {`**
@@ -191,9 +181,7 @@ un agent — donc coûter des tokens, donc mériter le refus quand le quota est 
 
 PRÉPARE une invitation d'entretien — et ne l'envoie JAMAIS.
 
-
 Ce que ce tool fait, et surtout ce qu'il ne fait pas
-
 
 Il valide, rend l'email depuis un GABARIT (`domain/services/interview-email.ts`),
 ENREGISTRE la préparation dans `pending_interview_email`, puis pose une QUESTION dans le fil.
@@ -275,14 +263,12 @@ clic par réflexe.
 
 ── 1. Le DROIT, avant toute lecture et avant tout rendu ────────────────
 
-
 Même politique que `sendNotification` : on ne crée pas une troisième règle
 
 d'autorisation, deux copies d'une décision divergent tôt ou tard.
 **Avant `const runKey = buildRunKey(slack.eventTs, 'scheduleCandidateInterview', []);`**
 
 ── 1 bis. UNE carte par message ────────────────────────────────────────
-
 
 Hors Slack, `buildRunKey` rend `undefined` et la garde est INACTIVE : le playground
 
@@ -303,7 +289,6 @@ et les tests ne sont bornés par aucune conversation.
 
 ⚠️ ON ENREGISTRE AVANT DE DEMANDER. L'inverse laisserait une fenêtre où la personne
 
-
 répond « oui » à une question dont rien ne garde la trace — et le « oui » partirait
 
 alors chez un agent, qui n'a aucun moyen d'envoyer quoi que ce soit. Un état qu'on
@@ -321,7 +306,6 @@ on la réutilise plutôt que de la redériver ici.
 
 ⚠️ Mémorisé APRÈS la publication réussie, jamais avant : un échec d'affichage ne doit
 
-
 pas condamner une seconde tentative légitime du modèle. Même ordre que
 
 `generateDocument`, et pour la même raison.
@@ -329,14 +313,12 @@ pas condamner une seconde tentative légitime du modèle. Même ordre que
 
 ⚠️ `awaiting_confirmation`, et le mot compte : c'est ce que le modèle va reformuler.
 
-
 Le champ `whenLabel` lui donne de quoi NOMMER la date sans la recalculer — recalculer
 
 est précisément ce qui réintroduirait une erreur de transcription dans la réponse.
 **Avant `hint: "L'email complet et la question sont DÉJÀ sous les yeux de la personne. Réponds EXACTEMENT`**
 
 ⚠️ Le hint PRESCRIT la phrase, il ne décrit plus la situation — correctif du
-
 
 2026-08-19, mesuré en production. Le texte précédent disait « l'email est affiché
 
@@ -399,19 +381,13 @@ Le texte de relecture, terminé par la QUESTION.
 Jean ») rendrait la confirmation décorative : on ne peut pas relire ce qu'on ne voit pas,
 et c'est la relecture qui est la valeur de cette étape.
 
-**Avant `fallbackText(candidateName?: string): string;`**
-
- Texte de repli : Slack l'utilise pour l'aperçu et les lecteurs d'écran.
-
 ## `features/recruitment/domain/ports/pending-email.repository.ts`
 
 **Avant `export const PENDING_EMAIL_TTL_MS = 24 * 60 * 60 * 1000;`**
 
 L'email préparé et NON ENVOYÉ, en attente d'un oui.
 
-
 Pourquoi une TABLE, alors que tout le reste du parcours lit le fil
-
 
 Les deux machines à états de l'accueil (`profile-chat`, `interview-chat`) n'ont AUCUNE table :
 leur état est le dernier tour `assistant` du fil, ce qui est gratuit et suffisant tant que
@@ -432,12 +408,9 @@ et la date RE-VALIDÉE.
 dialogue, et c'est dans ce fil qu'on répondra « oui ». Une seconde préparation dans la même
 conversation REMPLACE la première — l'humain n'en voit qu'une à l'écran.
 
-
 Au-delà de cette ancienneté, une préparation est ABANDONNÉE.
 
-
 Pourquoi une borne, et pourquoi celle-là
-
 
 Sans elle, une préparation ne meurt jamais. Deux conséquences, et la seconde est celle qui
 se voit :
@@ -480,9 +453,7 @@ deux fois, la seconde suppression rendant 0. Sans lui, on ne pourrait que récit
 
 LE GABARIT DE L'EMAIL D'ENTRETIEN — rendu en CODE, jamais rédigé par le modèle.
 
-
 C'est ici que se joue la sécurité de toute la feature
-
 
 `knowledge/domain/services/outbound-tool-quarantine.ts` cite, mot pour mot, LE scénario que
 cette feature réalise :
@@ -558,7 +529,6 @@ Absente ⇒ la phrase de confirmation est OMISE, pas rendue vers un puits.
 
 L'offset est DANS `humanReadable`. Sans lui, un candidat qui n'est pas dans le même fuseau
 
-
 se présente à la mauvaise heure — et l'erreur ne se découvre qu'au moment de l'entretien.
 **Avant `export function checkInterviewLocation(location: string | undefined): LocationVerdict {`**
 
@@ -582,9 +552,7 @@ ne tester que le préfixe laisserait passer exactement ce cas.
 
 LA QUARANTAINE INVERSE — aucun outil de LECTURE ne cohabite avec l'écriture LIBRE.
 
-
 Le miroir exact d'`outbound-tool-quarantine.ts`, et pourquoi il en faut deux
-
 
 Celle du `knowledgeAgent` protège un agent qui LIT BEAUCOUP en lui interdisant toute
 sortie. Celle-ci protège un agent qui ÉCRIT VERS L'EXTÉRIEUR — vers une adresse email
@@ -609,7 +577,6 @@ premier outil ajouté — c'est-à-dire précisément au moment où elle devrait
 
 TypeScript pur — ce module traverse la couche `domain`.
 
-
 Verbes qui annoncent une LECTURE de données de l'entreprise.
 
 `find` et `get` couvrent `findPersonByName`, `findEmployeeByEmail`, `findExpertise`,
@@ -626,9 +593,7 @@ frontière de sécurité dont l'échec est illisible se contourne par frustratio
 
 LA DATE D'UN ENTRETIEN — transcrite par un modèle, donc validée par du code.
 
-
 Pourquoi une date mérite son propre value-object
-
 
 La règle du dépôt distingue ce qui se RETROUVE (un email, un UUID) de ce qui se PRODUIT
 (une prose). Une date d'entretien n'est ni l'un ni l'autre : elle est **TRANSCRITE** depuis
@@ -655,7 +620,6 @@ en trois exemplaires divergents dans ce dépôt, et le seul défaut mesuré en p
 de celui qui n'existait pas — `scheduleReminder` laissait le modèle écrire le jour de la
 semaine, qui s'est révélé faux. Ce qui reste ici, ce sont les BORNES, qui sont propres à un
 entretien.
-
 
 Fuseau d'affichage. `Africa/Lagos` = WAT, UTC+1 — le fuseau relevé dans les rapports de
 test de ce dépôt.
@@ -700,7 +664,6 @@ rend à l'humain tel quel.
 
 Strictement dans le futur. C'est la borne qui attrape l'erreur d'ANNÉE, de loin la plus
 
-
 fréquente : un modèle écrit volontiers l'année sur laquelle il a été entraîné.
 ## `features/recruitment/infrastructure/handlers/interview-confirm.ts`
 
@@ -708,9 +671,7 @@ fréquente : un modèle écrit volontiers l'année sur laquelle il a été entra
 
 LA CARTE DE CONFIRMATION — le dernier point où un humain voit l'email avant qu'il ne parte.
 
-
 Pourquoi une confirmation, alors que la demande disait « envoie »
-
 
 Ce dépôt vient de passer une campagne entière sur un bug où un document est parti à la
 MAUVAISE ADRESSE parce que le modèle avait choisi le mauvais identifiant — les dix documents
@@ -770,7 +731,6 @@ Bloc de code : le corps n'est ni interprété comme du mrkdwn ni tronqué en sil
 
 Slack redemande confirmation côté client : le second garde-fou est gratuit, et
 
-
 celui-ci protège du clic accidentel plutôt que de l'erreur de contenu.
 **Avant `export function buildSettledCardBlocks(input: {`**
 
@@ -791,10 +751,6 @@ fil Slack et nulle part ailleurs — aucune ligne n'est écrite en base, par cho
 **Avant `export function confirmFacts(payload: InterviewConfirmPayload, whenLabel: string): string[] {`**
 
  Les faits à conserver sur la carte réécrite : à qui, et quand.
-
-**Avant `export function interviewConfirmFallback(candidateName?: string): string {`**
-
- Repli de notification : Slack l'utilise pour l'aperçu et les lecteurs d'écran.
 
 **Avant `export const INTERVIEW_NOT_YOURS_REPLY =`**
 
@@ -907,30 +863,15 @@ note serait accolée à des réponses parfaitement légitimes.
 
 ### `src/features/recruitment/application/tools/schedule-candidate-interview.ts`
 
-**Avant `// 'canPerformSideEffects' retombe sur 'accessLevel === 'full'', que seul`**
-
-⚠️ La règle appliquée est bien « le manager, et lui seul » : sans employé cible,
-
-**Avant `// 'slack_directory.role = 'manager'' accorde. Ce texte NOMME désormais cette règle au lieu`**
-
-`canPerformSideEffects` retombe sur `accessLevel === 'full'`, que seul
-
-**Avant `// de la laisser deviner — un refus sans motif se lit comme une panne.`**
-
-`slack_directory.role = 'manager'` accorde. Ce texte NOMME désormais cette règle au lieu
-
 **Avant `forbidden: 'Seul ${ESCALATION_CONTACT} peut préparer une invitation à un entretien. Dis-le simplement, sans t'`**
 
+⚠️ La règle appliquée est bien « le manager, et lui seul » : sans employé cible,
+`canPerformSideEffects` retombe sur `accessLevel === 'full'`, que seul
+`slack_directory.role = 'manager'` accorde. Ce texte NOMME désormais cette règle au lieu
 de la laisser deviner — un refus sans motif se lit comme une panne.
-
-**Avant `// parce qu'une réponse qui l'explique naturellement se lit mieux qu'une note accolée —`**
-
-Le `hint` INVITE le modèle à donner la raison ; cette note la GARANTIT. Les deux,
-
-**Avant `// et le handler s'efface justement quand le modèle a fait le travail.`**
-
-parce qu'une réponse qui l'explique naturellement se lit mieux qu'une note accolée —
 
 **Avant `writeAuthorizationNotice(`**
 
+Le `hint` INVITE le modèle à donner la raison ; cette note la GARANTIT. Les deux,
+parce qu'une réponse qui l'explique naturellement se lit mieux qu'une note accolée —
 et le handler s'efface justement quand le modèle a fait le travail.

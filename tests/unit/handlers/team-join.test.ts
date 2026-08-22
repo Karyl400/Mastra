@@ -64,6 +64,15 @@ function makeHandler(overrides: Record<string, unknown> = {}) {
     dedupRepository: null,
     rateLimiter: null,
     accessGuard: null,
+    // ⚠️ LES DEUX DERNIÈRES SONT ARRIVÉES LE 2026-08-22, et leur absence ne produisait pas
+    // un échec mais une LENTEUR. Sans `auditSink`, le handler retombe sur le vrai
+    // `writeAuditLog`, qui ouvre `data/kisso.db` — ≈ 250 ms par message, avec des pointes
+    // sous contention. Le défaut était LATENT ici : ce fichier n'appelle que
+    // `handleTeamJoin`, et les trois sites d'audit vivent sur le chemin `handleMessage`. Il
+    // se serait réveillé le jour où un test `team_join` toucherait ce chemin, et son rouge
+    // — un `Timeout 5000ms` — n'aurait pas désigné sa cause.
+    auditSink: async () => undefined,
+    pinnedFactRepository: null,
     ...overrides,
   });
 

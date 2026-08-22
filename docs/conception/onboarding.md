@@ -106,7 +106,6 @@ workflow — ce dernier ne se résout que via `getWorkflowById`. Une clé erron�
 
 ⚠️ `employeeId` est bien dans `onboardingOutputSchema` — il est déclaré ici parce que ce
 
-
 type est écrit à la main : `getWorkflow()` rend `unknown` et Mastra ne publie pas le
 
 type de sortie. C'est lui qui relie le dossier créé à l'entretien.
@@ -134,7 +133,6 @@ du cache mémoire de `create-employee.ts`, inopérant hors d'un processus unique
 
 Plus JAMAIS renseigné : le parcours d'arrivée a cessé de collecter le département le
 
-
 2026-08-13, et `employees.department` est nullable depuis la même date.
 **Avant `startDate,`**
 
@@ -144,18 +142,15 @@ Dérivée de l'instant du `team_join`, jamais saisie : voir `startDateFromJoin`.
 
 Aucune correspondance département → canal n'existe aujourd'hui : le workflow saute
 
-
 alors l'invitation Slack, sans échouer.
 **Avant `await deps.notify(PROFILE_SUBMISSION_FAILED_REPLY);`**
 
 ⚠️ Il n'y a PAS de dossier ici : c'est le seul cas où l'on demande de recommencer. La
 
-
 soumission est idempotente, une seconde tentative ne créera pas de doublon.
 **Avant `const degradedSteps = result.result?.degradedSteps ?? [];`**
 
 ⚠️ `result.status === 'success'` ne signifie QUE « le workflow est allé au bout ». Le
-
 
 verdict est `result.result.outcome` : les étapes best-effort avalent leur exception et
 
@@ -166,7 +161,6 @@ reproduirait exactement le faux « PASS » que ce champ existe pour éliminer.
 
 ⚠️ Le dossier EXISTE : on ne demande pas de recommencer, on NOMME ce qui manque. La
 
-
 liste vient du verdict réel, jamais devinée — annoncer un email non parti alors qu'il
 
 l'est serait le mensonge inverse de celui qu'on corrige. Une liste vide n'envoie rien
@@ -175,7 +169,6 @@ plutôt qu'un message creux.
 **Avant `await deps.onRecordReady(result.result?.employeeId);`**
 
 ⚠️ Appelé sur `completed` ET sur `degraded`, et cette distinction compte. `degraded`
-
 
 signifie « l'employé EST créé, une étape best-effort a échoué ». C'est un ABOUTISSEMENT :
 
@@ -230,12 +223,10 @@ Reste donc à faire ce que `find-employee-by-email.ts` fait déjà : rendre un
 résultat qui INSTRUIT le modèle. `hint` lui interdit nommément de proposer
 une création — c'est cette phrase, et non le silence, qui empêche l'invention.
 
-
  Consigne rendue au modèle quand le suivi n'existe pas.
 **Avant `if (!canPerformSideEffects(_ctx?.requestContext, data.employeeId)) {`**
 
 FRONTIÈRE D'AUTORISATION — avant toute lecture, avant toute écriture
-
 
 Ajoutée le 2026-08-18. Cet outil était, avec `scheduleReminder`, le SEUL écrivain
 
@@ -270,7 +261,6 @@ touché.
 
 On INSTRUIT plutôt que de lever — même raison que `sendNotification` : une
 
-
 exception remonterait au modèle comme une panne, qu'il raconterait ou
 
 réessaierait, soit deux allers-retours gâchés.
@@ -278,14 +268,12 @@ réessaierait, soit deux allers-retours gâchés.
 
 `warn` volontaire : c'est la ligne à chercher quand un agent parle
 
-
 d'un parcours qui n'existe pas. Elle signale aussi les employés à
 
 passer au rattrapage.
 **Avant `logger.warn('Mise à jour du statut sans effet — aucune ligne affectée', {`**
 
 Écriture sur zéro ligne : le suivi a disparu entre la lecture et l'écriture.
-
 
 On le DIT au lieu d'annoncer un succès — c'est exactement le mensonge mesuré
 
@@ -296,7 +284,6 @@ onboarding est mis à jour » sans qu'aucune ligne ne bouge.
 
 Projection : `id`, `employeeId` et les horodatages techniques n'aident
 
-
 en rien le modèle et sont repayés à chaque aller-retour (plafond Groq
 
 12 000 tokens/minute). Même règle que `task-summary.mapper.ts`.
@@ -305,7 +292,6 @@ en rien le modèle et sont repayés à chaque aller-retour (plafond Groq
 **Avant `const onboardingInputSchema = z.object({`**
 
 SCHEMAS
-
 
 ⚠️ `department` et `position` DOIVENT appliquer ici les mêmes règles que le tool.
 
@@ -373,7 +359,6 @@ précédentes et l'email masquerait Slack.
 
 ⚠️ `department` a été retiré de ce chaînage le 2026-08-20 : son seul lecteur en aval
 
-
 était l'email de bienvenue, et « les départements ne doivent plus apparaître ». Il reste
 
 dans `employeeCreatedSchema` et en base — c'est la SORTIE qui change, pas la donnée.
@@ -424,7 +409,6 @@ Step 2 : initialiser l'onboarding progress
 
 ⚠️ IDEMPOTENT, même raison que l'étape précédente. `onboarding_progress.employee_id`
 
-
 porte une contrainte d'UNICITÉ : ré-insérer pour un employé qui en a déjà un lève
 
 `SQLITE_CONSTRAINT` et fait échouer tout le workflow. Mesuré en production le
@@ -439,7 +423,6 @@ réel de la personne, qu'une réinitialisation effacerait.
 **Avant `const reconciled = existingProgress ? reconcileProgress(existingProgress) : null;`**
 
 ⚠️ RÉCONCILIÉ, jamais recopié tel quel. Constaté en production le 2026-08-18 :
-
 
 « Statut d'onboarding : en cours (étape 1 sur 5) » alors que `ONBOARDING_TOTAL_STEPS`
 
@@ -456,14 +439,12 @@ barème courant.
 
 `reconcileProgress` rend l'objet D'ORIGINE quand il est déjà cohérent : l'identité
 
-
 référentielle est ce qui nous dit s'il y a quelque chose à écrire. Une écriture
 
 inutile ferait bouger `updatedAt` sans raison.
 **Avant `const degraded: StepFailure[] = [];`**
 
 ⚠️ Ce tableau reste, VIDE, et ce n'est pas un résidu.
-
 
 Il portait l'échec de création des cinq tâches d'intégration, retirées le
 
@@ -490,7 +471,6 @@ Step 3 : envoyer l'email de bienvenue
 
 ⚠️ Le texte vit dans le DOMAINE depuis le 2026-08-14, et il a changé de fond.
 
-
 L'ancien promettait « les accès à nos outils ainsi que votre planning de première
 
 semaine » — or il n'existe NI provisioning NI planning dans ce système. C'était le
@@ -502,7 +482,6 @@ que rien ne tient. Voir `domain/services/welcome-email.ts`.
 
 ⚠️ NON APPLICABLE ≠ DÉGRADÉ, distinction déjà tranchée dans ce dépôt. Renvoyer un
 
-
 email de BIENVENUE à quelqu'un qui a déjà un dossier n'est pas un échec : c'est une
 
 étape qui n'avait pas lieu d'être. La compter comme dégradation rendrait « dégradé »
@@ -511,7 +490,6 @@ le cas normal d'une re-soumission du formulaire et détruirait le signal.
 **Avant `await deps.emailProvider.sendEmail(inputData.email, subject, htmlEmailBody(body));`**
 
 `htmlEmailBody` et non `textEmailBody` : `welcome-email.ts` produit
-
 
 délibérément du HTML et échappe déjà ses valeurs interpolées avec `esc()`.
 
@@ -533,7 +511,6 @@ garantissait qu'un cinquième penserait à conclure.
 
 Niveau `error`, et non `warn` comme le marqueur de progression Slack
 
-
 (`slack-progress.ts`). L'arbitrage n'est pas le même : le marqueur
 
 n'est qu'un confort dont l'absence saute aux yeux, alors qu'un email
@@ -551,7 +528,6 @@ dégradation de `claimEvent()` dans le handler Slack.
 
 NON APPLICABLE ≠ DÉGRADÉ. Sans provider ni canal de département,
 
-
 l'invitation n'était pas censée avoir lieu — et c'est le cas de TOUTE
 
 soumission de la modale Slack, qui passe `slackChannelId: null` faute
@@ -562,7 +538,6 @@ rendrait « dégradé » l'état NORMAL et détruirait le signal.
 **Avant `logger.warn('Utilisateur Slack non trouvé', { email: inputData.email });`**
 
 Ici le canal EST configuré : l'invitation était attendue et n'a pas
-
 
 eu lieu. C'est un trou réel dans l'accueil (l'arrivant n'atterrit
 
@@ -652,9 +627,7 @@ que rien n'avait bougé.
 
 « Parlons de toi » — l'entretien post-profil, en CONVERSATION plutôt qu'en modale.
 
-
 Pourquoi la modale a été retirée
-
 
 Pas pour une raison d'ergonomie : parce qu'elle ne s'ouvrait pas. Un `trigger_id` Slack
 expire **3 secondes** après le clic, et le démarrage à froid de la fonction a été mesuré le
@@ -666,9 +639,7 @@ aucune trace visible : Slack affiche une erreur générique, la modale n'appara�
 Un échange écrit n'a aucune contrainte de ce type. Il coûte au pire quelques secondes
 d'attente, ce qui est le comportement normal d'une conversation.
 
-
 Pourquoi ZÉRO appel de modèle, et où vit l'état
-
 
 Le poste de coût dominant de ce dépôt n'est pas la taille des prompts mais le NOMBRE
 D'ÉTAPES : chaque aller-retour est une requête pleine chez les deux fournisseurs, sur un
@@ -686,7 +657,6 @@ réponse donnée le lendemain n'est plus reconnue comme une réponse d'entretien
 l'agent. C'est un abandon SILENCIEUX mais pas un mensonge — rien n'a été promis entre-temps —
 et le parcours se relance depuis « C'est fait ». L'alternative (une table d'état) coûterait
 une lecture par message pour un cas qui se joue en deux minutes.
-
 
 ⚠️ LES DEUX QUESTIONS SONT DES CONSTANTES, et c'est ce qui fait tenir la machine à états :
 on reconnaît l'étape en cours en COMPARANT le dernier tour du bot à ces chaînes. Les
@@ -830,7 +800,6 @@ raisonnant en ASCII et ne matchant jamais une frontière après un caractère ac
 
 ⚠️ L'OUVERTURE INTERROGATIVE PRIME SUR LA PERSONNE, et l'ordre est le fond du prédicat.
 
-
 « à qui je demande pour un badge ? » contient « je » et reste une question adressée au
 
 bot : la première personne y désigne le demandeur, pas le sujet décrit. Ce cas a été
@@ -839,7 +808,6 @@ trouvé en écrivant le test, pas après — c'est ce qui a imposé les deux pas
 **Avant `if (FIRST_PERSON.test(trimmed.toLowerCase())) return false;`**
 
 Hors ouverture interrogative, la première personne tranche : on décrit son propre métier
-
 
 avec elle. « je fais quoi au juste ? du support niveau 2 » reste donc une réponse — c'est
 
@@ -850,9 +818,7 @@ une hésitation, pas une question posée au bot.
 
 L'IDENTITÉ D'UN ARRIVANT et sa date de début — ce qui a survécu aux modales.
 
-
 Pourquoi ce module existe
-
 
 Ces deux pièces vivaient dans `notification/infrastructure/handlers/profile-modal.ts`,
 supprimé le 2026-08-19 avec les modales. Elles n'avaient rien de modal : un type de données
@@ -862,7 +828,6 @@ indisponibles à qui n'en construisait pas — et c'est bien ce qui s'est produi
 script de rattrapage, tous par un chemin qui nommait une modale qu'aucun d'eux n'ouvrait.
 
 Ici, en `domain`, sans aucun import : c'est du TypeScript pur, et il le reste.
-
 
 Ce que le serveur sait d'un arrivant AVANT de lui parler.
 
@@ -911,9 +876,7 @@ en UTC, sans jamais reconstruire une `Date` à partir d'une chaîne locale.
 
 LE RAPPEL DISCRET — quand quelqu'un laisse son dossier en plan et parle d'autre chose.
 
-
 Le défaut, signalé par le propriétaire
-
 
 « Lorsqu'un nouvel arrivant complète son profil puis ne dit pas "c'est fait" ou équivalent
 mais change de sujet, le ramener subtilement à la complétion du profil. »
@@ -928,9 +891,7 @@ ne se termine jamais, et personne ne sait pourquoi.
 ⚠️ Ce n'est pas un défaut de mémoire mais de STRUCTURE : répondre au nouveau sujet EFFACE
 l'état. Sans rappel accolé, l'accueil ne peut pas reprendre.
 
-
 Pourquoi ACCOLÉ, et jamais posté à part
-
 
 Exactement la forme retenue pour l'email d'entretien en attente : la personne a changé de
 sujet, on lui répond D'ABORD. Deux messages feraient paraître le bot bavard là où il ne
@@ -941,7 +902,6 @@ réponse utile. « Subtilement » est une contrainte de forme, et elle est tenue
 pas par une consigne au modèle, qui la formulerait autrement à chaque fois.
 
 ZÉRO token : texte écrit en dur, aucun modèle sur ce chemin.
-
 
 Ce qui manque, dit avec les MÊMES mots que la question posée.
 
@@ -1049,9 +1009,7 @@ Le bot annonçait donc à quelqu'un un parcours en cinq étapes dont quatre n'ex
 de savoir s'il doit écrire : une écriture inutile fait bouger `updatedAt` sans raison, et
 une écriture est toujours une occasion de se tromper.
 
-
 ⚠️ LA COHÉRENCE N'EST PAS L'ÉCHELLE — corrigé le 2026-08-20, signalé en production
-
 
 La première version sortait sur `if (totalSteps === ONBOARDING_TOTAL_STEPS) return progress`,
 c'est-à-dire qu'elle tenait « déjà au bon barème » pour « déjà cohérent ». C'est faux : le
@@ -1119,9 +1077,7 @@ message. Une étape inconnue est OMISE plutôt que rendue telle quelle — mieux
 incomplète qu'une ligne incompréhensible, et l'ouverture du message dit déjà qu'il manque
 quelque chose.
 
-
 ⚠️ CETTE TABLE ÉTAIT INDEXÉE SUR LES NOMS DE L'ENUM, JAMAIS SUR SES VALEURS
-
 
 Défaut trouvé le 2026-08-19. Les clés étaient `WelcomeEmail` et `SlackInvite` — les noms des
 MEMBRES de `BestEffortStep` — alors que le workflow pousse leurs VALEURS, `welcomeEmail` et
@@ -1150,9 +1106,7 @@ devenue fausse dans les deux moitiés : il n'y a plus de bouton, et ça ne repar
 
 Compléter son dossier EN CONVERSATION — la dernière modale du produit disparaît.
 
-
 Pourquoi, et pourquoi c'était inévitable
-
 
 « Compléter mon profil » ouvrait une modale, donc dépendait d'un `trigger_id` Slack, qui
 expire **3 secondes** après le clic. Mesuré le 2026-08-19 en production, sur un clic signé :
@@ -1169,9 +1123,7 @@ Aucune optimisation ne rattrape cela. Une modale suppose qu'un serveur réponde 
 de l'entretien avait déjà été retirée pour cette raison exacte le 2026-08-19 — celle du
 profil était la dernière.
 
-
 La conception, identique à celle de l'entretien
-
 
 ZÉRO appel de modèle : les questions sont des constantes, la validation est du code. Sur un
 budget de ≈ 19 messages par JOUR pour tout le workspace, faire poser par un LLM des
@@ -1186,7 +1138,6 @@ table, aucune colonne, aucune lecture de plus sur le chemin des 3 secondes.
 Conséquence assumée, la même que pour l'entretien : l'historique est borné par
 `CONVERSATION_TTL_MS` (60 min). Un dossier laissé en plan une heure repart de « C'est
 fait ». C'est un abandon silencieux, jamais un mensonge — rien n'a été promis entre-temps.
-
 
  Les champs qu'un dossier exploitable doit porter, dans l'ordre où on les demande.
 **Avant `export const PROFILE_QUESTIONS: Readonly<Record<ProfileStep, string>> = {`**
@@ -1231,7 +1182,6 @@ et ce champ est la clé de résolution de son dossier.
 
 Ancré au DÉBUT du message : « je termine les tickets » est une réponse valable au poste.
 
-
 ⚠️ ESPACES LITTÉRAUX, jamais `\s+` : `captureProfileAnswer` a déjà normalisé les blancs
 avant d'appeler ces motifs. Écrire `\s+` ici rouvrirait un retour arrière quadratique pour
 zéro gain — et ce dépôt a mesuré de vrais ReDoS sur ses portes d'entrée le 2026-08-18.
@@ -1258,7 +1208,6 @@ et dans l'adresse à laquelle on lui écrit.
 **Avant `if (!/\p{L}/u.test(trimmed)) return null;`**
 
 Un nom ou un poste doit contenir au moins une lettre — Unicode, jamais `[a-z]` : ce
-
 
 produit sert des gens dont le nom ne s'écrit pas en alphabet latin.
 **Avant `export function collectProfileAnswers(turns: readonly ProfileTurn[]): ProfileAnswers {`**
@@ -1303,7 +1252,6 @@ aller-retour de plus sur un budget qui se compte à la journée.
 **Avant `'Je n’ai pas réussi à enregistrer ton dossier. Ce n’est pas de ton fait — redis-moi ' +`**
 
 ⚠️ « j'ai fini », et pas « c'est fait » — corrigé le 2026-08-19. Les deux sont RECONNUES
-
 
 (on n'a jamais intérêt à cesser de comprendre quelqu'un), mais le produit en ENSEIGNAIT
 
@@ -1369,7 +1317,6 @@ Ces textes sont postés en DUR par la route et le handler : ils ne passent par A
 `response.text`, la réponse d'un MODÈLE. Un `**` s'afficherait littéralement, ce qui a été
 constaté le 2026-08-18 sur le message de détresse, le pire endroit possible.
 
-
 ⚠️ La question vient d'`interview-chat.ts`, elle n'est PAS réécrite ici.
 
 C'est la machine à états de l'entretien qui l'exige : l'étape en cours est reconnue en
@@ -1377,7 +1324,7 @@ comparant le dernier tour du bot à cette constante. Une reformulation locale �
 strictement synonyme — casserait la reconnaissance en silence, sans qu'aucun type ne bouge
 ni qu'aucun test de cette constante ne rougisse. Le dépôt connaît bien cette classe de
 défaut : deux bords corrects, aucun câblage entre les deux.
-**Avant `const FIELD_LABELS: Readonly<Record<keyof ProfileSnapshot, string>> = {`**
+**Avant `const FIELD_LABELS: Readonly<Record<ProfileStep, string>> = {`**
 
 Nom LISIBLE de chaque champ — les MÊMES mots que la question posée, sans quoi la personne
 cherche un champ qui n'existe pas sous ce nom.
@@ -1388,7 +1335,7 @@ NEUF descriptions d'outils — c'est de là que le modèle a tiré « Email prof
 devant une adresse `gmail.com`, dans une fiche relue par sa propriétaire. Le modèle
 n'inventait pas : il répétait ce que le schéma lui disait.
 
-**Avant `export function verifyProfile(snapshot: ProfileSnapshot | null): ProfileVerdict {`**
+**Avant `export function verifyProfile(`**
 
 Le verdict.
 
@@ -1398,26 +1345,6 @@ dossier serait faux et déroutant : il ne manque pas un champ, il manque tout. C
 règle que `found: false` porteur d'un `reason` — un résultat vide doit se distinguer d'un
 identifiant qui ne désigne personne.
 
-**Avant `const step = nextProfileStep(answersFromRecord(snapshot))!;`**
-
-⚠️ On NOMME ce qui manque. « Ton profil est incomplet » est la version inutile de cette
-
-
-phrase : elle informe la personne qu'elle a un problème sans lui dire lequel, ce qui la
-
-renvoie au formulaire pour le découvrir. Le coût de nommer est nul, celui de taire est un
-
-aller-retour.
-
-⚠️ LA RÉPONSE CONTIENT DÉJÀ LA PREMIÈRE QUESTION, et c'est indispensable, pas cosmétique :
-
-l'état de la machine à états EST le dernier tour `assistant` du fil. Nommer ce qui manque
-
-sans rien demander laisserait le fil sans question en attente, et le message suivant de la
-
-personne — sa réponse — partirait chez un agent. C'est exactement la faute mesurée le
-
-2026-08-19 sur la machine jumelle de l'entretien.
 **Avant `export const PROFILE_CHECK_UNAVAILABLE =`**
 
 Réponse quand la vérification n'a PAS PU avoir lieu.
@@ -1437,9 +1364,7 @@ filtre.
 
 QUELQU'UN VIENT DE SE DÉCLARER AU SOMMET — le dire au sommet.
 
-
 Ce que ce module N'EST PAS, et il faut le lire avant le reste
-
 
 **Ce prédicat n'accorde RIEN.** Il ne participe à aucune décision d'autorisation, et c'est
 ce qui rend acceptable qu'il repose sur une chaîne de caractères saisie par la personne
@@ -1453,9 +1378,7 @@ fait déjà entre `title` (« Product Manager » sur quelqu'un qui n'est pas le 
 `role`. Confondre les deux serait l'élévation de privilège la plus simple qui soit : taper
 son titre.
 
-
 L'ASYMÉTRIE, qui fixe la largeur du filet
-
 
 Un faux POSITIF coûte un DM au manager, qu'il lit en trois secondes et ignore.
 Un faux NÉGATIF laisse une déclaration au sommet passer inaperçue.
@@ -1465,7 +1388,6 @@ Le filet penche donc vers l'inclusion — mais pas au point d'attraper « Produc
 à chaque arrivée. La liste est FERMÉE et porte sur des locutions ENTIÈRES, jamais sur le
 mot « manager » seul : c'est le même critère d'ancrage que `matchesKeyword`, où
 `String.includes('test')` capturait « contestation ».
-
 
 Locutions qui désignent le sommet de l'organisation, normalisées (sans accent, minuscules).
 
@@ -1510,9 +1432,7 @@ ZÉRO token : texte écrit en dur, aucun modèle sur ce chemin.
 
 L'EMAIL DE BIENVENUE — ce qu'on sait de la personne, et RIEN d'autre.
 
-
 Les deux défauts corrigés le 2026-08-14
-
 
 **1. Il PROMETTAIT ce qu'aucun mécanisme ne tient.** Le texte disait, mot pour mot :
 
@@ -1531,9 +1451,7 @@ saisis dans la modale, portés par `employeeCreatedSchema`… puis **jetés** au
 `onboardingInitializedSchema`, deux étapes avant l'email. La personnalisation n'était donc
 pas absente par choix : elle était perdue en route.
 
-
 La règle de ce gabarit
-
 
 Chaque phrase repose sur une donnée VÉRIFIÉE, ou n'est pas écrite. Un champ absent fait
 disparaître sa phrase — il ne déclenche jamais un « N/A », ni une formule de remplissage.
@@ -1570,7 +1488,6 @@ d'affirmer, comme partout ailleurs dans ce module.
 
 ⚠️ DES PHRASES, plus des puces étiquetées. Le bloc disait « Ce que nous avons
 
-
 enregistré : » suivi de « Poste : … », « Équipe : … », « Premier jour : … » — du langage
 
 de guichet, et surtout la forme même que le bloc STYLE interdit aux agents (« sans liste
@@ -1586,7 +1503,6 @@ sa mention — c'est la règle du module et elle ne bouge pas.
 
 ⚠️ Le DÉPARTEMENT a été retiré de cette phrase le 2026-08-20, à la demande du
 
-
 propriétaire : « les départements ne doivent plus apparaître ». Il n'est plus collecté
 
 depuis le 2026-08-13 ; ne subsistait que sa ressortie sur les lignes anciennes.
@@ -1594,12 +1510,10 @@ depuis le 2026-08-13 ; ne subsistait que sa ressortie sur les lignes anciennes.
 
 La phrase d'accueil absorbe ce qu'on sait du poste et de l'équipe plutôt que de le
 
-
 reléguer dans une liste : c'est la même information, dite comme un humain la dirait.
 **Avant `if (day && isFutureDay(input.startDate)) {`**
 
 ⚠️ UNE PHRASE D'ATTENTE NE VAUT QUE POUR L'AVENIR — 2026-08-19.
-
 
 Sur le chemin conversationnel, devenu le chemin PRINCIPAL depuis le retrait des modales,
 
@@ -1632,12 +1546,10 @@ La proposition de correction n'a de sens que si l'on vient d'affirmer quelque ch
 
 ⚠️ La SEULE projection dans le futur, et elle est vraie : ce DM part réellement, et le
 
-
 formulaire derrière le bouton existe et écrit en base.
 **Avant ``<p>Tu vas recevoir un message direct de notre bot sur Slack : il t'expliquera comment compléter`**
 
 ⚠️ « avec un bouton pour compléter ton profil » a été RETIRÉ le 2026-08-19. Le bouton
-
 
 réellement posté s'appelle « C'est fait » : `buildProfileButtonBlock` n'a plus aucun
 
@@ -1649,7 +1561,6 @@ ATTEND le bouton annoncé et ne clique pas sur celui qui est là.
 **Avant `subject: `Bienvenue chez ${COMPANY}, ${firstName}`,`**
 
 Sans point d'exclamation : le bloc STYLE l'interdit au modèle depuis qu'on a mesuré que
-
 
 « les exclamations arrivaient précisément dans les phrases où l'agent ne faisait rien ».
 
@@ -1779,7 +1690,6 @@ perte muette, du genre de celle qui a coûté `documents.content` sur 6 lignes s
 
 La colonne est du JSON libre côté pilote : on ne fait CONFIANCE ni à sa forme ni à son
 
-
 contenu. Une ligne écrite par une version antérieure, ou à la main, ne doit pas faire
 
 lever un `.map()` sur `undefined` au milieu d'une génération de document.
@@ -1792,7 +1702,6 @@ lever un `.map()` sur `undefined` au milieu d'une génération de document.
 **Avant `set: {`**
 
 ⚠️ `startedAt` et `updatedAt` étaient ABSENTS de ce `set` — bug mesuré en
-
 
 production le 2026-08-12. Les valeurs sont bien passées à `.values()`, mais
 
@@ -1820,12 +1729,10 @@ Quatrième occurrence dans ce dépôt de la signature « le champ dit mieux que 
 
 libsql expose `rowsAffected` ; le `?? 0` couvre un pilote qui ne le fournirait pas,
 
-
 auquel cas on préfère annoncer « rien de sûr » plutôt qu'un succès supposé.
 **Avant `set: {`**
 
 Même défaut que `save()` ci-dessus, même correctif : `updatedAt` était absent du
-
 
 `set`, donc gelé à l'insertion sur toute étape déjà existante.
 ## `features/onboarding/infrastructure/repositories/in-memory-onboarding-interview.repository.ts`
@@ -1844,7 +1751,6 @@ précisément sur une perte silencieuse de donnée.
 **Avant `if (!this.progressStore.has(p.id)) return 0;`**
 
 Rend 0 quand la ligne n'existe pas — c'est ce que fait un UPDATE SQL, et c'est la
-
 
 divergence qui a laissé passer le bug : l'ancien double écrivait inconditionnellement
 
@@ -1930,12 +1836,9 @@ c'est-à-dire le défaut d'origine sous une autre forme, et invisible puisque le
 Même méthode que `isUniqueConstraintViolation` dans le dépôt Drizzle et que `userFacingFailure`
 pour le quota : dans ce projet, une erreur intéressante est toujours à plusieurs niveaux.
 
-**Avant `// qu'un humain libère l'adresse. Les confondre enferme la personne dans une boucle.`**
-
-Deux échecs, deux gestes différents : l'un se répare en réessayant, l'autre demande
-
 **Avant `await deps.notify(emailTaken ? PROFILE_EMAIL_TAKEN_REPLY : PROFILE_SUBMISSION_FAILED_REPLY);`**
 
+Deux échecs, deux gestes différents : l'un se répare en réessayant, l'autre demande
 qu'un humain libère l'adresse. Les confondre enferme la personne dans une boucle.
 
 ### `src/features/onboarding/domain/services/interview-chat.ts`

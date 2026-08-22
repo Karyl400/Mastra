@@ -48,6 +48,7 @@ import {
   buildProfileInviteBlocks,
 } from '../src/features/notification/infrastructure/handlers/slack-events.handler';
 import { PROFILE_FORM_INVITE } from '../src/shared/profile-request';
+import { errorMessage } from '../src/shared/errors';
 import type { DirectoryMember } from '../src/features/directory/domain/entities/directory-member';
 
 const args = new Set(process.argv.slice(2));
@@ -145,7 +146,7 @@ async function main(): Promise<void> {
       // de leur formulaire.
       failures.push({
         slackUserId: member.slackUserId,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
     }
   }

@@ -1,15 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { WebClient } from '@slack/web-api';
-import type { Mastra } from '@mastra/core';
 
-import {
-  SlackEventsHandler,
-  type SlackEventsHandlerOptions,
-  type SlackMessageEvent,
-} from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
-import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
+import { type SlackMessageEvent } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
 import { InMemoryDirectoryRepository } from '../../../src/features/directory/infrastructure/repositories/in-memory-directory.repository';
 import { PROFILE_FORM_CHANNEL_REDIRECT } from '../../../src/shared/profile-request';
+import { makeSlackHandler, makeThrowingMastra, type SlackMock } from '../../helpers/slack-handler';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -32,63 +26,33 @@ import { PROFILE_FORM_CHANNEL_REDIRECT } from '../../../src/shared/profile-reque
 
 const HUMAN = 'U0BJBDGTJUD';
 
-function makeSlackMock() {
-  return {
-    chat: {
-      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1700000000.000900' }),
-      update: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    auth: { test: vi.fn().mockResolvedValue({ user_id: 'U0BMBEJTBMJ' }) },
-  };
-}
-
-let slack: ReturnType<typeof makeSlackMock>;
+let slack: SlackMock;
 let sendBlocks: ReturnType<typeof vi.fn>;
 let getAgent: ReturnType<typeof vi.fn>;
 let directory: InMemoryDirectoryRepository;
 
 function makeHandler() {
-  slack = makeSlackMock();
-  sendBlocks = vi.fn().mockResolvedValue({ ts: '1700000000.000901' });
   // Un agent qui LÈVE : si le court-circuit fuit, le test échoue bruyamment plutôt que de
   // valider silencieusement un appel de modèle qui n'aurait pas dû avoir lieu.
-  getAgent = vi.fn(() => {
-    throw new Error('Le modèle ne doit JAMAIS être appelé sur ce chemin');
-  });
+  const mastra = makeThrowingMastra();
+  getAgent = mastra.getAgent;
   directory = new InMemoryDirectoryRepository();
 
-  const mastra = { getAgent } as unknown as Mastra;
-
-  const handler = new SlackEventsHandler('xoxb-test-token', mastra, {
-    slackClient: slack as unknown as WebClient,
-    chatProvider: { sendBlocks } as unknown as SlackEventsHandlerOptions['chatProvider'],
-    // ⚠️ SANS CETTE LIGNE, un `users.info` part RÉELLEMENT vers slack.com avec ce jeton de
-    // test : la frontière d'accès construit un `SlackMemberSource` dès qu'on ne lui passe pas
-    // explicitement `null`. Mesuré le 2026-08-19 : ≈ 3 s par test, back-off du client compris,
-    // donc des tests à quelques centaines de millisecondes du délai de 5 s — la suite entière
-    // a échoué deux fois sur neuf exécutions sans qu'aucun comportement ne soit cassé, et ce
-    // rouge ne désignait jamais sa cause. `CLAUDE.md` recense les HUIT dépendances à neutraliser.
-    accessGuard: null,
-    // ⚠️ HUITIÈME dépendance à neutraliser, recensée le 2026-08-19 — et la plus coûteuse
-    // restante. `handleMessage` AWAIT l'identité du demandeur avant les court-circuits
-    // agissants ; sans cette ligne, `resolveRequesterIdentity` retombe sur
-    // `SlackWorkspaceService` et un `users.info` part RÉELLEMENT vers slack.com avec le jeton
-    // de test — 0,7 à 1,7 s PAR TEST, le cache étant un LRU par instance et chaque test
-    // reconstruisant le handler. C'est ce qui faisait rougir un run sur trois, toujours par
-    // `Timeout 5000ms`, jamais par une assertion.
-    workspaceProvider: { getUserById: async () => null },
-    // ⚠️ Le journal d'audit ouvre `data/kisso.db` par défaut : c'était la DERNIÈRE dépendance
-    // non neutralisée de ces tests, ≈ 250 ms par message et, sous contention, des pointes qui
-    // franchissent le délai de 5 s de Vitest.
-    auditSink: async () => undefined,
-    // Les TROIS dépendances qui touchent la base sont neutralisées — sans quoi le handler
-    // construit des dépôts Drizzle et les tests écrivent dans la vraie base (cf. CLAUDE.md).
-    conversationRepository: null,
-    dedupRepository: new InMemorySlackEventDedupRepository(),
-    rateLimiter: null,
-    pruneProbability: 0,
+  // ⚠️ DIVERGENCE FERMÉE LE 2026-08-22 : ce fichier omettait `pinnedFactRepository`, donc
+  // `loadPinnedFacts` aurait fabriqué un `DrizzlePinnedFactRepository` sur la vraie base. Sans
+  // conséquence tant que le prédicat de formulaire court-circuitait avant — c'est-à-dire tant
+  // que personne ne déplaçait ce prédicat. La fabrique partagée neutralise les HUIT, et son
+  // en-tête dit ce que chaque oubli coûte.
+  const {
+    handler,
+    slack: mock,
+    sendBlocks: blocks,
+  } = makeSlackHandler({
+    mastra: mastra.mastra,
     directoryRepository: directory,
   });
+  slack = mock;
+  sendBlocks = blocks;
 
   return handler;
 }

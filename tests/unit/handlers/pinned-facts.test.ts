@@ -1,17 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { WebClient } from '@slack/web-api';
-import type { Mastra } from '@mastra/core';
 
 import {
-  SlackEventsHandler,
   buildContextPreamble,
   type SlackEventsHandlerOptions,
   type SlackMessageEvent,
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
-import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
 import { InMemoryPinnedFactRepository } from '../../../src/features/conversation/infrastructure/repositories/in-memory-pinned-fact.repository';
 import { InMemoryConversationRepository } from '../../../src/features/conversation/infrastructure/repositories/in-memory-conversation.repository';
 import { MAX_PINNED_FACTS } from '../../../src/shared/pin-fact';
+import {
+  makeDirectoryDouble,
+  makeSlackHandler,
+  makeThrowingMastra,
+  type SlackMock,
+} from '../../helpers/slack-handler';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -29,70 +31,38 @@ import { MAX_PINNED_FACTS } from '../../../src/shared/pin-fact';
 
 const HUMAN = 'U0BJBDGTJUD';
 
-function makeSlackMock() {
-  return {
-    chat: {
-      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1700000000.000900' }),
-      update: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    auth: { test: vi.fn().mockResolvedValue({ user_id: 'U0BMBEJTBMJ' }) },
-  };
-}
-
-let slack: ReturnType<typeof makeSlackMock>;
+let slack: SlackMock;
 let getAgent: ReturnType<typeof vi.fn>;
 let pinnedFacts: InMemoryPinnedFactRepository;
 let conversation: InMemoryConversationRepository;
 
 function makeHandler(overrides: { pinnedFactRepository?: unknown } = {}) {
-  slack = makeSlackMock();
   // Un agent qui LÈVE : si un court-circuit fuit, le test échoue bruyamment plutôt que de
   // valider silencieusement un appel de modèle qui n'aurait pas dû avoir lieu.
-  getAgent = vi.fn(() => {
-    throw new Error('Le modèle ne doit JAMAIS être appelé sur ce chemin');
-  });
+  const mastra = makeThrowingMastra();
+  getAgent = mastra.getAgent;
   pinnedFacts = new InMemoryPinnedFactRepository();
   conversation = new InMemoryConversationRepository();
 
-  return new SlackEventsHandler('xoxb-test-token', { getAgent } as unknown as Mastra, {
-    slackClient: slack as unknown as WebClient,
-    // ⚠️ AJOUTÉ le 2026-08-19 : sans doublure d'annuaire, la résolution du nom d'affichage
-    // retombe sur un `users.info` RÉELLEMENT envoyé à slack.com avec ce jeton de test. Le
-    // client `@slack/web-api` réessaie avec un back-off, d'où des tests unitaires qui mettent
-    // 250 ms d'ordinaire et franchissent le délai de 5 s quand le réseau tousse. C'est la
-    // cause des faux échecs intermittents de la suite — reproduits trois fois le 2026-08-19,
-    // toujours sur les fichiers de handler dépourvus de cette doublure.
-    directoryRepository: {
-      findBySlackUserId: vi
-        .fn()
-        .mockResolvedValue({
-          slackUserId: HUMAN,
-          realName: 'Karyl',
-          displayName: 'Karyl',
-          email: 'karyl@kisso.com',
-        }),
-      upsert: vi.fn().mockResolvedValue(undefined),
-    } as unknown as SlackEventsHandlerOptions['directoryRepository'],
-    accessGuard: null,
-    // ⚠️ HUITIÈME dépendance à neutraliser, recensée le 2026-08-19 — et la plus coûteuse
-    // restante. `handleMessage` AWAIT l'identité du demandeur avant les court-circuits
-    // agissants ; sans cette ligne, `resolveRequesterIdentity` retombe sur
-    // `SlackWorkspaceService` et un `users.info` part RÉELLEMENT vers slack.com avec le jeton
-    // de test — 0,7 à 1,7 s PAR TEST, le cache étant un LRU par instance et chaque test
-    // reconstruisant le handler. C'est ce qui faisait rougir un run sur trois, toujours par
-    // `Timeout 5000ms`, jamais par une assertion.
-    workspaceProvider: { getUserById: async () => null },
-    // ⚠️ Le journal d'audit ouvre `data/kisso.db` par défaut : c'était la DERNIÈRE dépendance
-    // non neutralisée de ces tests, ≈ 250 ms par message et, sous contention, des pointes qui
-    // franchissent le délai de 5 s de Vitest.
-    auditSink: async () => undefined,
+  // Les HUIT dépendances neutralisables le sont par la fabrique partagée (voir son en-tête,
+  // qui porte le détail de ce que chaque oubli coûte). Ce fichier ne spécialise que les deux
+  // mémoires — la longue est son objet, la courte doit être emportée par l'effacement — et un
+  // annuaire qui RÉPOND un nom.
+  const { handler, slack: mock } = makeSlackHandler({
+    mastra: mastra.mastra,
+    directoryRepository: makeDirectoryDouble({
+      slackUserId: HUMAN,
+      realName: 'Karyl',
+      displayName: 'Karyl',
+      email: 'karyl@kisso.com',
+    }),
     conversationRepository: conversation,
     pinnedFactRepository: (overrides.pinnedFactRepository ??
       pinnedFacts) as SlackEventsHandlerOptions['pinnedFactRepository'],
-    dedupRepository: new InMemorySlackEventDedupRepository(),
-    rateLimiter: null,
-    pruneProbability: 0,
   });
+  slack = mock;
+
+  return handler;
 }
 
 const dm = (text: string, ts = '1700000000.000200'): SlackMessageEvent => ({

@@ -13,6 +13,7 @@ import {
   SLACK_PAGE_LIMIT,
 } from '../../../notification/domain/ports/slack-workspace.port';
 import { logger } from '../../../../shared/logger';
+import { errorMessage } from '../../../../shared/errors';
 
 export interface SlackChannelReader {
   listChannelMembershipsPage(cursor?: string, limit?: number): Promise<SlackChannelMembershipPage>;
@@ -117,7 +118,7 @@ export class SlackChannelAccess implements ChannelAccessSource {
       }
     } catch (error) {
       logger.warn('Reported member counts unavailable — the inventory will record null', {
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
     }
 

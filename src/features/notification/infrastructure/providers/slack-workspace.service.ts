@@ -9,6 +9,8 @@ import type {
 } from '../../domain/ports/slack-workspace.port';
 import { SLACK_PAGE_LIMIT, SLACK_MAX_PAGES } from '../../domain/ports/slack-workspace.port';
 import { logger } from '../../../../shared/logger';
+import { errorMessage } from '../../../../shared/errors';
+import { slackErrorMentions } from '../../../../shared/slack/slack-error';
 
 interface SlackApiUser {
   id?: string;
@@ -174,20 +176,21 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
       logger.info('Joined Slack channel', { channelId });
       return { status: 'joined' };
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-
-      if (message.includes('already_in_channel')) return { status: 'already_member' };
-      if (message.includes('method_not_supported_for_channel_type')) {
+      if (slackErrorMentions(err, 'already_in_channel')) return { status: 'already_member' };
+      if (slackErrorMentions(err, 'method_not_supported_for_channel_type')) {
         return { status: 'not_public', error: 'method_not_supported_for_channel_type' };
       }
-      if (message.includes('is_archived')) return { status: 'archived', error: 'is_archived' };
-      if (message.includes('missing_scope')) {
+      if (slackErrorMentions(err, 'is_archived')) {
+        return { status: 'archived', error: 'is_archived' };
+      }
+      if (slackErrorMentions(err, 'missing_scope')) {
         return { status: 'missing_scope', error: 'missing_scope' };
       }
-      if (message.includes('channel_not_found')) {
+      if (slackErrorMentions(err, 'channel_not_found')) {
         return { status: 'not_found', error: 'channel_not_found' };
       }
 
+      const message = errorMessage(err);
       logger.warn('Failed to join Slack channel', { channelId, error: message });
       return { status: 'failed', error: message };
     }
@@ -201,8 +204,7 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
 
       return toMember(user);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('users_not_found')) {
+      if (slackErrorMentions(err, 'users_not_found')) {
         logger.warn('Slack user not found by email', { email });
         return null;
       }
@@ -218,8 +220,7 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
 
       return toMember(user);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('user_not_found') || message.includes('users_not_found')) {
+      if (slackErrorMentions(err, 'user_not_found') || slackErrorMentions(err, 'users_not_found')) {
         logger.warn('Slack user not found by id', { userId });
         return null;
       }
@@ -235,8 +236,7 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
       });
       logger.info('User invited to Slack channel', { channelId, userId });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('already_in_channel')) {
+      if (slackErrorMentions(err, 'already_in_channel')) {
         logger.info('User already in channel', { channelId, userId });
         return;
       }

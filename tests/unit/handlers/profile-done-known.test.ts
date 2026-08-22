@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { WebClient } from '@slack/web-api';
 import type { Mastra } from '@mastra/core';
 
 import {
   SlackEventsHandler,
   type SlackEventsHandlerOptions,
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
-import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
+import { makeSlackHandler } from '../../helpers/slack-handler';
 import { PROFILE_QUESTIONS } from '../../../src/features/onboarding/domain/services/profile-chat';
 import type { ProfileSnapshot } from '../../../src/features/onboarding/domain/services/profile-completion';
 
@@ -30,14 +29,6 @@ function makeHandler(options?: {
   directory?: Record<string, unknown> | null;
   record?: ProfileSnapshot | null;
 }) {
-  const slack = {
-    chat: {
-      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1700000000.000900' }),
-      update: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    auth: { test: vi.fn().mockResolvedValue({ user_id: 'U0BMBEJTBMJ' }) },
-  };
-
   const directoryRow = options?.directory ?? {
     slackUserId: USER,
     realName: 'Awa TRAORE',
@@ -54,45 +45,33 @@ function makeHandler(options?: {
     result: { outcome: 'completed', employeeId: EMPLOYEE_ID, emailSent: true },
   }));
 
-  const handler = new SlackEventsHandler(
-    'xoxb-test-token',
-    {
+  // Les HUIT dépendances neutralisables le sont par la fabrique partagée (voir son en-tête).
+  // Ce fichier spécialise les deux SOURCES que le verdict doit réconcilier — l'annuaire et le
+  // dossier —, plus l'entretien vers lequel un dossier complet enchaîne.
+  const { handler, slack } = makeSlackHandler({
+    mastra: {
       getAgent: vi.fn(() => {
         throw new Error('Le modèle ne doit JAMAIS être appelé sur ce chemin');
       }),
       getWorkflow: vi.fn(() => ({ createRun: async () => ({ start }) })),
     } as unknown as Mastra,
-    {
-      slackClient: slack as unknown as WebClient,
-      chatProvider: {
-        sendBlocks: vi.fn().mockResolvedValue({ ts: '1' }),
-      } as unknown as SlackEventsHandlerOptions['chatProvider'],
-      accessGuard: null,
-      workspaceProvider: { getUserById: async () => null },
-      auditSink: async () => undefined,
-      conversationRepository: null,
-      dedupRepository: new InMemorySlackEventDedupRepository(),
-      rateLimiter: null,
-      pinnedFactRepository: null,
-      pruneProbability: 0,
-      directoryRepository: {
-        findBySlackUserId: vi.fn(async () => directoryRow),
-        linkEmployee: vi.fn(async () => 1),
-        rememberDmChannel: vi.fn(async () => undefined),
-        upsertFacts: vi.fn(async () => undefined),
-        findManagers: vi.fn(async () => []),
-      } as unknown as SlackEventsHandlerOptions['directoryRepository'],
-      interviewRepository: {
-        findByEmployee: vi.fn(async () => null),
-        save: vi.fn(async () => undefined),
-        listAll: vi.fn(async () => []),
-      } as unknown as SlackEventsHandlerOptions['interviewRepository'],
-      profileRepository: {
-        findByEmail: vi.fn(async () => options?.record ?? null),
-        findById: vi.fn(async () => options?.record ?? null),
-      },
+    directoryRepository: {
+      findBySlackUserId: vi.fn(async () => directoryRow),
+      linkEmployee: vi.fn(async () => 1),
+      rememberDmChannel: vi.fn(async () => undefined),
+      upsertFacts: vi.fn(async () => undefined),
+      findManagers: vi.fn(async () => []),
+    } as unknown as SlackEventsHandlerOptions['directoryRepository'],
+    interviewRepository: {
+      findByEmployee: vi.fn(async () => null),
+      save: vi.fn(async () => undefined),
+      listAll: vi.fn(async () => []),
+    } as unknown as SlackEventsHandlerOptions['interviewRepository'],
+    profileRepository: {
+      findByEmail: vi.fn(async () => options?.record ?? null),
+      findById: vi.fn(async () => options?.record ?? null),
     },
-  );
+  });
 
   return { handler, slack, start };
 }

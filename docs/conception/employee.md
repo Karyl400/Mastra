@@ -11,168 +11,38 @@
 
 ---
 
-## `features/employee/application/dtos/employee.dto.ts`
+## `features/employee/application/dtos/employee.dto.ts` — SUPPRIMÉ
+
+⚠️ **Le fichier, et tout le répertoire `application/dtos/`, ont été supprimés.** Les entrées
+ancrées sur ses déclarations (`employeeDtoSchema`, `EmployeeDto`, `nameSchema`,
+`baseEmployeeSchema`, `applyManagerValidation`…) ont donc été retirées : elles ne désignaient
+plus rien, et `design-docs-anchor-real-code.test.ts` les compte désormais.
+
+Trois décisions y étaient consignées et ne meurent PAS avec le fichier — elles disent chacune
+pourquoi une garantie apparente n'en était pas une :
+
+- **`managerValidationSchema` (retiré le 2026-08-17) déclarait deux règles métier que RIEN
+  n'appliquait** — « un employé actif doit avoir un manager », « un employé en attente ne peut
+  pas en avoir ». Le seul chemin de création réel est la complétion de profil, qui ne collecte
+  aucun manager et crée des dossiers actifs : la règle était à la fois morte ET fausse pour ce
+  produit, et la câbler aurait cassé le formulaire. Même famille qu'`emailSent: false` sous
+  `status: 'success'` — l'illusion d'une garantie.
+- **Le `.refine()` qui enrobait `email` retournait `true` en toute circonstance**, sous le
+  message « Email already exists in the system ». Il ne pouvait rien refuser tout en faisant
+  croire à un contrôle d'unicité. L'unicité est vérifiée là où elle peut l'être : la contrainte
+  `UNIQUE` de la table et `findByEmail` dans `createEmployeeStep`.
+- **Le `.pipe()` de `position` sérialisait en `allOf`** — la construction exacte
+  qu'interdit `tool-schema-flatness.test.ts` et qui avait déjà cassé `createEmployee`. Elle
+  n'avait survécu ici que parce que ce schéma n'était l'`inputSchema` d'aucun tool. Le champ
+  vivant est `positionSchema` dans `shared/validation.ts` — voir `shared.md`.
+
+Le reste était du code mort documenté comme tel dès le 2026-08-17 : `EmployeeValidator` (zéro
+appelant), `EmployeeValidationError` (levée nulle part), `preValidationHooks` (jamais invoqués),
+`EmployeeListResponse` (pagination d'une API qui n'existe pas), et `validationTestCases` — des
+fixtures exportées depuis le code de production qu'aucun test n'utilisait, décrivant un contrat
+que rien ne vérifiait. C'est la forme la plus trompeuse du code mort : elle ressemble à une
+garantie.
 
-**Avant `import { z } from 'zod';`**
-
-employee.validation.ts
-
-**Avant `import contains from 'validator/lib/contains.js';`**
-
-Sous-chemin — voir la note d'`isEmail` dans `shared/validation.ts`.
-
-**Avant `const EMPLOYEE_CONSTRAINTS = {`**
-
-1. CONSTANTES ET CONFIGURATION
-
-**Avant `MESSAGE: 'Name must contain only letters, spaces, hyphens, and apostrophes',`**
-
-Support noms internationaux
-
-**Avant `},`**
-
-Maximum 90 jours dans le futur
-
-
-1 milliard
-**Avant `const nameSchema = z`**
-
-2. SCHEMAS DE BASE AMÉLIORÉS
-
-
-Schema de nom avec validation internationale
-Supporte les caractères Unicode pour les noms non-latins
-**Avant `.refine(`**
-
-Protection XSS
-
-**Avant `const startDateSchema = z`**
-
-Schema de date avec contraintes métier
-
-**Avant `const departmentSchema = z`**
-
-Normalisation
-
-
-Schema département avec enum dynamique
-**Avant `.transform((val) => sanitizeHtml(val));`**
-
-Validation contre l'enum après nettoyage
-
-**Avant `const baseEmployeeSchema = z.object({`**
-
-3. SCHEMAS MÉTIER COMPLEXES
-
-
-⚠️ `managerValidationSchema` a été SUPPRIMÉ le 2026-08-17 — il n'avait aucun appelant.
-
-Il déclarait deux règles métier (« un employé actif doit avoir un manager », « un employé
-
-en attente ne peut pas en avoir ») que RIEN n'appliquait : le seul chemin de création
-
-réel est le formulaire « Compléter mon profil », qui ne collecte aucun manager et crée
-
-des dossiers actifs. La règle était donc à la fois morte ET fausse pour ce produit —
-
-la câbler aurait cassé le formulaire.
-
-Une règle qu'aucun code n'applique est de la même famille que `emailSent: false` sous
-
-`status: 'success'` : elle donne l'illusion d'une garantie. Si le rattachement
-
-hiérarchique devient un vrai besoin, il se réécrira contre le parcours qui existera
-
-alors, pas contre celui de 2026-08-05.
-
-4. SCHEMA PRINCIPAL AVEC DISCRIMINATED UNIONS
-
-Schema de base commun à tous les employés
-**Avant `email: emailSchema,`**
-
-⚠️ Le `.refine()` qui enrobait ce champ a été RETIRÉ le 2026-08-17 : son prédicat
-
-
-retournait `true` en toute circonstance, sous le message « Email already exists in
-
-the system ». Il ne pouvait donc rien refuser, tout en faisant croire à un contrôle
-
-d'unicité — un test de schéma l'aurait vu « passer » sans qu'aucune vérification
-
-n'ait lieu. L'unicité EST vérifiée, mais là où elle peut l'être : la contrainte
-
-`UNIQUE` de la table et `findByEmail` dans `createEmployeeStep`.
-**Avant `department: departmentSchema.nullable(),`**
-
-NULLABLE depuis le 2026-08-13 : le parcours d'arrivée ne collecte plus le département.
-
-
-Le schéma de VALEUR reste inchangé — quand une valeur est présente, elle doit toujours
-
-appartenir à l'enum. On assouplit la présence, jamais la validité.
-**Avant `position: z`**
-
-Champ libre : voir `positionSchema` dans shared/validation.ts. Le `.pipe()`
-
-
-qui figurait ici sérialisait en `allOf` — exactement la construction que
-
-`tool-schema-flatness.test.ts` interdit, et qui a déjà cassé `createEmployee`.
-
-Elle ne survivait que parce que ce schéma n'est pas un `inputSchema` de tool.
-**Avant `export const employeeDtoSchema = applyManagerValidation(`**
-
-Schema pour la réponse (DTO) — le SEUL schéma vivant de ce module.
-
-**Avant `fullName: z.string().optional(),`**
-
-Champs calculés
-
-**Avant `})`**
-
-Ancienneté en mois
-
-**Avant `export type EmployeeDto = z.infer<typeof employeeDtoSchema>;`**
-
-5. TYPES INFÉRÉS
-
-**Note de fichier**
-
-⚠️ SECTIONS 6 À 9 SUPPRIMÉES LE 2026-08-17
-
-Ce module faisait 474 lignes pour DEUX symboles réellement importés :
-
-`EmployeeDto` (par `employee.mapper.ts`) et `employeeDtoSchema` (par son seul test).
-
-Ont été retirés :
-
- • `EmployeeValidator` — une classe de validation à zéro appelant, seule consommatrice
-
-   de `createEmployeeSchema` et d'`updateEmployeeSchema`, eux-mêmes sans importateur.
-
-   C'est ce qui rendait morte la règle « un employé actif doit avoir un manager » :
-
-   elle EXISTAIT, mais aucun chemin d'exécution ne la traversait.
-
- • `EmployeeValidationError` — levée nulle part, donc rattrapée nulle part.
-
- • `preValidationHooks` — normalisation d'entrée qu'aucun appelant n'invoquait ; le
-
-   parcours réel normalise dans `createEmployeeStep`.
-
- • `validationTestCases` — des FIXTURES DE TEST exportées depuis le code de production,
-
-   qui n'étaient utilisées par aucun test. Elles décrivaient un contrat (« ces entrées
-
-   doivent être refusées ») que rien ne vérifiait : la forme la plus trompeuse de code
-
-   mort, puisqu'elle ressemble à une garantie.
-
- • `EmployeeListResponse` — pagination d'une API qui n'existe pas.
-
-`applyManagerValidation` est CONSERVÉE : `employeeDtoSchema` l'applique réellement, et
-
-son test la traverse.
 
 ## `features/employee/application/tools/find-employee-by-email.ts`
 
@@ -196,7 +66,6 @@ connu de l'appelant). Le détail complet reste derrière `getEmployeeProfile`.
 déjà l'entrée ; l'email est re-normalisé dans `execute` pour rester robuste même si
 ce tool est appelé directement (tests, futurs appelants) sans passer par la validation
 du schéma d'entrée.
-
 
 Domaines réservés par la RFC 2606 (et voisins), qui ne désignent JAMAIS une
 boîte réelle. `example.*` en second niveau, le reste en suffixe de TLD.
@@ -252,7 +121,6 @@ base neuve). Sans lui, le comportement est exactement celui d'avant.
 
 Avant toute E/S : une adresse d'exemple ne peut rien trouver en base, et
 
-
 la laisser passer produirait un « aucun employé avec cet email » que le
 
 modèle rapporterait à l'utilisateur comme un fait — exactement le
@@ -263,7 +131,6 @@ observé le 2026-08-11 à 2:56.
 **Avant `logger.warn('Email de remplissage refusé — valeur probablement inventée par le modèle', {`**
 
 `warn` volontaire : une adresse de remplissage signale que le modèle a
-
 
 inventé un paramètre. C'est la ligne à chercher quand un agent affirme
 
@@ -286,7 +153,6 @@ branche n'est atteinte que par des adresses qui ne désignent personne.
 
 Résultat structuré, pas d'exception : le tool contracte explicitement
 
-
 « jamais une exception » (cf. sa description), et les autres tools ne
 
 lèvent (`NotFoundError`) que sur un identifiant censé exister —
@@ -304,7 +170,6 @@ s'est produite » — le modèle n'apprendrait rien et ne corrigerait pas.
 
 Repli sur l'annuaire Slack. Bots et comptes désactivés sont écartés : ce ne
 
-
 sont pas des personnes à onboarder, et les rendre inviterait le modèle à
 
 proposer de leur envoyer un document.
@@ -312,14 +177,12 @@ proposer de leur envoyer un document.
 
 `employeeId` est le pont posé par `directorySync` quand l'email Slack
 
-
 correspond déjà à une ligne `employees`. Il est `null` pour quelqu'un qui
 
 n'a jamais rempli le formulaire de profil — le cas de 5 personnes sur 6.
 **Avant `slackUserId: member.slackUserId,`**
 
 Nom de clé distinct d'`employee` À DESSEIN : cette personne n'a pas
-
 
 de dossier d'onboarding. Réutiliser `employee.id` ferait passer un
 
@@ -331,7 +194,6 @@ de dossier d'onboarding. Réutiliser `employee.id` ferait passer un
 **Avant `const requesterEmployeeId = readSlackContext(ctx?.requestContext)?.employeeId;`**
 
 ÉCHEC QUI INSTRUIT — un aller-retour épargné vaut plus que tout dégraissage
-
 
 `return { found: false }` était NU, et le relevé de production montre exactement ce
 
@@ -370,9 +232,7 @@ Payé uniquement dans cette branche, comme les autres `hint` du dépôt.
 
 Résout une personne par son NOM.
 
-
 Le défaut, mesuré sur la Turso de production le 2026-08-13
-
 
   employee_id=d20df236…(Karyl)  type=welcome_letter  title="Bienvenue Awa"  status=sent
 
@@ -391,9 +251,7 @@ passe**, et aucune validation Zod ne peut le voir.
 `TODO.md` recensait ce manque depuis le 2026-08-12 (« Aucun tool ne résout un PRÉNOM »)
 sans l'avoir relié au bug de destinataire.
 
-
 Deux sources, `employees` d'abord — et c'est le relevé qui l'impose
-
 
 Au 2026-08-14 : `employees` = 2 lignes (Karyl, Awa) ; `slack_directory` = 40 lignes dont
 4 personnes vivantes non rattachées (Nazer, Pamela, Mistourath, ridwanenico77) — et Awa
@@ -403,7 +261,6 @@ irrésolvable.**
 L'ordre est celui de `findEmployeeByEmail`, pour la même raison : `employees` porte
 l'UUID interne dont dépendent `getEmployeeProfile`, `generateDocument` et
 `scheduleReminder`. L'inverse ferait perdre cet identifiant pour un employé enregistré.
-
 
 Nombre maximal de candidats rendus sur une ambiguïté.
 
@@ -436,7 +293,6 @@ modèle de la même façon, sans quoi le même état de fait produirait deux com
 
 On demande UN candidat de plus que la borne : c'est ce qui permet de dire
 
-
 `truncated` sans un second aller-retour, et sans le déduire d'une égalité qui
 
 serait fausse quand le total vaut exactement la borne.
@@ -444,12 +300,10 @@ serait fausse quand le total vaut exactement la borne.
 
 Même traitement que la branche annuaire : ces champs viennent d'un dossier
 
-
 que la personne a elle-même rempli en conversation.
 **Avant `},`**
 
 ⚠️ PAS d'email. Ce tool lève une ambiguïté d'identité, il n'est pas un canal
-
 
 de sortie de données personnelles — et il est atteignable par n'importe quel
 
@@ -458,7 +312,6 @@ membre du workspace. Même arbitrage que `findEmployeeByEmail`.
 
 Repli sur l'annuaire. Bots et comptes désactivés écartés : ce ne sont pas des
 
-
 personnes à onboarder, et les rendre inviterait le modèle à leur proposer un
 
 document. Le workspace de production porte 22 bots sur 40 lignes.
@@ -466,14 +319,12 @@ document. Le workspace de production porte 22 bots sur 40 lignes.
 
 Nom de clé distinct d'`employee` À DESSEIN, comme dans `findEmployeeByEmail` :
 
-
 cette personne n'a pas de dossier. Réutiliser `employee.id` ferait passer un
 
 `U…` pour l'UUID interne qu'attendent les autres tools.
 **Avant `firstName: sanitizeDisplayName(member.firstName),`**
 
 ⚠️ TEXTE ÉCRIT PAR UN TIERS. `schema.ts` le dit : « `title` est le poste
-
 
 DÉCLARATIF, ÉDITÉ PAR SON PORTEUR » — donc par n'importe qui du workspace,
 
@@ -509,12 +360,10 @@ suivant. Or cette liste n'est pas destinée à être destructurée : elle est de
 
 ⚠️ Ce libellé sort AUSSI vers le modèle, sur le chemin ambigu. L'oublier aurait laissé
 
-
 ouverte exactement la même porte, une branche plus loin.
 **Avant `const name = fullName(firstName, lastName) || '(sans nom)';`**
 
 Le repli « (sans nom) » reste ICI : c'est une décision d'affichage propre à la levée
-
 
 d'ambiguïté, et un document signé ne doit surtout pas l'imprimer.
 **Avant `function ambiguous(all: readonly string[]) {`**
@@ -577,9 +426,7 @@ comble le vide.
 
 **Avant `const email = data.email ? String(data.email).trim().toLowerCase() : undefined;`**
 
-
 DEUX CLÉS D'ENTRÉE, et c'est une mesure de COÛT
-
 
 Mesuré en production le 2026-08-15 : « profil de l'employé dont l'email est X »
 
@@ -600,12 +447,10 @@ construction (piège documenté).
 
 On INSTRUIT, on ne lève pas : une exception repart au modèle en part `tool-error`,
 
-
 et un modèle privé de résultat comble le vide.
 **Avant `if (!data.employeeId && email) {`**
 
 ── Chemin EMAIL ──────────────────────────────────────────────────────
-
 
 La résolution doit précéder la décision d'accès : on ne connaît pas encore la
 
@@ -626,7 +471,6 @@ reçoit le MÊME refus dans les deux cas, et n'apprend rien.
 
 ── Chemin IDENTIFIANT ────────────────────────────────────────────────
 
-
 AVANT toute lecture en base. Un refus qui interroge d'abord la base laisse fuiter par
 
 sa latence, et journalise une consultation qui n'aurait pas dû avoir lieu. Cette
@@ -635,7 +479,6 @@ propriété est verrouillée par test et ne doit PAS être perdue en ajoutant l'
 **Avant `logger.warn('Aucun employé pour cet identifiant', { employeeId });`**
 
 `warn` volontaire : un identifiant qui ne désigne personne signale
-
 
 presque toujours une valeur fabriquée par le modèle.
 **Avant `function project(employee: Employee, progress: OnboardingProgress | null) {`**
@@ -648,7 +491,6 @@ projection existe pour empêcher.
 **Avant `const view = progress ? reconcileProgress(progress) : null;`**
 
 PROJECTION EXPLICITE, et non `return { employee }`.
-
 
 `DrizzleEmployeeRepository.findById` fait un `db.select()` sans argument
 
@@ -684,9 +526,7 @@ ligne, 2 506 tokens mesurés pour 12 tâches avant projection, réémis à chaqu
 
 aller-retour. Ne pas le réintroduire sans borne ni projection.
 
-
 ⚠️ CINQ CHAMPS RETIRÉS LE 2026-08-20, chacun pour sa propre raison
-
 
 Le relevé qui les a fait tomber, rendu tel quel à la personne concernée :
 
@@ -745,12 +585,10 @@ chemin de LECTURE : la classe de défaut la plus fréquente de ce dépôt.
 
 Symétrique de `findEmployeeByEmail` : le modèle distingue le succès de
 
-
 l'échec sur le MÊME champ, quel que soit le tool.
 **Avant `position: employee.position,`**
 
 Le POSTE est le seul attribut de métier rendu, et c'est ce qui a été demandé le
-
 
 2026-08-20. Ce qui l'entourait a disparu, champ par champ, pour une raison propre à
 
@@ -909,7 +747,6 @@ fiche sans toucher à sa suppression, donc aucune résurrection accidentelle.
 
 Reproduit la contrainte UNIQUE sur l'email, que le soft delete rend visible : une fiche
 
-
 supprimée OCCUPE toujours son adresse. Sans cela, la doublure accepterait une création que
 
 la production refuse — l'écart le plus coûteux qu'une doublure puisse porter.
@@ -998,10 +835,7 @@ portée à une complexité cognitive de 18 (seuil 15), et une fonction qui déci
 résolution et de ce qui sort est exactement celle qu'on relit mal le jour où l'une des deux
 doit bouger.
 
-**Avant `// personne n'a pas de dossier » n'est pas « tu n'as pas à tenir son identifiant ».`**
-
-Deux raisons distinctes de joindre un hint, et elles ne disent pas la même chose : « cette
-
 **Avant `let hint: string | undefined;`**
 
+Deux raisons distinctes de joindre un hint, et elles ne disent pas la même chose : « cette
 personne n'a pas de dossier » n'est pas « tu n'as pas à tenir son identifiant ».

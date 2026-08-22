@@ -1,14 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { WebClient } from '@slack/web-api';
 import type { Mastra } from '@mastra/core';
 
-import {
-  SlackEventsHandler,
-  type SlackEventsHandlerOptions,
-  type SlackMessageEvent,
-} from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
-import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
+import { type SlackMessageEvent } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
 import { writeDocumentRecipient } from '../../../src/shared/slack-request-context';
+import { makeDirectoryDouble, makeSlackHandler } from '../../helpers/slack-handler';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -30,17 +25,11 @@ const HUMAN = 'U0BJBDGTJUD';
 const DM = 'D0MOCKDM01';
 
 function makeHandler(agentText: string, recipient: string | null) {
-  const slack = {
-    chat: {
-      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1700000000.000900' }),
-      update: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    auth: { test: vi.fn().mockResolvedValue({ user_id: 'U0BMBEJTBMJ' }) },
-  };
-
-  const handler = new SlackEventsHandler(
-    'xoxb-test-token',
-    {
+  // Les HUIT dépendances neutralisables le sont par la fabrique partagée (voir son en-tête).
+  // Ce fichier ne spécialise que l'agent — dont on rejoue le canal d'écriture — et l'annuaire,
+  // qui doit NOMMER quelqu'un pour que `textMentionsName` ait de quoi travailler.
+  const { handler, slack } = makeSlackHandler({
+    mastra: {
       getAgent: vi.fn(() => ({
         // Le tool écrit dans le `requestContext` pendant le run : on rejoue exactement ce
         // canal-là, celui qui ne traverse ni le prompt ni le tool-result.
@@ -50,35 +39,16 @@ function makeHandler(agentText: string, recipient: string | null) {
         },
       })),
     } as unknown as Mastra,
-    {
-      slackClient: slack as unknown as WebClient,
-      chatProvider: {
-        sendBlocks: vi.fn().mockResolvedValue({ ts: '1' }),
-      } as unknown as SlackEventsHandlerOptions['chatProvider'],
-      accessGuard: null,
-      workspaceProvider: { getUserById: async () => null },
-      auditSink: async () => undefined,
-      conversationRepository: null,
-      dedupRepository: new InMemorySlackEventDedupRepository(),
-      rateLimiter: null,
-      pinnedFactRepository: null,
-      directoryRepository: {
-        findBySlackUserId: vi.fn(async () => ({
-          slackUserId: HUMAN,
-          realName: 'Karyl SOUMAILA',
-          displayName: 'Karyl SOUMAILA',
-          firstName: 'Karyl',
-          lastName: 'SOUMAILA',
-          email: 'karyl@kisso.com',
-          employeeId: null,
-        })),
-        rememberDmChannel: vi.fn(async () => undefined),
-        upsertFacts: vi.fn(async () => undefined),
-        linkEmployee: vi.fn(async () => 1),
-      } as unknown as SlackEventsHandlerOptions['directoryRepository'],
-      pruneProbability: 0,
-    },
-  );
+    directoryRepository: makeDirectoryDouble({
+      slackUserId: HUMAN,
+      realName: 'Karyl SOUMAILA',
+      displayName: 'Karyl SOUMAILA',
+      firstName: 'Karyl',
+      lastName: 'SOUMAILA',
+      email: 'karyl@kisso.com',
+      employeeId: null,
+    }),
+  });
 
   return { handler, slack };
 }

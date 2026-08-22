@@ -1,15 +1,13 @@
 import type { EmailBody } from '../../../src/features/notification/domain/services/email-body';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { WebClient } from '@slack/web-api';
 import type { Mastra } from '@mastra/core';
 
 import {
-  SlackEventsHandler,
   type SlackEventsHandlerOptions,
   type SlackMessageEvent,
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
-import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
 import { InMemoryPendingInterviewEmailRepository } from '../../../src/features/recruitment/infrastructure/repositories/in-memory-pending-email.repository';
+import { makeDirectoryDouble, makeSlackHandler } from '../../helpers/slack-handler';
 import {
   ALREADY_SETTLED_REPLY,
   CANCELLED_REPLY,
@@ -55,14 +53,6 @@ function makeHandler(options?: {
   createdAt?: Date;
   now?: Date;
 }) {
-  const slack = {
-    chat: {
-      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1700000000.000900' }),
-      update: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    auth: { test: vi.fn().mockResolvedValue({ user_id: 'U0BMBEJTBMJ' }) },
-  };
-
   const pending = new InMemoryPendingInterviewEmailRepository();
   if (options?.seed !== false) {
     void pending.save({
@@ -101,9 +91,12 @@ function makeHandler(options?: {
     forget: vi.fn(async () => 0),
   };
 
-  const handler = new SlackEventsHandler(
-    'xoxb-test-token',
-    {
+  // Les HUIT dépendances neutralisables le sont par la fabrique partagée (voir son en-tête).
+  // Ne sont spécialisées ici que les pièces du chemin de confirmation : la préparation en
+  // attente, le transport d'email, le fil (qui décide si une question d'accueil PRIME) et
+  // l'horloge, sans laquelle la borne des 24 h ne se testerait qu'en attendant un jour.
+  const { handler, slack } = makeSlackHandler({
+    mastra: {
       getAgent: vi.fn(() => {
         if (options?.agentText === undefined) {
           throw new Error('Le modèle ne doit JAMAIS être appelé sur ce chemin');
@@ -111,39 +104,21 @@ function makeHandler(options?: {
         return { generate: async () => ({ text: options.agentText }) };
       }),
     } as unknown as Mastra,
-    {
-      slackClient: slack as unknown as WebClient,
-      chatProvider: {
-        sendBlocks: vi.fn().mockResolvedValue({ ts: '1' }),
-      } as unknown as SlackEventsHandlerOptions['chatProvider'],
-      accessGuard: null,
-      workspaceProvider: { getUserById: async () => null },
-      auditSink: async () => undefined,
-      conversationRepository:
-        conversationRepository as unknown as SlackEventsHandlerOptions['conversationRepository'],
-      dedupRepository: new InMemorySlackEventDedupRepository(),
-      rateLimiter: null,
-      pinnedFactRepository: null,
-      directoryRepository: {
-        findBySlackUserId: vi.fn(async (id: string) => ({
-          slackUserId: id,
-          realName: 'Karyl SOUMAILA',
-          displayName: 'Karyl SOUMAILA',
-          firstName: 'Karyl',
-          lastName: 'SOUMAILA',
-          email: 'karyl@kisso.com',
-          employeeId: null,
-        })),
-        rememberDmChannel: vi.fn(async () => undefined),
-        upsertFacts: vi.fn(async () => undefined),
-        linkEmployee: vi.fn(async () => 1),
-      } as unknown as SlackEventsHandlerOptions['directoryRepository'],
-      pendingEmailRepository: pending,
-      sendEmail,
-      ...(options?.now ? { now: () => options.now! } : {}),
-      pruneProbability: 0,
-    },
-  );
+    conversationRepository:
+      conversationRepository as unknown as SlackEventsHandlerOptions['conversationRepository'],
+    directoryRepository: makeDirectoryDouble({
+      slackUserId: HUMAN,
+      realName: 'Karyl SOUMAILA',
+      displayName: 'Karyl SOUMAILA',
+      firstName: 'Karyl',
+      lastName: 'SOUMAILA',
+      email: 'karyl@kisso.com',
+      employeeId: null,
+    }),
+    pendingEmailRepository: pending,
+    sendEmail,
+    ...(options?.now ? { now: () => options.now! } : {}),
+  });
 
   return { handler, slack, pending, sendEmail };
 }

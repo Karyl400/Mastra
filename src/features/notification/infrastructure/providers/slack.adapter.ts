@@ -4,6 +4,7 @@ import type {
   FilesUploadV2Arguments,
   ViewsOpenArguments,
 } from '@slack/web-api';
+import { slackErrorMentions } from '../../../../shared/slack/slack-error';
 import type {
   ChatProvider,
   FileUploadInput,
@@ -15,12 +16,6 @@ type ChatPostMessageWithBlocks = Extract<ChatPostMessageArguments, { blocks: unk
 export type SlackBlock = ChatPostMessageWithBlocks['blocks'][number];
 
 export type SlackModalView = Extract<ViewsOpenArguments['view'], { type: 'modal' }>;
-
-function isSlackError(err: unknown, code: string): boolean {
-  const data = (err as { data?: { error?: unknown } } | null | undefined)?.data;
-  if (typeof data?.error === 'string') return data.error === code;
-  return err instanceof Error && err.message.includes(code);
-}
 
 function extractPermalink(response: unknown): string | undefined {
   const completions = (response as { files?: unknown } | null | undefined)?.files;
@@ -89,7 +84,7 @@ export class SlackAdapter implements ChatProvider, FileUploadProvider {
       const response = await this.slack.views.open({ trigger_id: triggerId, view });
       return { viewId: response.view?.id ?? '' };
     } catch (err: unknown) {
-      if (isSlackError(err, 'expired_trigger_id')) {
+      if (slackErrorMentions(err, 'expired_trigger_id')) {
         throw new Error(
           'Slack a rejeté le trigger_id : il expire 3 secondes après l’interaction. ' +
             'Appeler views.open avant toute E/S lente — jamais après un appel LLM ' +
@@ -120,7 +115,7 @@ export class SlackAdapter implements ChatProvider, FileUploadProvider {
       const response = await this.slack.files.uploadV2(args);
       return { permalink: extractPermalink(response) };
     } catch (err: unknown) {
-      if (isSlackError(err, 'missing_scope')) {
+      if (slackErrorMentions(err, 'missing_scope')) {
         throw new Error(
           'Slack refuse l’upload : le scope `files:write` manque au bot. Action HUMAINE ' +
             'requise, en deux temps — ajouter `files:write` dans OAuth & Permissions, PUIS ' +

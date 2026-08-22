@@ -1,13 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { WebClient } from '@slack/web-api';
-import type { Mastra } from '@mastra/core';
 
-import {
-  SlackEventsHandler,
-  type SlackEventsHandlerOptions,
-} from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
-import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
 import { logger } from '../../../src/shared/logger';
+import { makeDirectoryDouble, makeSlackHandler } from '../../helpers/slack-handler';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -34,30 +28,12 @@ const HUMAN = 'U0PROBE0001';
 
 function makeHandler(linked: number) {
   const linkEmployee = vi.fn(async () => linked);
-  const handler = new SlackEventsHandler(
-    'xoxb-test-token',
-    { getAgent: vi.fn() } as unknown as Mastra,
-    {
-      slackClient: {
-        chat: { postMessage: vi.fn().mockResolvedValue({ ok: true }) },
-        auth: { test: vi.fn().mockResolvedValue({ user_id: 'U0BMBEJTBMJ' }) },
-      } as unknown as WebClient,
-      accessGuard: null,
-      workspaceProvider: { getUserById: async () => null },
-      auditSink: async () => undefined,
-      conversationRepository: null,
-      dedupRepository: new InMemorySlackEventDedupRepository(),
-      rateLimiter: null,
-      pinnedFactRepository: null,
-      pruneProbability: 0,
-      directoryRepository: {
-        linkEmployee,
-        findBySlackUserId: vi.fn(async () => null),
-        rememberDmChannel: vi.fn(async () => undefined),
-        upsertFacts: vi.fn(async () => undefined),
-      } as unknown as SlackEventsHandlerOptions['directoryRepository'],
-    },
-  );
+
+  // La fabrique partagée neutralise les HUIT dépendances (voir son en-tête). Seul l'annuaire
+  // est spécialisé : c'est le COMPTE qu'il rend qui est l'objet même de ce fichier.
+  const { handler } = makeSlackHandler({
+    directoryRepository: { ...makeDirectoryDouble(), linkEmployee },
+  });
 
   const probe = handler as unknown as {
     linkRequesterToRecord(

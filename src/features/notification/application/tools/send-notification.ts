@@ -10,7 +10,7 @@ import { createNotification } from '../../domain/entities/notification';
 import { uuidSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { NotificationChannel, NotificationStatus, RecipientType } from '../../../../shared/types';
-import { NotFoundError } from '../../../../shared/errors';
+import { NotFoundError, errorMessage } from '../../../../shared/errors';
 import { canPerformSideEffects } from '../../../../shared/slack-request-context';
 
 const TRANSPORTED_CHANNELS = ['email', 'slack'] as const;
@@ -109,7 +109,7 @@ export function makeSendNotification(
         }
         status = NotificationStatus.Sent;
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'Erreur inconnue';
+        const message = errorMessage(e);
         logger.error("Erreur lors de l'envoi de la notification", {
           error: message,
           recipientId: data.recipientId,

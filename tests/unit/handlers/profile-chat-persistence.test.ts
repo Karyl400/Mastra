@@ -1,12 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { WebClient } from '@slack/web-api';
 import type { Mastra } from '@mastra/core';
 
 import {
   SlackEventsHandler,
   type SlackEventsHandlerOptions,
 } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
-import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
+import { makeSlackHandler } from '../../helpers/slack-handler';
 import { PROFILE_QUESTIONS } from '../../../src/features/onboarding/domain/services/profile-chat';
 import { INTERVIEW_QUESTION_DAILY } from '../../../src/features/onboarding/domain/services/interview-chat';
 
@@ -40,14 +39,6 @@ const DM = 'D0MOCKDM01';
 const EMPLOYEE_ID = 'e7a1b2c3-0000-4000-8000-000000000001';
 
 function makeHandler() {
-  const slack = {
-    chat: {
-      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1700000000.000900' }),
-      update: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    auth: { test: vi.fn().mockResolvedValue({ user_id: 'U0BMBEJTBMJ' }) },
-  };
-
   const linkEmployee = vi.fn().mockResolvedValue(undefined);
   /** L'annuaire NE PORTE PAS d'`employeeId` au départ — c'est l'état réel d'un arrivant. */
   const directoryRow: Record<string, unknown> = {
@@ -92,19 +83,11 @@ function makeHandler() {
     getWorkflow: vi.fn(() => ({ createRun: async () => ({ start }) })),
   } as unknown as Mastra;
 
-  const handler = new SlackEventsHandler('xoxb-test-token', mastra, {
-    slackClient: slack as unknown as WebClient,
-    chatProvider: {
-      sendBlocks: vi.fn().mockResolvedValue({ ts: '1' }),
-    } as unknown as SlackEventsHandlerOptions['chatProvider'],
-    accessGuard: null,
-    workspaceProvider: { getUserById: async () => null },
-    auditSink: async () => undefined,
-    conversationRepository: null,
-    dedupRepository: new InMemorySlackEventDedupRepository(),
-    rateLimiter: null,
-    pinnedFactRepository: null,
-    pruneProbability: 0,
+  // Les HUIT dépendances neutralisables le sont par la fabrique partagée (voir son en-tête).
+  // Ce fichier spécialise l'annuaire — dont l'écriture de `employee_id` EST la cause racine
+  // qu'il verrouille —, l'entretien qu'on doit voir enregistrer, et le dépôt de profil.
+  const { handler, slack } = makeSlackHandler({
+    mastra,
     directoryRepository:
       directoryRepository as unknown as SlackEventsHandlerOptions['directoryRepository'],
     interviewRepository:

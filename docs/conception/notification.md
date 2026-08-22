@@ -52,7 +52,6 @@ projection dédié :
 > renvoyait à un fichier absent ; corrigée le 2026-08-21. La technique, elle, reste celle
 > décrite ci-dessous, et elle est vivante dans ce fichier même.
 
-
 1. **BORNE** — au plus `MAX_NOTIFICATIONS_IN_RESULT` entrées, pour que la taille du
    résultat soit INDÉPENDANTE du nombre de notifications en base.
 2. **PROJECTION** — on énumère ce qu'on expose plutôt que ce qu'on retire : une
@@ -160,7 +159,6 @@ chemin `recipientId` fonctionne et le chemin email INSTRUIT au lieu d'échouer.
 
 ── Chemin EMAIL ──────────────────────────────────────────────────────
 
-
 Même construction anti-ORACLE que `getEmployeeProfile` : l'identifiant RÉSOLU (ou
 
 `null`) est passé à la garde, si bien qu'un demandeur non autorisé reçoit le MÊME
@@ -172,14 +170,12 @@ d'énumérer l'annuaire une adresse à la fois.
 
 AVANT toute lecture en base — voir `canReadPersonRecord`. L'historique des messages
 
-
 reçus par quelqu'un dit ce qu'on lui a écrit et quand : c'est une donnée personnelle
 
 au même titre que son dossier.
 **Avant `const sorted = [...all].sort((a, b) => {`**
 
 Tri déterministe : date décroissante, puis `id` décroissant pour départager
-
 
 deux notifications de même horodatage. Sans ce second critère, deux appels
 
@@ -310,12 +306,10 @@ différents. Effet de bord bienvenu : le mot-clé `format` sort du JSON Schema.
 
 « enregistre », jamais « planifie » : le mot que lit le modèle est celui qu'il
 
-
 répétera à l'utilisateur.
 **Avant `body: z.string().min(1).max(5000).describe('rédige-le, ne le demande pas'),`**
 
 ⚠️ Borne HAUTE ajoutée le 2026-08-13. `title`/`subject` étaient bornés à 200 sur la
-
 
 ligne voisine, ce champ ne l'était pas — asymétrie relevée par l'audit, et c'est le
 
@@ -329,7 +323,6 @@ tokens.
 **Avant `if (!canPerformSideEffects(_ctx?.requestContext, data.recipientId)) {`**
 
 FRONTIÈRE D'AUTORISATION — avant toute résolution, avant toute écriture
-
 
 Ajoutée le 2026-08-18. Cet outil était, avec `updateOnboardingStatus`, le SEUL
 
@@ -360,7 +353,6 @@ oracle d'annuaire — le défaut déjà fermé sur `getEmployeeProfile`.
 
 Verdict PROJETÉ et sans ambiguïté. Ni `subject` ni `body` : le modèle vient de
 
-
 les écrire, les lui renvoyer serait payé à chaque tour suivant. Les deux
 
 booléens sont là pour qu'aucune formulation de la réponse ne puisse promettre
@@ -369,7 +361,6 @@ un envoi.
 **Avant `scheduledLabel: frenchFullLabel(new Date(when), DISPLAY_TIMEZONE),`**
 
 ⚠️ LE JOUR DE LA SEMAINE EST CALCULÉ ICI, et c'est un correctif mesuré en production
-
 
 le 2026-08-19 : l'agent avait répondu « à 09 h 00 le lundi 22 août 2026 », alors que
 
@@ -459,7 +450,6 @@ de l'organisation. C'est le même niveau que sur le canal Slack, pour la même r
 
 Description et `describe()` sont réémis à CHAQUE aller-retour : on n'y garde que
 
-
 ce que le nom du champ ne dit pas déjà. Ce qui reste est le contrat de sécurité
 
 (destinataire par UUID, jamais par adresse) — il doit rester lisible par le modèle.
@@ -467,14 +457,12 @@ ce que le nom du champ ne dit pas déjà. Ce qui reste est le contrat de sécuri
 
 Pas de `recipientEmail` ni de `recipientSlackId` : voir le modèle de menace ci-dessus.
 
-
 Un LLM qui les émettrait quand même les verrait supprimés par Zod (`z.object` retire
 
 les clés inconnues), et `execute` ne les lit de toute façon jamais.
 **Avant `subject: z.string().min(1).max(200).describe('rédige-le, ne le demande pas'),`**
 
 ⚠️ DÉROGATION DE RÉDACTION, POSÉE PAR CHAMP — jamais dans les instructions de
-
 
 l'agent. `AGENT_ANTI_INVENTION_BLOCK` lui interdit d'inventer une donnée absente ;
 
@@ -489,7 +477,6 @@ la dérogation ne porte que sur les deux champs qui sont effectivement de la pro
 
 ⚠️ Borne HAUTE ajoutée le 2026-08-13. `title`/`subject` étaient bornés à 200 sur la
 
-
 ligne voisine, ce champ ne l'était pas — asymétrie relevée par l'audit, et c'est le
 
 champ VOLUMINEUX. Rien en aval ne tronque : ni les assainisseurs de document ni les
@@ -503,7 +490,6 @@ tokens.
 
 Défauts, comme `generateDocument` (`format` → pdf, `deliverTo` → slack), le seul
 
-
 outil de la campagne qui ait abouti. Un champ obligatoire sans défaut est une
 
 question posée à l'humain ; il n'en reste que trois, et les trois sont
@@ -512,7 +498,6 @@ irremplaçables.
 **Avant `if (!canPerformSideEffects(_ctx?.requestContext, data.recipientId)) {`**
 
 FRONTIÈRE D'AUTORISATION — avant toute résolution, avant toute E/S
-
 
 C'est LE tool à protéger en premier. Il fait partir un email depuis le compte Gmail
 
@@ -535,7 +520,6 @@ refuser y casserait le parcours d'onboarding qui envoie l'email de bienvenue.
 
 On INSTRUIT plutôt que de lever. Une exception remonterait au modèle comme une
 
-
 panne, qu'il raconterait comme telle ou qu'il réessaierait — deux allers-retours
 
 gâchés sur un budget de ≈19 messages/jour. Ici il lit un refus et peut le dire.
@@ -543,12 +527,10 @@ gâchés sur un budget de ≈19 messages/jour. Ici il lit un refus et peut le di
 
 Les défauts du schéma sont appliqués par la validation Mastra ; ces replis
 
-
 couvrent l'appel direct (tests, workflows) qui court-circuite le parseur.
 **Avant `const supplied = data as Record<string, unknown>;`**
 
 Un LLM peut émettre des champs hors schéma lors d'un appel direct (hors validation
-
 
 Mastra). On ne les utilise pas, mais on les journalise : une adresse proposée par le
 
@@ -556,7 +538,6 @@ modèle est un signal de tentative d'injection.
 **Avant `const recipient = await employeeRepo.findById(data.recipientId);`**
 
 Phase 1 — Résolution (échoue bruyamment)
-
 
 `recipientId` désigne TOUJOURS la personne à notifier, quel que soit `recipientType`.
 
@@ -577,14 +558,12 @@ proposée par le modèle.
 
 Le compte Slack se déduit de l'email d'annuaire : le LLM ne choisit ni le canal
 
-
 ni l'utilisateur. `chat.postMessage` accepte un identifiant utilisateur et ouvre
 
 la conversation directe correspondante.
 **Avant `let status: NotificationStatus;`**
 
 Phase 2 — Envoi (un échec de transport est enregistré, pas propagé)
-
 
 `Sent` était posé AVANT le `try`, donc par DÉFAUT : les cinq canaux non
 
@@ -601,14 +580,12 @@ atteindre `Sent` sans qu'un fournisseur ait réellement rendu la main.
 
 `textEmailBody` ÉCHAPPE : le corps part dans un slot HTML chez les deux
 
-
 fournisseurs, et l'assainissement ci-dessus ne couvre pas ce risque-là — retirer
 
 un lien n'empêche pas une balise d'être interprétée.
 **Avant `body: safe.text,`**
 
 Le corps ASSAINI, jamais celui du modèle : une ligne enregistrée avec un marqueur
-
 
 ou un lien fabriqué ressortirait telle quelle au premier code qui la relirait —
 
@@ -618,7 +595,6 @@ persistance d'un document.
 **Avant `return {`**
 
 Verdict PROJETÉ. On ne renvoie ni `subject` ni `body` : c'est le modèle qui
-
 
 vient de les écrire, les lui refacturer à chaque aller-retour suivant est un
 
@@ -640,7 +616,6 @@ propres ports (cf. CLAUDE.md). La feature `notification` n'importe donc jamais l
 internes de la feature `employee` ; c'est `src/mastra/index.ts` qui branche
 l'implémentation Drizzle, structurellement compatible avec cette interface.
 
-
  Enregistrement d'annuaire — la seule source de vérité pour une adresse de destination.
 ## `features/notification/domain/ports/providers.ts`
 
@@ -660,7 +635,6 @@ nodemailer, base64 pour l'API Brevo).
 doivent continuer à compiler et à produire exactement le même message.
 
 La taille totale est bornée — voir `domain/services/email-attachment-policy.ts`.
-
 
 ⚠️ `body` est un {@link EmailBody}, jamais une chaîne — corrigé le 2026-08-20.
 
@@ -730,7 +704,6 @@ franchissable par simple parallélisme.
 La clé porte déjà le numéro de fenêtre (voir `buildCounterKey`) : il n'y a donc jamais de
 remise à zéro à effectuer, seulement des lignes qui cessent d'être consultées.
 
-
 @param by Pas d'incrément. Défaut `1` — les appelants qui comptent des MESSAGES ne
   changent pas.
 
@@ -744,7 +717,7 @@ remise à zéro à effectuer, seulement des lignes qui cessent d'être consulté
     manque, et le compte est rendu sans être modifié. C'est ce qui permet de CONSULTER un
     budget avant un appel de modèle et de l'INCRÉMENTER après — le coût réel n'étant connu
     qu'a posteriori — sans ajouter de méthode au port ni un second aller-retour.
-**Avant `prune(now: Date): Promise<number>;`**
+**Avant `pruneExpired(now: Date): Promise<number>;`**
 
  Purge les fenêtres expirées. Appelée opportunément — aucun cron ne le fera.
 
@@ -767,7 +740,6 @@ produisent une double réponse. D'où ce port, implémenté sur la base partagé
 
 ⚠️ `claim()` tourne AVANT l'ACK HTTP, sur le chemin qui a 3 secondes : une implémentation
 doit s'y tenir à UN aller-retour dans le cas passant.
-
 
 État d'une clé.
  - `in-flight` : le traitement est en cours ; un rejeu concurrent doit être ignoré.
@@ -817,7 +789,7 @@ port existe pour fermer — deux instances liraient « absente » avant que l'un
 Libère la clé après un échec inattendu, pour qu'un rejeu Slack reparte immédiatement
 au lieu d'être avalé par la déduplication.
 
-**Avant `prune(olderThan: Date): Promise<number>;`**
+**Avant `pruneOlderThan(cutoff: Date): Promise<number>;`**
 
  Purge les clés au-delà de la rétention. Appelé opportunément, pas par un cron.
 
@@ -935,7 +907,6 @@ Volontairement ABSENTS :
 
 L'ORDRE EST : NOMS SPÉCIFIQUES D'ABORD, VERBES GÉNÉRIQUES ENSUITE.
 
-
 Réordonné le 2026-08-12. `onboardingOrchestrator` était en tête et possède `retrouve` et
 
 `recherche` — deux verbes que les DEUX tools de `knowledgeAgent` emploient pour se décrire
@@ -1003,7 +974,6 @@ un bouton et une modale, jamais par un message, donc il ne passe pas par le rout
 
 Ajouté le 2026-08-12 avec `knowledgeAgent`. La bande 1 doit rester SYMÉTRIQUE : chaque
 
-
 agent y a ses termes, aucun n'est un puits. Un quatrième agent sans porte d'entrée serait
 
 inatteignable dès le deuxième message d'un fil, `stickyAgentId` étant renseigné dès le
@@ -1033,7 +1003,6 @@ Volontairement ABSENTS, au critère « ouvre une tâche nouvelle » :
 
 Le puits, en DERNIER : ses termes sont majoritairement des verbes génériques, et le défaut
 
-
 du routage est de toute façon cet agent. Y placer un mot revient donc surtout à le retirer
 
 aux autres — ce qui est exactement ce qui s'est produit avec `retrouve`.
@@ -1053,7 +1022,6 @@ l'intérieur du mot. « word » reste écarté : mot anglais courant (« in othe
 **Avant `const NOTIFICATION_TOPICS = ['email', 'message'] as const;`**
 
 ⚠️ `QUESTIONNAIRE_TOPICS = ['test']` a été RETIRÉ le 2026-08-14 avec l'agent. « test »
-
 
 retombe au défaut. C'est aussi une amélioration en soi : ce mot-clé désignait un agent de
 
@@ -1081,7 +1049,6 @@ Volontairement absents : `dit` et `parle`, trop courants même ici.
 Un JETON DE CANAL Slack — `<#C0ABC123|general>` — vaut mieux que n'importe quel mot-clé
 pour désigner une question de canal : il est produit par le client Slack, jamais tapé, et il
 survit à `cleanText` (qui ne retire que la mention du bot).
-
 
 ⚠️ `i` OBLIGATOIRE : le motif est évalué sur le texte MINUSCULÉ (`lowerText`), comme tous
 
@@ -1111,7 +1078,6 @@ capacités du BOT, pas l'annuaire des personnes — même critère de discrimina
 qui a fait écarter « ajoute » et « word ».
 Les variantes non accentuées sont déclarées : `routeToAgent` minuscule le texte mais ne
 retire PAS les accents, et une saisie mobile dans Slack les perd.
-
 
 ⚠️ L'apostrophe TYPOGRAPHIQUE (`’`, U+2019) est acceptée au même titre que l'ASCII : c'est
 
@@ -1187,7 +1153,6 @@ l'ancien comportement, pas une régression.
 
 « Qui s'occupe du backend ? » — la seule porte d'entrée de `findExpertise`, et il n'en a
 
-
 AUCUNE avant le 2026-08-14 : le tool était câblé mais structurellement inatteignable.
 **Avant `const VERB_STEM_KEYWORDS: ReadonlySet<string> = new Set([`**
 
@@ -1211,7 +1176,6 @@ ferait revenir les faux positifs d'origine — « rappelle », « messagerie »,
 Identifiants d'agents connus. Sert à valider l'agent collant relu en base : une valeur
 corrompue ou l'identifiant d'un agent retiré du registre ferait sinon lever
 `mastra.getAgent()` à chaque message du fil, condamnant la conversation entière.
-
 
 Agent porté par les tours mémorisés qui ne viennent d'AUCUN agent — aujourd'hui la seule
 réponse déterministe du système, celle aux salutations nues. On l'attribue au routage par
@@ -1249,7 +1213,6 @@ comme `/\bbloqué\b/` ne matche JAMAIS. Piège rencontré trois fois dans ce dé
 
 `escaped` sort de la ligne ci-dessus, et `keyword` vient des tables de ce module :
 
-
 jamais d'un utilisateur.
 **Avant `export function routeToAgent(text: string, stickyAgentId?: string): string {`**
 
@@ -1276,7 +1239,6 @@ d'`AGENT_TOOLS` : déplacer un outil d'un agent à l'autre change le routage tou
 
 1. ÉCHAPPEMENT. Prime sur le fil en cours : une demande explicite doit pouvoir SORTIR
 
-
 d'une conversation collée sur le mauvais agent, sinon le fil est un piège sans issue.
 
 L'ordre du tableau EST la priorité entre agents.
@@ -1287,7 +1249,6 @@ L'ordre du tableau EST la priorité entre agents.
 **Avant `if (stickyAgentId && KNOWN_AGENT_IDS.has(stickyAgentId)) {`**
 
 2. COLLANT. Correction du défaut central mesuré le 2026-08-11 : le routage était
-
 
 recalculé sur le texte de CHAQUE message, isolément. « Par email » répondait à une
 
@@ -1337,7 +1298,6 @@ Formules relevées telles quelles sur la campagne du 2026-08-11 : « C'est fait 
 **Avant `{`**
 
 ── Famille MISE À JOUR, ajoutée le 2026-08-13 sur relevé de production ──
-
 
     Karyl  : « @Mastra ajoute en une quatrième »
 
@@ -1471,9 +1431,7 @@ donc un DM QUE si le message d'origine faisait DÉJÀ partie d'un thread (`threa
 et différent de `ts` ; sinon `thread_ts` == `ts` == la racine du message courant, pas un
 vrai thread existant).
 
-
 LA PROMESSE D'AVENIR — le symétrique de tout ce qui précède
-
 
 Tout ce module guette l'ACCOMPLI non appuyé par un outil. Il est aveugle à la faute
 inverse, mesurée en production le 2026-08-18 :
@@ -1520,7 +1478,6 @@ Volontairement ABSENTS :
  - le passé (« a été envoyé ») — c'est le domaine de `ACCOMPLISHMENT_CLAIMS`, et le
    couvrir ici accolerait deux notes à la même phrase.
 
-
  Pronoms enclitiques français, dans l'ordre où ils s'empilent : « je **le lui** enverrai ».
 **Avant `const SEND_VERBS_FUTURE = 'enverrai|transmettrai|expedierai|adresserai';`**
 
@@ -1529,7 +1486,6 @@ Volontairement ABSENTS :
 **Avant `label: 'planifié',`**
 
 ⚠️ AJOUTÉ le 2026-08-19 après mesure en production. `notificationAgent` a répondu
-
 
 « Rappel PLANIFIÉ : … » alors que `scheduleReminder` rend explicitement
 
@@ -1546,7 +1502,6 @@ enregistreur sans transport (`onlyNonDeliveringTools`).
 
 ⚠️ « PROGRAMMÉ » — relevé en production le 2026-08-19 au soir, sur le tour SUIVANT le
 
-
 correctif de « planifié » : « Le rappel a bien été programmé pour le samedi 22 août ».
 
 Le synonyme avait été écarté au premier passage comme trop polysémique (« le programme
@@ -1562,12 +1517,10 @@ d'intégration » n'en a pas.
 
 Même famille, formulée du côté du destinataire. « Tu recevras un rappel lundi » est la
 
-
 promesse la plus concrète que ce système ne peut pas tenir.
 **Avant `pattern: new RegExp(`\\bje ${ENCLITIC}?${ENCLITIC}?(?:${SEND_VERBS_FUTURE})\\b`),`**
 
 ⚠️ Les pronoms sont RÉPÉTABLES : « je **le lui** enverrai » en empile deux, et un seul
-
 
 groupe optionnel laissait passer la phrase la plus naturelle des trois. Attrapé par le
 
@@ -1645,7 +1598,6 @@ l'avertissement d'attribution.
 
  ----------------------------------------------------------------------- *
 Préambule serveur : QUI parle au modèle
-
 
 Préfixe posé sur un tour `assistant` produit par un AUTRE agent que celui du tour courant.
 
@@ -1771,7 +1723,6 @@ ailleurs par injection.
 
 ── QUEL JOUR ON EST ────────────────────────────────────────────────────
 
-
 ⚠️ Ajouté le 2026-08-19 sur un défaut MESURÉ, et la cause n'était pas une faiblesse du
 
 modèle. Sonde signée : « Prépare un entretien pour … lundi prochain à 9h » → réponse
@@ -1807,7 +1758,6 @@ subsiste ; ceci en réduit la fréquence, l'affichage la rend rattrapable.
 
 ⚠️ LE FAIT SEUL, sans consigne. « Calcule toute date relative à partir de là, n'en
 
-
 invente jamais une » a été écrit puis retiré : ce qui manquait n'était pas une
 
 instruction — `AGENT_ANTI_INVENTION_BLOCK` interdit déjà d'inventer — mais la DONNÉE.
@@ -1816,7 +1766,6 @@ La consigne coûtait 20 tokens par tour pour répéter une règle déjà posée.
 **Avant `const email = safeIdentifier(input.email, EMAIL_SHAPE);`**
 
 VALIDÉS PAR LEUR FORME, pas rabotés — voir `safeIdentifier`. `slack_directory.email`
-
 
 vient du profil Slack, donc d'un champ que son porteur édite : c'est une entrée non
 
@@ -1828,7 +1777,6 @@ Une seule ligne pour les deux : le préfixe est repayé à chaque aller-retour.
 **Avant `const facts = (input.pinnedFacts ?? []).filter((fact) => fact.trim().length > 0);`**
 
 ── MÉMOIRE LONGUE ──────────────────────────────────────────────────────
-
 
 Dans le message `system`, et surtout PAS dans le bloc `<kisso_XXXX_user_input>` que la
 
@@ -1999,24 +1947,20 @@ choisie contre un cas réel. Ne pas réordonner sans relire les justifications.
 
 En tête : une salutation n'est ni une détresse ni une demande. C'est aussi le seul
 
-
 court-circuit qui doive laisser une trace en mémoire — voir `remembersTurn`.
 **Avant `name: 'file_attachment',`**
 
 Avant les deux formes ci-dessous : un fichier arrive souvent avec un texte vide, et
-
 
 c'est la pièce jointe qui fait sens, pas le vide.
 **Avant `name: 'no_textual_content',`**
 
 Zéro lettre, zéro chiffre : le modèle n'a rien à traiter. Il coûtait pourtant un run
 
-
 complet, ≈ 5 % du budget quotidien, pour répondre « que puis-je faire ? ».
 **Avant `name: 'over_length',`**
 
 La borne EXISTE déjà dans `wrapUserInput`, mais elle y lève une `SecurityBlockError`
-
 
 que `userFacingFailure` traduit en refus de POLITIQUE — là où le problème est une
 
@@ -2027,12 +1971,10 @@ celle de `wrapUserInput` reste la garantie des appelants qui ne passent pas par 
 
 ⚠️ La longueur, JAMAIS le texte : c'est un DM, et ce chemin est précisément celui des
 
-
 copier-coller de documents internes.
 **Avant `name: 'distress',`**
 
 Avant la frontière d'autorisation : quelqu'un qui va mal ne doit pas se heurter à une
-
 
 politique d'accès. C'est le seul endroit de ce dépôt où un défaut peut nuire à une
 
@@ -2041,12 +1983,10 @@ PERSONNE — et l'absence d'appel LLM écarte au passage tout outil parasite.
 
 ⚠️ Ni le texte ni l'auteur : c'est la confidence la plus sensible que ce produit
 
-
 puisse recevoir. On journalise QUE le fait, pour savoir que le chemin a servi.
 **Avant `name: 'profile_done',`**
 
 ── À partir d'ici, les court-circuits qui AGISSENT. Ils restent exécutés par le
-
 
 handler ; seul leur PRÉDICAT vit ici, pour que le miroir ne puisse pas diverger.
 
@@ -2071,12 +2011,10 @@ pour la salutation et la détresse, réapparu sur un chemin ajouté depuis.
 
 Placé avant la frontière d'autorisation, comme la détresse : effacer ses données est
 
-
 un droit, pas un privilège de niveau `full`.
 **Avant `name: 'pin_fact',`**
 
 Mémoriser un fait ne consomme aucun token, et quelqu'un qui a épuisé son quota doit
-
 
 pouvoir corriger ce que le bot sait de lui — c'est même le geste qui réduira ses
 
@@ -2084,7 +2022,6 @@ tours suivants.
 **Avant `name: 'profile_form_request',`**
 
 Remplir son propre dossier n'est pas un privilège : un invité rétrogradé en `readonly`
-
 
 doit pouvoir se déclarer, c'est même le seul geste qui puisse l'en faire sortir.
 **Avant `export function isAnsweredWithoutModel(input: DeterministicReplyInput): boolean {`**
@@ -2200,7 +2137,6 @@ une consigne est PROBABLE, le code est GARANTI.
 ⚠️ Ce module ne remplace PAS l'assainissement du contenu, et l'un ne couvre pas l'autre :
 échapper `<script>` ne retire pas `https://evil.tld`, et retirer le lien n'empêche pas la
 balise d'être interprétée. Voir `sanitizeNotificationBody` dans `shared/security/agent-output.ts`.
-
 
  Corps d'email, dans les deux formes que tout client attend.
 **Avant `readonly html: string;`**
@@ -2332,7 +2268,6 @@ c'est elle qui porte le sens, pas le chiffre.
 
 Sa raison d'être est écrite juste au-dessus : elle borne une part du plafond du
 
-
 FOURNISSEUR. Elle n'a donc rien à dire d'un message auquel on répond sans modèle.
 **Avant `export const WORKSPACE_SUBJECT = 'workspace';`**
 
@@ -2342,9 +2277,7 @@ Sujet du compteur d'ÉQUIPE. Une seule clé pour tout le monde — c'est la port
 
 BUDGET DE TOKENS DE L'ÉQUIPE — la seule règle qui mesure ce qui casse réellement.
 
-
 Pourquoi les deux règles ci-dessus ne suffisaient pas
-
 
 Elles comptent des MESSAGES ; la ressource se consomme en TOKENS. Deux conséquences, et
 chacune suffirait :
@@ -2361,9 +2294,7 @@ chacune suffirait :
     2026-08-11 (`TPD: Limit 100000, Used 98207`), et rien ne la mesurait : le plafond par
     personne ne protège que du cas dégénéré à un seul acteur.
 
-
 ⚠️ Le comptage est POST-HOC, et ça ne peut pas être autrement
-
 
 Le coût d'un appel n'est connu qu'APRÈS lui (`usage.inputTokens`). Le message qui fait
 franchir le seuil passe donc toujours, et le dépassement est constaté au message suivant.
@@ -2379,7 +2310,6 @@ défaut corrigé le 2026-08-13, transposée de l'individu au collectif.
 **Avant `limit: 90_000,`**
 
 90 % du TPD réel (100 000). La marge absorbe l'overshoot ×2 documenté sur les fenêtres
-
 
 fixes et laisse de quoi terminer un run engagé — un plafond calé au ras couperait le
 
@@ -2437,7 +2367,6 @@ ne doit pas pouvoir couper 100 % du trafic en silence — c'est la classe de pan
 
 Extraits le 2026-08-17 vers `infrastructure/ui/welcome-blocks.ts` — voir son en-tête.
 
-
 Réexportés en fin de fichier : d'autres modules et des tests les importent depuis ici.
 **Avant `export interface SlackMessageEvent {`**
 
@@ -2452,7 +2381,6 @@ Le découpage est volontaire :
  - `handleEvent()` est ASYNCHRONE et lancé en tâche de fond APRÈS l'ACK : il résout
    le `bot_user_id`, appelle l'agent LLM (2 à 17 s d'après TEST_REPORT.md) puis poste
    la réponse dans Slack.
-
 
 Événement porteur de texte : `message` et `app_mention`.
 
@@ -2714,9 +2642,7 @@ un fil de mille messages en mémoire pour n'en garder que six.
 
 Probabilité qu'un message déclenche une purge, en tâche de fond.
 
-
 Pourquoi une PROBABILITÉ et non plus un compteur — le TTL ne s'appliquait qu'en LECTURE
-
 
 La forme précédente était « un message sur cent », sur un compteur d'instance
 (`this.processedMessages`, en mémoire). Ce compteur ne peut pas fonctionner ici, et c'est
@@ -2869,7 +2795,6 @@ Volontairement PAS dans le constructeur : le handler est instancié au chargemen
 module par `getSlackEventsHandler`, et ouvrir une connexion Drizzle à ce moment-là
 paierait la latence de connexion sur le chemin d'ACK — celui qui a 3 secondes.
 
-
 Dépôt de déduplication partagée, construit paresseusement.
 
 Même raison que pour la mémoire : le handler est instancié au chargement du module, et
@@ -2894,7 +2819,6 @@ enfermée dans une classe.
 Résout (et met en cache) l'identifiant utilisateur du bot via `auth.test()`.
 Attendu sur le workspace Kisso Ind. (`TMLKC4EPP`) : `U0BMBEJTBMJ`.
 Jamais codé en dur : le token peut changer de bot.
-
 
 Annuaire, politique d'accès et compteur de débit — tous construits PARESSEUSEMENT, pour la
 même raison que la mémoire et la déduplication : le handler est instancié au chargement du
@@ -2921,7 +2845,6 @@ sécurité finit toujours par être lu comme s'il faisait quelque chose.
 
 ⚠️ PÉREMPTION — sans elle, l'annuaire est un cache ÉCRIT UNE FOIS et jamais
 
-
 relu : une personne dont le compte Slack est désactivé garderait son niveau
 
 d'accès indéfiniment, puisque la seule chose qui pourrait le lui retirer
@@ -2947,12 +2870,10 @@ système, pour une donnée qui change quelques fois par an.
 
 Écriture opportuniste : l'échec ne doit pas coûter la décision, qui est déjà
 
-
 calculable à partir des faits qu'on vient de lire.
 **Avant `return { ...facts, employeeId: null, isManager: false };`**
 
 ⚠️ On COMPLÈTE explicitement les deux faits d'autorisation que Slack ignore,
-
 
 au lieu de rendre `facts` tel quel. La personne vient d'être apprise : elle
 
@@ -2974,7 +2895,6 @@ suspendre l'application vaut mieux que couper l'équipe sur une erreur SQL.
 **Avant `this.limiter = new SlackRateLimiter({`**
 
 ⚠️ Les limites se lisent depuis l'ENVIRONNEMENT, et c'est ce qui rend enfin vraie la
-
 
 phrase du refus (« c'est un réglage de déploiement »). `readRuleLimit` avait été écrit
 
@@ -3000,7 +2920,6 @@ systématiquement sur une enveloppe `event_callback`.
 **Avant `if (event && !isTeamJoinEvent(event)) {`**
 
 `channel:ts` PRIME sur `event_id` pour les événements porteurs de texte.
-
 
 Une même prise de parole peut produire DEUX événements aux `event_id`
 
@@ -3031,12 +2950,10 @@ Règles :
 
 ⚠️ AVANT la prise de clé : un événement périmé ne doit ni être traité, ni consommer
 
-
 une clé de déduplication qu'il faudrait ensuite refermer.
 **Avant `const limited = await this.checkRateLimit(event);`**
 
 ⚠️ APRÈS la déduplication, jamais avant. Un rejeu Slack n'est pas un nouveau message :
-
 
 le compter consommerait le quota de quelqu'un pour un événement qu'il n'a envoyé qu'une
 
@@ -3047,9 +2964,7 @@ que Slack rejoue le plus.
 
 L'événement est-il trop VIEUX pour qu'on y réponde encore ?
 
-
 Le défaut mesuré en production — le bot a répondu à une question d'il y a 1 h 40
-
 
     20:54  Karyl  : « tu peux me retrouver le profil de mistourath@kissohq.com ? »
     20:54  Mastra : « Je n'ai pas trouvé d'employé avec cette adresse. »
@@ -3105,7 +3020,6 @@ d'une panne.
 
 `event_time` (secondes) UNIQUEMENT — jamais `event.ts`, et la distinction compte.
 
-
 `ts` est l'IDENTIFIANT d'un message dans son canal ; c'est la matière première de la
 
 clé de déduplication, pas une horloge. Rejeux, fixtures et outils de test le tiennent
@@ -3135,7 +3049,6 @@ NE LÈVE JAMAIS : `SlackRateLimiter` dégrade tout seul vers son compteur local 
 store partagé est indisponible, et une panne du compteur ne doit pas devenir une panne du
 bot. Ici on n'ajoute qu'une garde de plus, par principe de non-régression.
 
-
 Ce message sera-t-il traité SANS aucun appel de modèle ?
 
 DÉLÉGATION à `deterministic-replies.ts`, qui déclare les huit cas une seule fois. La
@@ -3146,14 +3059,12 @@ rationner un message gratuit. Elle ne peut plus diverger.
 
 Sans `botUserId` : le chemin d'ACK n'a pas les 3 secondes d'un `auth.test()`. La
 
-
 mention résiduelle du bot ne change aucun des verdicts — une salutation reste une
 
 salutation, une longueur reste une longueur.
 **Avant `isDirectMessage: event.channel_type === 'im' || (event.channel ?? '').startsWith('D'),`**
 
 ⚠️ Le seul critère non textuel de la table qui entre dans une DÉCISION, et il est
-
 
 disponible ici sans aucune E/S — condition pour qu'il puisse servir sur le chemin des
 
@@ -3164,14 +3075,12 @@ modèle alors qu'il part chez un agent.
 
 Le sujet est la PERSONNE, pas le canal : c'est un budget de messages par humain. Sans
 
-
 auteur identifiable il n'y a personne à débiter, et refuser par défaut couperait les
 
 événements systèmes.
 **Avant `reserveOnly: true,`**
 
 ⚠️ RÉSERVATION, pas consommation. La décision d'abandonner un fil ne se prend qu'en
-
 
 tâche de fond, une fois l'historique lu — bien après ce point. Débiter ici faisait
 
@@ -3181,7 +3090,6 @@ débit réel vit dans `chargeModelBudget`, juste avant `agent.generate()`.
 **Avant `if (decision.rationsModelBudget && (await this.settlesWithoutModel(event))) {`**
 
 LE MIROIR EXACT — seule branche autorisée à lire en base sur ce chemin
-
 
 Le miroir TEXTUEL ci-dessus (`isAnsweredWithoutModel`) est évalué pour CHAQUE message
 
@@ -3222,14 +3130,12 @@ secondes n'a jamais empêché personne d'annuler un email.
 
 `shouldNotify` n'est vrai qu'au PREMIER refus de la fenêtre. Le dire à chaque message
 
-
 transformerait la protection en son propre spam — et chaque publication est elle-même
 
 un appel à l'API Slack.
 **Avant `logger.error('Rate limit check failed — letting the event through', { error });`**
 
 Fail-open BRUYANT, doctrine constante du dépôt : un message de trop est visible et
-
 
 corrigeable, un bot muet ne l'est pas.
 **Avant `private async chargeModelBudget(slackUserId: string | undefined): Promise<void> {`**
@@ -3246,7 +3152,6 @@ l'historique et résolu l'identité, pour un verdict que l'appelant a déjà obt
 **Avant `logger.error('Could not charge the model budget — serving the message anyway', { error });`**
 
 Même doctrine que le fail-open de `checkRateLimit` : un compteur en panne ne doit
-
 
 jamais priver quelqu'un d'une réponse.
 **Avant `private async settlesWithoutModel(event: SlackEvent): Promise<boolean> {`**
@@ -3277,18 +3182,15 @@ panne de lecture reviendrait à ouvrir le quota sur une panne de base.
 
 Sans `botUserId` : le chemin d'ACK n'a pas les 3 secondes d'un `auth.test()`, et la
 
-
 mention résiduelle ne change aucun de ces deux verdicts.
 **Avant `const [history, pending] = await Promise.all([`**
 
 EN PARALLÈLE : les deux lectures sont indépendantes, et ce chemin reste borné par les
 
-
 3 secondes de l'ACK même s'il est rare.
 **Avant `text: (rule && RATE_LIMIT_REPLIES[rule]) || RATE_LIMIT_REPLIES.burst,`**
 
 Tutoiement, comme les trois agents : le basculement de registre exact au moment où
-
 
 ça casse donne l'impression de deux interlocuteurs différents. Et on ne nomme pas la
 
@@ -3337,14 +3239,12 @@ doubles réponses reviennent.
 
 Une AUTRE instance mène ou a mené le traitement. On relâche notre prise locale :
 
-
 la garder en `in-flight` bloquerait localement un rejeu qui redeviendrait pourtant
 
 légitime après la grâce d'abandon.
 **Avant `logger.warn('Reprocessing an abandoned Slack event (shared claim)', {`**
 
 Symptôme d'une invocation tuée en vol : le traitement précédent n'a jamais rendu
-
 
 la main et la grâce a expiré.
 **Avant `private claimLocally(key: string, retryNum?: string | null): boolean {`**
@@ -3376,7 +3276,6 @@ confirmer l'absence d'avertissement dans les logs, PUIS durcir ici.
 
 Un message de canal passe s'il RÉPOND DANS UN FIL — et seulement dans ce cas.
 
-
 Le filtre d'origine (`channel_type !== 'im'` → rejet sec) était plus large que son
 
 motif. Il existait pour empêcher la double réponse d'une mention, qui émet à la fois
@@ -3396,7 +3295,6 @@ La restriction au fil est ce qui rend l'ouverture tenable : le bot est membre de
 
 (≈ 19 messages/jour chez Groq) en quelques échanges. Le message RACINE d'un fil est
 
-
 exclu (`thread_ts === ts`) : c'est une prise de parole neuve, pas une réponse.
 
 ⚠️ Aucune lecture en base ici : `accept()` est le chemin d'ACK, il a 3 secondes. La
@@ -3407,7 +3305,6 @@ dans `handleMessage`.
 **Avant `if (event.type === 'app_mention' && event.channel?.startsWith('D')) {`**
 
 Symétrique du filtre ci-dessus, pour les DM. Mentionner le bot dans un DM
-
 
 émet À LA FOIS `message` (channel_type 'im') et `app_mention` : on garde
 
@@ -3424,12 +3321,10 @@ le payload `app_mention` de Slack ne porte pas ce champ (vérifié dans
 
 Anti-boucle : les indices synchrones. `user === bot_user_id` est vérifié plus tard
 
-
 (nécessite un appel réseau `auth.test()`).
 **Avant `if (event.type === 'message' && event.subtype && event.subtype !== FILE_SHARE_SUBTYPE) {`**
 
 ⚠️ `file_share` est LAISSÉ PASSER — correctif du 2026-08-13.
-
 
 Déposer un PDF au bot RH est le geste le plus naturel qui soit, et il arrive avec
 
@@ -3445,7 +3340,6 @@ limite technique) : `handleMessage` répond une phrase déterministe, sans appel
 **Avant `if (event.subtype !== FILE_SHARE_SUBTYPE && !this.cleanText(event.text)) {`**
 
 Un partage de fichier porte souvent un texte VIDE : la garde ci-dessous l'écarterait
-
 
 avant que `handleMessage` ait pu répondre. Elle ne s'applique donc qu'aux vrais
 
@@ -3463,7 +3357,6 @@ contraire 100 % des arrivées réelles.
 **Avant `if (user.is_ultra_restricted || user.is_stranger) return 'restricted_user';`**
 
 Décision métier assumée : un invité MONO-canal (`is_ultra_restricted`) et
-
 
 un externe Slack Connect (`is_stranger`) ne sont jamais des embauches
 
@@ -3489,13 +3382,12 @@ Purge de rétention de la déduplication, en tâche de fond. Même cadence et m�
 raisonnement que `schedulePruneIfDue()` pour la mémoire : pas de cron dans ce projet, et
 une purge un message sur cent suffit à borner la table.
 
-
 Purge des compteurs de débit, en tâche de fond.
 
 `SlackRateLimiter.prune()` était écrit, testé… et n'avait AUCUN site d'appel :
 `rate_limit_counters` croissait sans fin, seule des quatre tables à TTL du dépôt à ne
 jamais être purgée. Même cadence et même tirage que les deux autres.
-**Avant `void this.getRateLimiter()?.prune();`**
+**Avant `void this.getRateLimiter()?.pruneExpired();`**
 
 `prune()` avale déjà ses propres erreurs et journalise : rien à rattraper ici.
 
@@ -3517,7 +3409,6 @@ conséquence — ce texte n'y sert qu'à décider si le message est vide.
 **Avant `const botMention = new RegExp(`<@${(botUserId ?? '').replace(/[^A-Z0-9]/gi, '')}>`, 'g');`**
 
 Le nettoyage de `botUserId` n'est pas cosmétique : la valeur vient de `auth.test()`,
-
 
 donc du réseau, et elle est interpolée dans une expression régulière.
 
@@ -3558,7 +3449,6 @@ Une panne d'annuaire ne doit pas devenir une panne du bot : on tombe sur Slack.
 
 `??` et non `||` : une adresse vide rendue par Slack ne doit pas écraser celle que
 
-
 l'annuaire vient peut-être de fournir.
 **Avant `async handleEvent(envelope: SlackEventEnvelope): Promise<void> {`**
 
@@ -3574,7 +3464,6 @@ C'est ICI, et seulement ici, que la clé de déduplication passe de `in-flight` 
 **Avant `if (isTeamJoinEvent(event)) {`**
 
 L'aiguillage précède délibérément `getBotUserId()` : c'est un aller-retour
-
 
 réseau (`auth.test()`) sans objet sur ce chemin — la boucle « le bot poste
 
@@ -3600,14 +3489,12 @@ SECOND DM de bienvenue, visible par la personne.
 
 L'instant de l'événement EST la date d'arrivée. Lu UNE SEULE FOIS, avant toute E/S :
 
-
 deux lectures d'horloge donneraient deux dates pour un seul et même fait, et celle qui
 
 finirait en base ne serait pas celle du journal.
 **Avant `await this.recordNewcomer(user.id, identity, joinedAt);`**
 
 Les deux gestes qui précèdent le DM sont indépendants l'un de l'autre ET du DM. Chacun
-
 
 avale son échec : ni l'annuaire ni les canaux ne valent de priver quelqu'un de son
 
@@ -3631,7 +3518,6 @@ ultérieure le renseignera.
 
 Le poste DÉCLARÉ dans Slack n'est pas lu au `team_join` : il est vide à la seconde
 
-
 zéro, et c'est précisément ce qu'on va demander à la personne.
 **Avant `private async inviteToWelcomeChannels(slackUserId: string): Promise<readonly string[]> {`**
 
@@ -3640,7 +3526,6 @@ zéro, et c'est précisément ce qu'on va demander à la personne.
 **Avant `logger.error('Welcome channel invitations threw', { error, slackUserId });`**
 
 Le service déclare ne jamais lever ; on ne le suppose pas pour autant. Une exception
-
 
 qui traverserait ce point emporterait le DM de bienvenue avec elle.
 **Avant `private async resolveNewcomer(user: SlackTeamJoinUser): Promise<NewcomerIdentity> {`**
@@ -3655,7 +3540,6 @@ collectera l'email.
 **Avant `private async runErasure(ctx: {`**
 
 EFFACEMENT DEMANDÉ — un geste RÉEL, jamais une narration
-
 
 « oublie ce que je t'ai dit », « supprime tout ce que tu sais de moi » : jusqu'ici ces
 
@@ -3684,7 +3568,6 @@ d'accès devant une demande qui ne porte que sur soi.
 
 En DM, `deriveConversationId` retombe sur le canal `D…` : la conversation EST
 
-
 l'espace privé d'une seule personne, donc tout y est à elle, tours `assistant`
 
 compris. Dans un fil de canal, plusieurs humains parlent — effacer le fil entier
@@ -3694,14 +3577,12 @@ parce que l'un d'eux le demande supprimerait les messages des autres.
 
 Hors DM sans auteur identifié, la portée serait INDÉTERMINÉE — et une portée
 
-
 indéterminée sur une suppression, c'est la suppression du fil entier. On préfère
 
 échouer bruyamment : c'est irréversible, et personne ne l'a demandé.
 **Avant `let removedFacts = 0;`**
 
 ⚠️ La mémoire LONGUE part avec, et c'est non négociable : elle survit au TTL de
-
 
 60 minutes par construction. L'oublier ici ferait qu'une personne ayant demandé
 
@@ -3724,12 +3605,10 @@ total alors que les tours, eux, sont bien partis. On le journalise et on continu
 
 Le COMPTE, jamais le contenu : c'est une trace d'exécution, pas une copie de ce
 
-
 qu'on vient précisément de supprimer.
 **Avant `logger.error('Erasure request failed', { error, channel });`**
 
 ⚠️ Ne JAMAIS retomber sur `erasureDoneReply` ici. Toute la valeur du correctif
-
 
 tient dans le fait que la réponse dit ce qui s'est réellement passé ; annoncer un
 
@@ -3740,14 +3619,12 @@ que la personne cesserait de le demander.
 
 Sans auteur identifié, la mémoire longue n'a pas de clé : elle est indexée par
 
-
 `slack_user_id`, pas par conversation. On le dit plutôt que d'écrire une ligne
 
 orpheline que personne ne relira jamais.
 **Avant `fact: factToPin,`**
 
 Le texte est déjà passé par `cleanText`. Il sera RÉÉMIS au modèle à chaque
-
 
 tour, dans le message `system` — même exigence que pour les tours de
 
@@ -3756,18 +3633,15 @@ conversation : on ne persiste jamais du brut.
 
 La LONGUEUR, jamais le contenu : c'est une donnée personnelle que la personne
 
-
 vient de confier, elle n'a rien à faire dans un journal.
 **Avant `logger.error('Pin request failed', { error, channel });`**
 
 ⚠️ Ne JAMAIS retomber sur `pinnedFactReply` ici. Promettre de se souvenir sans
 
-
 avoir pu écrire serait exactement le défaut qu'on corrige, sous une autre forme.
 **Avant `private async runProfileForm(ctx: {`**
 
 DEMANDE DU FORMULAIRE DE PROFIL — réponse déterministe, aucun appel LLM
-
 
 Le défaut : `buildWelcomeBlocks` était le SEUL émetteur du bouton, et son seul
 
@@ -3806,14 +3680,12 @@ cet état.
 
 ⚠️ `user` a été retiré de la signature le 2026-08-19, avec la lecture d'annuaire qu'il
 
-
 alimentait. Le garder « au cas où » aurait laissé croire que ce chemin sait QUI parle,
 
 alors qu'il n'a plus rien à en faire : le texte posté est le même pour tout le monde.
 **Avant `if (!isDirectMessage) {`**
 
 ⚠️ DM UNIQUEMENT — et il faut RÉÉNONCER la raison, parce que l'ancienne a disparu avec
-
 
 les boutons.
 
@@ -3838,7 +3710,6 @@ commentaire qui ment — la cause est ci-dessus, elle est neuve, et elle est vé
 
 ⚠️ La lecture d'annuaire qui vivait ici a été SUPPRIMÉE le 2026-08-19. Elle servait au
 
-
 pré-remplissage du bouton ; celui-ci retiré, elle ne nourrissait plus qu'un champ de log
 
 `prefilled` qui valait `true` alors que rien n'était pré-rempli. Un aller-retour Turso
@@ -3847,7 +3718,6 @@ pré-remplissage du bouton ; celui-ci retiré, elle ne nourrissait plus qu'un ch
 **Avant `buildProfileInviteBlocks(),`**
 
 ⚠️ Plus AUCUN pré-remplissage : il vivait dans le `value` du bouton, et c'est ce
-
 
 `value` qui imposait la restriction « DM uniquement » pour des motifs de sécurité —
 
@@ -3875,7 +3745,6 @@ ordre invisible.
 
 Phase courante du traitement. Le catch générique ci-dessous couvrait cinq points
 
-
 d'échec très différents — chaîne LLM épuisée, exception d'outil, `SecurityBlockError`
 
 de `wrapAgentInput`, agent introuvable, échec de publication Slack — et les rendait
@@ -3887,12 +3756,10 @@ distinguer dans les logs. C'est ce qui a rendu l'incident du 2026-08-11 opaque.
 
 La collance lit le DERNIER tour de l'historique BRUT, pas de la fenêtre : un fil
 
-
 peut dépasser le budget de contexte sans pour autant avoir changé d'interlocuteur.
 **Avant `await progress.resolve(`**
 
 ⚠️ Ce texte VOUVOYAIT et renvoyait « vers l'administrateur » — les deux défauts
-
 
 exacts pour lesquels `NEUTRAL_REFUSAL` a été réécrit : le basculement de registre
 
@@ -3905,7 +3772,6 @@ d'agent non plus : c'est du vocabulaire interne, sans usage pour qui le lit.
 
 Le texte Slack est une entrée UTILISATEUR non fiable : on l'encadre (délimiteurs,
 
-
 détection d'injection, neutralisation Unicode) avant de le transmettre au LLM.
 
 Peut lever `SecurityBlockError` — et c'est voulu : un message bloqué ne doit
@@ -3914,7 +3780,6 @@ atteindre ni le modèle, ni la mémoire (décision D4).
 **Avant `await this.rememberTurn({`**
 
 Le tour utilisateur est mémorisé AVANT l'appel du modèle, et seulement après que
-
 
 l'encadrement a réussi. Si la chaîne LLM échoue, la question reste connue : la
 
@@ -3936,7 +3801,6 @@ que ce qu'il a validé.
 **Avant `const identity = await requesterIdentity;`**
 
 Le contexte Slack descend jusqu'aux tools par le `requestContext` de Mastra — le seul
-
 
 canal qui n'entre PAS dans la fenêtre du modèle. Sans lui, un tool n'a aucun moyen de
 
@@ -3963,7 +3827,6 @@ valeur dit qu'il s'agit bien de la même identité des deux côtés.
 
 Mémoire LONGUE. Lue ici et non plus haut : ce chemin est le seul qui aille jusqu'au
 
-
 modèle, et les sept court-circuits qui précèdent n'en ont aucun usage — la charger
 
 avant eux paierait un aller-retour Turso pour chaque « bonjour ».
@@ -3975,7 +3838,6 @@ redevient oublieux, il ne cesse pas de répondre.
 
 ⚠️ Hissé dans une variable parce qu'il est BIDIRECTIONNEL depuis le 2026-08-18 : les
 
-
 tools de `knowledge` y ÉCRIVENT la couverture des extraits, et cette boucle est
 
 relue plus bas. C'est un canal SERVEUR — il ne traverse ni le prompt, ni les schémas,
@@ -3984,7 +3846,6 @@ ni le tool-result — donc l'aller comme le retour coûtent zéro token.
 **Avant `eventTs: event.ts,`**
 
 Identifiant du RUN pour les gardes d'idempotence des tools. `event.ts` et non
-
 
 `threadTs` : en DM `threadTs` est absent par conception, donc deux messages
 
@@ -3995,7 +3856,6 @@ légitimement demandé.
 
 Fiche employé du DEMANDEUR — la seule donnée qui permette à un tool de
 
-
 distinguer « je consulte mon dossier » de « je consulte celui d'un collègue ».
 
 Elle était déjà résolue ici et injectée dans le préambule ; elle ne descendait
@@ -4005,14 +3865,12 @@ pas jusqu'aux tools, qui n'avaient donc aucun contrôle possible.
 
 Coût en tokens : ZÉRO. Le `RequestContext` ne traverse ni le prompt, ni les
 
-
 schémas de tools, ni le tool-result — c'est ce qui permet de faire descendre une
 
 décision d'autorisation jusqu'aux tools sans jamais la soumettre au modèle.
 **Avant `abortSignal: AbortSignal.timeout(AGENT_GENERATE_TIMEOUT_MS),`**
 
 ⚠️ LA SEULE BORNE DE DURÉE DE TOUT LE CHEMIN — posée le 2026-08-20.
-
 
 Sans elle, une fonction tuée à `maxDuration` pendant cet appel laissait la
 
@@ -4037,7 +3895,6 @@ qu'une absence : on aurait cru la borne en place.
 
 Point de passage UNIQUE de toute réponse d'agent vers Slack. C'est ici,
 
-
 et nulle part ailleurs, qu'on garantit qu'aucun marqueur interne ne
 
 franchit la frontière et que le style est bien du mrkdwn Slack.
@@ -4050,7 +3907,6 @@ Les instructions et le prompt système n'y suffisent pas : la campagne du
 **Avant `const toolCalls = readToolCallNames(response);`**
 
 RÉCONCILIATION FAIT / NARRATION.
-
 
 Ce point est le SEUL du code qui voit à la fois la réponse du modèle et la trace
 
@@ -4083,12 +3939,10 @@ d'accompli que seules des lectures étayent est fausse par construction.
 
 Niveau `error`, comme pour les URL fabriquées : c'est le même genre de faute — le
 
-
 modèle affirme une réalité que le système peut démentir.
 **Avant `const registeredWithoutDelivery = toolCalls !== null && onlyNonDeliveringTools(toolCalls);`**
 
 ── LA PROMESSE D'AVENIR — le symétrique, ajouté le 2026-08-18 ──────────
-
 
 Ici l'accompli est VRAI et la suite est fausse : « Le rappel a été enregistré. Il
 
@@ -4145,7 +3999,6 @@ modèle a promis, ce qui reste le signal à suivre pour juger ses instructions.
 
 Mémorisé APRÈS assainissement : sans cela, l'unique filet anti-marqueurs serait
 
-
 contourné et un `kisso_XXXX` capté une fois se rejouerait à chaque tour suivant.
 
 ⚠️ La note de requalification n'entre PAS en mémoire, délibérément : c'est une
@@ -4158,7 +4011,6 @@ budget quotidien de ≈ 19 messages.
 **Avant `const excerptCoverage = readExcerptCoverage(requestContext);`**
 
 ⚠️ `progress.resolve` directement, et non plus un passe-plat qui recevait un
-
 
 `{ channel, text }` dont il JETAIT le `channel` : le marqueur de progression connaît
 
@@ -4191,7 +4043,6 @@ deviendrait du bruit, et le bruit s'ignore.
 
 ── LE DESTINATAIRE D'UN DOCUMENT, TROISIÈME CONSIGNE MESURÉE EN ÉCHEC ──
 
-
 Le bloc DOCUMENTS impose de citer le `recipient` depuis le 2026-08-14 : c'est la
 
 mesure de VISIBILITÉ contre l'erreur de destinataire — « Bienvenue Awa » enregistré
@@ -4219,7 +4070,6 @@ s'ignore, ce qui le ramènerait au défaut qu'il corrige.
 
 ⚠️ L'ORDRE compte, et il va du plus lié au moins lié à la réponse : la couverture
 
-
 qualifie ce qui vient d'être dit, les deux rappels parlent d'autre chose. Un
 
 rappel glissé entre la réponse et sa couverture ferait lire celle-ci comme une
@@ -4229,7 +4079,6 @@ note de bas de page du rappel.
 
 Ce que le log ne disait pas et qu'il fallait deviner : combien d'étapes le run a
 
-
 coûté, quels outils ont réellement tourné, et combien de tokens d'entrée ont été
 
 brûlés. Sans `toolCalls`, « Le PDF a été généré » est indiscernable d'une pure
@@ -4238,7 +4087,6 @@ narration du modèle. Coût : zéro token.
 **Avant `void this.getRateLimiter()?.consumeTokens(inputTokens);`**
 
 LE COÛT RÉEL EST ENFIN COMPTÉ — il était lu, journalisé, et jeté
-
 
 `inputTokens` existait déjà à cette ligne exacte et n'alimentait AUCUN compteur : il
 
@@ -4263,14 +4111,12 @@ doit rien changer pour la personne qui vient d'être servie.
 
 `error.constructor.name` est conservé explicitement : `maskPii` remplace la pile
 
-
 par la constante `[STACK_TRACE]` et ne garde que `name`/`message`/`cause`, ce qui
 
 ne suffit pas à distinguer un `SecurityBlockError` d'un échec de la chaîne LLM.
 **Avant `textLength: text.length,`**
 
 ⚠️ `textLength`, JAMAIS `text` — symétrique du chemin nominal 200 lignes plus haut,
-
 
 qui explique pourquoi : le DM au bot est le canal privilégié pour parler d'un
 
@@ -4286,7 +4132,6 @@ logs au moment précis où le bot allait mal.
 **Avant `await progress.fail(userFacingFailure(error));`**
 
 `fail()` ne lève jamais : il est déjà sur le chemin d'erreur, et y remplacer une
-
 
 exception par une autre effacerait la cause d'origine.
 **Avant `private async enforceAuthorization(ctx: {`**
@@ -4304,7 +4149,6 @@ niveau `full`. Quelqu'un qui va mal ne doit pas se heurter à une politique d'ac
 **Avant `await this.slack.chat.postMessage({`**
 
 Muet sur la règle touchée, exactement comme `NEUTRAL_REFUSAL` : nommer ce qui a porté
-
 
 renseignerait un attaquant sur la sonde qui a fonctionné.
 **Avant `private async buildMessageContext(event: SlackMessageEvent): Promise<MessageContext | null> {`**
@@ -4331,12 +4175,10 @@ La promesse est déjà résolue sur ce chemin (`processEvent` l'a attendue), don
 
 Clé du fil. En DM `threadTs` est `undefined` par conception (voir plus haut), donc
 
-
 la conversation EST le canal ; en canal, c'est le thread.
 **Avant `const requesterIdentity = this.resolveRequesterIdentity(user);`**
 
 Lancée SANS `await` : la résolution de l'identité se recouvre avec la lecture de la
-
 
 mémoire au lieu de s'y ajouter. Elle ne rejette jamais (cf. `resolveRequesterIdentity`).
 **Avant `private async runStaticReply(ctx: {`**
@@ -4353,7 +4195,6 @@ Rend `true` quand la réponse a été servie et que `handleMessage` doit s'arrê
 **Avant `if (staticReply.remembersTurn && !hasPendingOnboardingQuestion(history)) {`**
 
 Seule la salutation entre en mémoire : sans elle, un fil ouvert par « bonjour » ne
-
 
 serait jamais « engagé » et `shouldAbandonThreadReply` écarterait le message
 
@@ -4390,9 +4231,7 @@ personne — dangereux. La réponse figée est servie ; c'est la MÉMOIRE qu'on 
 pour que le fil reste exactement où il était.
 **Avant `private async resolvePendingEmail(input: {`**
 
-
 LE « OUI » CONVERSATIONNEL — ce qui a remplacé le bouton « Envoyer »
-
 
 L'invitation d'entretien est le SEUL acte irréversible de ce produit : un email part vers
 une adresse extérieure, au nom de l'entreprise. Il était confirmé par un bouton ; il l'est
@@ -4413,18 +4252,15 @@ change de sujet, on lui répond, et l'email reste en attente — c'est littéral
 
 Les deux ou rien : un dépôt sans expéditeur ferait exister une attente que rien ne peut
 
-
 jamais trancher, c'est-à-dire une promesse en creux de plus.
 **Avant `logger.error('Email d’entretien en attente illisible', { error: String(error) });`**
 
 Dégradation silencieuse, comme la mémoire : sans cette lecture le « oui » repart chez
 
-
 l'agent, qui ne peut rien envoyer. Rien de faux n'est dit, seule la commodité manque.
 **Avant `if (verdict === 'stale') {`**
 
 ── ABANDONNÉE ──────────────────────────────────────────────────────────
-
 
 Sans cette borne, une préparation ne meurt jamais : la ligne reste sur la Turso — une
 
@@ -4441,7 +4277,6 @@ question ; le retirer sans un mot la laisserait croire qu'il est peut-être part
 
 ⚠️ Trois issues distinctes, et on ne les confond pas : effacé (1), déjà tranché (0),
 
-
 échec du dépôt (-1). Dire « c'est annulé » sur un échec rejouerait exactement la
 
 famille `emailSent: false` sous `status: 'success'`.
@@ -4452,7 +4287,6 @@ Ni oui ni non : la personne parle d'autre chose. On ne l'interrompt pas.
 **Avant `const shortCircuitInput = {`**
 
 SALUTATION NUE — réponse déterministe, aucun appel LLM
-
 
 Mesuré en production le 2026-08-12 : « Bonjour » (7 caractères) a déclenché
 
@@ -4501,7 +4335,6 @@ réponse. Voir `shared/reply-variants.ts` — la répétition littérale est ce 
 
 L'EMAIL D'ENTRETIEN EN ATTENTE — « oui » / « non », et rien d'autre
 
-
 Placé APRÈS les réponses figées — la détresse et la forme d'un message priment sur
 
 tout, y compris sur un email en attente — et AVANT le parcours d'accueil, dont il
@@ -4510,7 +4343,6 @@ s'efface de lui-même quand une question y attend (voir la méthode).
 **Avant `const pendingStep = pendingOnboardingStep(history, isDirectMessage);`**
 
 « J'AI FINI » À L'ÉCRIT — le jumeau du bouton « C'est fait »
-
 
 ⚠️ Ce chemin existe parce qu'un TEXTE le promettait. Le guide d'accueil dit « clique
 
@@ -4569,7 +4401,6 @@ rendrait toujours `undefined`, et le rappel ne partirait jamais.
 
 ⚠️ Résolu par le handler AVANT tout appel de modèle, et il ne vient JAMAIS de la
 
-
 fenêtre du modèle : c'est la même règle que pour `slackEmployeeId` dans le
 
 `requestContext` — on ne décide pas d'une écriture sur une valeur qu'un attaquant
@@ -4578,7 +4409,6 @@ peut écrire.
 **Avant `const acting = findActingReply(shortCircuitInput);`**
 
 COURT-CIRCUITS QUI AGISSENT — effacer, épingler, publier le formulaire
-
 
 ⚠️ Le prédicat vient de la TABLE, il n'est plus réécrit ici. Jusqu'au 2026-08-18 ces
 
@@ -4603,7 +4433,6 @@ droits, pas des privilèges de niveau `full`.
 
 FRONTIÈRE D'AUTORISATION — l'identité franchit enfin la frontière
 
-
 Jusqu'ici `event.user` servait au journal et à l'anti-boucle, puis était jeté : une
 
 chaîne `U…` opaque dont le système ne pouvait pas dire si elle désignait la responsable
@@ -4625,7 +4454,6 @@ faire ») ne désignerait pas sa cause. On lit les logs, PUIS on active.
 
 Le canal `D…` est appris ICI et NULLE PART AILLEURS : `conversations.list({types:'im'})`
 
-
 répond `missing_scope` faute du scope `im:read`. Slack nous le livre gratuitement dans
 
 `event.channel`, et une fois perdu il l'est définitivement — d'où l'écriture
@@ -4634,7 +4462,6 @@ conditionnelle côté repository, qui n'écrase jamais une valeur déjà connue.
 **Avant `logger.info('Processing Slack message', { user, channel, textLength: text.length });`**
 
 ⚠️ Le TEXTE n'est PAS journalisé, et c'est le même raisonnement que pour `audit_logs`
-
 
 vingt lignes plus bas : le DM au bot est le canal privilégié pour parler d'un salaire,
 
@@ -4651,7 +4478,6 @@ distingue un message vide d'un pavé, sans en révéler le contenu.
 
 ⚠️ `accepted`, PAS `success` — correctif du 2026-08-19. Cette ligne est écrite avant
 
-
 le débit du budget, avant l'appel d'agent, avant la publication, et rien ne la met à
 
 jour ensuite : le défaut `?? 'success'` de `writeAuditLog` faisait donc enregistrer
@@ -4665,12 +4491,10 @@ pas un arbitrage. On dit ce qu'on a constaté : la demande est entrée.
 
 Le TEXTE n'est jamais enregistré : le DM au bot est le canal privilégié pour parler
 
-
 d'un salaire ou d'un litige, et une table consultable n'expire pas comme un log.
 **Avant `await this.chargeModelBudget(user);`**
 
 ⚠️ LE DÉBIT DU BUDGET MODÈLE A LIEU ICI, et pas à l'ACK.
-
 
 Tout ce qui précède peut encore renoncer sans rien coûter : un fil abandonné, une
 
@@ -4691,7 +4515,6 @@ pire des séquences.
 
 Marqueur de progression posté IMMÉDIATEMENT, avant tout appel LLM. Un run prend 2 à
 
-
 17 s (jusqu'à ~21 s quand le back-off du dernier maillon se déclenche), pendant
 
 lesquelles le bot paraissait totalement muet. `startProgress` ne bloque pas : il rend
@@ -4703,14 +4526,12 @@ la main sans attendre l'aller-retour Slack, et la réponse finale REMPLACE le ma
 
 ⚠️ ACCOLÉ à la réponse de l'agent, jamais posté à part : deux messages feraient
 
-
 paraître le bot bavard là où il ne fait que ne pas oublier. Et il ne bloque rien —
 
 la personne a changé de sujet, on lui répond d'abord.
 **Avant `onboardingReminder: onboardingNudge(pendingStep, event.ts),`**
 
 Même forme, même raison, autre objet : une question d'accueil est restée sans réponse
-
 
 parce que la personne a parlé d'autre chose. Répondre EFFACE l'état de la machine
 
@@ -4726,14 +4547,12 @@ déjà nettoyée quand on arrive ici.
 
 Niveau `error` volontaire : une fuite de marqueur signifie que le modèle a été amené
 
-
 à parler de son propre garde-fou. C'est la ligne à chercher dans les logs après une
 
 tentative d'extraction de prompt.
 **Avant `logger.error('Agent output carried fabricated links — links removed', {`**
 
 Un lien fabriqué n'est PAS une fuite : la réponse reste utile, seul le lien est
-
 
 retiré. Le niveau `error` est néanmoins volontaire — c'est la ligne qui aurait fait
 
@@ -4764,7 +4583,6 @@ contexte à continuer. Un `app_mention` n'est jamais concerné : la mention EST 
 
 ⚠️ Le JUMEAU `message` d'une mention en canal doit rester traité.
 
-
 Une mention émet à la fois `app_mention` et `message`, et les deux partagent
 
 `channel:ts` — donc UNE SEULE clé de déduplication. Avant l'ouverture aux fils, le
@@ -4781,7 +4599,6 @@ ou non.
 **Avant `return !history.some((turn) => turn.role === 'user' && turn.slackUserId === event.user);`**
 
 ⚠️ « Le bot a déjà parlé ici » ne suffit PAS — relevé par l'audit du 2026-08-13.
-
 
 La garde ci-dessus ouvre le fil, elle ne dit rien de QUI parle. Dans un fil où le bot
 
@@ -4827,7 +4644,6 @@ un changement de contrat de Mastra, dans les deux sens.
  ----------------------------------------------------------------------- *
 Mémoire conversationnelle
 
-
 Historique récent du fil. **N'échoue jamais vers l'appelant** : une mémoire
 indisponible doit dégrader le bot vers son comportement d'avant — amnésique mais
 fonctionnel — et surtout pas le rendre muet. C'est notamment le cas tant que la table
@@ -4861,7 +4677,6 @@ dossier de cette personne — la même asymétrie de sécurité que `profile-req
 **Avant `if (!answersOnboardingQuestion(input)) return false;`**
 
 ⚠️ Les TROIS gardes communes aux deux machines vivent dans `answersOnboardingQuestion`
-
 
 depuis le 2026-08-20 : DM, court-circuit agissant prioritaire, question posée au bot.
 
@@ -4910,7 +4725,6 @@ dialogue payé pour rien, sur un budget qui se compte à la journée.
 
 ⚠️ RELIER D'ABORD, DEMANDER ENSUITE — l'ordre EST le correctif du 2026-08-19.
 
-
 La question de l'entretien invite la personne à répondre ; sa réponse arrive au
 
 tour SUIVANT, avec une identité relue de l'annuaire. Poser la question avant
@@ -4920,7 +4734,6 @@ d'avoir relié rejouerait le défaut un tour plus tard.
 
 ⚠️ NON ATTENDU, et journalisé sur échec : prévenir le manager est une COURTOISIE
 
-
 envers un tiers, pas une étape du parcours de l'arrivant. La faire attendre —
 
 ou pire, la laisser échouer — retarderait la question suivante d'un aller-retour
@@ -4929,7 +4742,6 @@ Slack pour un message qui ne le concerne pas.
 **Avant `startDateFromJoin(await this.joinedAtOf(input.user), new Date()),`**
 
 ⚠️ LA DATE D'ARRIVÉE VIENT DE L'ANNUAIRE, plus d'un bouton — 2026-08-19.
-
 
 Elle voyageait dans le `value` du bouton (`joinedAt`), posé par `handleTeamJoin`.
 
@@ -4950,9 +4762,7 @@ perdre en route. Absente, on retombe sur aujourd'hui, comme avant.
 
 Quelqu'un vient de se déclarer au SOMMET — le dire au sommet.
 
-
 Ce que ce chemin ne fait PAS
-
 
 Il n'accorde rien, ne refuse rien, ne bloque rien. Un intitulé de poste est DÉCLARATIF —
 la personne le tape elle-même — et le seul fait qui ouvre la portée est
@@ -4975,12 +4785,10 @@ ZÉRO token : prédicat pur et texte écrit en dur, aucun modèle sur ce chemin.
 
 Le nom résolu, jamais celui que la personne vient de taper : c'est l'annuaire qui
 
-
 dit qui elle est, et le destinataire du message la connaît sous ce nom-là.
 **Avant `await this.slack.chat.postMessage({ channel: manager.slackUserId, text: notice });`**
 
 `chat.postMessage` sur un `U…` ouvre le DM : le canal `D…` de l'annuaire n'est
-
 
 connu que si la personne a déjà écrit au bot, et un manager qui ne lui a jamais
 
@@ -4988,7 +4796,6 @@ parlé est précisément celui qu'il faut pouvoir joindre.
 **Avant `logger.error('Impossible de prévenir le manager d’une déclaration de poste', {`**
 
 AVALÉ : l'arrivant vient d'enregistrer son dossier et attend la question suivante.
-
 
 Lui montrer l'échec d'un message qui ne lui était pas destiné n'a aucun sens, et
 
@@ -5030,7 +4837,6 @@ déclenche.
 **Avant `if (linked === 0) {`**
 
 ⚠️ ON NE L'ANNONCE QUE SI UNE LIGNE A BOUGÉ — trouvé EN PRODUCTION le 2026-08-19, en
-
 
 testant ce correctif le jour même où il a été écrit. `linkEmployee` est un
 
@@ -5080,7 +4886,6 @@ est de la sécurité et non de l'ergonomie.
 
 ⚠️ Le prédicat vient de la TABLE, il n'est pas réécrit ici — même règle que pour les
 
-
 trois autres court-circuits agissants depuis le 2026-08-18. C'est ce qui garantit que
 
 `isAnsweredWithoutModel` en soit le miroir exact : une seule déclaration, donc aucune
@@ -5102,14 +4907,12 @@ formulaire qui n'a rien à corriger.
 
 L'email vient de l'ANNUAIRE Slack, jamais du texte du message : c'est la même règle
 
-
 que pour `slackEmployeeId` dans le `requestContext` — on ne décide pas d'une lecture
 
 de dossier sur une valeur que la personne peut écrire elle-même.
 **Avant `await this.rememberTurn({`**
 
 ⚠️ Mémorisés tous les deux, et c'est INDISPENSABLE : quand le dossier est complet, la
-
 
 réponse CONTIENT la première question de l'entretien, et l'état de cette machine est
 
@@ -5134,7 +4937,6 @@ SÉCURITÉ et non de l'ergonomie.
 
 Mêmes trois gardes que le pas de dossier, et pour les mêmes raisons — voir
 
-
 `answersOnboardingQuestion`, qui les porte une seule fois.
 **Avant `private async runInterviewStep(input: {`**
 
@@ -5154,7 +4956,6 @@ donc un partage de responsabilité disparu, à quatre lignes d'un appel à
 **Avant `const skipped = skipsInterview(text);`**
 
 On reconnaît le renoncement AVANT de juger la réponse trop courte : « non » fait quatre
-
 
 caractères de moins que le seuil, et le traiter comme une réponse ratée relancerait la
 
@@ -5178,7 +4979,6 @@ l'accueil tient — même arbitrage que la mémoire conversationnelle, qui dégr
 
 ⚠️ CE CAS ÉTAIT MUET, et c'est ce qui a rendu le défaut invisible pendant qu'un test de
 
-
 production le traversait. Il subsiste après le correctif pour les personnes DÉJÀ
 
 présentes, dont le dossier a été créé avant que la liaison n'existe. Le produit ne peut
@@ -5189,7 +4989,6 @@ le DIRE plutôt que de perdre en silence ce que quelqu'un vient d'écrire sur lu
 **Avant `private async loadPinnedFacts(slackUserId: string | undefined): Promise<readonly string[]> {`**
 
  Persiste un tour. Même contrat que `loadHistory` : jamais fatal.
-
 
 Faits épinglés de la personne. Ne lève JAMAIS.
 
@@ -5217,7 +5016,6 @@ qu'après `sanitizeAgentOutput`. Rien de bloqué ne peut donc être rejoué.
 
 Fenêtrage AVANT construction du préambule : l'avertissement d'attribution ne doit être
 
-
 payé (≈ 35 tokens) que si un tour étranger survit réellement au budget de tokens.
 
 ⚠️ `email` et `employeeId` sont transmis TELS QUELS, y compris `null`. C'est
@@ -5233,7 +5031,6 @@ endroits, et c'est leur ABSENCE de la fenêtre du modèle qui a produit les 38
 
 ⚠️ INJECTÉE ici et non lue dans le domaine : `buildContextPreamble` est du TypeScript
 
-
 pur, et une fonction qui appellerait `new Date()` ne se testerait qu'en gelant
 
 l'horloge — ce que ce dépôt fait partout ailleurs par injection.
@@ -5241,14 +5038,12 @@ l'horloge — ce que ce dépôt fait partout ailleurs par injection.
 
 La ternaire produit une union de types LITTÉRAUX (`{role:'user'}` | `{role:'assistant'}`)
 
-
 là où un `{ role: turn.role }` produirait `role: 'user' | 'assistant'` sur un seul
 
 objet — non assignable à `MessageListInput`, qui attend un membre discriminé.
 **Avant `content:`**
 
 ARBITRAGE — on garde le tour d'un autre agent, mais on le DÉSIGNE.
-
 
 Filtrer l'historique par `agentId` était la correction évidente ; elle perdrait
 
@@ -5269,12 +5064,10 @@ zéro sur un fil homogène (le cas courant).
 
 Un tour `user` n'est jamais préfixé : ce que la personne a dit reste ce qu'elle a
 
-
 dit, quel que soit l'agent qui l'a reçu.
 **Avant `const preambleMessages = preamble ? [{ role: 'system', content: preamble } as const] : [];`**
 
 Le préambule serveur ouvre la liste. Mastra le route vers `addSystem()` et le place
-
 
 avant tous les messages de modèle, à côté des instructions de l'agent — donc HORS du
 
@@ -5285,13 +5078,11 @@ Purge de rétention, en tâche de fond. Déclenchée par tirage — voir
 `DEFAULT_PRUNE_PROBABILITY` : un compteur d'instance ne survit pas au gel de la fonction
 serverless, et ne se déclenchait donc jamais.
 
-
 Tirage sans état — c'est la propriété qui compte. Un compteur d'instance repart à zéro
 à chaque démarrage à froid ; une probabilité, non.
 **Avant `return Math.random() < this.pruneProbability;`**
 
 Échantillonnage d'une purge de maintenance : aucune décision de sécurité n'en dépend.
-
 
 Le tirage SANS ÉTAT remplace un compteur en mémoire PAR INSTANCE, remis à zéro à chaque
 
@@ -5302,7 +5093,6 @@ par jour : les lignes restaient sur la Turso sans borne réelle.
 
  ----------------------------------------------------------------------- *
 Lecture défensive du résultat d'agent (observabilité)
-
 
 Ces trois lecteurs sont volontairement tolérants : la forme exacte du résultat varie
 selon la version de Mastra, et l'observabilité ne doit JAMAIS faire échouer une
@@ -5323,12 +5113,10 @@ fermerait le produit selon l'humeur du code appelant.
 NE LÈVE JAMAIS : `SlackAccessGuard.evaluate` avale déjà ses propres échecs, et un annuaire
 indisponible rend `unknown_actor`, donc `readonly` — la réponse monotone restrictive.
 
-
  Un avertissement de câblage pour la vie de l'instance, jamais un par message.
 **Avant `this.warnNoAccessGuardOnce();`**
 
 ⚠️ ÉTAIT MUET jusqu'au 2026-08-20, et c'était le chemin le PLUS probable des deux :
-
 
 le garde est absent dès que `directoryRepository` n'est pas câblé. La conséquence
 
@@ -5342,7 +5130,6 @@ Dans les deux sens, un tel état doit se voir : il ne se déduit d'aucun symptô
 **Avant `export { FILE_ATTACHMENT_REPLY };`**
 
 Réexports de compatibilité : `slack-interactions.route.ts` et trois tests importent
-
 
 ces symboles depuis ce module depuis l'origine. Les faire pointer ailleurs serait
 
@@ -5365,7 +5152,6 @@ Réexports de la réconciliation FAIT/NARRATION — trois tests les importent de
 
 ⚠️ RÉEXPORTÉE le 2026-08-20 : elle est désormais accolée sur une condition de CÂBLAGE et
 
-
 non de texte, donc le seul endroit où ce comportement se vérifie est le handler.
 **Avant `function appendNotes(notes: readonly (string | undefined)[]): string {`**
 
@@ -5376,7 +5162,6 @@ bot vient de poser. Fonction libre et non méthode — elle ne lit pas `this`, e
 ici la rend éprouvable sans construire un handler entier (ce qui, dans ce dépôt, exige de
 neutraliser quatre dépendances qui touchent la base).
 
-
 Une question du parcours d'accueil attend-elle une réponse dans ce fil ?
 
 ⚠️ Dérivé des DEUX machines à états, jamais d'une liste recopiée : ajouter une question à
@@ -5386,9 +5171,7 @@ câblage entre les deux.
 
 Ce message est-il une RÉPONSE à une question du parcours d'accueil ?
 
-
 Les trois gardes, et pourquoi elles vivent ici plutôt qu'en double
-
 
  1. **DM uniquement.** En canal, le dernier tour `assistant` du fil peut être une question
     posée à quelqu'un d'AUTRE : la réponse d'un témoin s'écrirait dans le dossier de cette
@@ -5467,14 +5250,12 @@ chemin Brevo enverrait un corps de requête silencieusement invalide.
 
 Même borne que SMTP, et pour la même raison : ici le binaire est en plus
 
-
 encodé en base64 DANS le corps JSON, soit +33 % sur le fil et deux copies
 
 simultanées en mémoire de la fonction.
 **Avant `textContent: body.text,`**
 
 Le repli texte accompagne désormais le HTML ici aussi. Les deux transports
-
 
 doivent livrer le MÊME message : un basculement de fournisseur ne peut pas
 
@@ -5484,7 +5265,6 @@ jointes, posée dans le domaine pour cette raison exacte.
 **Avant `...(attachments?.length`**
 
 L'API Brevo attend `attachment` (singulier), avec `content` en base64 et
-
 
 `name` — ce n'est ni le nom ni la forme de la clé nodemailer. Absente
 
@@ -5550,7 +5330,6 @@ d'erreur, et y remplacer une exception par une autre ne ferait qu'effacer la
 cause d'origine.
 
 ZÉRO TOKEN LLM : aucun appel de modèle sur ce chemin.
-
 
  Cible du marqueur. `threadTs` absent = message posté à la racine du canal.
 **Avant `threadTs?: string;`**
@@ -5620,7 +5399,6 @@ PAS DE RAFRAÎCHISSEMENT PÉRIODIQUE, décision assumée :
 
 Lancé sans `await` : voir « BUDGET DE LATENCE » ci-dessus. Le `.catch()`
 
-
 est posé ici même — sans lui, un échec du marqueur produirait un rejet non
 
 géré (le `settle()` qui l'attend peut arriver plusieurs secondes plus tard).
@@ -5635,7 +5413,6 @@ consommé, toute conclusion supplémentaire part en message distinct.
 **Avant `warnDegraded(`**
 
 `message_not_found`, `cant_update_message`, réseau… : le marqueur est
-
 
 perdu, mais la réponse, elle, doit partir.
 **Avant `resolve: (text: string) => settle(text),`**
@@ -5724,30 +5501,25 @@ auraient divergé au premier champ ajouté.
 
 `?? null` et non `|| ''` : une chaîne vide passerait une simple validation de présence,
 
-
 et l'email est une CLÉ de recherche. L'absence doit rester nommée.
 **Avant `firstName: user.profile?.first_name || derived.firstName,`**
 
 `||` et non `??` : Slack renvoie une chaîne vide — pas `undefined` —
-
 
 pour un prénom non renseigné, et `??` la laisserait passer.
 **Avant `displayName:`**
 
 Cascade complète, jusqu'à `name` : un refus d'autorisation journalisé sans aucun nom est
 
-
 inexploitable. C'est le champ que lit la politique quand elle doit dire QUI a été refusé.
 **Avant `title: user.profile?.title || '',`**
 
 Pas de cascade ici, contrairement à `displayName` : un poste ne se devine pas. Absent
 
-
 vaut absent — c'est le cas réel de Mistourath IDI, dont le profil ne porte aucun titre.
 **Avant `isRestricted: user.is_restricted ?? false,`**
 
 Lus TELS QUELS, sans déduction : Slack pose les deux drapeaux sur un invité mono-canal, et
-
 
 dériver l'un de l'autre interdirait de durcir ce seul cas.
 **Avant `function logTruncation(method: string, pages: number, collected: number): void {`**
@@ -5786,7 +5558,6 @@ UNE page de `conversations.list`, projetée sur l'appartenance.
 
 `?? false` : l'absence du drapeau se lit « pas membre ». Le défaut sûr est celui qui
 
-
 fait TENTER l'adhésion — un `join` inutile est idempotent, un `postMessage` dans un
 
 canal dont on croit à tort être membre échoue en `not_in_channel`, silencieusement.
@@ -5803,14 +5574,12 @@ message d'erreur de repli est posté dans le même canal inaccessible, donc éch
 
 Slack ne lève pas quand on est déjà dedans : il répond `ok` avec un avertissement. Sans
 
-
 cette lecture, une adhésion déjà acquise serait comptée comme une adhésion nouvelle et
 
 le rapport surestimerait ce que ce passage a réellement changé.
 **Avant `if (message.includes('user_not_found') || message.includes('users_not_found')) {`**
 
 `users.info` répond `user_not_found` au singulier, là où
-
 
 `users.lookupByEmail` répond `users_not_found`. Les deux sont acceptés.
 ## `features/notification/infrastructure/providers/slack.adapter.ts`
@@ -5871,7 +5640,6 @@ Trois raisons de ne jamais y laisser d'accès direct :
 
 Repli sur un permalink posé à plat, au cas où le SDK aplatirait la réponse
 
-
 dans une version ultérieure.
 **Avant `constructor(botToken: string, client?: WebClient) {`**
 
@@ -5891,7 +5659,6 @@ carte qu'il confirme.
 Optionnel, et non un second paramètre obligatoire : en DM on ne threade délibérément
 PAS — threader un DM enfouit le message hors de la conversation principale, ce qui a
 déjà fait paraître ce bot muet pendant des heures.
-
 
 ⚠️ Rend le CANAL RÉELLEMENT UTILISÉ, et ce retour porte un correctif du 2026-08-19.
 
@@ -5957,7 +5724,6 @@ avalerait l'échec ferait croire à une livraison qui n'a pas eu lieu.
 
 `channel_id` et non `channels` : la v2 a déprécié `channels`, qui ne
 
-
 supporte plus la liste séparée par des virgules et déclenche un warning.
 
 Les deux formes de destination sont construites séparément parce que le
@@ -5968,7 +5734,6 @@ un `thread_ts: undefined` répandu par spread casserait la résolution.
 **Avant `file: Buffer.from(bytes),`**
 
 Le SDK n'accepte pas un `Uint8Array` nu : `Buffer | Stream | string`, où
-
 
 une chaîne serait interprétée comme un CHEMIN à lire sur le disque —
 
@@ -6056,7 +5821,6 @@ fichier injectent un transport et ne peuvent donc rien dire de ces options.
 
 Pas de `pool: false` ici : c'est déjà le défaut de nodemailer, et le typage
 
-
 `SMTPTransport.Options` ne connaît pas la clé `pool` (elle n'existe que sur
 
 `SMTPPool.Options`, où elle vaut obligatoirement `true`). L'ajouter fait
@@ -6072,14 +5836,12 @@ chaque envoi, cela double le coût d'une connexion SMTP.
 
 Vérifié AVANT d'ouvrir la connexion : sur une fonction serverless, laisser
 
-
 partir un envoi trop lourd coûte les 10 s du timeout socket pour finir sur
 
 un `ETIMEDOUT` qui ne dit rien de la vraie cause.
 **Avant `text: body.text,`**
 
 Repli texte brut : certains clients refusent un message uniquement HTML, et cela
-
 
 améliore le score anti-spam.
 
@@ -6094,7 +5856,6 @@ seule place où l'on sache laquelle est l'original.
 
 La clé n'est posée que s'il y a réellement quelque chose à joindre :
 
-
 les appelants historiques doivent produire un message strictement
 
 identique à l'existant. `content` doit être un Buffer — nodemailer ne
@@ -6103,7 +5864,6 @@ contractualise pas l'`Uint8Array`.
 **Avant `if (err.responseCode === 534 || /application-specific password/i.test(err.message ?? '')) {`**
 
 Message explicite pour l'erreur Gmail la plus fréquente, sinon on perd 20 min
-
 
 à croire que le mot de passe est faux alors qu'il est simplement du mauvais type.
 ## `features/notification/infrastructure/repositories/drizzle-notification.repository.ts`
@@ -6179,7 +5939,6 @@ incrément, offrant à une clé très sollicitée une survie indéfinie.
 
 Un pas négatif rendrait du budget, ce qu'aucun appelant ne doit pouvoir faire par
 
-
 accident : `usage.inputTokens` d'un fournisseur est une valeur externe, donc réputée
 
 non fiable. `0` reste licite — c'est la lecture atomique décrite dans le port.
@@ -6187,13 +5946,12 @@ non fiable. `0` reste licite — c'est la lecture atomique décrite dans le port
 
 `RETURNING` sur un upsert rend toujours une ligne. S'il n'en rend aucune, on ne devine
 
-
 pas : `0` est précisément la valeur que `evaluateCount` traite comme « compte non
 
 exploitable » et qui vaut AUTORISATION. Refuser sans preuve positive couperait le service
 
 sur une bizarrerie du pilote — même arbitrage que la déduplication partagée.
-**Avant `async prune(now: Date): Promise<number> {`**
+**Avant `async pruneExpired(now: Date): Promise<number> {`**
 
 `lte` et non `lt` : `expires_at` est déjà une date de fin FRANCHIE (elle inclut la marge de
 purge de `rate-limit-policy.ts`). Une ligne dont l'expiration tombe exactement sur `now`
@@ -6223,7 +5981,6 @@ journaliser pourquoi.
 
 1. PRISE ATOMIQUE. Tout repose sur cette ligne : la PRIMARY KEY arbitre la course, et
 
-
    le nombre de lignes affectées dit qui a gagné. Un `SELECT` préalable — la forme
 
    « naturelle » — rouvrirait la fenêtre de concurrence que ce dépôt existe pour
@@ -6232,7 +5989,6 @@ journaliser pourquoi.
 **Avant `const cutoff = new Date(now - options.inFlightGraceMs);`**
 
 2. REPRISE D'UNE ENTRÉE ABANDONNÉE — atomique elle aussi. Le `WHERE` porte l'entièreté
-
 
    de la condition (`in-flight` ET plus vieille que la grâce) : deux instances en course
 
@@ -6249,12 +6005,10 @@ journaliser pourquoi.
 
 3. REFUS. La relecture ne sert QUE le log : elle n'entre dans aucune décision de prise,
 
-
    et n'a donc aucun effet sur la concurrence.
 **Avant `return { granted: false, status: 'unknown', ageMs: null };`**
 
 La ligne a disparu entre la prise et la relecture (purge concurrente). On refuse
-
 
 quand même : mieux vaut une réponse manquée qu'une réponse en double, et la fenêtre
 
@@ -6262,7 +6016,6 @@ de rejeu de Slack est bien plus courte que la rétention.
 **Avant `status: row.status as SlackEventDedupStatus,`**
 
 SQLite ne connaît pas les unions littérales : la colonne est un `text` libre, la
-
 
 contrainte vit dans le domaine.
 **Avant `async markDone(key: string): Promise<void> {`**
@@ -6308,17 +6061,15 @@ port ferme — et le test de concurrence, qui exige N valeurs DISTINCTES, le ver
 
 Même normalisation que côté SQL — une doublure qui accepterait un pas que le vrai dépôt
 
-
 refuse ferait passer au vert un comportement qui n'existe pas en production.
 **Avant `existing.count += step;`**
 
 On n'écrase PAS `expiresAt` : la clé porte le numéro de fenêtre, donc tous les incréments
 
-
 qui atterrissent ici décrivent la même fenêtre. Le repousser à chaque incrément offrirait
 
 à une clé très sollicitée une survie indéfinie. Même choix, et même raison, que côté SQL.
-**Avant `async prune(now: Date): Promise<number> {`**
+**Avant `async pruneExpired(now: Date): Promise<number> {`**
 
  `<=` : `expiresAt` inclut déjà la marge de purge de `rate-limit-policy.ts`.
 
@@ -6448,7 +6199,6 @@ par règle — 1 minute et 24 heures n'ont pas à partager une durée de rétent
 
 `undefined` ⇒ le défaut ; `null` ⇒ désactivé. Deux états distincts, comme partout
 
-
 ailleurs dans ce dépôt.
 **Avant `ttl: DAILY_RULE.windowMs,`**
 
@@ -6491,7 +6241,6 @@ compter consommerait le quota de quelqu'un pour un événement qu'il n'a envoyé
 fois, et c'est précisément sur les démarrages à froid — donc quand le bot va déjà mal —
 que Slack rejoue le plus.
 
-
 @param options.answeredWithoutModel Le message sera-t-il traité SANS appel de modèle ?
   Les règles qui rationnent le budget du modèle (`rationsModelBudget`) sont alors
   ignorées — ni consultées, ni INCRÉMENTÉES. Ne pas incrémenter est aussi important que
@@ -6519,7 +6268,6 @@ que Slack rejoue le plus.
 
 BUDGET DE L'ÉQUIPE — évalué EN PREMIER, et sans rien incrémenter
 
-
 Un budget d'équipe épuisé rend la suite sans objet : compter le message d'une personne
 
 contre son quota individuel alors qu'aucun token n'est disponible lui ferait payer deux
@@ -6532,7 +6280,6 @@ Phase 1 — compteurs LOCAUX. Gratuits, donc évalués un par un et court-circui
 **Avant `const workspaceRule = this.workspaceRule;`**
 
 BUDGET DE L'ÉQUIPE — dans le MÊME lot parallèle, et lu EN PREMIER
-
 
 Deux propriétés à préserver simultanément, et une seule forme les préserve toutes deux.
 
@@ -6567,12 +6314,10 @@ la personne est refusée de toute façon, et les deux fenêtres sont la même jo
 
 Lecture seule : la consommation réelle est enregistrée APRÈS le run, quand
 
-
 `usage.inputTokens` existe enfin. Voir `consumeTokens`.
 **Avant `projected: false,`**
 
 ⚠️ PAS de projection ici, à la différence d'une réservation par personne : ce
-
 
 compteur est en TOKENS et saute par milliers. Lui ajouter 1 n'aurait aucun sens, et
 
@@ -6580,7 +6325,6 @@ le dépassement est de toute façon constaté au message suivant (cf. `consumeTo
 **Avant `const repository = this.repository;`**
 
 Phase 2 — store PARTAGÉ. Le seul qui compte pour un budget journalier, et le seul qui
-
 
 coûte du réseau : il part donc d'un bloc.
 **Avant `return { rule, key, count: read + (projected ? 1 : 0) };`**
@@ -6591,12 +6335,10 @@ Une lecture de réservation rend l'état AVANT ce message : on juge celui d'APR�
 
 Journalisé ICI, à l'endroit où l'échec est connu : une panne du store ne doit
 
-
 jamais être muette, même quand une autre règle tranche avant qu'on la lise.
 **Avant `return this.readSharedVerdicts(outcomes);`**
 
 Les verdicts sont relus DANS L'ORDRE DES RÈGLES, pas dans l'ordre d'arrivée des
-
 
 réponses : `rules` est déclaré par priorité (« la règle la moins chère à déclencher
 
@@ -6615,12 +6357,10 @@ pour juger.
 
 Une RÉSERVATION ne touche aucun compteur, ni local ni partagé : elle demande
 
-
 seulement « ce message passerait-il ? ». C'est `consumeModelBudget` qui débite.
 **Avant `return {`**
 
 Le compteur partagé est nécessairement ≥ au local (il voit un sur-ensemble des
-
 
 événements) : s'il est dépassé ici, il l'est là-bas. Refuser sans l'interroger est
 
@@ -6630,7 +6370,6 @@ dense.
 **Avant `shouldNotify: localVerdict.shouldNotify && this.claimNotification(key),`**
 
 ⚠️ `claimNotification` et non le seul verdict — voir `readSharedVerdicts`, où
-
 
 le même correctif est expliqué : sous RÉSERVATION le compteur n'avance pas,
 
@@ -6646,7 +6385,6 @@ message adressé à la personne : sans ce tri, la règle citée dépendrait de l
 **Avant `shouldNotify: this.claimNotification(key),`**
 
 ⚠️ `evaluateCount` fonde `shouldNotify` sur une ÉGALITÉ EXACTE (`count === limit
-
 
 + 1`). C'est juste pour un compteur qui avance de 1 en 1 ; c'est INAPPLICABLE à
 
@@ -6711,7 +6449,6 @@ erreur ici ne doit rien changer pour la personne qui vient d'être servie.
 
 `info` et non `debug` : c'est la seule trace qui dise où en est le budget de la
 
-
 journée, et c'est elle qu'on lira avant de lancer une campagne de test.
 **Avant `private claimNotification(key: string): boolean {`**
 
@@ -6729,7 +6466,7 @@ fichier applique déjà partout ailleurs.
 
  N'inonde pas les logs : un avertissement pour la vie de l'instance, pas un par message.
 
-**Avant `async prune(now: Date = new Date()): Promise<void> {`**
+**Avant `async pruneExpired(now: Date = new Date()): Promise<void> {`**
 
  Purge opportuniste des fenêtres expirées. Aucun cron ne le fera.
 
@@ -6772,7 +6509,6 @@ pré-remplie **sans aucune E/S** : le `trigger_id` expire en 3 secondes, et
 refaire un `users.info` au moment du clic dépenserait ce budget pour une
 information déjà en main.
 
-
 Ligne citant les canaux où l'arrivant vient d'être ajouté.
 
 VIDE quand il n'y en a aucun : annoncer « je t'ai ajouté à » suivi de rien serait pire que
@@ -6812,7 +6548,6 @@ Il reçoit donc désormais la vidéo, le guide et « C'est fait », comme l'arri
 ⚠️ Seule la PHRASE D'OUVERTURE reste distincte, et c'est délibéré : « Ravi de t'accueillir
 chez Kisso » adressé à quelqu'un qui est là depuis six mois sonne faux. Le reste est
 partagé — le dupliquer garantirait qu'un jour les deux ne disent plus la même chose.
-
 
 ---
 
@@ -6934,9 +6669,7 @@ Périmés : le jour est passé depuis plus d'une semaine. Annulés, jamais remis
 
 **Avant `export async function dispatchDueReminders(deps: DispatchDeps): Promise<DispatchReport> {`**
 
-
 LA REMISE QUOTIDIENNE DES RAPPELS
-
 
 Appelée par le cron Vercel, et par lui seul. Elle ne fait AUCUN appel de modèle : le sujet
 et le corps ont été rédigés au moment de l'enregistrement, sous les yeux de la personne qui
@@ -7003,9 +6736,7 @@ Et c'est ici que ça compte le plus : personne n'est présent au moment de cet e
 
 **Avant `export interface SafeOutboundText {`**
 
-
 LE POINT UNIQUE PAR OÙ PASSE TOUTE PROSE DE MODÈLE QUI SORT DU PRODUIT
-
 
 Trois chemins expédient un couple sujet/corps rédigé par le modèle : `sendNotification`
 (immédiat), `scheduleReminder` (écriture) et `dispatchDueReminders` (remise, le lendemain).
@@ -7067,16 +6798,10 @@ C'est pourtant la partie la plus visible d'un email et la ligne en gras d'un mes
 Slack, et son `.describe()` ORDONNE au modèle de le rédiger. Une asymétrie dans une
 défense délibérément construite, pas une défense absente.
 
-**Avant `// relit cette ligne et la rend au modèle. Y laisser un marqueur interne le ferait`**
-
-Ce qui est PERSISTÉ est ce qui a été ENVOYÉ, jamais le brut : `getNotificationHistory`
-
-**Avant `// ressortir au premier tour suivant — c'est le défaut 'documents.content', à l'envers.`**
-
-relit cette ligne et la rend au modèle. Y laisser un marqueur interne le ferait
-
 **Avant `subject: safe.subject,`**
 
+Ce qui est PERSISTÉ est ce qui a été ENVOYÉ, jamais le brut : `getNotificationHistory`
+relit cette ligne et la rend au modèle. Y laisser un marqueur interne le ferait
 ressortir au premier tour suivant — c'est le défaut `documents.content`, à l'envers.
 
 ### `src/features/notification/domain/ports/notification.repository.ts`
@@ -7116,52 +6841,22 @@ PRÉEXISTANT l'a attrapée sur-le-champ : « je conteste cette décision » part
 un mot très courant du français ne désigne pas une capacité. La FORME de la question, elle,
 ne se prononce que pour demander ce qui s'est dit.
 
-**Avant `// espace après « qu », et cette seule exigence faisait échouer la formulation la plus`**
-
-⚠️ Le séparateur est `${APOS}?\\s*` et non `\\s+` : « qu'est-ce qu'ON a dit » n'a AUCUN
-
-**Avant `// courante des trois. Attrapé par un test, jamais à la lecture.`**
-
-espace après « qu », et cette seule exigence faisait échouer la formulation la plus
-
 **Avant `'${LB}(?:qu${APOS}?est-ce\\s+qu|qu${APOS}?a-t-on|qu${APOS}?avons-nous|de\\s+quoi)${APOS}?\\s*' +`**
 
+⚠️ Le séparateur est `${APOS}?\\s*` et non `\\s+` : « qu'est-ce qu'ON a dit » n'a AUCUN
+espace après « qu », et cette seule exigence faisait échouer la formulation la plus
 courante des trois. Attrapé par un test, jamais à la lecture.
-
-**Avant `// 'false' par prudence, la bande n'a JAMAIS tiré : en DM la clé de conversation est le`**
-
-⚠️ `true`, et il a fallu une mesure en production pour le trancher. Posé d'abord à
-
-**Avant `// canal, donc le palier collant verrouille tous les sujets pendant une heure — c'est l'état`**
-
-`false` par prudence, la bande n'a JAMAIS tiré : en DM la clé de conversation est le
-
-**Avant `// absorbant corrigé le 2026-08-11, et il rendait la base inatteignable dans le seul cas qui`**
-
-canal, donc le palier collant verrouille tous les sujets pendant une heure — c'est l'état
-
-**Avant `// compte. Journal du 2026-08-20 : 'agentId: onboardingOrchestrator, sticky: true'.`**
-
-absorbant corrigé le 2026-08-11, et il rendait la base inatteignable dans le seul cas qui
-
-**Avant `//`**
-
-compte. Journal du 2026-08-20 : `agentId: onboardingOrchestrator, sticky: true`.
-
-**Avant `// le délogement n'a lieu que si le fil en cours ne l'a pas. Le motif est purement`**
-
-La règle d'admission est respectée : `searchKnowledge` n'est porté que par UN agent, et
-
-**Avant `// INTERROGATIF, donc il ouvre toujours une tâche neuve — c'est pour cela que`**
-
-le délogement n'a lieu que si le fil en cours ne l'a pas. Le motif est purement
-
-**Avant `// « on avait dit jeudi », qui peut CONTINUER une discussion d'agenda, en a été retiré.`**
-
-INTERROGATIF, donc il ouvre toujours une tâche neuve — c'est pour cela que
 
 **Avant `overridesSticky: true,`**
 
+⚠️ `true`, et il a fallu une mesure en production pour le trancher. Posé d'abord à
+`false` par prudence, la bande n'a JAMAIS tiré : en DM la clé de conversation est le
+canal, donc le palier collant verrouille tous les sujets pendant une heure — c'est l'état
+absorbant corrigé le 2026-08-11, et il rendait la base inatteignable dans le seul cas qui
+compte. Journal du 2026-08-20 : `agentId: onboardingOrchestrator, sticky: true`.
+La règle d'admission est respectée : `searchKnowledge` n'est porté que par UN agent, et
+le délogement n'a lieu que si le fil en cours ne l'a pas. Le motif est purement
+INTERROGATIF, donc il ouvre toujours une tâche neuve — c'est pour cela que
 « on avait dit jeudi », qui peut CONTINUER une discussion d'agenda, en a été retiré.
 
 **Avant `const KNOWN_AGENT_IDS: ReadonlySet<string> = new Set(Object.keys(AGENT_TOOLS));`**
@@ -7219,20 +6914,14 @@ doit être attrapé, et ce qui ne doit surtout pas l'être.
 
 ⚠️ À partir d'ici : les formules de COLLÈGUE, ajoutées avec le ton de Marcel.
 
-**Avant `// des annonces : le motif exige donc un livrable derrière, jamais « voila » nu.`**
-
-« Voilà ce dont j'ai besoin » et « voilà pourquoi » sont des CHARNIÈRES de discours, pas
-
 **Avant `label: 'voilà',`**
 
+« Voilà ce dont j'ai besoin » et « voilà pourquoi » sont des CHARNIÈRES de discours, pas
 des annonces : le motif exige donc un livrable derrière, jamais « voila » nu.
-
-**Avant `// couvre la forme sans point d'interrogation (« je me demande si ça y est »).`**
-
-« Est-ce que ça y est ? » est déjà écarté par le filtre interrogatif ; le lookbehind
 
 **Avant `label: 'ça y est',`**
 
+« Est-ce que ça y est ? » est déjà écarté par le filtre interrogatif ; le lookbehind
 couvre la forme sans point d'interrogation (« je me demande si ça y est »).
 
 **Avant `label: 't’attend',`**
@@ -7256,9 +6945,7 @@ l'aveu doit rester net, c'est toute sa raison d'être.
 
 **Avant `export function promisesWithoutActing(toolCalls: readonly string[]): boolean {`**
 
-
 LA PRÉMISSE DE CE DÉTECTEUR A CHANGÉ LE 2026-08-21 — et c'est le point de méthode
-
 
 `onlyNonDeliveringTools` a été SUPPRIMÉE. Son ensemble ne contenait qu'un nom,
 `scheduleReminder`, et sa raison d'être tenait en une phrase : ce tool enregistrait une
@@ -7309,16 +6996,10 @@ de la phrase qui le porte.
 part tout seul » n'importe où pour faire taire le détecteur sur tout le reste du message,
 c'est-à-dire d'offrir une formule magique à ce qu'on surveille.
 
-**Avant `// complexité du linter (21 pour 20), et surtout il devenait illisible — or c'est un garde-fou`**
-
-⚠️ Une LISTE et non une seule alternation : le motif unique franchissait le seuil de
-
-**Avant `// qu'on relira en cherchant pourquoi une phrase n'a pas été attrapée. Un test par formule.`**
-
-complexité du linter (21 pour 20), et surtout il devenait illisible — or c'est un garde-fou
-
 **Avant `function negatesDelivery(sentence: string): boolean {`**
 
+⚠️ Une LISTE et non une seule alternation : le motif unique franchissait le seuil de
+complexité du linter (21 pour 20), et surtout il devenait illisible — or c'est un garde-fou
 qu'on relira en cherchant pourquoi une phrase n'a pas été attrapée. Un test par formule.
 
 **Avant `export const PROMISED_DELIVERY_NOTICE =`**
@@ -7352,11 +7033,9 @@ rafale reste une rafale, quel que soit le quota derrière.
 
 ### `src/features/notification/domain/services/reminder-dispatch.ts`
 
-**Avant `/**`**
-
+**Avant `export const REMINDER_DISPATCH_PATH = '/internal/reminders/dispatch';`**
 
 CE QUI FAIT PARTIR UN RAPPEL — et pourquoi rien ne le faisait avant
-
 
 `scheduleReminder` écrivait une ligne en base et le disait sans détour : « Aucun automate ne
 le reprend : rien ne part seul. » C'était exact — et ce n'est pas un rappel. Dans ce système
@@ -7380,9 +7059,6 @@ est un objet à granularité de JOURNÉE dans l'usage réel.
 nomme le moment RÉEL de remise, jamais celui qui a été demandé. Le tool rendait
 « lundi 24 août 2026 à 09 h00 » : une précision que la plateforme ne peut pas tenir, donc
 la même famille de mensonge que `emailSent: false` sous `status: 'success'`.
-
-**Avant `export const REMINDER_DISPATCH_PATH = '/internal/reminders/dispatch';`**
-
 ⚠️ **LA VÉRITÉ VIT DANS `vercel.json`, PAS ICI.** C'est elle que Vercel lit, et
 `fix-vercel-output.js` la RECOPIE dans `config.json` au build plutôt que d'en tenir une
 seconde. Cette constante est le miroir dont le code a besoin pour calculer une date de
@@ -7461,12 +7137,9 @@ celle du lendemain si celle d'aujourd'hui est déjà passée.
 une heure — non parce qu'on le lui interdit (une consigne est PROBABLE), mais parce que la
 précision n'est plus dans sa fenêtre.
 
-**Avant `// prochaine horloge est celle de demain. On ne peut pas remonter le temps, on le dit.`**
-
-Demandé pour aujourd'hui après la remise du matin, ou pour une heure déjà passée : la
-
 **Avant `while (run.getTime() < now.getTime()) run.setTime(run.getTime() + DAY_MS);`**
 
+Demandé pour aujourd'hui après la remise du matin, ou pour une heure déjà passée : la
 prochaine horloge est celle de demain. On ne peut pas remonter le temps, on le dit.
 
 **Avant `export function reminderPreamble(`**
@@ -7503,7 +7176,7 @@ fait. Cinquième consigne mesurée en échec dans ce dépôt.
 `buildRecipientNotice` : une redite sur une réponse déjà juste n'est que du bruit, et le
 bruit finit par faire ignorer les notes qui comptent.
 
-**Avant `/**`**
+**Avant `const CHANNEL_TOKEN = /<#C[^>]{1,140}>/i;`**
 
 ⚠️ **QUAND LE RAPPEL ARRIVERA — dit par le code, jamais par le modèle.**
 
@@ -7515,12 +7188,7 @@ rien ne tient pourrait ressortir, et on le ferme ici.
 
 ⚠️ La note S'EFFACE si la réponse dit déjà « au matin » : le doublon de démenti relevé le
 2026-08-21 est venu d'une note qui redisait ce que la phrase disait déjà.
-
-**Avant `/** Hauteur d'étoile 1 : voir 'mention-names.ts' — l'entrée vient d'un tiers, pas de backtracking. */`**
-
-
 « TRANSMETS-MOI LE TEXTE » — le contournement que le modèle proposait
-
 
 Mesuré en production le 2026-08-21. « Récapitule `<#CMLKC4S5T>` et envoie-le-moi en PDF »
 contient `pdf`, donc part chez `onboardingOrchestrator` (bande 3, position 1) — qui ne porte
@@ -7540,9 +7208,6 @@ prompt, on accole une note déterministe qui dit où la demande aboutit réellem
 ⚠️ **On ne réécrit PAS le routage.** Faire gagner le jeton de canal sur `pdf` déplacerait la
 demande vers un agent qui, lui, ne sait pas produire de document : on échangerait un demi-refus
 contre un autre. Le routage par capacité est correct ; c'est la RÉPONSE qui manquait d'issue.
-
-**Avant `const CHANNEL_TOKEN = /<#C[^>]{1,140}>/i;`**
-
 Hauteur d'étoile 1 : voir `mention-names.ts` — l'entrée vient d'un tiers, pas de backtracking.
 
 **Avant `if (agentHasTool(agentId, 'getChannelHistory')) return '';`**
@@ -7557,56 +7222,23 @@ Il a peut-être déjà dit la bonne chose — on ne double pas une réponse just
 
 La réponse dit déjà tout : rien à ajouter.
 
-**Avant `// 2026-08-21 : « Rappel programmé pour le lundi 24 août 2026. » suivi de « Je te le`**
-
-⚠️ La note ne REDIT pas la date quand l'agent vient de la donner. Mesuré en production le
-
-**Avant `// remettrai lundi 24 août 2026 au matin » — l'information utile (le matin, une fois par`**
-
-2026-08-21 : « Rappel programmé pour le lundi 24 août 2026. » suivi de « Je te le
-
-**Avant `// jour) noyée dans une répétition. Même arbitrage que 'buildRecipientNotice' : une note qui`**
-
-remettrai lundi 24 août 2026 au matin » — l'information utile (le matin, une fois par
-
-**Avant `// se répète finit par se faire ignorer, y compris quand elle compte.`**
-
-jour) noyée dans une répétition. Même arbitrage que `buildRecipientNotice` : une note qui
-
-**Avant `// ⚠️ Bornes SIMPLES et non '\s+' : 'sonarjs/super-linear-regex' signale le retour arrière que`**
-
-se répète finit par se faire ignorer, y compris quand elle compte.
-
-**Avant `// produit un quantificateur en tête ou en queue de motif, et ce dépôt tient son lint à zéro`**
-
-⚠️ Bornes SIMPLES et non `\s+` : `sonarjs/super-linear-regex` signale le retour arrière que
-
-**Avant `// warning. Le libellé est produit par 'deliveryLabel', sa forme est connue exactement.`**
-
-produit un quantificateur en tête ou en queue de motif, et ce dépôt tient son lint à zéro
-
 **Avant `const day = label.replace(/^le /i, '').replace(/ au matin$/i, '');`**
 
+⚠️ La note ne REDIT pas la date quand l'agent vient de la donner. Mesuré en production le
+2026-08-21 : « Rappel programmé pour le lundi 24 août 2026. » suivi de « Je te le
+remettrai lundi 24 août 2026 au matin » — l'information utile (le matin, une fois par
+jour) noyée dans une répétition. Même arbitrage que `buildRecipientNotice` : une note qui
+se répète finit par se faire ignorer, y compris quand elle compte.
+⚠️ Bornes SIMPLES et non `\s+` : `sonarjs/super-linear-regex` signale le retour arrière que
+produit un quantificateur en tête ou en queue de motif, et ce dépôt tient son lint à zéro
 warning. Le libellé est produit par `deliveryLabel`, sa forme est connue exactement.
-
-**Avant `// 'SLACK_DAILY_LIMIT' et 'SLACK_WORKSPACE_TOKEN_BUDGET' étaient posées en production`**
-
-⚠️ CES VARIABLES ÉCRASENT LES CONSTANTES, ET LE PIÈGE S'EST REFERMÉ LE 2026-08-21.
-
-**Avant `// depuis une semaine : relever les défauts dans 'rate-limit-policy.ts' n'a RIEN`**
-
-`SLACK_DAILY_LIMIT` et `SLACK_WORKSPACE_TOKEN_BUDGET` étaient posées en production
-
-**Avant `// changé, et le journal continuait d'afficher l'ancien plafond. Avant de conclure`**
-
-depuis une semaine : relever les défauts dans `rate-limit-policy.ts` n'a RIEN
-
-**Avant `// qu'un plafond n'a pas bougé, lire 'npx vercel env ls production'.`**
-
-changé, et le journal continuait d'afficher l'ancien plafond. Avant de conclure
 
 **Avant `{ ...BURST_RULE, limit: readRuleLimit(process.env.SLACK_BURST_LIMIT, BURST_RULE.limit) },`**
 
+⚠️ CES VARIABLES ÉCRASENT LES CONSTANTES, ET LE PIÈGE S'EST REFERMÉ LE 2026-08-21.
+`SLACK_DAILY_LIMIT` et `SLACK_WORKSPACE_TOKEN_BUDGET` étaient posées en production
+depuis une semaine : relever les défauts dans `rate-limit-policy.ts` n'a RIEN
+changé, et le journal continuait d'afficher l'ancien plafond. Avant de conclure
 qu'un plafond n'a pas bougé, lire `npx vercel env ls production`.
 
 **Avant `private checkTeamId(envelope: SlackEventEnvelope): SlackEventDecision | undefined {`**
@@ -7633,60 +7265,27 @@ qu'une autre personne lira demain. Même règle que `ConversationRepository.forg
 L'effacement GLOBAL existe, et c'est un geste d'administration explicite :
 `npm run knowledge:forget -- --user <U…>` (dry-run par défaut).
 
-**Avant `// court-circuit est qu'il ne prétend jamais avoir effacé quand il a échoué.`**
-
-⚠️ Sur un effacement PARTIEL, on ne dit jamais « c'est effacé » : le contrat de ce
-
 **Avant `text: archivePartial`**
 
+⚠️ Sur un effacement PARTIEL, on ne dit jamais « c'est effacé » : le contrat de ce
 court-circuit est qu'il ne prétend jamais avoir effacé quand il a échoué.
-
-**Avant `// sur observation en production.`**
-
-⚠️ L'INVITATION EST POSTÉE APRÈS LA VÉRIFICATION, PAS AVANT — corrigé le 2026-08-21,
-
-**Avant `//`**
-
-sur observation en production.
-
-**Avant `// « On va compléter ton dossier » suivi, dans la seconde, de « Ton dossier est déjà complet`**
-
-Elle partait inconditionnellement, si bien qu'une personne au dossier déjà complet lisait
-
-**Avant `// — je n'ai rien à te redemander. » Le premier message annonce un travail que le second`**
-
-« On va compléter ton dossier » suivi, dans la seconde, de « Ton dossier est déjà complet
-
-**Avant `// annule : c'est la famille de défaut que ce dépôt traque partout ailleurs, ici sous sa`**
-
-— je n'ai rien à te redemander. » Le premier message annonce un travail que le second
-
-**Avant `// forme la plus bénigne et la plus visible.`**
-
-annule : c'est la famille de défaut que ce dépôt traque partout ailleurs, ici sous sa
-
-**Avant `//`**
-
-forme la plus bénigne et la plus visible.
-
-**Avant `// l'alternative est d'ouvrir la conversation par une phrase fausse.`**
-
-L'ordre coûte une lecture de plus avant le premier mot posté. C'est le bon échange :
 
 **Avant `const known = await this.knownProfileAnswers(user);`**
 
+⚠️ L'INVITATION EST POSTÉE APRÈS LA VÉRIFICATION, PAS AVANT — corrigé le 2026-08-21,
+sur observation en production.
+Elle partait inconditionnellement, si bien qu'une personne au dossier déjà complet lisait
+« On va compléter ton dossier » suivi, dans la seconde, de « Ton dossier est déjà complet
+— je n'ai rien à te redemander. » Le premier message annonce un travail que le second
+annule : c'est la famille de défaut que ce dépôt traque partout ailleurs, ici sous sa
+forme la plus bénigne et la plus visible.
+L'ordre coûte une lecture de plus avant le premier mot posté. C'est le bon échange :
 l'alternative est d'ouvrir la conversation par une phrase fausse.
-
-**Avant `// classification des outils. C'est ce qui produisait le doublon relevé en production le`**
-
-⚠️ La note s'accole désormais SUR LE VERDICT DU DÉTECTEUR, et non sur la seule
-
-**Avant `// 2026-08-21 : le modèle disait la vérité, et la note la redisait en moins bien.`**
-
-classification des outils. C'est ce qui produisait le doublon relevé en production le
 
 **Avant `const deliveryPromise =`**
 
+⚠️ La note s'accole désormais SUR LE VERDICT DU DÉTECTEUR, et non sur la seule
+classification des outils. C'est ce qui produisait le doublon relevé en production le
 2026-08-21 : le modèle disait la vérité, et la note la redisait en moins bien.
 
 **Avant `private async findProfileRecord(`**
@@ -7708,52 +7307,25 @@ Même famille que la cause racine du 2026-08-19, à l'envers : là, `employee_id
 
 ### `src/features/notification/infrastructure/repositories/drizzle-notification.repository.ts`
 
-**Avant `// touché aucune ligne » ne se démontre pas contre une doublure. Même forme que`**
-
-⚠️ Injectable pour que le contrat de PRISE soit exercé contre du VRAI SQL : « l'UPDATE n'a
-
-**Avant `// 'DrizzlePendingInterviewEmailRepository', et pour la même raison.`**
-
-touché aucune ligne » ne se démontre pas contre une doublure. Même forme que
-
 **Avant `constructor(private readonly resolveDb: () => DatabaseInstance = getDb) {}`**
 
+⚠️ Injectable pour que le contrat de PRISE soit exercé contre du VRAI SQL : « l'UPDATE n'a
+touché aucune ligne » ne se démontre pas contre une doublure. Même forme que
 `DrizzlePendingInterviewEmailRepository`, et pour la même raison.
-
-**Avant `// sélection qui décide ensuite si la grâce est écoulée — sans quoi un rappel dont`**
-
-⚠️ `Sending` EN FAIT PARTIE : une prise abandonnée est, en fait, en attente. C'est la
-
-**Avant `// l'invocation a été tuée serait invisible de toute exécution ultérieure, donc perdu en`**
-
-sélection qui décide ensuite si la grâce est écoulée — sans quoi un rappel dont
-
-**Avant `// silence. La prise elle-même, atomique, empêche d'en remettre un qui est réellement en vol.`**
-
-l'invocation a été tuée serait invisible de toute exécution ultérieure, donc perdu en
 
 **Avant `async findPending(): Promise<Notification[]> {`**
 
+⚠️ `Sending` EN FAIT PARTIE : une prise abandonnée est, en fait, en attente. C'est la
+sélection qui décide ensuite si la grâce est écoulée — sans quoi un rappel dont
+l'invocation a été tuée serait invisible de toute exécution ultérieure, donc perdu en
 silence. La prise elle-même, atomique, empêche d'en remettre un qui est réellement en vol.
-
-**Avant `// vol ne peut donc pas être repris — c'est ce qui interdit le doublon.`**
-
-`Sending` est l'état de PRISE : il n'est écrit que par ce chemin. Un rappel réellement en
-
-**Avant `//`**
-
-vol ne peut donc pas être repris — c'est ce qui interdit le doublon.
-
-**Avant `// dans cet état pour toujours. Au-delà de la grâce, on reprend — un rappel perdu en silence`**
-
-⚠️ Sauf s'il est ABANDONNÉ : une invocation tuée entre la prise et l'envoi le laisserait
-
-**Avant `// est pire qu'un doublon, qui lui se voit.`**
-
-dans cet état pour toujours. Au-delà de la grâce, on reprend — un rappel perdu en silence
 
 **Avant `const free = inArray(notifications.status, [`**
 
+`Sending` est l'état de PRISE : il n'est écrit que par ce chemin. Un rappel réellement en
+vol ne peut donc pas être repris — c'est ce qui interdit le doublon.
+⚠️ Sauf s'il est ABANDONNÉ : une invocation tuée entre la prise et l'envoi le laisserait
+dans cet état pour toujours. Au-delà de la grâce, on reprend — un rappel perdu en silence
 est pire qu'un doublon, qui lui se voit.
 
 **Avant `function readAffectedRows(result: unknown): number {`**
@@ -7769,24 +7341,15 @@ le rappel à la remise suivante.
 
 ⚠️ `sending` EN FAIT PARTIE — voir le port : une prise abandonnée est en attente.
 
-**Avant `// exécution remet le rappel une seconde fois. Le contrat est verrouillé sur les DEUX`**
-
-⚠️ C'est cette doublure qui décide, dans tous les tests du répartiteur, si une seconde
-
-**Avant `// implémentations par la même suite — 'tests/unit/notification/notification-claim.test.ts'.`**
-
-exécution remet le rappel une seconde fois. Le contrat est verrouillé sur les DEUX
-
 **Avant `async claimForDispatch(id: string, strandedBefore?: Date): Promise<boolean> {`**
 
+⚠️ C'est cette doublure qui décide, dans tous les tests du répartiteur, si une seconde
+exécution remet le rappel une seconde fois. Le contrat est verrouillé sur les DEUX
 implémentations par la même suite — `tests/unit/notification/notification-claim.test.ts`.
-
-**Avant `// de la grâce — sinon le rappel resterait 'sending' à jamais, perdu en silence.`**
-
-⚠️ Une prise ABANDONNÉE (invocation tuée entre la prise et l'envoi) est reprenable au-delà
 
 **Avant `const abandoned =`**
 
+⚠️ Une prise ABANDONNÉE (invocation tuée entre la prise et l'envoi) est reprenable au-delà
 de la grâce — sinon le rappel resterait `sending` à jamais, perdu en silence.
 
 ---

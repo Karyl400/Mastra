@@ -1,6 +1,7 @@
 import { Workflow, createStep } from '@mastra/core/workflows';
 import { z } from 'zod';
 import { logger } from '../../../../shared/logger';
+import { errorMessage } from '../../../../shared/errors';
 import { buildWelcomeEmail } from '../../domain/services/welcome-email';
 import { createEmployee } from '../../../employee/domain/entities/employee';
 import { buildOnboardingPlan, reconcileProgress } from '../../domain/services/onboarding-plan';
@@ -240,7 +241,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
       } catch (err) {
         degraded.push({ step: BestEffortStep.WelcomeEmail, reason: toFailureReason(err) });
         logger.error('Échec envoi email de bienvenue', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
           email: inputData.email,
         });
       }
@@ -337,7 +338,7 @@ export function createEmployeeOnboardingWorkflow(deps: {
         return conclude({ slackInvited: true, slackUserId: member.id });
       } catch (err) {
         logger.error('Échec invitation Slack (non bloquant)', {
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
           employeeId: inputData.employeeId,
         });
         degraded.push({ step: BestEffortStep.SlackInvite, reason: toFailureReason(err) });

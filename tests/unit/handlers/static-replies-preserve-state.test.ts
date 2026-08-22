@@ -31,6 +31,10 @@ import { AGGRESSION_REPLY } from '../../../src/shared/distress';
  *     `remembersTurn: true`. L'état est détruit.
  *   • « Chargée de mission harcèlement et discrimination » comme INTITULÉ DE POSTE →
  *     `distress`. Dans un bot RH, c'est un intitulé réel.
+ *     ⚠️ **CE FAUX POSITIF-LÀ A ÉTÉ SUPPRIMÉ LE 2026-08-22**, et il ne fallait pas s'en
+ *     contenter comme d'une fatalité : les NOMS NUS (`harcelement`, `discrimination`,
+ *     `suicide`, `burnout`…) ne déclenchent plus que si le message parle de son AUTEUR, ou
+ *     s'il est nu lui-même (≤ 3 mots). Huit phrases de travail sur neuf déclenchaient.
  *
  * ⚠️ ARBITRAGE : la détresse GARDE la priorité, et ce n'est pas négociable. L'asymétrie est
  * claire — un faux positif donne un numéro d'aide à quelqu'un qui parlait de son métier
@@ -140,19 +144,38 @@ describe('la détresse garde la priorité, sans emporter le fil', () => {
   it('répond le message d’aide et laisse la question d’entretien en place', async () => {
     const { handler, slack, append } = makeHandler(INTERVIEW_QUESTION_DAILY);
 
-    // Intitulé de poste RÉEL dans une entreprise, et déclencheur du détecteur de détresse.
-    // C'est un FAUX POSITIF assumé : ce module préfère de loin déranger quelqu'un qui va
-    // bien à manquer quelqu'un qui va mal.
-    //
-    // ⚠️ Depuis la séparation du 2026-08-21, c'est le message AGRESSION qui sort — « harcèlement »
-    // et « discrimination » désignent une situation subie, pas une détresse. Le faux positif
-    // s'en trouve d'ailleurs moins gênant : on répond « ce que tu me décris n'a rien de normal,
-    // voilà vers qui aller », ce qui se lit bien mieux, sur un intitulé de poste, qu'un message
-    // de prévention du suicide.
-    await handler.handleMessage(dm('Chargée de mission harcèlement et discrimination'));
+    // ⚠️ CE QUI EST VÉRIFIÉ ICI EST L'ORDRE, PAS LA DÉTECTION. Une question d'entretien
+    // attend ; `captureInterviewAnswer` accepte presque n'importe quel texte, donc sans
+    // priorité elle absorberait ce message et l'enregistrerait comme la description du
+    // métier de la personne — dans un document qui porte son nom.
+    await handler.handleMessage(dm('mon manager me harcèle depuis des semaines'));
 
     expect(postedTexts(slack)[0]).toBe(AGGRESSION_REPLY);
+    // Le fil reste exactement où il était : la question d'entretien est toujours la dernière
+    // parole du bot, donc la réponse suivante lui sera correctement appariée.
     expect(append).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ⚠️ NON-RÉGRESSION DU 2026-08-22 — l'intitulé de poste ne déclenche plus.
+   *
+   * « Chargée de mission harcèlement et discrimination » est un poste RÉEL, et il recevait
+   * le message d'agression. Le commentaire d'origine de ce fichier le tenait pour un faux
+   * positif ACCEPTABLE ; la mesure a montré qu'il n'était pas isolé mais systématique —
+   * « c'est du suicide », « on a harcelé le support », « la discrimination des types en
+   * TypeScript ». Un détecteur qui crie au loup sur le vocabulaire quotidien perd la
+   * confiance au moment précis où elle compte.
+   *
+   * ⚠️ L'ASYMÉTRIE N'EST PAS ABANDONNÉE POUR AUTANT : elle est déplacée. On continue de
+   * s'abstenir VERS la détection dès que le message parle de son auteur, et un message nu
+   * (« harcèlement » seul) déclenche toujours.
+   */
+  it('mais un INTITULÉ DE POSTE ne déclenche plus rien', async () => {
+    const { handler, slack } = makeHandler(INTERVIEW_QUESTION_DAILY);
+
+    await handler.handleMessage(dm('Chargée de mission harcèlement et discrimination'));
+
+    expect(postedTexts(slack)[0]).not.toBe(AGGRESSION_REPLY);
   });
 });
 

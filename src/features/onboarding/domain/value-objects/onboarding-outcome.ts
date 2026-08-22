@@ -1,3 +1,5 @@
+import { errorMessage } from '../../../../shared/errors';
+
 export enum OnboardingOutcome {
   Completed = 'completed',
   Degraded = 'degraded',
@@ -15,7 +17,7 @@ export interface StepFailure {
 }
 
 export function toFailureReason(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
+  const raw = errorMessage(error);
   const trimmed = raw.trim();
   return trimmed.length > 0 ? trimmed : 'cause inconnue';
 }

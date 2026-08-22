@@ -1,6 +1,7 @@
 import { WebClient } from '@slack/web-api';
 
 import { logger } from '../../../../shared/logger';
+import { slackErrorCode } from '../../../../shared/slack/slack-error';
 import {
   ChannelUnavailableError,
   type ChannelHistoryPort,
@@ -17,14 +18,6 @@ export type DisplayNameResolver = (slackUserId: string) => Promise<string | null
 export interface SlackChannelHistoryOptions {
   readonly client?: WebClient;
   readonly resolveDisplayName?: DisplayNameResolver;
-}
-
-function slackErrorCode(error: unknown): string | undefined {
-  if (typeof error !== 'object' || error === null) return undefined;
-  const data = (error as { data?: unknown }).data;
-  if (typeof data !== 'object' || data === null) return undefined;
-  const code = (data as { error?: unknown }).error;
-  return typeof code === 'string' ? code : undefined;
 }
 
 function toUnavailable(error: unknown, channelId: string): ChannelUnavailableError {

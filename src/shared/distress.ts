@@ -25,12 +25,9 @@ const SELF_HARM_PHRASES_FR: readonly string[] = [
 ];
 
 const AGGRESSION_PHRASES_FR: readonly string[] = [
-  'harcele',
-  'harcelement',
-  'harcelement moral',
-  'harcelement sexuel',
   'je suis agresse',
-  'agression sexuelle',
+  'j ai ete agresse',
+  'ete agressee',
   'me menace',
   'me harcele',
   'je suis discrimine',
@@ -38,11 +35,8 @@ const AGGRESSION_PHRASES_FR: readonly string[] = [
   'me suis fait agresser',
   'on m a agresse',
   'je suis en danger',
-  'menace de mort',
-  'menaces de mort',
   'me frappe',
   'ma frappe',
-  'intimidation',
   'me touche sans mon consentement',
 ];
 
@@ -80,7 +74,6 @@ const SELF_HARM_PHRASES_EN: readonly string[] = [
   'cant take it anymore',
   'cant do this anymore',
   'cant cope',
-  'breaking point',
   'having a breakdown',
   'nervous breakdown',
   'feel hopeless',
@@ -89,20 +82,33 @@ const SELF_HARM_PHRASES_EN: readonly string[] = [
   'feel worthless',
   'feeling worthless',
   'am worthless',
+  'im depressed',
+  'i am depressed',
+];
+
+const SELF_HARM_NOUNS_EN: readonly string[] = [
+  'breaking point',
+  'falling apart',
   'burned out',
   'burnt out',
   'burning out',
-  'im depressed',
-  'i am depressed',
-  'falling apart',
+];
+
+const AGGRESSION_NOUNS_EN: readonly string[] = [
+  'harassment',
+  'death threat',
+  'death threats',
+  'sexual assault',
 ];
 
 const AGGRESSION_PHRASES_EN: readonly string[] = [
-  'harassment',
   'harassing me',
+  'harasses me',
+  'harass me',
   'being harassed',
   'was harassed',
   'sexually harassed',
+  'sexually assaulted',
   'bullying me',
   'being bullied',
   'was bullied',
@@ -111,27 +117,34 @@ const AGGRESSION_PHRASES_EN: readonly string[] = [
   'threatened me',
   'assaulted me',
   'was assaulted',
-  'sexual assault',
   'discriminated against',
 
   'i am in danger',
   'im in danger',
-  'death threat',
-  'death threats',
   'he hit me',
   'she hit me',
   'they hit me',
   'touched me without',
 ];
 
-const SELF_HARM_PHRASES_SHARED: readonly string[] = [
-  'suicide',
-  'depression',
-  'burn out',
-  'burnout',
-];
+const SELF_HARM_PHRASES_SHARED: readonly string[] = [];
 
-const AGGRESSION_PHRASES_SHARED: readonly string[] = ['discrimination'];
+const SELF_HARM_NOUNS_SHARED: readonly string[] = ['suicide', 'depression', 'burn out', 'burnout'];
+
+const AGGRESSION_PHRASES_SHARED: readonly string[] = [];
+
+const AGGRESSION_NOUNS_SHARED: readonly string[] = ['discrimination'];
+
+const AGGRESSION_NOUNS_FR: readonly string[] = [
+  'harcele',
+  'harcelement',
+  'harcelement moral',
+  'harcelement sexuel',
+  'agression sexuelle',
+  'intimidation',
+  'menace de mort',
+  'menaces de mort',
+];
 
 const FRENCH_MARKERS: ReadonlySet<string> = new Set([
   'je',
@@ -229,6 +242,38 @@ function normalizedForms(raw: string): readonly string[] {
   return spaced === joined ? [spaced] : [spaced, joined];
 }
 
+const FIRST_PERSON_MARKERS: ReadonlySet<string> = new Set([
+  'je',
+  'j',
+  'me',
+  'm',
+  'moi',
+  'mon',
+  'ma',
+  'mes',
+  'i',
+  'im',
+  'my',
+  'myself',
+  'mine',
+]);
+
+function speaksOfSelf(forms: readonly string[]): boolean {
+  return forms.some((form) => form.split(' ').some((token) => FIRST_PERSON_MARKERS.has(token)));
+}
+
+const BARE_NOUN_MAX_TOKENS = 3;
+
+function isBareStatement(forms: readonly string[]): boolean {
+  const spaced = forms[0] ?? '';
+  return spaced.split(' ').filter(Boolean).length <= BARE_NOUN_MAX_TOKENS;
+}
+
+function matchesNoun(forms: readonly string[], nouns: readonly string[]): boolean {
+  if (!matchesAny(forms, nouns)) return false;
+  return speaksOfSelf(forms) || isBareStatement(forms);
+}
+
 function matchesAny(forms: readonly string[], phrases: readonly string[]): boolean {
   return phrases.some((phrase) => forms.some((form) => form.includes(phrase)));
 }
@@ -276,6 +321,8 @@ export function distressKind(text: string | undefined | null): DistressKind | nu
     matchesAny(forms, SELF_HARM_PHRASES_FR) ||
     matchesAny(forms, SELF_HARM_PHRASES_EN) ||
     matchesAny(forms, SELF_HARM_PHRASES_SHARED) ||
+    matchesNoun(forms, SELF_HARM_NOUNS_SHARED) ||
+    matchesNoun(forms, SELF_HARM_NOUNS_EN) ||
     wantsToEndTheirLife(forms)
   ) {
     return 'self_harm';
@@ -284,7 +331,10 @@ export function distressKind(text: string | undefined | null): DistressKind | nu
   if (
     matchesAny(forms, AGGRESSION_PHRASES_FR) ||
     matchesAny(forms, AGGRESSION_PHRASES_EN) ||
-    matchesAny(forms, AGGRESSION_PHRASES_SHARED)
+    matchesAny(forms, AGGRESSION_PHRASES_SHARED) ||
+    matchesNoun(forms, AGGRESSION_NOUNS_FR) ||
+    matchesNoun(forms, AGGRESSION_NOUNS_EN) ||
+    matchesNoun(forms, AGGRESSION_NOUNS_SHARED)
   ) {
     return 'aggression';
   }
@@ -301,16 +351,20 @@ export function distressLanguage(text: string | undefined | null): DistressLangu
   const french =
     matchesAny(forms, SELF_HARM_PHRASES_FR) ||
     matchesAny(forms, AGGRESSION_PHRASES_FR) ||
+    matchesNoun(forms, AGGRESSION_NOUNS_FR) ||
     wantsToEndTheirLife(forms);
   const english =
-    matchesAny(forms, SELF_HARM_PHRASES_EN) || matchesAny(forms, AGGRESSION_PHRASES_EN);
+    matchesAny(forms, SELF_HARM_PHRASES_EN) ||
+    matchesAny(forms, AGGRESSION_PHRASES_EN) ||
+    matchesNoun(forms, SELF_HARM_NOUNS_EN) ||
+    matchesNoun(forms, AGGRESSION_NOUNS_EN);
 
   if (french && english) return 'both';
   if (french) return 'fr';
   if (english) return 'en';
 
   const shared =
-    matchesAny(forms, SELF_HARM_PHRASES_SHARED) || matchesAny(forms, AGGRESSION_PHRASES_SHARED);
+    matchesNoun(forms, SELF_HARM_NOUNS_SHARED) || matchesNoun(forms, AGGRESSION_NOUNS_SHARED);
   if (!shared) return null;
 
   return guessLanguage(forms);

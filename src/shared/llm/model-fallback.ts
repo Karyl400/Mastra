@@ -3,6 +3,7 @@ import { createGroq } from '@ai-sdk/groq';
 import { createMistral } from '@ai-sdk/mistral';
 import type { ModelWithRetries } from '@mastra/core/agent';
 import { logger as sharedLogger } from '../logger';
+import { errorMessage } from '../errors';
 
 export const DEFAULT_GEMINI_MODEL_ID = 'gemini-3.5-flash';
 
@@ -61,7 +62,7 @@ export function withChainFailureLogging<M extends object>(
               provider: meta.provider,
               modelId: meta.modelId,
               errorName: error instanceof Error ? error.name : typeof error,
-              errorMessage: error instanceof Error ? error.message : String(error),
+              errorMessage: errorMessage(error),
               statusCode:
                 typeof error === 'object' && error !== null && 'statusCode' in error
                   ? (error as { statusCode?: unknown }).statusCode

@@ -97,7 +97,7 @@ orphelines cessent d'être rejouées d'elles-mêmes.
 
  Tours d'une conversation, du plus ancien au plus récent, ignorant ceux au-delà du TTL.
 
-**Avant `prune(olderThan: Date): Promise<number>;`**
+**Avant `pruneOlderThan(cutoff: Date): Promise<number>;`**
 
  Purge les tours au-delà du TTL. Appelé opportunément, pas par un cron.
 
@@ -164,7 +164,6 @@ mémoire K fois.
 
 TypeScript pur — ZÉRO import de framework.
 
-
 Caractères par token. Ratio calibré sur les mesures réelles du projet et non sur une
 moyenne générique : l'en-tête `SYSTEM_SECURITY_PROMPT` fait 1308 caractères pour
 374 tokens mesurés en production le 2026-08-08, soit 3,497 — arrondi à 3,5.
@@ -224,7 +223,6 @@ Sélectionne les tours les plus récents tenant dans `budgetTokens`.
 
 Parcours à rebours par UNITÉS indivisibles. Une unité vaut soit un tour `user` seul
 
-
 (question encore sans réponse), soit un tour `user` suivi de TOUTE la salve d'`assistant`
 
 qui lui répond — le bot poste parfois deux messages pour un seul message utilisateur, et
@@ -234,12 +232,10 @@ les séparer recréerait exactement l'orphelin qu'on cherche à éviter.
 
 Salve d'assistants sans question en amont : le tour utilisateur est hors fenêtre
 
-
 (purgé par le TTL ou coupé par le `limit`). On s'arrête plutôt que de le rejouer nu.
 **Avant `if (unitCost > remaining) break;`**
 
 On s'arrête — on ne saute PAS l'unité pour tenter la suivante : sauter donnerait un
-
 
 historique troué, où deux tours consécutifs en apparence ne le sont pas.
 **Avant `function truncateToBudget(turn: ConversationTurn, maxTurnTokens: number): ConversationTurn {`**
@@ -286,7 +282,6 @@ TypeScript pur — ZÉRO import de framework.
 
 Sans cette garde, une clé vide fusionnerait TOUTES les conversations en une seule
 
-
 mémoire partagée — une fuite de contexte entre utilisateurs, pas un simple bug.
 ## `features/conversation/infrastructure/repositories/drizzle-conversation.repository.ts`
 
@@ -302,7 +297,6 @@ base `libsql://` distante. Le DDL à appliquer à la main vit dans
 **Avant `const rows = await db`**
 
 Tri DESC + `limit` pour tirer les tours les plus RÉCENTS — un `limit` sur un tri ASC
-
 
 ramènerait le début du fil, c'est-à-dire exactement ce qu'on veut oublier.
 **Avant `return rows.reverse().map(toDomain);`**
@@ -322,7 +316,6 @@ connaît pas la topologie Slack et n'a pas à la deviner.
 
 SQLite ne connaît pas les unions littérales : la colonne est un `text` libre, la
 
-
 contrainte vit dans le domaine.
 ## `features/conversation/infrastructure/repositories/drizzle-pinned-fact.repository.ts`
 
@@ -338,7 +331,6 @@ et il doit l'être AVANT le déploiement.
 **Avant `.orderBy(asc(pinnedFacts.createdAt))`**
 
 Du plus ANCIEN au plus récent : c'est l'ordre dans lequel la personne les a donnés,
-
 
 donc celui qui se lit. Le tri est explicite — sans `ORDER BY`, deux lectures
 
@@ -360,7 +352,6 @@ n'existant que pour le budget de tokens.
 **Avant `return (result as { rowsAffected?: number }).rowsAffected ?? 0;`**
 
 `rowsAffected` est le champ rendu par le pilote libsql. Le contrat rend un NOMBRE et
-
 
 non `void` pour la même raison que `OnboardingRepository.update` : sans lui, aucun
 
@@ -390,7 +381,6 @@ milliseconde.
 **Avant `return scope.slackUserId ? turn.slackUserId !== scope.slackUserId : false;`**
 
 Filtrer par personne épargne les tours `assistant` (`slackUserId: null`) : voir le
-
 
 commentaire du port, c'est voulu.
 **Avant `clear(): void {`**

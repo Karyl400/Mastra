@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { SlackEventsHandler } from '../../../src/features/notification/infrastructure/handlers/slack-events.handler';
+import { makeSlackHandler, makeSlackMock } from '../../helpers/slack-handler';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -34,36 +34,26 @@ const RECORD = {
 };
 
 function makeHandler(member: Record<string, unknown>, profileRepo: Record<string, unknown>) {
-  const slack = {
-    chat: {
-      postMessage: vi.fn().mockResolvedValue({ ok: true, ts: '1.0' }),
-      update: vi.fn().mockResolvedValue({ ok: true }),
-    },
-    auth: { test: vi.fn().mockResolvedValue({ user_id: 'UBOT' }) },
-  };
+  const slack = makeSlackMock({ botUserId: 'UBOT', postTs: '1.0' });
 
-  // ⚠️ Les doublures ci-dessous ne sont pas du confort : chaque `undefined` fabrique un dépôt
-  // Drizzle ou envoie un `users.info` RÉEL vers slack.com avec le jeton de test. `CLAUDE.md`
-  // en recense HUIT, et leur oubli ne produit pas un échec d'assertion mais un `Timeout 5000ms`
-  // qui ne désigne jamais sa cause.
-  const handler = new SlackEventsHandler(
-    'xoxb-test-token',
-    { getAgent: () => ({ generate: vi.fn() }) } as never,
-    {
-      slackClient: slack as never,
-      conversationRepository: null,
-      pinnedFactRepository: null,
-      dedupRepository: { claim: async () => true, pruneOlderThan: async () => 0 } as never,
-      rateLimiter: null,
-      pruneProbability: 0,
-      directoryRepository: { findBySlackUserId: async () => member } as never,
-      accessGuard: { evaluate: async () => ({ effective: 'full' }) } as never,
-      auditSink: async () => undefined,
-      workspaceProvider: { getUserById: async () => null } as never,
-      profileRepository: profileRepo as never,
-      interviewRepository: null,
-    } as never,
-  );
+  // ⚠️ Les doublures ne sont pas du confort : chaque `undefined` fabrique un dépôt Drizzle ou
+  // envoie un `users.info` RÉEL vers slack.com avec le jeton de test. `CLAUDE.md` en recense
+  // HUIT, et leur oubli ne produit pas un échec d'assertion mais un `Timeout 5000ms` qui ne
+  // désigne jamais sa cause. Elles vivent désormais dans `tests/helpers/slack-handler.ts`,
+  // avec le détail de ce que chacune coûte.
+  //
+  // Ce fichier n'en spécialise que trois, et chacune porte une assertion : l'annuaire (dont on
+  // fait varier le lien et l'adresse), le dépôt de profil (les deux lecteurs qu'on compare) et
+  // la frontière d'accès, qui doit RENDRE un verdict — `null` la retirerait du `requestContext`.
+  const { handler } = makeSlackHandler({
+    slack,
+    mastra: { getAgent: () => ({ generate: vi.fn() }) } as never,
+    dedupRepository: { claim: async () => true, pruneOlderThan: async () => 0 } as never,
+    directoryRepository: { findBySlackUserId: async () => member } as never,
+    accessGuard: { evaluate: async () => ({ effective: 'full' }) } as never,
+    profileRepository: profileRepo as never,
+    interviewRepository: null,
+  });
 
   return { handler, slack };
 }

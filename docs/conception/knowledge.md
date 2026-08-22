@@ -210,7 +210,6 @@ serait activement moins sûr : une dépendance qu'on peut oublier de brancher
 est une frontière de sécurité qu'on peut oublier de poser. `llm-guardrail.ts`
 fait exactement ce choix pour sa propre session de processus.
 
-
 Session dédiée aux données récupérées. Un seul `SessionManager` pour les deux
 tools : deux préfixes différents dans un même tour de dialogue n'apporteraient
 rien et donneraient au modèle deux frontières à distinguer.
@@ -250,7 +249,6 @@ chose lue avant les extraits.
 
 « QUI PEUT FAIRE QUOI » — résout une COMPÉTENCE vers des personnes.
 
-
 Le manque
 
 Le workspace sait déjà qui fait quoi : `slack_directory.title` porte le poste déclaré dans
@@ -262,9 +260,7 @@ qu'une seule réponse possible — celle que le modèle inventait, dans l'espace
 C'est le symétrique de `findPersonByName` : celui-là va du NOM vers la personne, celui-ci
 de la COMPÉTENCE vers les personnes. Il en reprend les trois disciplines.
 
-
 Trois choix, et ce qu'ils écartent
-
 
 **1. Deux sources, comme `findPersonByName`.** Awa n'a AUCUNE ligne d'annuaire mais a une
 ligne `employees` ; les quatre autres personnes vivantes sont dans le cas inverse. Une
@@ -292,7 +288,6 @@ l'exposer ici ne divulgue rien de neuf.
 ⚠️ Le rapprochement est celui de `matchesName` — préfixe de MOT, jamais sous-chaîne. C'est
 la même règle que pour les noms et elle sert ici aussi bien : « postgres » retrouve
 « PostgreSQL », « dev » retrouve « Developer », et « api » ne retrouve pas « rapide ».
-
 
 Borne du résultat. Plus haute que les 5 de `findPersonByName` — une compétence est
 légitimement partagée par plusieurs personnes, là où un nom en désigne une — mais bornée
@@ -359,12 +354,10 @@ refuse de choisir et le dit.
 
 L'annuaire d'abord : son `title` est tenu par la personne elle-même dans Slack, donc
 
-
 plus à jour que `employees.position`, saisi une fois à la création du dossier.
 **Avant `const bothDown = !fromDirectory.available && !fromEmployees.available;`**
 
 ⚠️ « PERSONNE NE CORRESPOND » ET « JE N'AI PAS PU CHERCHER » NE SONT PAS LA MÊME
-
 
 CHOSE, et c'était le seul échec réellement silencieux du lot d'outils. Les deux
 
@@ -381,12 +374,10 @@ l'absence est invérifiable pour qui la reçoit.
 
 Une seule source en panne : on a cherché pour de bon, mais pas partout. On le dit,
 
-
 sans transformer une recherche partielle en absence certaine.
 **Avant `const ranked = [...experts].sort((a, b) => b.score - a.score);`**
 
 ⚠️ TRI STABLE PAR SIGNAL. `Array.prototype.sort` est stable depuis ES2019, donc à
-
 
 score égal l'ordre d'origine tient — l'annuaire avant les dossiers, ce qui est
 
@@ -394,7 +385,6 @@ délibéré (`title` est tenu par la personne, `position` saisi une fois à la c
 **Avant `people: [`**
 
 ⚠️ LA COUVERTURE EST DANS LE CONTENU, pas dans un champ à côté — et ce n'est pas une
-
 
 préférence de forme, c'est une MESURE. Le 2026-08-14, sur `getChannelHistory`, un
 
@@ -422,18 +412,15 @@ doit dégrader la recall, pas faire échouer la question : l'autre source répon
 
 Poste déclaré dans Slack, tenu par la personne elle-même : signal fort.
 
-
 Un invité externe compte moins — il est rarement l'interlocuteur cherché.
 **Avant `const daily = dailyWork.get(employee.id) ?? '';`**
 
 Le POSTE d'abord : c'est l'intitulé officiel, et c'est ce qu'on préfère montrer.
 
-
 L'entretien ne sert de matière que s'il apporte quelque chose que le poste ne dit pas.
 **Avant `const label = matchedPosition`**
 
 ⚠️ LA PROSE D'ENTRETIEN NE SORT PAS — corrigé le 2026-08-20.
-
 
 `evidence` valait `daily` quand la correspondance venait de l'entretien : la phrase
 
@@ -475,7 +462,6 @@ Une personne présente dans les DEUX sources est UNE personne. Sans cela, Awa �
 dossier et pourrait gagner une ligne d'annuaire demain — apparaîtrait deux fois, et deux
 lignes se lisent comme deux collègues disponibles.
 
-
 Déduplication ENTRE sources, jamais À L'INTÉRIEUR d'une source.
 
 ⚠️ Le prédicat portait sur le seul nom normalisé. Il répondait à un vrai besoin — une
@@ -504,7 +490,6 @@ ici ferait lire cette ligne comme une personne de plus. Un test le verrouille.
 **Avant `function safePart(raw: string | null | undefined): string {`**
 
  Le NOM doit survivre à la coupe : c'est lui qui rend la réponse actionnable, pas l'intitulé.
-
 
 ⚠️ ON ASSAINIT AVANT DE TRONQUER, et l'ordre importe.
 
@@ -571,7 +556,6 @@ casse dessus avec Zod épinglé à 3.25.76.
 
 ── L'APPARTENANCE DU DEMANDEUR, avant toute lecture ────────────────────
 
-
 Une erreur ici vaut NON. Fail-closed, à l'inverse du reste du dépôt :
 
 ailleurs une indisponibilité coûte une livraison, ici elle coûterait la
@@ -589,14 +573,12 @@ vient du `return refuse('unavailable')`, pas de l'initialisation.
 
 JOURNALISATION RGPD — qui a lu quel canal, quand, sur quelle base. Jamais
 
-
 le contenu : une trace d'accès qui recopie la donnée devient la fuite
 
 qu'elle est censée documenter.
 **Avant `const humanCoverage = describeCoverageForHuman(excerpts, shown);`**
 
 ── LA COUVERTURE, DITE À L'HUMAIN — quatrième forme, 2026-08-18 ──────
-
 
 Les trois précédentes dépendaient toutes du modèle et ont été mesurées en échec :
 
@@ -610,7 +592,6 @@ le handler accole la note lui-même, le modèle n'est plus sur le chemin. Coût 
 **Avant `...(coverage ? { hint: coverage } : {}),`**
 
 ⚠️ Émise sous le nom `hint`, et ce nom est le fruit d'une MESURE en production.
-
 
 Le champ s'appelait `coverage` : le modèle l'a purement ignoré — 23 messages
 
@@ -659,7 +640,6 @@ le cas le plus fréquent, servi sans un mot échangé. Et un champ UNIQUE qui
 accepte l'email comme l'identifiant Slack, plutôt que deux champs entre
 lesquels le modèle devrait arbitrer.
 
-
  Ce que le tool a besoin de savoir faire, et rien de plus.
 **Avant `const SLACK_USER_ID_RE = /^U[A-Z0-9]{4,}$/i;`**
 
@@ -694,7 +674,6 @@ le modèle par un second champ.
 
 Un nom, un prénom, un surnom : l'annuaire n'a pas d'index dessus, et deviner
 
-
 serait pire que refuser — on désignerait la mauvaise personne en silence.
 **Avant `function designatesRequester(`**
 
@@ -715,7 +694,6 @@ connaît pas encore n'a pas d'email connu : il ne peut se désigner que par son
 
 Casse indifférente : `resolveTarget` normalise déjà en majuscules avant de
 
-
 chercher, et Slack n'émet jamais deux `U…` ne différant que par la casse.
 **Avant `async function lookUpRequester(`**
 
@@ -728,7 +706,6 @@ doctrine que `SlackAccessGuard` — une indisponibilité ne doit jamais élargir
 **Avant `const targetsRequester = !asked || designatesRequester(asked, requesterId, requesterPerson);`**
 
 ── L'AUTORISATION D'ABORD, LA RÉSOLUTION ENSUITE ───────────────────────
-
 
 L'ordre EST le correctif. Résoudre la cible avant de trancher rendait
 
@@ -751,12 +728,10 @@ distinction soi / autrui, tranchée sans la moindre E/S.
 
 Jamais la cible demandée : un journal qui recopie la sonde d'un
 
-
 attaquant lui construit gratuitement sa liste d'adresses valides.
 **Avant `const targetId = resolved?.slackUserId ?? (targetsRequester ? requesterId : null);`**
 
 Cas particulier utile : le demandeur nous écrit en DM et l'annuaire ne le
-
 
 connaît pas encore. Le canal courant EST sa conversation — la refuser
 
@@ -765,14 +740,12 @@ reviendrait à lui cacher ce qu'il vient lui-même d'écrire.
 
 ⚠️ L'invariant du port, vérifié côté appelant AUSSI : seule une clé `D…`
 
-
 désigne une conversation directe. Une clé de fil (`C…:1734…`) servirait
 
 du contenu de canal sans contrôle d'appartenance.
 **Avant `const disclosable = mayDiscloseBotUtterances(requester, targetId)`**
 
 ── CE QUE LE BOT A DIT NE SORT QUE VERS LA PERSONNE CONCERNÉE ──────────
-
 
 Fuite transitive, fermée ici : les résumés de canaux PRIVÉS rédigés par
 
@@ -791,7 +764,6 @@ elle-même. On coupe donc l'amplification, pas l'accès.
 
 « Kisso » et non l'identifiant de l'agent : le nom de l'agent est un
 
-
 détail d'implémentation, et les tours viennent parfois d'agents
 
 différents — le distinguer ici ferait payer une information qui
@@ -801,12 +773,10 @@ n'éclaire pas la question posée.
 
 Deux phrases, un seul champ. `withheld` explique pourquoi des tours MANQUENT (la
 
-
 politique de divulgation) ; `coverage` dit que ce qui reste est un ÉCHANTILLON.
 **Avant `noteCoverageForHuman(ctx?.requestContext, excerpts, shown);`**
 
 ── LA COUVERTURE, DITE À L'HUMAIN — quatrième forme, 2026-08-18 ──────
-
 
 Les trois précédentes dépendaient toutes du modèle et ont été mesurées en échec :
 
@@ -819,14 +789,12 @@ modèle n'est plus sur le chemin. Coût en tokens NUL.
 
 JOURNALISATION RGPD : qui a lu quoi, quand, et sur quelle base. Jamais le
 
-
 contenu — une trace d'accès qui recopie la donnée devient elle-même la
 
 fuite qu'elle documente.
 **Avant `conversation: wrapRetrievedContent(lines, coverage),`**
 
 Le contenu ne sort JAMAIS de ce bloc : c'est la seule chose qui
-
 
 distingue « une donnée qu'on te montre » de « une instruction qu'on te
 
@@ -835,12 +803,10 @@ donne ». Voir `services/untrusted-excerpt.service.ts`.
 
 Ce qui a été RETENU ne compte pas comme parcouru : le nombre de tours
 
-
 écartés dirait à un tiers combien de fois le bot a répondu.
 **Avant `...(hint ? { hint } : {}),`**
 
 Payé UNIQUEMENT quand des tours ont été retenus (même arbitrage que le
-
 
 `hint` de `generateDocument`). Sans lui, le modèle voit une suite de
 
@@ -1159,7 +1125,6 @@ dépend d'aucune désignation, mais de l'ACL Slack elle-même.
 
 TypeScript pur.
 
-
 Motif de la décision. Journalisé, et rendu au modèle sous forme de `reason`
 pour qu'il dise CE QUI bloque plutôt que d'inventer une règle métier — défaut
 mesuré en production (« je ne peux pas modifier un questionnaire qu'elle n'a
@@ -1217,7 +1182,6 @@ l'accès à ses propres messages.
 **Avant `if (!requester) return { allowed: false, reason: 'no_requester' };`**
 
 Hors Slack (playground, route HTTP, workflow, test), `readSlackContext` rend
-
 
 `undefined`. Les autres tools DÉGRADENT dans ce cas — celui-ci REFUSE, et
 
@@ -1349,7 +1313,6 @@ Les retirer en amont est aussi sûr et de taille constante.
 
 ⚠️ TypeScript pur — seul un import de TYPE, effacé à la compilation.
 
-
 Nombre maximal d'extraits rendus.
 
 Six, et non « autant que possible » : la question réelle est « qu'est-ce qui
@@ -1388,7 +1351,6 @@ tests non reproductibles et ferait varier la taille de la sortie.
 **Avant `export function renderExcerptLines(excerpts: readonly ConversationExcerpt[]): string {`**
 
 ⚠️ `selectExcerpts` (tri par DATE seule) a été SUPPRIMÉ le 2026-08-14, remplacé par
-
 
 `selectSalientExcerpts`. Le garder aurait laissé DEUX sélecteurs concurrents dans le même
 
@@ -1459,9 +1421,7 @@ et ne passe par AUCUN filtre — `sanitizeAgentOutput` n'a qu'un seul site d'app
 LA SAILLANCE — quels extraits méritent d'être montrés, et non simplement lesquels sont les
 plus récents.
 
-
 Le défaut corrigé
-
 
 `selectExcerpts` ne triait que par DATE : on rendait les 6 derniers messages. Or les
 6 derniers messages d'un canal ne sont presque jamais les 6 importants — ce sont
@@ -1471,9 +1431,7 @@ Le défaut corrigé
 voyait pas l'énoncé, et devait combler. Ce dépôt sait ce qu'un modèle fait devant un vide :
 il invente.
 
-
 Pourquoi un score en CODE, et pas un appel de modèle
-
 
 « Choisis les messages importants » est une tâche qu'un LLM ferait mieux. Elle coûterait un
 aller-retour de plus par consultation, sur un budget qui se compte en **≈ 19 messages par
@@ -1485,9 +1443,7 @@ demande pas au score de COMPRENDRE la conversation, seulement d'écarter le brui
 remonter ce qui porte une décision, une question ou un engagement. Le modèle, lui, lit
 ensuite ce qui a été retenu.
 
-
 Ce que le score NE fait pas
-
 
 Il ne change ni le nombre d'extraits rendus, ni leur taille : la propriété centrale du
 module voisin — **la sortie ne dépend ni du nombre de messages ni de leur longueur** —
@@ -1503,7 +1459,6 @@ n'est pas fiable. `llm-guardrail.ts` porte déjà un lot de warnings ReDoS, on n
 Poids des signaux. Ils sont ADDITIFS et plafonnés : un message qui pose une question ET
 fixe une échéance compte plus qu'un message qui ne fait que l'un des deux, sans qu'un seul
 message truffé de mots-clés puisse éclipser tout le reste.
-
 
 ⚠️ BORDS DE MOT EN `\p{L}` AVEC LE DRAPEAU `u`, JAMAIS `\b`.
 
@@ -1524,7 +1479,6 @@ entrée externe n'atteint ce constructeur.
 
 Une DÉCISION est ce qu'on cherche en premier dans un historique : c'est le seul type de
 
-
 message dont l'absence rend tous les autres incompréhensibles.
 
 Un ENGAGEMENT nomme un responsable — l'information la plus recherchée après une décision.
@@ -1535,7 +1489,6 @@ Un BLOCAGE appelle une action et périme vite : le rater coûte plus cher que de
 **Avant `{`**
 
 Une ÉCHÉANCE date la suite. Les jours de la semaine sont inclus : « on livre jeudi » est
-
 
 une échéance, même sans le mot.
 **Avant `{ weight: 2, test: /\?\s*$/ },`**
@@ -1644,7 +1597,6 @@ est telle qu'il n'y a rien à arbitrer.
 
 TypeScript pur — zéro import.
 
-
 Verbes qui annoncent un effet observable hors du processus, ou une écriture.
 
 `generate` y figure alors qu'il pourrait sembler inoffensif : `generateDocument`
@@ -1693,7 +1645,6 @@ la leçon de `getNotificationHistory` (≈ 9 600 tokens → 177).
 
 TypeScript pur — zéro import.
 
-
  Profondeur maximale d'une récupération : 30 jours.
 **Avant `export const KNOWLEDGE_SCAN_LIMIT = 40;`**
 
@@ -1728,7 +1679,6 @@ validerait au vert le deputy confus lui-même.
 
 Comme le vrai adaptateur : les plus RÉCENTS d'abord côté source, remis à
 
-
 l'endroit ensuite. Un `slice` sur l'ordre d'insertion ferait passer au vert
 
 une borne que Slack ne tient pas.
@@ -1759,7 +1709,6 @@ L'énumération est PLAFONNÉE (`MAX_MEMBER_PAGES`). Un canal plus grand que ce
 plafond rend `false` : refuser un accès légitime coûte une phrase, l'accorder
 à tort coûte un canal privé.
 
-
  1 000 membres par page × 5 pages : au-delà, on refuse plutôt que de deviner.
 **Avant `export type DisplayNameResolver = (slackUserId: string) => Promise<string | null>;`**
 
@@ -1778,7 +1727,6 @@ ne doit pas dépendre d'un confort d'affichage.
 **Avant `const reason: ChannelUnavailableReason = 'bot_not_in_channel';`**
 
 `channel_not_found` est rendu par Slack pour un canal privé où le bot n'est
-
 
 PAS membre : de son point de vue, le canal n'existe pas. Le traduire en
 
@@ -1812,7 +1760,6 @@ oracle d'existence de canaux privés, interrogeable par n'importe qui en DM.
 
 `oldest` est un horodatage Slack : des SECONDES epoch, en chaîne. Le passer
 
-
 en millisecondes rendrait une fenêtre située en l'an 57000 — donc zéro
 
 message, silencieusement.
@@ -1841,7 +1788,6 @@ Confort d'affichage, jamais un point de panne.
 **Avant `const labelOf = (message: RawChannelMessage): string => {`**
 
 Un auteur connu prend son libellé d'annuaire, à défaut son identifiant ; sinon c'est
-
 
 le bot, sinon on ne sait pas. Trois cas, écrits comme trois cas.
 ## `features/knowledge/infrastructure/repositories/drizzle-bot-memory.repository.ts`
@@ -1876,7 +1822,6 @@ tool-results différents pour la même question.
 
 Défense en profondeur : le tool vérifie déjà l'invariant, mais un port dont
 
-
 l'invariant n'est contrôlé que chez l'appelant finit par être appelé sans.
 
 Une clé de fil (`C…:1734…`) servirait du contenu de canal sans contrôle
@@ -1885,7 +1830,6 @@ d'appartenance — le deputy confus, par la porte de derrière.
 **Avant `role: row.role as BotMemoryRole,`**
 
 SQLite ne connaît pas les unions littérales : la colonne est un `text`
-
 
 libre, la contrainte vit dans le domaine.
 ## `features/knowledge/infrastructure/repositories/in-memory-bot-memory.repository.ts`
@@ -1929,9 +1873,7 @@ Ce que ce service attend d'un annuaire : une lecture, rien d'autre.
 
 **Avant `export async function buildNameLookup(`**
 
-
 DE `<@U0BJ8F1AMNF>` À « @Karyl SOUMAILA »
-
 
 ⚠️ **ON NE RÉSOUT QUE LES IDENTIFIANTS RÉELLEMENT MENTIONNÉS.** Le cas fréquent est zéro
 mention : on ne doit alors faire AUCUNE lecture. Charger tout l'annuaire « au cas où » ferait
@@ -1967,9 +1909,7 @@ fournie enverrait tout l'historique au modèle, par lots de cinq, jusqu'à épui
 
 **Avant `export async function runFactCurtain(deps: FactCurtainDeps): Promise<CurtainReport> {`**
 
-
 LE SECOND RIDEAU — code d'abord, modèle en rattrapage
-
 
 Ne tourne QUE lorsque cinq messages se sont accumulés sans qu'aucun motif déterministe n'ait
 mordu. Sur le chemin nominal — le code classe — il ne coûte rien du tout.
@@ -1983,49 +1923,29 @@ transformer le rideau en boucle de réessai sur les mêmes cinq lignes. Ce qu'on
 distillation, et le niveau 1 garde le message : la recherche dégrade vers le texte brut,
 exactement comme quand `distillFact` ne trouve rien.
 
-**Avant `// et à une personne choisis par le modèle, à partir de texte écrit par un utilisateur.`**
-
-⚠️ Un rang hors du lot ne crée AUCUNE ligne : le fait serait sinon rattaché à un canal
-
 **Avant `const source = pending[candidate.index - 1];`**
 
+⚠️ Un rang hors du lot ne crée AUCUNE ligne : le fait serait sinon rattaché à un canal
 et à une personne choisis par le modèle, à partir de texte écrit par un utilisateur.
-
-**Avant `// produite à partir de messages Slack, la surface d'injection la plus directe du produit.`**
-
-⚠️ La sortie du modèle est de la DONNÉE, pas de la prose de confiance : elle a été
-
-**Avant `// Un marqueur interne recopié dans un 'summary' ressortirait tel quel à la première`**
-
-produite à partir de messages Slack, la surface d'injection la plus directe du produit.
-
-**Avant `// recherche — le contournement exact du filtre unique corrigé sur les documents le`**
-
-Un marqueur interne recopié dans un `summary` ressortirait tel quel à la première
-
-**Avant `// 2026-08-11.`**
-
-recherche — le contournement exact du filtre unique corrigé sur les documents le
 
 **Avant `const safe = sanitizeNotificationBody(candidate.summary);`**
 
+⚠️ La sortie du modèle est de la DONNÉE, pas de la prose de confiance : elle a été
+produite à partir de messages Slack, la surface d'injection la plus directe du produit.
+Un marqueur interne recopié dans un `summary` ressortirait tel quel à la première
+recherche — le contournement exact du filtre unique corrigé sur les documents le
 2026-08-11.
-
-**Avant `// passer devant ce qu'il a classé avec certitude.`**
-
-Le score du rideau est le PLANCHER : ce que le code n'a pas su classer ne doit pas
 
 **Avant `score: KNOWLEDGE_FACT_MIN_SCORE,`**
 
+Le score du rideau est le PLANCHER : ce que le code n'a pas su classer ne doit pas
 passer devant ce qu'il a classé avec certitude.
 
 ### `src/features/knowledge/application/services/knowledge-erasure.service.ts`
 
 **Avant `export interface KnowledgeErasurePort {`**
 
-
 L'EFFACEMENT DE L'ARCHIVE — le geste qui manquait à un droit annoncé
-
 
 `ERASURE_SCOPE_NOTICE` disait, honnêtement, que les messages archivés dans les canaux
 « ne passent pas par moi » et renvoyait vers le General Manager. C'était vrai et ce n'était
@@ -2062,16 +1982,10 @@ Le SECOND RIDEAU. Optionnel : sans lui, le comportement est exactement celui d'a
 2026-08-21 — le code distille, ce qu'il ne classe pas reste au niveau 1, et la recherche
 dégrade vers le texte brut. Aucun appel de modèle n'a lieu.
 
-**Avant `// workspace où les motifs mordent, il ne coûte pas un seul appel — et s'il coûtait`**
-
-⚠️ Le rideau n'est consulté QUE si le code n'a rien su faire de ce message. Sur un
-
-**Avant `// beaucoup, ce serait le signe qu'il faut élargir les motifs, pas le budget.`**
-
-workspace où les motifs mordent, il ne coûte pas un seul appel — et s'il coûtait
-
 **Avant `if (!classified) await this.raiseCurtain();`**
 
+⚠️ Le rideau n'est consulté QUE si le code n'a rien su faire de ce message. Sur un
+workspace où les motifs mordent, il ne coûte pas un seul appel — et s'il coûtait
 beaucoup, ce serait le signe qu'il faut élargir les motifs, pas le budget.
 
 **Avant `private async raiseCurtain(): Promise<void> {`**
@@ -2190,9 +2104,7 @@ un dossier mais un canal.
 
 **Avant `async function sweepLive(query: string, requesterId: string, only?: string): Promise<Line[]> {`**
 
-
 LE REPLI EN DIRECT — lire Slack AVANT de prétendre ne rien savoir
-
 
 Jusqu'au 2026-08-21, une base vide rendait `nothing_known` avec un `hint` invitant le
 modèle à appeler `getChannelHistory` lui-même. C'était une CONSIGNE — et ce dépôt a mesuré
@@ -2213,12 +2125,9 @@ ne doit pas pouvoir devenir un balayage complet du workspace.
 ⚠️ Il ne LÈVE jamais : un canal illisible est sauté. Le pire cas reste « je ne sais pas »,
 qui est exactement la réponse qu'on avait avant.
 
-**Avant `// modèle qui l'a écrit, donc une valeur réputée contrôlée par un attaquant.`**
-
-Un canal explicitement demandé n'échappe PAS au contrôle d'appartenance : c'est le
-
 **Avant `const readable = only ? await readableChannels([only], requesterId, false) : null;`**
 
+Un canal explicitement demandé n'échappe PAS au contrôle d'appartenance : c'est le
 modèle qui l'a écrit, donc une valeur réputée contrôlée par un attaquant.
 
 **Avant `async function sweepOneChannel(channelId: string, query: string): Promise<Line[]> {`**
@@ -2235,28 +2144,16 @@ Extrait d'`execute` le 2026-08-21 — non pour le chiffre de complexité, mais p
 séquence EST la frontière : la voir d'un bloc vaut mieux que la lire entre deux lectures de
 base.
 
-**Avant `// raisons très différentes — le sujet n'a jamais été évoqué, ou l'archivage n'a rien`**
-
-⚠️ On LIT SLACK avant de dire qu'on ne sait pas. La base peut être vide pour deux
-
-**Avant `// capté — et « je ne sais pas » les confond. En production, les deux niveaux étaient`**
-
-raisons très différentes — le sujet n'a jamais été évoqué, ou l'archivage n'a rien
-
-**Avant `// vides : cet outil ne pouvait RIEN rendre d'autre, et personne ne le voyait.`**
-
-capté — et « je ne sais pas » les confond. En production, les deux niveaux étaient
-
 **Avant `if (lines.length === 0) {`**
 
+⚠️ On LIT SLACK avant de dire qu'on ne sait pas. La base peut être vide pour deux
+raisons très différentes — le sujet n'a jamais été évoqué, ou l'archivage n'a rien
+capté — et « je ne sais pas » les confond. En production, les deux niveaux étaient
 vides : cet outil ne pouvait RIEN rendre d'autre, et personne ne le voyait.
-
-**Avant `// en direct ne voit que la fenêtre récente, une archive ne voit que ce qui a été capté.`**
-
-⚠️ La provenance est DITE, et elle change ce que la personne doit en conclure : une lecture
 
 **Avant `const source = COVERAGE_SOURCES[tier] ?? COVERAGE_SOURCES.messages;`**
 
+⚠️ La provenance est DITE, et elle change ce que la personne doit en conclure : une lecture
 en direct ne voit que la fenêtre récente, une archive ne voit que ce qui a été capté.
 
 **Avant `function classifyPerson(`**
@@ -2298,9 +2195,7 @@ Un rang est court, sans ponctuation, et un rang faux reste rejeté sans risque.
 
 **Avant `export interface FactSummarizerPort {`**
 
-
 LE SECOND RIDEAU — ce que le code n'a pas su classer
-
 
 `distillFact` est du CODE : gratuit, rejouable, testable, et il attrape ce qui ressemble à
 une décision, un engagement, un blocage, une échéance. Il ne peut pas attraper ce qui n'y
@@ -2432,21 +2327,16 @@ plie (`NFD` + retrait des marques) des DEUX côtés, une fois pour toutes.
 ⚠️ L'apostrophe typographique est pliée par la même passe (`’` → `'`) — c'est le cas le plus
 fréquent sur mobile, et il a déjà coûté un refus non reconnu dans `shared/confirmation.ts`.
 
-**Avant `// accents, seule la comparaison les ignore.`**
-
-⚠️ On teste le texte PLIÉ, on rend le texte d'origine ailleurs : le résumé stocké garde ses
-
 **Avant `const folded = foldForMatch(flatten(text));`**
 
+⚠️ On teste le texte PLIÉ, on rend le texte d'origine ailleurs : le résumé stocké garde ses
 accents, seule la comparaison les ignore.
 
 ### `src/features/knowledge/domain/services/knowledge-retention.ts`
 
-**Avant `/** Borne basse : en deçà, on efface ce que la conversation courante vient d'archiver. */`**
-
+**Avant `export const MIN_RETENTION_DAYS = 7;`**
 
 LA RÉTENTION EST OPT-IN, ET C'EST UNE LEÇON PAYÉE DANS CE DÉPÔT
-
 
 `prune(before)` est déclarée dans les deux ports de `knowledge` et implémentée quatre fois.
 L'audit du 2026-08-21 a mesuré **zéro appelant**. `channel_messages` et `knowledge_facts`
@@ -2463,9 +2353,6 @@ que personne n'a demandée.
 On exige donc `KNOWLEDGE_RETENTION_DAYS`. Absente ⇒ **rien n'est purgé**, et on le
 JOURNALISE : une rétention qui ne tourne pas en silence est indiscernable d'une rétention
 qui marche — exactement le mode de panne que ce dépôt traque partout.
-
-**Avant `export const MIN_RETENTION_DAYS = 7;`**
-
 Borne basse : en deçà, on efface ce que la conversation courante vient d'archiver.
 
 **Avant `readonly before: number | null;`**
@@ -2481,11 +2368,9 @@ Refuser et le dire coûte une ligne de journal ; corriger en silence coûte une 
 
 ### `src/features/knowledge/domain/services/mention-names.ts`
 
-**Avant `/**`**
-
+**Avant `const SLACK_TOKEN = /<([@#])([^>]{1,140})>/g;`**
 
 LES MENTIONS SLACK SONT DES IDENTIFIANTS — le modèle les recopiait tels quels
-
 
 Dans un message Slack, une personne taguée n'apparaît pas sous son nom mais sous la forme
 `<@U0BJ8F1AMNF>`. Les extraits partaient au modèle avec ces jetons bruts, et il les rendait
@@ -2506,9 +2391,6 @@ passe déjà par `sanitizeDisplayName`.
 workspace : on n'invente pas un nom, et on ne met pas « quelqu'un » — cela effacerait la
 distinction entre deux inconnus différents dans le même extrait. Un jeton brut est illisible ;
 un faux nom est faux.
-
-**Avant `const SLACK_TOKEN = /<([@#])([^>]{1,140})>/g;`**
-
 ⚠️ **UN SEUL QUANTIFICATEUR, ET LE TRI SE FAIT EN CODE.**
 
 La première version distinguait les deux formes par la regex :
@@ -2542,16 +2424,10 @@ Les identifiants mentionnés dans un lot de textes, sans doublon — pour ne ré
 
 ### `src/features/knowledge/infrastructure/providers/in-memory-channel-history.adapter.ts`
 
-**Avant `// tous les tests, quels canaux la lecture en direct balaie. Deux sources divergeraient, et le`**
-
-⚠️ DÉRIVÉ de `setMembers`, jamais d'une seconde liste : c'est cette doublure qui décide, dans
-
-**Avant `// test verrouillerait alors une frontière que la production n'applique pas.`**
-
-tous les tests, quels canaux la lecture en direct balaie. Deux sources divergeraient, et le
-
 **Avant `async listMemberChannels(slackUserId: string, limit: number): Promise<string[]> {`**
 
+⚠️ DÉRIVÉ de `setMembers`, jamais d'une seconde liste : c'est cette doublure qui décide, dans
+tous les tests, quels canaux la lecture en direct balaie. Deux sources divergeraient, et le
 test verrouillerait alors une frontière que la production n'applique pas.
 
 ### `src/features/knowledge/infrastructure/providers/slack-channel-history.adapter.ts`
@@ -2573,12 +2449,9 @@ recherche. Le scope `im:read` n'est d'ailleurs pas accordé, donc l'appel échou
 
 ### `src/features/knowledge/infrastructure/repositories/in-memory-message-archive.repository.ts`
 
-**Avant `// domaine, et y ajouter un champ d'intendance le ferait fuir dans tout ce qui le lit.`**
-
-⚠️ La marque vit à côté des lignes, jamais dedans : `ArchivedMessage` est le contrat du
-
 **Avant `private readonly distilled = new Map<string, number>();`**
 
+⚠️ La marque vit à côté des lignes, jamais dedans : `ArchivedMessage` est le contrat du
 domaine, et y ajouter un champ d'intendance le ferait fuir dans tout ce qui le lit.
 
 ### `src/features/knowledge/infrastructure/services/model-fact-summarizer.service.ts`
@@ -2604,14 +2477,8 @@ espaces — ce que tout modèle ajoute spontanément — et l'on rejette ensuite
 `kind`, qui sont vérifiables. L'inverse (strict sur la forme) rejette des réponses justes,
 ce qui est exactement ce qui s'est produit avec les identifiants recopiés.
 
-**Avant `// du texte : lui donner un outil ouvrirait une action déclenchable par le contenu d'un`**
-
-⚠️ AUCUN outil. Ce chemin lit du texte hostile et n'a rien à faire d'autre que rendre
-
-**Avant `// message Slack.`**
-
-du texte : lui donner un outil ouvrirait une action déclenchable par le contenu d'un
-
 **Avant `tools: {},`**
 
+⚠️ AUCUN outil. Ce chemin lit du texte hostile et n'a rien à faire d'autre que rendre
+du texte : lui donner un outil ouvrirait une action déclenchable par le contenu d'un
 message Slack.
