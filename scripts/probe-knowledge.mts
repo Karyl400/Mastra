@@ -19,6 +19,8 @@
 import { createHmac } from 'node:crypto';
 import { createClient } from '@libsql/client';
 
+import { makeDbExec } from './lib/resilient-db';
+
 const DEFAULT_BASE_URL = 'https://mastra-71ya.vercel.app';
 const REQUESTER = 'U0BJBDGTJUD';
 const TEAM_ID = 'TMLKC4EPP';
@@ -41,6 +43,8 @@ const db = createClient({
   url: process.env.DATABASE_URL!,
   authToken: process.env.DATABASE_AUTH_TOKEN,
 });
+
+const dbExec = makeDbExec(db);
 
 /**
  * Un canal RÉEL où le bot est membre — et, de préférence, LE DEMANDEUR AUSSI.
@@ -136,26 +140,32 @@ const dmStamp = (Date.now() / 1000 + 1).toFixed(6);
 const dmText = `On a décidé que ce message privé ne doit JAMAIS être archivé (marqueur ${dmStamp})`;
 
 console.log('1. message de CANAL (écarté pour la réponse, retenu pour la connaissance)');
-console.log('   HTTP', await post({
-  type: 'message',
-  channel: channel.id,
-  channel_type: 'channel',
-  user: REQUESTER,
-  text: probeText,
-  ts: stamp,
-}));
+console.log(
+  '   HTTP',
+  await post({
+    type: 'message',
+    channel: channel.id,
+    channel_type: 'channel',
+    user: REQUESTER,
+    text: probeText,
+    ts: stamp,
+  }),
+);
 
 console.log('2. message PERSONNEL — ne doit entrer nulle part');
-console.log('   HTTP', await post({
-  type: 'message',
-  channel: 'D0BM9MK9QJV',
-  channel_type: 'im',
-  user: REQUESTER,
-  text: dmText,
-  ts: dmStamp,
-  subtype: 'bot_message',
-  bot_id: 'B0BM9MK4G65',
-}));
+console.log(
+  '   HTTP',
+  await post({
+    type: 'message',
+    channel: 'D0BM9MK9QJV',
+    channel_type: 'im',
+    user: REQUESTER,
+    text: dmText,
+    ts: dmStamp,
+    subtype: 'bot_message',
+    bot_id: 'B0BM9MK4G65',
+  }),
+);
 
 // La tâche de fond est ordonnancée par `waitUntil` : elle survit à la réponse HTTP, mais
 // elle n'est pas terminée quand celle-ci arrive.
@@ -164,7 +174,7 @@ await new Promise((r) => setTimeout(r, 8000));
 
 const results: Array<[string, boolean, string]> = [];
 
-const level1 = await db.execute({
+const level1 = await dbExec({
   sql: 'SELECT id, channel_id, slack_user_id, text FROM channel_messages WHERE id = ?',
   args: [archiveId],
 });
@@ -174,7 +184,7 @@ results.push([
   level1.rows.length === 1 ? String(level1.rows[0]!.channel_id) : 'aucune ligne',
 ]);
 
-const fts = await db.execute({
+const fts = await dbExec({
   sql: `SELECT m.id FROM channel_messages_fts f JOIN channel_messages m ON m.rowid = f.rowid
         WHERE channel_messages_fts MATCH '"sonde" OR "connaissance"' AND m.id = ?`,
   args: [archiveId],
@@ -185,21 +195,23 @@ results.push([
   `${fts.rows.length} correspondance(s)`,
 ]);
 
-const level2 = await db.execute({
+const level2 = await dbExec({
   sql: 'SELECT kind, summary, score FROM knowledge_facts WHERE id = ?',
   args: [archiveId],
 });
 results.push([
   'Niveau 2 — le fait est distillé, avec sa nature',
   level2.rows.length === 1 && level2.rows[0]!.kind === 'decision',
-  level2.rows.length === 1 ? `${level2.rows[0]!.kind} (score ${level2.rows[0]!.score})` : 'aucune ligne',
+  level2.rows.length === 1
+    ? `${level2.rows[0]!.kind} (score ${level2.rows[0]!.score})`
+    : 'aucune ligne',
 ]);
 
-const personal = await db.execute({
+const personal = await dbExec({
   sql: 'SELECT count(*) c FROM channel_messages WHERE text LIKE ?',
   args: [`%${dmStamp}%`],
 });
-const personalFacts = await db.execute({
+const personalFacts = await dbExec({
   sql: 'SELECT count(*) c FROM knowledge_facts WHERE summary LIKE ?',
   args: [`%${dmStamp}%`],
 });
@@ -215,8 +227,8 @@ for (const [label, ok, detail] of results) {
 }
 
 if (!keep) {
-  await db.execute({ sql: 'DELETE FROM knowledge_facts WHERE id = ?', args: [archiveId] });
-  await db.execute({ sql: 'DELETE FROM channel_messages WHERE id = ?', args: [archiveId] });
+  await dbExec({ sql: 'DELETE FROM knowledge_facts WHERE id = ?', args: [archiveId] });
+  await dbExec({ sql: 'DELETE FROM channel_messages WHERE id = ?', args: [archiveId] });
   console.log('\nLignes de sonde supprimées.');
 } else {
   console.log(`\n--keep : les lignes ${archiveId} sont conservées.`);

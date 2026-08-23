@@ -31,6 +31,8 @@
  */
 import { createClient } from '@libsql/client';
 
+import { makeDbExec } from './lib/resilient-db';
+
 const args = process.argv.slice(2);
 const at = (flag: string) => {
   const index = args.indexOf(flag);
@@ -49,9 +51,11 @@ if (!url) {
 
 const client = createClient({ url, authToken: process.env.DATABASE_AUTH_TOKEN });
 
+const dbExec = makeDbExec(client);
+
 async function inventory(): Promise<void> {
   const rows = (
-    await client.execute(
+    await dbExec(
       `SELECT m.slack_user_id AS uid,
               coalesce(d.real_name, d.display_name, m.slack_user_id) AS nom,
               count(*) AS messages,
@@ -101,7 +105,7 @@ async function main(): Promise<void> {
 
   const messages = Number(
     (
-      await client.execute({
+      await dbExec({
         sql: `SELECT count(*) AS n FROM channel_messages WHERE ${where}`,
         args: params,
       })
@@ -109,7 +113,7 @@ async function main(): Promise<void> {
   );
   const facts = Number(
     (
-      await client.execute({
+      await dbExec({
         sql: `SELECT count(*) AS n FROM knowledge_facts WHERE ${where}`,
         args: params,
       })
@@ -134,10 +138,10 @@ async function main(): Promise<void> {
 
   // ⚠️ Les FAITS d'abord — voir l'en-tête. L'ordre inverse laisserait des résumés orphelins.
   const removedFacts = (
-    await client.execute({ sql: `DELETE FROM knowledge_facts WHERE ${where}`, args: params })
+    await dbExec({ sql: `DELETE FROM knowledge_facts WHERE ${where}`, args: params })
   ).rowsAffected;
   const removedMessages = (
-    await client.execute({ sql: `DELETE FROM channel_messages WHERE ${where}`, args: params })
+    await dbExec({ sql: `DELETE FROM channel_messages WHERE ${where}`, args: params })
   ).rowsAffected;
 
   console.log(`Effacé : ${removedMessages} message(s), ${removedFacts} fait(s).`);
@@ -146,7 +150,7 @@ async function main(): Promise<void> {
   // affirmation du client ; un SELECT est une observation.
   const reste = Number(
     (
-      await client.execute({
+      await dbExec({
         sql: `SELECT count(*) AS n FROM channel_messages WHERE ${where}`,
         args: params,
       })

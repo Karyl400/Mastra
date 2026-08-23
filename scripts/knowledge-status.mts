@@ -13,20 +13,24 @@
  */
 import { createClient } from '@libsql/client';
 
+import { makeDbExec } from './lib/resilient-db';
+
 const db = createClient({
   url: process.env.DATABASE_URL!,
   authToken: process.env.DATABASE_AUTH_TOKEN,
 });
 
+const dbExec = makeDbExec(db);
+
 const [messages, facts] = await Promise.all([
-  db.execute('SELECT count(*) c FROM channel_messages'),
-  db.execute('SELECT count(*) c FROM knowledge_facts'),
+  dbExec('SELECT count(*) c FROM channel_messages'),
+  dbExec('SELECT count(*) c FROM knowledge_facts'),
 ]);
 
 console.log(`Niveau 1 — channel_messages : ${messages.rows[0]!.c} ligne(s)`);
 console.log(`Niveau 2 — knowledge_facts  : ${facts.rows[0]!.c} ligne(s)\n`);
 
-const byChannel = await db.execute(`
+const byChannel = await dbExec(`
   SELECT channel_id, count(*) n, max(posted_at) dernier
   FROM channel_messages GROUP BY channel_id ORDER BY n DESC LIMIT 10
 `);
@@ -43,7 +47,7 @@ if (byChannel.rows.length === 0) {
   }
 }
 
-const latest = await db.execute(`
+const latest = await dbExec(`
   SELECT kind, summary, posted_at FROM knowledge_facts ORDER BY posted_at DESC LIMIT 5
 `);
 

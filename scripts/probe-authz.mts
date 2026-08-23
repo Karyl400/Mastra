@@ -32,6 +32,8 @@
  */
 import { createClient } from '@libsql/client';
 
+import { makeDbExec } from './lib/resilient-db';
+
 import {
   resolveAccess,
   type AccessSubject,
@@ -56,8 +58,10 @@ console.log(
 
 const client = createClient({ url, authToken: process.env.DATABASE_AUTH_TOKEN });
 
+const dbExec = makeDbExec(client);
+
 const rows = (
-  await client.execute(
+  await dbExec(
     `SELECT slack_user_id, real_name, display_name, email, title, role, is_bot, is_restricted,
             is_ultra_restricted, is_deleted, employee_id
        FROM slack_directory
@@ -67,9 +71,7 @@ const rows = (
 
 /** Les dossiers employé ENCORE actifs — un soft-delete n'est résolvable nulle part. */
 const liveEmployeeIds = new Set(
-  (await client.execute('SELECT id FROM employees WHERE deleted_at IS NULL')).rows.map((r) =>
-    String(r.id),
-  ),
+  (await dbExec('SELECT id FROM employees WHERE deleted_at IS NULL')).rows.map((r) => String(r.id)),
 );
 
 interface Line {
