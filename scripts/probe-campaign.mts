@@ -44,6 +44,22 @@ const onlyIndex = args.indexOf('--only');
 const onlyTag = onlyIndex >= 0 ? args[onlyIndex + 1] : undefined;
 
 /**
+ * ⚠️ `--from N` REPREND LÀ OÙ LA CAMPAGNE S'EST ARRÊTÉE, et ce n'est pas une commodité.
+ *
+ * Chaque scénario payant est un run de modèle sur un quota qui se compte à la JOURNÉE. Quand
+ * le réseau tue la campagne au 24ᵉ scénario — ce qui est arrivé deux fois le 2026-08-22 — la
+ * seule reprise possible était de tout rejouer depuis le premier : vingt-quatre appels
+ * redépensés pour en atteindre neuf. Le coût de la reprise dépassait celui de l'abandon, donc
+ * on abandonnait, donc les derniers scénarios n'étaient JAMAIS joués. Or ce sont les derniers
+ * du fichier — exfiltration, faux délimiteur, injection indirecte, escalade.
+ *
+ * Un outil qu'on ne peut pas reprendre après une panne est un outil dont la fin de liste n'est
+ * jamais vérifiée.
+ */
+const fromIndex = args.indexOf('--from');
+const skipCount = fromIndex >= 0 ? Number(args[fromIndex + 1] ?? 0) : 0;
+
+/**
  * ⚠️ La date du jour, dans le fuseau d'affichage du produit — jamais celui de cette machine.
  * `frenchDayLabel` est la fonction que le préambule emploie : « samedi 22 août 2026 ».
  */
@@ -579,13 +595,17 @@ function checkAbsent(reply: string, forbidden: readonly (string | RegExp)[]): st
     .map(String);
 }
 
-const selected = SCENARIOS.filter(
+const matching = SCENARIOS.filter(
   (s) => (!freeOnly || s.free) && (!paidOnly || !s.free) && (!onlyTag || s.tag === onlyTag),
 ).sort((a, b) => Number(a.free === false) - Number(b.free === false));
 
+const selected = matching.slice(skipCount);
+
 console.log(`Cible : ${BASE_URL}\nCanal : ${CHANNEL}`);
 console.log(
-  `${selected.length} scénario(s) — ${selected.filter((s) => s.free).length} gratuit(s)\n`,
+  `${selected.length} scénario(s) — ${selected.filter((s) => s.free).length} gratuit(s)` +
+    (skipCount > 0 ? ` · ${skipCount} sauté(s) par --from` : '') +
+    '\n',
 );
 
 let failures = 0;
