@@ -37,7 +37,7 @@ export interface CurtainReport {
 export async function runFactCurtain(deps: FactCurtainDeps): Promise<CurtainReport> {
   const now = deps.now?.() ?? Date.now();
 
-  const pending = await deps.archive.pendingDistillation(CURTAIN_WINDOW_MS, CURTAIN_BATCH_SIZE);
+  const pending = await deps.archive.findPendingDistillation(CURTAIN_WINDOW_MS, CURTAIN_BATCH_SIZE);
   if (pending.length < CURTAIN_BATCH_SIZE) {
     return { examined: 0, recorded: 0, rejected: 0 };
   }

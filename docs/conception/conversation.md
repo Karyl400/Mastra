@@ -69,7 +69,7 @@ Garde-fou de REQUÊTE (ex. 50) : plafonne ce qu'on charge avant de fenêtrer, po
 jamais tirer un fil entier de mille messages en mémoire. Ce n'est PAS le plafond de
 contexte — celui-là se compte en tokens, via `selectWindow`.
 
-**Avant `export interface ForgetScope {`**
+**Avant `export interface ConversationForgetScope {`**
 
 Portée d'un effacement demandé par une PERSONNE — à ne pas confondre avec `prune`, qui est
 une purge de rétention déclenchée par le temps.
@@ -93,7 +93,7 @@ donc en place. C'est correct et voulu — `selectWindow` s'arrête sur une salve
 d'`assistant` sans question en amont plutôt que de la rejouer nue, donc les réponses
 orphelines cessent d'être rejouées d'elles-mêmes.
 
-**Avant `recentTurns(conversationId: string, options: RecentTurnsOptions): Promise<ConversationTurn[]>;`**
+**Avant `findRecentTurns(conversationId: string, options: RecentTurnsOptions): Promise<ConversationTurn[]>;`**
 
  Tours d'une conversation, du plus ancien au plus récent, ignorant ceux au-delà du TTL.
 
@@ -101,7 +101,7 @@ orphelines cessent d'être rejouées d'elles-mêmes.
 
  Purge les tours au-delà du TTL. Appelé opportunément, pas par un cron.
 
-**Avant `forget(scope: ForgetScope): Promise<number>;`**
+**Avant `forget(scope: ConversationForgetScope): Promise<number>;`**
 
 Efface à la demande, et rend le NOMBRE de tours réellement supprimés.
 
@@ -303,7 +303,7 @@ ramènerait le début du fil, c'est-à-dire exactement ce qu'on veut oublier.
 
 Remis à l'endroit : le port promet du plus ancien au plus récent.
 
-**Avant `async forget(scope: ForgetScope): Promise<number> {`**
+**Avant `async forget(scope: ConversationForgetScope): Promise<number> {`**
 
 Effacement à la demande. Aucune borne de temps : on supprime ce qui appartient à la
 personne, y compris les tours plus récents que le TTL — c'est tout l'objet de la demande.
@@ -374,7 +374,7 @@ milliseconde.
 
 `slice(-limit)` : on garde les PLUS RÉCENTS, tout en rendant l'ordre chronologique.
 
-**Avant `async forget(scope: ForgetScope): Promise<number> {`**
+**Avant `async forget(scope: ConversationForgetScope): Promise<number> {`**
 
  Même sémantique que l'implémentation Drizzle : aucune borne de temps, un compte rendu.
 

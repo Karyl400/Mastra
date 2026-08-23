@@ -46,7 +46,7 @@ export function makeDirectorySync(deps: DirectorySyncDeps): DirectorySyncService
 
   return {
     async run(): Promise<DirectorySyncReport> {
-      const members = await deps.source.fetchAll();
+      const members = await deps.source.findAll();
       const truncated = deps.source.wasLastFetchTruncated?.() ?? false;
 
       const knownLinks = await readKnownLinks(deps.repository);
@@ -113,7 +113,7 @@ async function readKnownLinks(
   repository: DirectoryRepository,
 ): Promise<Map<string, string | null>> {
   try {
-    const rows = await repository.listAll();
+    const rows = await repository.findAll();
     return new Map(rows.map((row) => [row.slackUserId, row.employeeId]));
   } catch (error) {
     logger.warn('Directory sync could not read existing links — employee lookups will repeat', {

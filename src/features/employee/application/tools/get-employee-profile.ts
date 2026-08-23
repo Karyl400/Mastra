@@ -26,7 +26,7 @@ const MISSING_IDENTIFIER_HINT =
   'aucun — si tu ne les as pas, demande-les.';
 
 export function makeGetEmployeeProfile(
-  empRepo: EmployeeRepository,
+  employeeRepo: EmployeeRepository,
   onboardingRepo: OnboardingRepository,
 ) {
   return createTool({
@@ -50,7 +50,7 @@ export function makeGetEmployeeProfile(
       }
 
       if (!data.employeeId && email) {
-        const resolved = await empRepo.findByEmail(email);
+        const resolved = await employeeRepo.findByEmail(email);
 
         if (!canReadPersonRecord(_ctx?.requestContext, resolved?.id ?? null)) {
           logger.warn('Lecture de profil refusée — demandeur non autorisé (par email)');
@@ -85,7 +85,7 @@ export function makeGetEmployeeProfile(
       }
 
       logger.info('Récupération profil employé', { employeeId });
-      const employee = await empRepo.findById(employeeId);
+      const employee = await employeeRepo.findById(employeeId);
 
       if (!employee) {
         logger.warn('Aucun employé pour cet identifiant', { employeeId });

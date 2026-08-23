@@ -10,7 +10,7 @@ import { toMember } from '../../../src/features/notification/infrastructure/prov
  * une règle métier de la forme d'une réponse HTTP.
  *
  * `toMember` est privée au module jusqu'à ce fichier ; elle est exportée pour
- * qu'une seule projection reste partagée par `listMembers`, `getUserById` et
+ * qu'une seule projection reste partagée par `listMembers`, `findUserById` et
  * `findUserByEmail` — la dupliquer dans un test l'aurait figée dans son état
  * d'aujourd'hui sans rien garantir de la vraie.
  */

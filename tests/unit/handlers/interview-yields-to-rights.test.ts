@@ -107,7 +107,7 @@ describe('une question d’entretien en attente n’absorbe pas les court-circui
     expect(interview.upsert).not.toHaveBeenCalled();
     // 2. L'effacement a bien eu lieu : le fil est vide.
     expect(
-      await conversation.recentTurns(CONVERSATION_ID, { ttlMs: 3_600_000, limit: 50 }),
+      await conversation.findRecentTurns(CONVERSATION_ID, { ttlMs: 3_600_000, limit: 50 }),
     ).toHaveLength(0);
     // 3. Et la question n'a pas été reposée comme si de rien n'était.
     const posted = slack.chat.postMessage.mock.calls.map((c) => (c[0] as { text: string }).text);

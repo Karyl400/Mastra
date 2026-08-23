@@ -1,7 +1,7 @@
 import type { DirectoryMemberFacts } from '../entities/directory-member';
 
 export interface MemberSource {
-  fetchById(slackUserId: string): Promise<DirectoryMemberFacts | null>;
+  findById(slackUserId: string): Promise<DirectoryMemberFacts | null>;
 
-  fetchAll(): Promise<DirectoryMemberFacts[]>;
+  findAll(): Promise<DirectoryMemberFacts[]>;
 }

@@ -156,7 +156,7 @@ describe('Infrastructure: SlackWorkspaceService', () => {
     await expect(service.inviteToChannel('C404', 'U01')).rejects.toThrow('channel_not_found');
   });
 
-  // ── getUserById : résolution d'un membre par son identifiant Slack ──────────
+  // ── findUserById : résolution d'un membre par son identifiant Slack ──────────
   // Ajouté pour le flux `team_join`, dont le payload ne porte qu'un `user.id`
   // fiable. Rendu sur `SlackWorkspaceProvider` — et non sur `SlackAdapter` —
   // pour réutiliser `SlackMember` : une seconde représentation de l'utilisateur
@@ -180,7 +180,7 @@ describe('Infrastructure: SlackWorkspaceService', () => {
     });
 
     const service = await loadService();
-    const member = await service.getUserById('U0BM123');
+    const member = await service.findUserById('U0BM123');
 
     expect(mockUsersInfo).toHaveBeenCalledWith({ user: 'U0BM123' });
     expect(member).toEqual({
@@ -215,7 +215,7 @@ describe('Infrastructure: SlackWorkspaceService', () => {
     });
 
     const service = await loadService();
-    const member = await service.getUserById('U0BM124');
+    const member = await service.findUserById('U0BM124');
 
     expect(member).toMatchObject({ firstName: 'Marie', lastName: 'Claire Dupont' });
   });
@@ -226,7 +226,7 @@ describe('Infrastructure: SlackWorkspaceService', () => {
     mockUsersInfo.mockResolvedValueOnce({ user: { id: 'U0BM125', profile: {} } });
 
     const service = await loadService();
-    const member = await service.getUserById('U0BM125');
+    const member = await service.findUserById('U0BM125');
 
     expect(member?.email).toBeNull();
   });
@@ -236,14 +236,14 @@ describe('Infrastructure: SlackWorkspaceService', () => {
     mockUsersInfo.mockRejectedValueOnce(new Error('user_not_found'));
 
     const service = await loadService();
-    await expect(service.getUserById('UINCONNU')).resolves.toBeNull();
+    await expect(service.findUserById('UINCONNU')).resolves.toBeNull();
   });
 
   it('rethrows unexpected users.info errors', async () => {
     mockUsersInfo.mockRejectedValueOnce(new Error('ratelimited'));
 
     const service = await loadService();
-    await expect(service.getUserById('U0BM123')).rejects.toThrow('ratelimited');
+    await expect(service.findUserById('U0BM123')).rejects.toThrow('ratelimited');
   });
 
   it('paginates channel members', async () => {

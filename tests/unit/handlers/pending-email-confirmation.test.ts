@@ -72,7 +72,7 @@ function makeHandler(options?: {
 
   const conversationRepository = {
     append: vi.fn(async (turn: unknown) => turn),
-    recentTurns: vi.fn(async () =>
+    findRecentTurns: vi.fn(async () =>
       options?.lastAssistant
         ? [
             {

@@ -581,7 +581,7 @@ code), et ce qui est stocké est ce qu'une personne a réellement répondu.
 
  Comment elle préfère travailler. Chaîne vide = non renseigné.
 
-**Avant `listAll(): Promise<OnboardingInterview[]>;`**
+**Avant `findAll(): Promise<OnboardingInterview[]>;`**
 
 Tous les entretiens.
 
@@ -723,7 +723,7 @@ comme la description du travail de quelqu'un, puis imprimé dans son guide d'acc
 « Ton quotidien ». Le seuil est délibérément bas : on écarte l'accusé de réception, pas la
 concision.
 
-**Avant `function isNotAnAnswer(text: string): boolean {`**
+**Avant `function isCompletionClaim(text: string): boolean {`**
 
 Phrases qui ne répondent PAS à la question, tout en étant assez longues pour passer la
 borne de quatre caractères.

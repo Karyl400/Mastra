@@ -318,7 +318,7 @@ describe('getUserConversations — restitution', () => {
 
   it('dégrade proprement quand la mémoire est indisponible', async () => {
     const broken = {
-      recentDirectTurns: async () => {
+      findRecentDirectTurns: async () => {
         throw new Error('turso down');
       },
     };

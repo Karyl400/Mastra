@@ -23,11 +23,11 @@ export const MAX_INTERVIEW_ANSWER_CHARS = 280;
 export function captureInterviewAnswer(text: string | undefined): string | null {
   const trimmed = unwrapSlackLinks(text).trim().replace(/\s+/g, ' ');
   if (trimmed.length < 4) return null;
-  if (isNotAnAnswer(trimmed)) return null;
+  if (isCompletionClaim(trimmed)) return null;
   return trimmed.slice(0, MAX_INTERVIEW_ANSWER_CHARS);
 }
 
-function isNotAnAnswer(text: string): boolean {
+function isCompletionClaim(text: string): boolean {
   const normalized = text
     .toLowerCase()
     .normalize('NFD')

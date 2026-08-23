@@ -7,7 +7,7 @@ export interface RecentTurnsOptions {
   readonly limit: number;
 }
 
-export interface ForgetScope {
+export interface ConversationForgetScope {
   readonly conversationId: string;
   readonly slackUserId?: string | null;
 }
@@ -15,9 +15,9 @@ export interface ForgetScope {
 export interface ConversationRepository {
   append(turn: NewConversationTurn): Promise<ConversationTurn>;
 
-  recentTurns(conversationId: string, options: RecentTurnsOptions): Promise<ConversationTurn[]>;
+  findRecentTurns(conversationId: string, options: RecentTurnsOptions): Promise<ConversationTurn[]>;
 
   pruneOlderThan(cutoff: Date): Promise<number>;
 
-  forget(scope: ForgetScope): Promise<number>;
+  forget(scope: ConversationForgetScope): Promise<number>;
 }

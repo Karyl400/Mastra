@@ -69,7 +69,7 @@ function makeHandler() {
     save: vi.fn(async (entry: Record<string, unknown>) => {
       saved.push(entry);
     }),
-    listAll: vi.fn(async () => []),
+    findAll: vi.fn(async () => []),
   };
 
   const start = vi.fn(async () => ({

@@ -9,7 +9,7 @@ import { logger } from '../../../../shared/logger';
 
 export interface SlackMemberReader {
   listMembersPage(cursor?: string, limit?: number): Promise<SlackMemberPage>;
-  getUserById(userId: string): Promise<SlackMember | null>;
+  findUserById(userId: string): Promise<SlackMember | null>;
 }
 
 export interface SlackMemberSourceOptions {
@@ -46,14 +46,14 @@ export class SlackMemberSource implements MemberSource {
     this.maxPages = options.maxPages ?? SLACK_MAX_PAGES;
   }
 
-  async fetchById(slackUserId: string): Promise<DirectoryMemberFacts | null> {
-    const member = await this.slack.getUserById(slackUserId);
+  async findById(slackUserId: string): Promise<DirectoryMemberFacts | null> {
+    const member = await this.slack.findUserById(slackUserId);
     if (!member || !member.id) return null;
 
     return toFacts(member);
   }
 
-  async fetchAll(): Promise<DirectoryMemberFacts[]> {
+  async findAll(): Promise<DirectoryMemberFacts[]> {
     const facts: DirectoryMemberFacts[] = [];
     let cursor: string | undefined;
     let pages = 0;

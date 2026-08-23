@@ -120,7 +120,7 @@ export function makeDirectoryDouble(row: Partial<DirectoryMember> | null = null)
     hasManager: vi.fn(async () => false),
     findManagers: vi.fn(async () => []),
     linkEmployee: vi.fn(async () => 1),
-    listAll: vi.fn(async () => []),
+    findAll: vi.fn(async () => []),
   } as unknown as DirectoryDouble;
 }
 
@@ -141,7 +141,7 @@ export function makeWorkspaceDouble(
     teamId?: string;
   } | null = null,
 ): NonNullable<SlackEventsHandlerOptions['workspaceProvider']> {
-  return { getUserById: vi.fn(async () => member) } as unknown as NonNullable<
+  return { findUserById: vi.fn(async () => member) } as unknown as NonNullable<
     SlackEventsHandlerOptions['workspaceProvider']
   >;
 }

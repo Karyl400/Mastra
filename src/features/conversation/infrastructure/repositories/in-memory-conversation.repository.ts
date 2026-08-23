@@ -4,7 +4,7 @@ import type {
 } from '../../domain/entities/conversation-turn';
 import type {
   ConversationRepository,
-  ForgetScope,
+  ConversationForgetScope,
   RecentTurnsOptions,
 } from '../../domain/ports/conversation.repository';
 
@@ -21,7 +21,7 @@ export class InMemoryConversationRepository implements ConversationRepository {
     return saved;
   }
 
-  async recentTurns(
+  async findRecentTurns(
     conversationId: string,
     options: RecentTurnsOptions,
   ): Promise<ConversationTurn[]> {
@@ -38,7 +38,7 @@ export class InMemoryConversationRepository implements ConversationRepository {
     return before - this.turns.length;
   }
 
-  async forget(scope: ForgetScope): Promise<number> {
+  async forget(scope: ConversationForgetScope): Promise<number> {
     const before = this.turns.length;
 
     this.turns = this.turns.filter((turn) => {

@@ -11,7 +11,7 @@ export class InMemoryBotMemoryRepository implements BotMemoryReadPort {
     this.turns.set(dmChannelId, [...turns]);
   }
 
-  async recentDirectTurns(
+  async findRecentDirectTurns(
     dmChannelId: string,
     options: BotMemoryReadOptions,
   ): Promise<BotMemoryTurn[]> {

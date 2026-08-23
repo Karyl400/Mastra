@@ -32,7 +32,7 @@ interface SourceResult {
 export interface FindExpertiseDeps {
   readonly directoryRepo: DirectoryRepository;
   readonly employeeRepo: Pick<EmployeeRepository, 'findAll'>;
-  readonly interviewRepo?: Pick<OnboardingInterviewRepository, 'listAll'>;
+  readonly interviewRepo?: Pick<OnboardingInterviewRepository, 'findAll'>;
 }
 
 interface Expert {
@@ -96,7 +96,7 @@ export function makeFindExpertise(deps: FindExpertiseDeps) {
 
 async function matchDirectory(deps: FindExpertiseDeps, skill: string): Promise<SourceResult> {
   try {
-    const members = await deps.directoryRepo.listAll();
+    const members = await deps.directoryRepo.findAll();
     return {
       available: true,
       experts: members
@@ -157,7 +157,7 @@ async function matchEmployees(
 async function loadDailyWork(deps: FindExpertiseDeps): Promise<Map<string, string>> {
   if (!deps.interviewRepo) return new Map();
   try {
-    const interviews = await deps.interviewRepo.listAll();
+    const interviews = await deps.interviewRepo.findAll();
     return new Map(
       interviews
         .filter((interview) => interview.dailyWork.trim())

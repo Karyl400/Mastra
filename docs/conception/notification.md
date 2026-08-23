@@ -831,7 +831,7 @@ interdirait à la politique de durcir le seul cas mono-canal — celui du scéna
 Compte désactivé. C'est ce qui permet de REFUSER un ancien salarié, là où un compte inconnu
 (`null` rendu par le port) est seulement rétrogradé.
 
-**Avant `getUserById(userId: string): Promise<SlackMember | null>;`**
+**Avant `findUserById(userId: string): Promise<SlackMember | null>;`**
 
 Résout un membre par son identifiant Slack.
 
@@ -2441,7 +2441,7 @@ Injecté par options plutôt que repris de `src/mastra/index.ts` : ce module
 importe déjà la route qui construit ce handler, donc la dépendance inverse
 créerait un cycle d'import — panne d'initialisation classique en ESM bundlé.
 
-**Avant `workspaceProvider?: Pick<SlackWorkspaceProvider, 'getUserById'>;`**
+**Avant `workspaceProvider?: Pick<SlackWorkspaceProvider, 'findUserById'>;`**
 
  Annuaire Slack, pour le repli quand `team_join` ne porte pas l'email.
 

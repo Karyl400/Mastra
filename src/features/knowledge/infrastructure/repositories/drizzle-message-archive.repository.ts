@@ -8,7 +8,7 @@ import type {
   MessageSearchOptions,
 } from '../../domain/ports/message-archive.repository';
 import { toMatchQuery } from '../../domain/services/fts-query';
-import type { ForgetScope } from '../../domain/ports/message-archive.repository';
+import type { KnowledgeForgetScope } from '../../domain/ports/message-archive.repository';
 
 const DEFAULT_LIMIT = 20;
 
@@ -76,7 +76,7 @@ export class DrizzleMessageArchiveRepository implements MessageArchiveRepository
     return rows.map(toDomain);
   }
 
-  async forgetUser(scope: ForgetScope): Promise<number> {
+  async forget(scope: KnowledgeForgetScope): Promise<number> {
     const db = getDb();
     const where =
       scope.channelId === undefined
@@ -100,7 +100,10 @@ export class DrizzleMessageArchiveRepository implements MessageArchiveRepository
     return result.rowsAffected;
   }
 
-  async pendingDistillation(sinceMs: number, limit: number): Promise<readonly ArchivedMessage[]> {
+  async findPendingDistillation(
+    sinceMs: number,
+    limit: number,
+  ): Promise<readonly ArchivedMessage[]> {
     const db = getDb();
     const rows = await db
       .select()

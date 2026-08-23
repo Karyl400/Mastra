@@ -1,12 +1,12 @@
 import { logger } from '../../../../shared/logger';
 import type {
-  ForgetScope,
+  KnowledgeForgetScope,
   MessageArchiveRepository,
 } from '../../domain/ports/message-archive.repository';
 import type { KnowledgeFactRepository } from '../../domain/ports/knowledge-fact.repository';
 
 export interface KnowledgeErasurePort {
-  forget(scope: ForgetScope): Promise<KnowledgeErasureReport>;
+  forget(scope: KnowledgeForgetScope): Promise<KnowledgeErasureReport>;
 }
 
 export interface KnowledgeErasureReport {
@@ -29,13 +29,13 @@ export class KnowledgeErasureService implements KnowledgeErasurePort {
     this.facts = deps.facts ?? null;
   }
 
-  async forget(scope: ForgetScope): Promise<KnowledgeErasureReport> {
+  async forget(scope: KnowledgeForgetScope): Promise<KnowledgeErasureReport> {
     let facts = 0;
     let partial = false;
 
     if (this.facts) {
       try {
-        facts = await this.facts.forgetUser(scope);
+        facts = await this.facts.forget(scope);
       } catch (error) {
         partial = true;
         logger.error("Faits distillés non effacés — l'archive n'est pas touchée non plus", {
@@ -49,7 +49,7 @@ export class KnowledgeErasureService implements KnowledgeErasurePort {
 
     let messages = 0;
     try {
-      messages = await this.archive.forgetUser(scope);
+      messages = await this.archive.forget(scope);
     } catch (error) {
       partial = true;
       logger.error('Archive non effacée — les faits, eux, sont partis', {

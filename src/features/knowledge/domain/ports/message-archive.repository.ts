@@ -7,7 +7,7 @@ export interface ArchivedMessage {
   readonly postedAt: number;
 }
 
-export interface ForgetScope {
+export interface KnowledgeForgetScope {
   readonly slackUserId: string;
   readonly channelId?: string;
 }
@@ -15,10 +15,10 @@ export interface ForgetScope {
 export interface MessageArchiveRepository {
   archive(message: ArchivedMessage): Promise<boolean>;
   search(query: string, options?: MessageSearchOptions): Promise<readonly ArchivedMessage[]>;
-  forgetUser(scope: ForgetScope): Promise<number>;
+  forget(scope: KnowledgeForgetScope): Promise<number>;
   pruneOlderThan(cutoffMs: number): Promise<number>;
 
-  pendingDistillation(sinceMs: number, limit: number): Promise<readonly ArchivedMessage[]>;
+  findPendingDistillation(sinceMs: number, limit: number): Promise<readonly ArchivedMessage[]>;
 
   markDistilled(ids: readonly string[], at: number): Promise<number>;
 }

@@ -23,7 +23,7 @@
  * complet du workspace y ajouterait plusieurs appels HTTP à chaque démarrage à froid — et un
  * ACK à 6,7 s a déjà provoqué en production un rejeu Slack, donc une DOUBLE réponse. La
  * synchronisation complète est donc manuelle ou périodique ; la connaissance au fil de l'eau,
- * elle, se fait par `MemberSource.fetchById` sur le chemin du message.
+ * elle, se fait par `MemberSource.findById` sur le chemin du message.
  *
  * ── Sûreté ──────────────────────────────────────────────────────────────────
  *  • DRY-RUN PAR DÉFAUT : sans `--apply`, pas une écriture en base ni un seul
@@ -108,7 +108,7 @@ function readOnly(repository: DirectoryRepository): DirectoryRepository {
     findBySlackUserId: (id) => repository.findBySlackUserId(id),
     findByEmail: (email) => repository.findByEmail(email),
     findByName: (name, limit) => repository.findByName(name, limit),
-    listAll: () => repository.listAll(),
+    findAll: () => repository.findAll(),
     hasManager: () => repository.hasManager(),
     findManagers: () => repository.findManagers(),
     upsertFacts: async () => {},

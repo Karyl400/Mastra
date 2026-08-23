@@ -16,12 +16,12 @@ export interface KnowledgeFactSearchOptions {
   readonly limit?: number;
 }
 
-import type { ForgetScope } from './message-archive.repository';
+import type { KnowledgeForgetScope } from './message-archive.repository';
 
 export interface KnowledgeFactRepository {
   record(fact: KnowledgeFact): Promise<boolean>;
   search(query: string, options?: KnowledgeFactSearchOptions): Promise<readonly KnowledgeFact[]>;
-  recent(options?: KnowledgeFactSearchOptions): Promise<readonly KnowledgeFact[]>;
-  forgetUser(scope: ForgetScope): Promise<number>;
+  findRecent(options?: KnowledgeFactSearchOptions): Promise<readonly KnowledgeFact[]>;
+  forget(scope: KnowledgeForgetScope): Promise<number>;
   pruneOlderThan(cutoffMs: number): Promise<number>;
 }

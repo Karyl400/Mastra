@@ -313,7 +313,7 @@ rendre à tort.
 
  Ce qu'une source rend : son résultat ET si elle a pu répondre.
 
-**Avant `readonly interviewRepo?: Pick<OnboardingInterviewRepository, 'listAll'>;`**
+**Avant `readonly interviewRepo?: Pick<OnboardingInterviewRepository, 'findAll'>;`**
 
 L'ENTRETIEN — « ce que tu fais au quotidien », écrit par la personne elle-même.
 
@@ -920,7 +920,7 @@ TypeScript pur — zéro import.
 
  Garde-fou de REQUÊTE — jamais un paramètre de schéma de tool.
 
-**Avant `recentDirectTurns(dmChannelId: string, options: BotMemoryReadOptions): Promise<BotMemoryTurn[]>;`**
+**Avant `findRecentDirectTurns(dmChannelId: string, options: BotMemoryReadOptions): Promise<BotMemoryTurn[]>;`**
 
 Les tours d'une conversation en message direct, du plus ancien au plus
 récent, dans la fenêtre demandée.
@@ -2233,7 +2233,7 @@ résumé reste. `ForgetScope` est donc importé, jamais redéclaré.
 
 ### `src/features/knowledge/domain/ports/message-archive.repository.ts`
 
-**Avant `export interface ForgetScope {`**
+**Avant `export interface KnowledgeForgetScope {`**
 
 ⚠️ **LA PORTÉE EST UN PARAMÈTRE, parce qu'un effacement irréversible ne doit jamais avoir de
 portée implicite.**
@@ -2254,7 +2254,7 @@ canal seuls les tours du demandeur, et jamais de portée indéterminée sur une 
 
 Restreint l'effacement à un seul canal. Absent = partout, et c'est un geste délibéré.
 
-**Avant `pendingDistillation(sinceMs: number, limit: number): Promise<readonly ArchivedMessage[]>;`**
+**Avant `findPendingDistillation(sinceMs: number, limit: number): Promise<readonly ArchivedMessage[]>;`**
 
 Les messages qu'AUCUN rideau n'a encore examinés, du plus ancien au plus récent.
 

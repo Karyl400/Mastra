@@ -212,7 +212,7 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
     }
   }
 
-  async getUserById(userId: string): Promise<SlackMember | null> {
+  async findUserById(userId: string): Promise<SlackMember | null> {
     try {
       const response = await this.client.users.info({ user: userId });
       const user = response.user;

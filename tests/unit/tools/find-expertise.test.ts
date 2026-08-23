@@ -277,11 +277,11 @@ describe('findExpertise — ce que la personne dit faire, pas seulement son inti
   } as never;
 
   const emptyDirectory = {
-    listAll: async () => [],
+    findAll: async () => [],
   } as never;
 
   const interviews = {
-    listAll: async () => [
+    findAll: async () => [
       {
         employeeId: KARYL,
         slackUserId: 'U0BJBDGTJUD',
@@ -346,7 +346,7 @@ describe('findExpertise — ce que la personne dit faire, pas seulement son inti
 
   it('un dépôt d’entretiens EN PANNE ne dégrade pas le verdict', async () => {
     const broken = {
-      listAll: async () => {
+      findAll: async () => {
         throw new Error('no such table: onboarding_interview');
       },
     } as never;
@@ -437,7 +437,7 @@ describe('findExpertise — l’ordre et la couverture', () => {
       ]),
     } as never;
     const interviewRepo = {
-      listAll: vi.fn().mockResolvedValue([{ employeeId: 'aaa', dailyWork: 'je fais du backend' }]),
+      findAll: vi.fn().mockResolvedValue([{ employeeId: 'aaa', dailyWork: 'je fais du backend' }]),
     } as never;
 
     const tool = makeFindExpertise({ directoryRepo, employeeRepo, interviewRepo });
@@ -530,10 +530,10 @@ describe('findExpertise — l’entretien est une source privée', () => {
     ],
   } as never;
 
-  const emptyDirectory = { listAll: async () => [] } as never;
+  const emptyDirectory = { findAll: async () => [] } as never;
 
   const interviewRepo = {
-    listAll: async () => [
+    findAll: async () => [
       { employeeId: KARYL_ID, dailyWork: 'je fais du support technique sur les tickets' },
     ],
   } as never;

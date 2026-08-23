@@ -255,7 +255,7 @@ export interface SlackAcceptContext {
 export interface SlackEventsHandlerOptions {
   slackClient?: WebClient;
   chatProvider?: Pick<SlackAdapter, 'sendBlocks'>;
-  workspaceProvider?: Pick<SlackWorkspaceProvider, 'getUserById'>;
+  workspaceProvider?: Pick<SlackWorkspaceProvider, 'findUserById'>;
   dedupMax?: number;
   dedupTtlMs?: number;
   inFlightGraceMs?: number;
@@ -395,7 +395,7 @@ export class SlackEventsHandler {
   private readonly inFlightGraceMs: number;
   private botUserIdPromise?: Promise<string | undefined>;
   private readonly chatProvider: Pick<SlackAdapter, 'sendBlocks'>;
-  private readonly workspaceProvider: Pick<SlackWorkspaceProvider, 'getUserById'>;
+  private readonly workspaceProvider: Pick<SlackWorkspaceProvider, 'findUserById'>;
   private teamIdWarningEmitted = false;
   private conversationRepo: ConversationRepository | null | undefined;
   private pinnedFactRepo: PinnedFactRepository | null | undefined;
@@ -508,7 +508,7 @@ export class SlackEventsHandler {
               if (known) {
                 if (Date.now() - known.syncedAt.getTime() > DIRECTORY_STALE_AFTER_MS) {
                   void source
-                    .fetchById(slackUserId)
+                    .findById(slackUserId)
                     .then((fresh) => (fresh ? repo.upsertFacts(fresh, new Date()) : undefined))
                     .catch((error) =>
                       logger.warn('Directory refresh failed — keeping the known facts', {
@@ -521,7 +521,7 @@ export class SlackEventsHandler {
                 return known;
               }
 
-              const facts = await source.fetchById(slackUserId);
+              const facts = await source.findById(slackUserId);
               if (!facts) return null;
 
               await repo.upsertFacts(facts, new Date()).catch((error) =>
@@ -978,7 +978,7 @@ export class SlackEventsHandler {
 
     if (!resolved.displayName) {
       try {
-        const member = await this.workspaceProvider.getUserById(slackUserId);
+        const member = await this.workspaceProvider.findUserById(slackUserId);
         resolved = {
           ...resolved,
           displayName: sanitizeDisplayName(
@@ -1120,7 +1120,7 @@ export class SlackEventsHandler {
     if (fromPayload.email || !user.id) return fromPayload;
 
     try {
-      const member = await this.workspaceProvider.getUserById(user.id);
+      const member = await this.workspaceProvider.findUserById(user.id);
       if (!member) return fromPayload;
       return {
         slackUserId: fromPayload.slackUserId,
@@ -2344,7 +2344,7 @@ export class SlackEventsHandler {
     if (!repo) return [];
 
     try {
-      return await repo.recentTurns(conversationId, {
+      return await repo.findRecentTurns(conversationId, {
         ttlMs: this.conversationTtlMs,
         limit: CONVERSATION_QUERY_LIMIT,
       });

@@ -9,7 +9,7 @@ import type {
 } from '../../domain/ports/knowledge-fact.repository';
 import type { FactKind } from '../../domain/services/fact-distillation';
 import { toMatchQuery } from '../../domain/services/fts-query';
-import type { ForgetScope } from '../../domain/ports/message-archive.repository';
+import type { KnowledgeForgetScope } from '../../domain/ports/message-archive.repository';
 
 const DEFAULT_LIMIT = 12;
 
@@ -80,7 +80,7 @@ export class DrizzleKnowledgeFactRepository implements KnowledgeFactRepository {
     return rows.map(toDomain);
   }
 
-  async recent(options: KnowledgeFactSearchOptions = {}): Promise<KnowledgeFact[]> {
+  async findRecent(options: KnowledgeFactSearchOptions = {}): Promise<KnowledgeFact[]> {
     const limit = Math.min(options.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
     const db = getDb();
 
@@ -96,7 +96,7 @@ export class DrizzleKnowledgeFactRepository implements KnowledgeFactRepository {
     return rows.map(toDomain);
   }
 
-  async forgetUser(scope: ForgetScope): Promise<number> {
+  async forget(scope: KnowledgeForgetScope): Promise<number> {
     const db = getDb();
     const where =
       scope.channelId === undefined

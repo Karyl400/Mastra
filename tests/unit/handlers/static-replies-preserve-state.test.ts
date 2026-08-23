@@ -58,7 +58,7 @@ function makeHandler(lastAssistant: string) {
   const append = vi.fn(async (turn: unknown) => turn);
   const conversationRepository = {
     append,
-    recentTurns: vi.fn(async () => [
+    findRecentTurns: vi.fn(async () => [
       {
         id: '1',
         conversationId: DM,
@@ -86,7 +86,7 @@ function makeHandler(lastAssistant: string) {
         sendBlocks: vi.fn().mockResolvedValue({ ts: '1' }),
       } as unknown as SlackEventsHandlerOptions['chatProvider'],
       accessGuard: null,
-      workspaceProvider: { getUserById: async () => null },
+      workspaceProvider: { findUserById: async () => null },
       auditSink: async () => undefined,
       conversationRepository:
         conversationRepository as unknown as SlackEventsHandlerOptions['conversationRepository'],

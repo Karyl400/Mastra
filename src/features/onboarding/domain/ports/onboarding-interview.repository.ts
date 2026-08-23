@@ -11,7 +11,7 @@ export interface OnboardingInterview {
 export interface OnboardingInterviewRepository {
   findByEmployee(employeeId: string): Promise<OnboardingInterview | null>;
 
-  listAll(): Promise<OnboardingInterview[]>;
+  findAll(): Promise<OnboardingInterview[]>;
 
   save(interview: OnboardingInterview): Promise<void>;
 }

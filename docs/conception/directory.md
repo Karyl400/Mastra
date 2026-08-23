@@ -945,7 +945,7 @@ ligne n'existe pas, l'ordre réussit sans rien faire. Trouvé EN PRODUCTION le 2
 en testant le correctif du matin même — il journalisait « Annuaire relié au dossier »
 alors que zéro ligne avait bougé, ce qui est exactement la famille de défaut qu'il
 fermait. Sans ce compte, l'appelant ne peut que réciter « c'est fait ».
-**Avant `listAll(): Promise<DirectoryMember[]>;`**
+**Avant `findAll(): Promise<DirectoryMember[]>;`**
 
  Tout l'annuaire, pour les usages de lecture groupée.
 
@@ -969,14 +969,14 @@ Le port est délibérément RÉDUIT à deux méthodes — celles que l'annuaire 
 les sept méthodes de `SlackWorkspaceProvider` ferait entrer ici `inviteToChannel()`, une
 capacité d'ÉCRITURE, dans le port d'un composant dont le rôle est de lire qui est qui.
 
-**Avant `fetchById(slackUserId: string): Promise<DirectoryMemberFacts | null>;`**
+**Avant `findById(slackUserId: string): Promise<DirectoryMemberFacts | null>;`**
 
 Résout une personne par son identifiant Slack.
 
 `null` = introuvable. Ne doit PAS lever sur une simple absence : sur le chemin de l'ACK,
 une exception pour un compte inconnu coûterait le traitement du message entier.
 
-**Avant `fetchAll(): Promise<DirectoryMemberFacts[]>;`**
+**Avant `findAll(): Promise<DirectoryMemberFacts[]>;`**
 
  Balayage complet, pour la synchronisation périodique.
 
@@ -1295,7 +1295,7 @@ mais vide » — indiscernable d'un vrai vide et faux positif garanti sur toute 
 incomplet. Sans ce drapeau, une synchronisation plafonnée rapporterait « 10 000 membres
 synchronisés » et serait indiscernable d'une synchronisation intégrale.
 
-**Avant `async fetchById(slackUserId: string): Promise<DirectoryMemberFacts | null> {`**
+**Avant `async findById(slackUserId: string): Promise<DirectoryMemberFacts | null> {`**
 
 `null` sur un compte introuvable — jamais une exception.
 
@@ -1304,7 +1304,7 @@ un identifiant inconnu coûterait le traitement du message entier. `getUserById`
 déjà `user_not_found` en `null` ; ce qui reste (réseau, 5xx, rate-limit) remonte, et c'est
 volontaire — une panne de Slack n'est pas une absence de personne.
 
-**Avant `async fetchAll(): Promise<DirectoryMemberFacts[]> {`**
+**Avant `async findAll(): Promise<DirectoryMemberFacts[]> {`**
 
 Balayage complet — PAGINÉ, BORNÉ, et bavard quand il est borné.
 
@@ -1569,7 +1569,7 @@ qu'on corrige.
 La borne est ici l'effectif du WORKSPACE Slack (40 lignes en production au
 2026-08-14, bots et comptes désactivés compris), pas un volume de trafic.
 
-**Avant `async listAll(): Promise<DirectoryMember[]> {`**
+**Avant `async findAll(): Promise<DirectoryMember[]> {`**
 
 Tri explicite sur la clé : sans `ORDER BY`, deux appels identiques peuvent rendre deux ordres
 différents — même défaut que celui corrigé sur `getNotificationHistory`.

@@ -88,7 +88,7 @@ async function main(): Promise<void> {
   const directory = new DrizzleDirectoryRepository();
   const slack = new SlackAdapter(token);
 
-  const all = await directory.listAll();
+  const all = await directory.findAll();
   const targets = all.filter(needsProfileForm);
 
   console.log(`Annuaire : ${all.length} lignes, ${targets.length} sans dossier d'onboarding.`);

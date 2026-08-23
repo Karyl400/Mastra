@@ -156,7 +156,7 @@ export class DrizzleDirectoryRepository implements DirectoryRepository {
     return matches;
   }
 
-  async listAll(): Promise<DirectoryMember[]> {
+  async findAll(): Promise<DirectoryMember[]> {
     const db = this.resolveDb();
     const rows = await db.select().from(slackDirectory).orderBy(slackDirectory.slackUserId);
     return rows.map(toDomain);

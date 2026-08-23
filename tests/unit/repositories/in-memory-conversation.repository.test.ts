@@ -68,7 +68,7 @@ describe('InMemoryConversationRepository', () => {
     });
   });
 
-  describe('recentTurns', () => {
+  describe('findRecentTurns', () => {
     it('renvoie du plus ancien au plus récent', async () => {
       await repo.append(draft({ content: 'un' }));
       vi.setSystemTime(new Date(T0.getTime() + 1_000));
@@ -76,7 +76,7 @@ describe('InMemoryConversationRepository', () => {
       vi.setSystemTime(new Date(T0.getTime() + 2_000));
       await repo.append(draft({ content: 'trois' }));
 
-      const turns = await repo.recentTurns('D0BJGBVB5HP', {
+      const turns = await repo.findRecentTurns('D0BJGBVB5HP', {
         ttlMs: CONVERSATION_TTL_MS,
         limit: 50,
       });
@@ -88,8 +88,8 @@ describe('InMemoryConversationRepository', () => {
       await repo.append(draft({ conversationId: 'D111', content: 'dm' }));
       await repo.append(draft({ conversationId: 'CMLKC4S5T:1.1', content: 'thread' }));
 
-      const dm = await repo.recentTurns('D111', { ttlMs: CONVERSATION_TTL_MS, limit: 50 });
-      const thread = await repo.recentTurns('CMLKC4S5T:1.1', {
+      const dm = await repo.findRecentTurns('D111', { ttlMs: CONVERSATION_TTL_MS, limit: 50 });
+      const thread = await repo.findRecentTurns('CMLKC4S5T:1.1', {
         ttlMs: CONVERSATION_TTL_MS,
         limit: 50,
       });
@@ -100,7 +100,7 @@ describe('InMemoryConversationRepository', () => {
 
     it('renvoie une liste vide pour une conversation inconnue', async () => {
       expect(
-        await repo.recentTurns('D-inconnu', { ttlMs: CONVERSATION_TTL_MS, limit: 50 }),
+        await repo.findRecentTurns('D-inconnu', { ttlMs: CONVERSATION_TTL_MS, limit: 50 }),
       ).toEqual([]);
     });
 
@@ -110,7 +110,7 @@ describe('InMemoryConversationRepository', () => {
       vi.setSystemTime(new Date(T0.getTime() + CONVERSATION_TTL_MS + 60_000));
       await repo.append(draft({ content: 'récent' }));
 
-      const turns = await repo.recentTurns('D0BJGBVB5HP', {
+      const turns = await repo.findRecentTurns('D0BJGBVB5HP', {
         ttlMs: CONVERSATION_TTL_MS,
         limit: 50,
       });
@@ -123,7 +123,7 @@ describe('InMemoryConversationRepository', () => {
 
       vi.setSystemTime(new Date(T0.getTime() + CONVERSATION_TTL_MS - 1_000));
 
-      const turns = await repo.recentTurns('D0BJGBVB5HP', {
+      const turns = await repo.findRecentTurns('D0BJGBVB5HP', {
         ttlMs: CONVERSATION_TTL_MS,
         limit: 50,
       });
@@ -137,7 +137,10 @@ describe('InMemoryConversationRepository', () => {
         await repo.append(draft({ content: `msg-${i}` }));
       }
 
-      const turns = await repo.recentTurns('D0BJGBVB5HP', { ttlMs: CONVERSATION_TTL_MS, limit: 3 });
+      const turns = await repo.findRecentTurns('D0BJGBVB5HP', {
+        ttlMs: CONVERSATION_TTL_MS,
+        limit: 3,
+      });
 
       expect(turns.map((t) => t.content)).toEqual(['msg-7', 'msg-8', 'msg-9']);
     });
@@ -154,7 +157,7 @@ describe('InMemoryConversationRepository', () => {
       const removed = await repo.pruneOlderThan(new Date(Date.now() - CONVERSATION_TTL_MS));
 
       expect(removed).toBe(2);
-      const turns = await repo.recentTurns('D0BJGBVB5HP', {
+      const turns = await repo.findRecentTurns('D0BJGBVB5HP', {
         ttlMs: CONVERSATION_TTL_MS,
         limit: 50,
       });

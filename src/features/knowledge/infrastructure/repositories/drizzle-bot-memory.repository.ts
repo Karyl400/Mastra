@@ -11,7 +11,7 @@ import type {
 } from '../../domain/ports/bot-memory.repository';
 
 export class DrizzleBotMemoryRepository implements BotMemoryReadPort {
-  async recentDirectTurns(
+  async findRecentDirectTurns(
     dmChannelId: string,
     options: BotMemoryReadOptions,
   ): Promise<BotMemoryTurn[]> {

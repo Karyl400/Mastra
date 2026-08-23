@@ -30,7 +30,7 @@ const DM = 'D0MOCKDM01';
 function makeHandler(options: { lastAssistant?: string; agentText: string }) {
   const conversationRepository = {
     append: vi.fn(async (turn: unknown) => turn),
-    recentTurns: vi.fn(async () =>
+    findRecentTurns: vi.fn(async () =>
       options.lastAssistant
         ? [
             {

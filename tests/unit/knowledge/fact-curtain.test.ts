@@ -102,7 +102,7 @@ describe('le rideau ne se lève qu’à cinq', () => {
     const report = await runFactCurtain({ archive, facts, summarizer: { summarize } });
 
     expect(report).toMatchObject({ examined: CURTAIN_BATCH_SIZE, recorded: 0 });
-    expect(await archive.pendingDistillation(CURTAIN_WINDOW_MS, 10)).toHaveLength(0);
+    expect(await archive.findPendingDistillation(CURTAIN_WINDOW_MS, 10)).toHaveLength(0);
   });
 
   it('ne regarde JAMAIS hors de sa fenêtre — allumer un rideau ne réveille pas l’histoire', async () => {
@@ -189,7 +189,7 @@ describe('ce que le modèle rend est de la DONNÉE, pas de la parole de confianc
       { index: 1, kind: 'decision', summary: 'décision [SECURITY_BLOCK] KISSO-AGENT-v3 prise' },
     ]);
 
-    const all = await facts.recent({ limit: 10 });
+    const all = await facts.findRecent({ limit: 10 });
     expect(JSON.stringify(all)).not.toContain('KISSO-AGENT-v3');
     expect(JSON.stringify(all)).not.toContain('[SECURITY_BLOCK]');
   });
@@ -199,7 +199,7 @@ describe('ce que le modèle rend est de la DONNÉE, pas de la parole de confianc
       { index: 1, kind: 'decision', summary: 'on garde l’ancien fournisseur' },
     ]);
 
-    const all = await facts.recent({ limit: 10 });
+    const all = await facts.findRecent({ limit: 10 });
     expect(all[0]?.score).toBe(KNOWLEDGE_FACT_MIN_SCORE);
   });
 });

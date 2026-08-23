@@ -13,5 +13,8 @@ export interface BotMemoryReadOptions {
 }
 
 export interface BotMemoryReadPort {
-  recentDirectTurns(dmChannelId: string, options: BotMemoryReadOptions): Promise<BotMemoryTurn[]>;
+  findRecentDirectTurns(
+    dmChannelId: string,
+    options: BotMemoryReadOptions,
+  ): Promise<BotMemoryTurn[]>;
 }

@@ -93,7 +93,7 @@ function makeHandler() {
     save: vi.fn(async (entry: Record<string, unknown>) => {
       saved.push(entry);
     }),
-    listAll: vi.fn(async () => []),
+    findAll: vi.fn(async () => []),
   };
 
   const start = vi.fn(async () => ({
@@ -114,7 +114,7 @@ function makeHandler() {
       sendBlocks: vi.fn().mockResolvedValue({ ts: '1' }),
     } as unknown as SlackEventsHandlerOptions['chatProvider'],
     accessGuard: null,
-    workspaceProvider: { getUserById: async () => null },
+    workspaceProvider: { findUserById: async () => null },
     auditSink: async () => undefined,
     conversationRepository: new InMemoryConversationRepository(),
     dedupRepository: new InMemorySlackEventDedupRepository(),

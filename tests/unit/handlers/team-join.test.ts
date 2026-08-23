@@ -43,7 +43,7 @@ function makeHandler(overrides: Record<string, unknown> = {}) {
   const handler = new SlackEventsHandler('xoxb-test', {} as Mastra, {
     chatProvider: { sendBlocks } as never,
     workspaceProvider: {
-      getUserById: vi.fn(async () => ({
+      findUserById: vi.fn(async () => ({
         id: 'U_NEW',
         email: 'lea@kisso.com',
         firstName: 'Léa',
@@ -57,7 +57,7 @@ function makeHandler(overrides: Record<string, unknown> = {}) {
       findByEmail: vi.fn(async () => null),
       rememberDmChannel: vi.fn(async () => undefined),
       linkEmployee: vi.fn(async () => undefined),
-      listAll: vi.fn(async () => []),
+      findAll: vi.fn(async () => []),
     } as never,
     welcomeChannels: { run } as never,
     conversationRepository: null,
@@ -143,7 +143,7 @@ describe('handleTeamJoin', () => {
         findByEmail: vi.fn(async () => null),
         rememberDmChannel: vi.fn(async () => undefined),
         linkEmployee: vi.fn(async () => undefined),
-        listAll: vi.fn(async () => []),
+        findAll: vi.fn(async () => []),
       },
     });
 

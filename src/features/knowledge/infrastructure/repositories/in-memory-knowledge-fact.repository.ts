@@ -4,7 +4,7 @@ import type {
   KnowledgeFactSearchOptions,
 } from '../../domain/ports/knowledge-fact.repository';
 import { matchedTermCount, queryTerms } from '../../domain/services/text-search';
-import type { ForgetScope } from '../../domain/ports/message-archive.repository';
+import type { KnowledgeForgetScope } from '../../domain/ports/message-archive.repository';
 
 const DEFAULT_LIMIT = 12;
 
@@ -31,13 +31,13 @@ export class InMemoryKnowledgeFactRepository implements KnowledgeFactRepository 
       .map((entry) => entry.row);
   }
 
-  async recent(options: KnowledgeFactSearchOptions = {}): Promise<KnowledgeFact[]> {
+  async findRecent(options: KnowledgeFactSearchOptions = {}): Promise<KnowledgeFact[]> {
     return this.scoped(options)
       .sort((a, b) => b.postedAt - a.postedAt)
       .slice(0, options.limit ?? DEFAULT_LIMIT);
   }
 
-  async forgetUser(scope: ForgetScope): Promise<number> {
+  async forget(scope: KnowledgeForgetScope): Promise<number> {
     let removed = 0;
     for (const [id, row] of this.rows) {
       if (row.slackUserId !== scope.slackUserId) continue;

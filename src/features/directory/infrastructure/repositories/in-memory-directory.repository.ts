@@ -94,7 +94,7 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
       .slice(0, limit);
   }
 
-  async listAll(): Promise<DirectoryMember[]> {
+  async findAll(): Promise<DirectoryMember[]> {
     return Array.from(this.rows.values()).sort((a, b) =>
       compareBinary(a.slackUserId, b.slackUserId),
     );

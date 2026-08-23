@@ -84,7 +84,7 @@ function makeHandler(options?: { managers?: string[] }) {
         sendBlocks: vi.fn().mockResolvedValue({ ts: '1' }),
       } as unknown as SlackEventsHandlerOptions['chatProvider'],
       accessGuard: null,
-      workspaceProvider: { getUserById: async () => null },
+      workspaceProvider: { findUserById: async () => null },
       auditSink: async () => undefined,
       conversationRepository: null,
       dedupRepository: new InMemorySlackEventDedupRepository(),
@@ -96,7 +96,7 @@ function makeHandler(options?: { managers?: string[] }) {
       interviewRepository: {
         findByEmployee: vi.fn(async () => null),
         save: vi.fn(async () => undefined),
-        listAll: vi.fn(async () => []),
+        findAll: vi.fn(async () => []),
       } as unknown as SlackEventsHandlerOptions['interviewRepository'],
       profileRepository: { findByEmail: vi.fn(async () => null) },
     },

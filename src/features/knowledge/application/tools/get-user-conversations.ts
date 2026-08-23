@@ -156,7 +156,7 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
 
       let turns;
       try {
-        turns = await deps.memory.recentDirectTurns(dmChannelId, {
+        turns = await deps.memory.findRecentDirectTurns(dmChannelId, {
           sinceMs: KNOWLEDGE_LOOKBACK_MS,
           limit: KNOWLEDGE_SCAN_LIMIT,
         });

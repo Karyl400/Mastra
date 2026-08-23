@@ -28,7 +28,7 @@ export interface SlackWorkspaceProvider {
   listChannels(): Promise<SlackChannel[]>;
   listMembers(): Promise<SlackMember[]>;
   findUserByEmail(email: string): Promise<SlackMember | null>;
-  getUserById(userId: string): Promise<SlackMember | null>;
+  findUserById(userId: string): Promise<SlackMember | null>;
   inviteToChannel(channelId: string, userId: string): Promise<void>;
   getChannelMembers(channelId: string): Promise<string[]>;
 }

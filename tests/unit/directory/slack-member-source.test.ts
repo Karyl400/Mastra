@@ -48,7 +48,7 @@ function makeReader(pages: SlackMemberPage[], byId: SlackMember | null = null): 
   let call = 0;
   return {
     listMembersPage: vi.fn(async () => pages[call++] ?? { members: [] }),
-    getUserById: vi.fn(async () => byId),
+    findUserById: vi.fn(async () => byId),
   };
 }
 
@@ -61,7 +61,7 @@ describe('Directory: SlackMemberSource', () => {
     ]);
 
     const source = new SlackMemberSource(reader);
-    const facts = await source.fetchAll();
+    const facts = await source.findAll();
 
     expect(facts.map((f) => f.slackUserId)).toEqual(['U1', 'U2', 'U3', 'U4']);
     expect(reader.listMembersPage).toHaveBeenCalledTimes(3);
@@ -74,7 +74,7 @@ describe('Directory: SlackMemberSource', () => {
       { members: [member({ id: 'U2' })] },
     ]);
 
-    const facts = await new SlackMemberSource(reader).fetchAll();
+    const facts = await new SlackMemberSource(reader).findAll();
 
     expect(facts).toHaveLength(2);
   });
@@ -83,11 +83,11 @@ describe('Directory: SlackMemberSource', () => {
     // Un curseur qui ne se vide jamais : bug d'API, ou workspace plus grand que le plafond.
     const reader: SlackMemberReader = {
       listMembersPage: vi.fn(async () => ({ members: [member({ id: 'U1' })], nextCursor: 'x' })),
-      getUserById: vi.fn(async () => null),
+      findUserById: vi.fn(async () => null),
     };
 
     const source = new SlackMemberSource(reader, { maxPages: 3 });
-    const facts = await source.fetchAll();
+    const facts = await source.findAll();
 
     expect(reader.listMembersPage).toHaveBeenCalledTimes(3);
     expect(facts).toHaveLength(3);
@@ -100,11 +100,11 @@ describe('Directory: SlackMemberSource', () => {
       makeReader([{ members: [member({ id: 'U1' })], nextCursor: 'x' }]),
       { maxPages: 1 },
     );
-    await source.fetchAll();
+    await source.findAll();
     expect(source.wasLastFetchTruncated()).toBe(true);
 
     const complete = new SlackMemberSource(makeReader([{ members: [member({ id: 'U1' })] }]));
-    await complete.fetchAll();
+    await complete.findAll();
     expect(complete.wasLastFetchTruncated()).toBe(false);
   });
 
@@ -119,7 +119,7 @@ describe('Directory: SlackMemberSource', () => {
       },
     ]);
 
-    const facts = await new SlackMemberSource(reader).fetchAll();
+    const facts = await new SlackMemberSource(reader).findAll();
 
     // Les écarter produirait un annuaire où ne figurent que les gens à qui l'on dit oui,
     // c'est-à-dire aucune décision d'autorisation.
@@ -132,7 +132,7 @@ describe('Directory: SlackMemberSource', () => {
   it('écarte un membre sans identifiant plutôt que de créer un sujet fantôme', async () => {
     const reader = makeReader([{ members: [member({ id: '' }), member({ id: 'U1' })] }]);
 
-    const facts = await new SlackMemberSource(reader).fetchAll();
+    const facts = await new SlackMemberSource(reader).findAll();
 
     // `slack_user_id` est la PRIMARY KEY : une chaîne vide créerait une ligne unique que toutes
     // les suivantes viendraient écraser.
@@ -156,7 +156,7 @@ describe('Directory: SlackMemberSource', () => {
       },
     ]);
 
-    const [facts] = await new SlackMemberSource(reader).fetchAll();
+    const [facts] = await new SlackMemberSource(reader).findAll();
 
     expect(facts).toEqual({
       slackUserId: 'U9',
@@ -178,18 +178,18 @@ describe('Directory: SlackMemberSource', () => {
     });
   });
 
-  it('fetchById rend null sur un compte introuvable, sans lever', async () => {
+  it('findById rend null sur un compte introuvable, sans lever', async () => {
     const source = new SlackMemberSource(makeReader([], null));
 
     // Cette méthode est atteignable depuis le chemin de l'ACK Slack (3 s) : y lever pour un
     // identifiant inconnu coûterait le traitement du message entier.
-    await expect(source.fetchById('U-inconnu')).resolves.toBeNull();
+    await expect(source.findById('U-inconnu')).resolves.toBeNull();
   });
 
-  it('fetchById rend les faits d un compte connu', async () => {
+  it('findById rend les faits d un compte connu', async () => {
     const source = new SlackMemberSource(makeReader([], member({ id: 'U7', isDeleted: true })));
 
-    const facts = await source.fetchById('U7');
+    const facts = await source.findById('U7');
 
     expect(facts?.slackUserId).toBe('U7');
     expect(facts?.isDeleted).toBe(true);

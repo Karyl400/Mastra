@@ -97,7 +97,7 @@ function makeHandler(options?: {
 
   const conversationRepository = {
     append: vi.fn(async (turn: unknown) => turn),
-    recentTurns: vi.fn(async () =>
+    findRecentTurns: vi.fn(async () =>
       options?.lastAssistant
         ? [
             {
@@ -129,7 +129,7 @@ function makeHandler(options?: {
         sendBlocks: vi.fn().mockResolvedValue({ ts: '1' }),
       } as unknown as SlackEventsHandlerOptions['chatProvider'],
       accessGuard: null,
-      workspaceProvider: { getUserById: async () => null },
+      workspaceProvider: { findUserById: async () => null },
       auditSink: async () => undefined,
       conversationRepository:
         conversationRepository as unknown as SlackEventsHandlerOptions['conversationRepository'],

@@ -17,5 +17,5 @@ export interface DirectoryRepository {
 
   linkEmployee(slackUserId: string, employeeId: string | null): Promise<number>;
 
-  listAll(): Promise<DirectoryMember[]>;
+  findAll(): Promise<DirectoryMember[]>;
 }

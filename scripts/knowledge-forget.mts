@@ -7,7 +7,7 @@
  *
  * `ERASURE_SCOPE_NOTICE` nomme honnêtement ce que le court-circuit conversationnel ne couvre
  * pas, et renvoie vers le General Manager. L'audit du 2026-08-21 a constaté que **ce renvoi
- * pointait vers un geste sans implémentation** : `forgetUser` était écrite dans les deux ports,
+ * pointait vers un geste sans implémentation** : `forget` était écrite dans les deux ports,
  * implémentée quatre fois, et appelée nulle part. Le General Manager aurait dû écrire du SQL à
  * la main sur la Turso de production.
  *

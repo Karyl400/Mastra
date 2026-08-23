@@ -60,7 +60,7 @@ function makeDeps() {
     listChannels: vi.fn().mockResolvedValue([]),
     listMembers: vi.fn().mockResolvedValue([]),
     findUserByEmail: vi.fn().mockResolvedValue(null),
-    getUserById: vi.fn().mockResolvedValue(null),
+    findUserById: vi.fn().mockResolvedValue(null),
     inviteToChannel: vi.fn().mockResolvedValue(undefined),
     getChannelMembers: vi.fn().mockResolvedValue([]),
   };

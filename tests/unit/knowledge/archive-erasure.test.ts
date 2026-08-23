@@ -3,9 +3,9 @@
  * L'EFFACEMENT DE L'ARCHIVE — implémenté quatre fois, appelé zéro fois
  * ════════════════════════════════════════════════════════════════════════════
  *
- * `forgetUser` et `pruneOlderThan` existent dans les deux ports de la feature `knowledge`, sont
+ * `forget` et `pruneOlderThan` existent dans les deux ports de la feature `knowledge`, sont
  * implémentées dans les quatre dépôts… et l'audit du 2026-08-21 a mesuré **zéro appelant, dans
- * tout `src/` et tout `scripts/`**. Le port le dit pourtant lui-même : *« `forgetUser` emporte
+ * tout `src/` et tout `scripts/`**. Le port le dit pourtant lui-même : *« `forget` emporte
  * l'archive d'une personne (c'est le droit à l'effacement) »*.
  *
  * C'est la forme exacte de `findPending()` avant le cron du 2026-08-21 : une méthode correcte,
@@ -15,7 +15,7 @@
  *
  * ⚠️ **LA PORTÉE EST LA VRAIE DIFFICULTÉ, et c'est pourquoi elle change de forme ici.**
  *
- * `forgetUser(slackUserId)` efface ce qu'une personne a dit **PARTOUT** : tous les canaux,
+ * `forget(slackUserId)` efface ce qu'une personne a dit **PARTOUT** : tous les canaux,
  * toutes les périodes. Or « oublie ce que je t'ai dit », tapé dans un DM, ne demande pas cela —
  * il demande d'oublier CETTE conversation. Brancher la version globale sur le court-circuit
  * aurait fait disparaître, sur une phrase, un an de décisions d'équipe qu'une autre personne
@@ -45,7 +45,7 @@ const AWA = 'U_AWA';
 const DM = 'D0KARYL';
 const CHANNEL = 'C_HQ';
 
-/** Horodatages réalistes : `pendingDistillation` borne par une FENÊTRE, pas par un rang. */
+/** Horodatages réalistes : `findPendingDistillation` borne par une FENÊTRE, pas par un rang. */
 const BASE_TS = Date.now() - 60_000;
 const ALL = Number.MAX_SAFE_INTEGER;
 
@@ -65,7 +65,7 @@ describe("l'archive des messages", () => {
         postedAt: BASE_TS + n * 1000,
       });
 
-    // ⚠️ On énumère par `pendingDistillation` et non par `search('')` : la recherche est du
+    // ⚠️ On énumère par `findPendingDistillation` et non par `search('')` : la recherche est du
     // FTS, une requête vide n'y matche rien — ce n'est pas un défaut du dépôt, c'est le
     // contrat de FTS5. Un test qui l'ignore mesure sa propre méprise.
 
@@ -76,25 +76,25 @@ describe("l'archive des messages", () => {
   });
 
   it("efface ce qu'une personne a dit DANS UN SEUL canal", async () => {
-    const removed = await archive.forgetUser({ slackUserId: KARYL, channelId: DM });
+    const removed = await archive.forget({ slackUserId: KARYL, channelId: DM });
 
     expect(removed).toBe(2);
-    const rest = await archive.pendingDistillation(ALL, 100);
+    const rest = await archive.findPendingDistillation(ALL, 100);
     expect(rest.map((r) => r.channelId).sort()).toEqual([CHANNEL, CHANNEL]);
   });
 
   it("efface PARTOUT quand aucun canal n'est donné — le geste RGPD explicite", async () => {
-    const removed = await archive.forgetUser({ slackUserId: KARYL });
+    const removed = await archive.forget({ slackUserId: KARYL });
 
     expect(removed).toBe(3);
-    const rest = await archive.pendingDistillation(ALL, 100);
+    const rest = await archive.findPendingDistillation(ALL, 100);
     expect(rest).toHaveLength(1);
     expect(rest[0]!.slackUserId).toBe(AWA);
   });
 
   it("ne touche jamais les messages d'autrui", async () => {
-    await archive.forgetUser({ slackUserId: KARYL });
-    const rest = await archive.pendingDistillation(ALL, 100);
+    await archive.forget({ slackUserId: KARYL });
+    const rest = await archive.findPendingDistillation(ALL, 100);
 
     expect(rest.every((r) => r.slackUserId === AWA)).toBe(true);
   });
@@ -102,14 +102,14 @@ describe("l'archive des messages", () => {
   it('rend 0 quand il n’y avait rien — un compte, jamais un booléen', async () => {
     // Même contrat que `clear()` et `claimForDispatch` : on RENTRE UN COMPTE, parce que
     // « je n'avais rien retenu » et « c'est effacé » sont deux phrases différentes à dire.
-    expect(await archive.forgetUser({ slackUserId: 'U_INCONNU' })).toBe(0);
+    expect(await archive.forget({ slackUserId: 'U_INCONNU' })).toBe(0);
   });
 
   it('purge par ancienneté — la rétention que rien n’appelait', async () => {
     const removed = await archive.pruneOlderThan(BASE_TS + 2500);
 
     expect(removed).toBe(2);
-    expect(await archive.pendingDistillation(ALL, 100)).toHaveLength(2);
+    expect(await archive.findPendingDistillation(ALL, 100)).toHaveLength(2);
   });
 });
 
@@ -139,13 +139,13 @@ describe('les faits distillés', () => {
     // ⚠️ Si les deux divergeaient, un fait distillé d'un DM effacé survivrait à son message
     // source — et `searchKnowledge` le rendrait encore, ce qui est la pire des deux moitiés :
     // la trace disparaît, le résumé reste.
-    const removed = await facts.forgetUser({ slackUserId: KARYL, channelId: DM });
+    const removed = await facts.forget({ slackUserId: KARYL, channelId: DM });
 
     expect(removed).toBe(1);
-    expect(await facts.recent({})).toHaveLength(2);
+    expect(await facts.findRecent({})).toHaveLength(2);
   });
 
   it('efface partout sans canal', async () => {
-    expect(await facts.forgetUser({ slackUserId: KARYL })).toBe(2);
+    expect(await facts.forget({ slackUserId: KARYL })).toBe(2);
   });
 });

@@ -44,8 +44,8 @@ function facts(overrides: Partial<DirectoryMemberFacts> = {}): DirectoryMemberFa
 
 function makeSource(members: DirectoryMemberFacts[], truncated?: boolean): DirectorySyncSource {
   return {
-    fetchAll: vi.fn(async () => members),
-    fetchById: vi.fn(async () => null),
+    findAll: vi.fn(async () => members),
+    findById: vi.fn(async () => null),
     ...(truncated === undefined ? {} : { wasLastFetchTruncated: () => truncated }),
   };
 }
@@ -83,12 +83,12 @@ describe('Directory: synchronisation', () => {
     });
 
     await sync.run();
-    const first = await repo.listAll();
+    const first = await repo.findAll();
     const second = await sync.run();
 
     expect(second.scanned).toBe(2);
     expect(second.upserted).toBe(2);
-    expect(await repo.listAll()).toEqual(first);
+    expect(await repo.findAll()).toEqual(first);
   });
 
   it('isole les échecs : un membre en erreur n emporte pas les autres', async () => {
@@ -106,7 +106,7 @@ describe('Directory: synchronisation', () => {
       findByName: (q: string, n: number) => repo.findByName(q, n),
       rememberDmChannel: (id: string, dm: string) => repo.rememberDmChannel(id, dm),
       linkEmployee: (id: string, emp: string | null) => repo.linkEmployee(id, emp),
-      listAll: () => repo.listAll(),
+      findAll: () => repo.findAll(),
     };
 
     const sync = makeDirectorySync({
@@ -132,7 +132,7 @@ describe('Directory: synchronisation', () => {
       upsertFacts: vi.fn(async () => {
         throw new Error('no such table: slack_directory');
       }),
-      listAll: () => repo.listAll(),
+      findAll: () => repo.findAll(),
       findBySlackUserId: (id: string) => repo.findBySlackUserId(id),
       findByEmail: (e: string) => repo.findByEmail(e),
       findByName: (q: string, n: number) => repo.findByName(q, n),
@@ -215,7 +215,7 @@ describe('Directory: synchronisation', () => {
 
     expect(employees.findByEmail).not.toHaveBeenCalled();
     // Ils SONT en revanche enregistrés : c'est ce qui permet de les refuser.
-    expect((await repo.listAll()).map((m) => m.slackUserId)).toEqual(['UBOT', 'UNOEMAIL', 'UOLD']);
+    expect((await repo.findAll()).map((m) => m.slackUserId)).toEqual(['UBOT', 'UNOEMAIL', 'UOLD']);
   });
 
   it("n'échoue pas quand aucun annuaire employé n'est câblé", async () => {
@@ -284,8 +284,8 @@ describe('Directory: synchronisation', () => {
       findByName: (q: string, n: number) => repo.findByName(q, n),
       rememberDmChannel: (id: string, dm: string) => repo.rememberDmChannel(id, dm),
       linkEmployee: (id: string, emp: string | null) => repo.linkEmployee(id, emp),
-      listAll: vi.fn(async () => {
-        throw new Error('listAll unavailable');
+      findAll: vi.fn(async () => {
+        throw new Error('findAll unavailable');
       }),
     };
 

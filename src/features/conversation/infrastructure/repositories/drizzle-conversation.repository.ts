@@ -9,7 +9,7 @@ import type {
 } from '../../domain/entities/conversation-turn';
 import type {
   ConversationRepository,
-  ForgetScope,
+  ConversationForgetScope,
   RecentTurnsOptions,
 } from '../../domain/ports/conversation.repository';
 
@@ -27,7 +27,7 @@ export class DrizzleConversationRepository implements ConversationRepository {
     return saved;
   }
 
-  async recentTurns(
+  async findRecentTurns(
     conversationId: string,
     options: RecentTurnsOptions,
   ): Promise<ConversationTurn[]> {
@@ -59,7 +59,7 @@ export class DrizzleConversationRepository implements ConversationRepository {
     return (result as { rowsAffected?: number }).rowsAffected ?? 0;
   }
 
-  async forget(scope: ForgetScope): Promise<number> {
+  async forget(scope: ConversationForgetScope): Promise<number> {
     const db = getDb();
 
     const where = scope.slackUserId

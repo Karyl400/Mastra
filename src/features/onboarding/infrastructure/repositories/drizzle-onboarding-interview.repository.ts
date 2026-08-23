@@ -18,7 +18,7 @@ export class DrizzleOnboardingInterviewRepository implements OnboardingInterview
     return row ? toDomain(row) : null;
   }
 
-  async listAll(): Promise<OnboardingInterview[]> {
+  async findAll(): Promise<OnboardingInterview[]> {
     const db = getDb();
     const rows = await db.select().from(onboardingInterview).all();
     return rows.map(toDomain);

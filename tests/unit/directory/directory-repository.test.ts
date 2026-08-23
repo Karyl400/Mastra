@@ -327,7 +327,7 @@ describe.each(implementations)('$nom — contrat DirectoryRepository', ({ make }
     expect((await repo.findBySlackUserId('U0PRESENT'))?.employeeId).toBe('emp-42');
   });
 
-  // ── listAll ────────────────────────────────────────────────────────────────
+  // ── findAll ────────────────────────────────────────────────────────────────
 
   it('rend tout l’annuaire dans un ordre STABLE', async () => {
     await repo.upsertFacts(faits({ slackUserId: 'U0C' }), T0);
@@ -336,12 +336,12 @@ describe.each(implementations)('$nom — contrat DirectoryRepository', ({ make }
 
     // Sans ordre déclaré, deux appels identiques peuvent rendre deux ordres différents — défaut
     // déjà rencontré sur `getNotificationHistory`.
-    expect((await repo.listAll()).map((m) => m.slackUserId)).toEqual(['U0A', 'U0B', 'U0C']);
-    expect((await repo.listAll()).map((m) => m.slackUserId)).toEqual(['U0A', 'U0B', 'U0C']);
+    expect((await repo.findAll()).map((m) => m.slackUserId)).toEqual(['U0A', 'U0B', 'U0C']);
+    expect((await repo.findAll()).map((m) => m.slackUserId)).toEqual(['U0A', 'U0B', 'U0C']);
   });
 
   it('rend un tableau vide sur un annuaire vide', async () => {
-    expect(await repo.listAll()).toEqual([]);
+    expect(await repo.findAll()).toEqual([]);
   });
 });
 

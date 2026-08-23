@@ -214,7 +214,7 @@ function directoryStub(members: Array<Partial<Record<string, unknown>>>) {
       (members.find((m) => String(m.email).toLowerCase() === email.toLowerCase()) as never) ?? null,
     findBySlackUserId: async () => null,
     upsertFacts: async () => {},
-    listAll: async () => [],
+    findAll: async () => [],
   } as never;
 }
 

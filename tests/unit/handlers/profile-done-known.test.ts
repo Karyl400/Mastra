@@ -65,7 +65,7 @@ function makeHandler(options?: {
     interviewRepository: {
       findByEmployee: vi.fn(async () => null),
       save: vi.fn(async () => undefined),
-      listAll: vi.fn(async () => []),
+      findAll: vi.fn(async () => []),
     } as unknown as SlackEventsHandlerOptions['interviewRepository'],
     profileRepository: {
       findByEmail: vi.fn(async () => options?.record ?? null),
