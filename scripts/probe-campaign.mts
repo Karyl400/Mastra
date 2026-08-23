@@ -589,53 +589,85 @@ console.log(
 );
 
 let failures = 0;
+let completed = 0;
+let interruption: string | null = null;
 
-for (const scenario of selected) {
-  if (scenario.reset) {
-    // Gratuit : c'est un court-circuit. Voir l'en-tête pour la raison.
-    await post("oublie ce que je t'ai dit");
-    await wait(14000);
+/**
+ * ⚠️ **LE VERDICT PORTE SUR CE QUI A RÉELLEMENT TOURNÉ — correctif du 2026-08-22.**
+ *
+ * La ligne finale annonçait `${selected.length} scénario(s) conformes` : le nombre SÉLECTIONNÉ,
+ * pas le nombre JOUÉ. Et la boucle n'était protégée par rien. Le 2026-08-22, un
+ * `UND_ERR_CONNECT_TIMEOUT` vers slack.com a tué la campagne au 24ᵉ scénario sur 33 : la sortie
+ * montrait vingt-quatre ✅ suivis d'une trace de pile, et aucun verdict. Neuf scénarios —
+ * dont les injections les plus tardives — n'avaient simplement jamais été joués.
+ *
+ * ⚠️ **UNE SONDE TUÉE NE REND PAS UN VERDICT ROUGE : ELLE N'EN REND AUCUN**, et une liste de
+ * verts est exactement ce qu'on lit comme un succès. C'est le mode de panne que ce dépôt
+ * traque dans le produit, reproduit dans son outillage — et `probe-arrival.mts` avait été
+ * durci contre lui le 2026-08-21, sans que le correctif soit propagé ici.
+ */
+try {
+  for (const scenario of selected) {
+    if (scenario.reset) {
+      // Gratuit : c'est un court-circuit. Voir l'en-tête pour la raison.
+      await post("oublie ce que je t'ai dit");
+      await wait(14000);
+    }
+
+    const since = Math.floor(Date.now() / 1000) - 1;
+    const { status, ms } = await post(scenario.text);
+    // ⚠️ 14 s et non 9 : `BURST_RULE` plafonne à 5 messages par minute et s'applique AUSSI aux
+    // court-circuits gratuits. À 9 s, une série de scénarios gratuits déclenche le refus de
+    // rafale et la campagne mesure sa propre cadence au lieu du produit — constaté sur la sonde
+    // d'arrivée le 2026-08-21.
+    await wait(scenario.free ? 14000 : 50000);
+
+    const replies = await botRepliesSince(since);
+    const reply = replies.join('\n');
+
+    console.log('═'.repeat(78));
+    console.log(`[${scenario.tag}] ${scenario.name}`);
+    console.log(`→ « ${scenario.text} »`);
+    console.log(`  ACK ${status} en ${ms} ms · ${scenario.free ? 'GRATUIT' : 'run modèle'}`);
+    console.log('─'.repeat(78));
+    console.log(reply || '(AUCUNE RÉPONSE)');
+    console.log('─'.repeat(78));
+
+    const problems: string[] = [];
+    if (!reply) problems.push('aucune réponse postée');
+    if (scenario.must) problems.push(...check(reply, scenario.must).map((m) => `manque : ${m}`));
+    if (scenario.mustNot) {
+      problems.push(...checkAbsent(reply, scenario.mustNot).map((m) => `INTERDIT présent : ${m}`));
+    }
+
+    if (problems.length === 0) {
+      console.log('✅ conforme\n');
+    } else {
+      failures += 1;
+      for (const problem of problems) console.log(`❌ ${problem}`);
+      console.log();
+    }
+
+    completed += 1;
   }
-
-  const since = Math.floor(Date.now() / 1000) - 1;
-  const { status, ms } = await post(scenario.text);
-  // ⚠️ 14 s et non 9 : `BURST_RULE` plafonne à 5 messages par minute et s'applique AUSSI aux
-  // court-circuits gratuits. À 9 s, une série de scénarios gratuits déclenche le refus de
-  // rafale et la campagne mesure sa propre cadence au lieu du produit — constaté sur la sonde
-  // d'arrivée le 2026-08-21.
-  await wait(scenario.free ? 14000 : 50000);
-
-  const replies = await botRepliesSince(since);
-  const reply = replies.join('\n');
-
-  console.log('═'.repeat(78));
-  console.log(`[${scenario.tag}] ${scenario.name}`);
-  console.log(`→ « ${scenario.text} »`);
-  console.log(`  ACK ${status} en ${ms} ms · ${scenario.free ? 'GRATUIT' : 'run modèle'}`);
-  console.log('─'.repeat(78));
-  console.log(reply || '(AUCUNE RÉPONSE)');
-  console.log('─'.repeat(78));
-
-  const problems: string[] = [];
-  if (!reply) problems.push('aucune réponse postée');
-  if (scenario.must) problems.push(...check(reply, scenario.must).map((m) => `manque : ${m}`));
-  if (scenario.mustNot) {
-    problems.push(...checkAbsent(reply, scenario.mustNot).map((m) => `INTERDIT présent : ${m}`));
-  }
-
-  if (problems.length === 0) {
-    console.log('✅ conforme\n');
-  } else {
-    failures += 1;
-    for (const problem of problems) console.log(`❌ ${problem}`);
-    console.log();
-  }
+} catch (error) {
+  interruption = error instanceof Error ? error.message : String(error);
 }
 
 console.log('═'.repeat(78));
-console.log(
-  failures === 0
-    ? `✅ ${selected.length} scénario(s) conformes.`
-    : `❌ ${failures} scénario(s) en défaut.`,
-);
-if (failures > 0) process.exitCode = 1;
+
+if (interruption !== null) {
+  console.log(
+    `❌ CAMPAGNE INTERROMPUE après ${completed}/${selected.length} scénario(s) — ${interruption}`,
+  );
+  console.log(
+    `   Les ${completed - failures} verdict(s) verts ci-dessus ne couvrent QUE ces scénarios.`,
+  );
+  console.log(`   Les ${selected.length - completed} restants n'ont pas été joués.`);
+  process.exitCode = 1;
+} else if (failures === 0) {
+  console.log(`✅ ${completed} scénario(s) conformes.`);
+} else {
+  console.log(`❌ ${failures} scénario(s) en défaut sur ${completed} joué(s).`);
+  process.exitCode = 1;
+}
