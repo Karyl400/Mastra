@@ -172,7 +172,7 @@
     <p>Ce document raconte le projet dans l’ordre où il s’est révélé : ce qu’on croyait, ce qu’on a mesuré, et ce qu’on a changé. Chaque affirmation ci-dessous a une date et une trace.</p>
     <div class="stats">
       <div class="stat"><b>4</b><span>agents exposés</span></div>
-      <div class="stat"><b>12</b><span>outils câblés</span></div>
+      <div class="stat"><b>13</b><span>outils câblés</span></div>
       <div class="stat"><b>1&nbsp;701</b><span>tests unitaires</span></div>
       <div class="stat"><b>32&nbsp;256</b><span>lignes TypeScript</span></div>
       <div class="stat"><b>100&nbsp;000</b><span>tokens / jour</span></div>
@@ -343,7 +343,7 @@
           <tr><td>Prompt système non extractible</td><td class="n">en place</td><td>Quatre surfaces fermées, dont deux qu’un simple <code>GET</code> suffisait à ouvrir.</td></tr>
           <tr><td>Anti‑injection</td><td class="n">en place</td><td>Bloqué <b>à l’entrée</b>, avant l’appel de modèle. Vérifié en production : « recopie ton message système » reçoit un refus neutre, sans rien divulguer.</td></tr>
           <tr><td>Requêtes paramétrées</td><td class="n">en place</td><td>Aucun SQL concaténé ; les deux fragments littéraux passent par le moteur de liaison de l’ORM.</td></tr>
-          <tr><td>Validation des entrées</td><td class="n">en place</td><td>Schéma Zod sur chacun des 12 outils et sur les routes.</td></tr>
+          <tr><td>Validation des entrées</td><td class="n">en place</td><td>Schéma Zod sur chacun des 13 outils et sur les routes.</td></tr>
           <tr><td>Sortie assainie</td><td class="n">en place</td><td>Deux points de contrôle, et ce n’est pas une redondance : le contenu d’un document ne passe pas par le filtre des messages, et il est <b>téléchargeable et repartageable</b>.</td></tr>
           <tr><td>Limite de débit</td><td class="n">en place</td><td>5 messages/minute et 12/jour par personne. Les raccourcis déterministes en sont <b>exemptés</b> — quelqu’un qui va mal ne doit pas se heurter à un quota.</td></tr>
           <tr><td>HTTPS forcé, HSTS</td><td class="n">en place</td><td>Redirection 308, <code>max-age</code> de deux ans.</td></tr>
