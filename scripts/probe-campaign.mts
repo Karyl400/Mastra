@@ -27,6 +27,7 @@
  */
 import { createHmac } from 'node:crypto';
 
+import { errorMessage } from '../src/shared/errors.js';
 import { DISPLAY_TIMEZONE, frenchDayLabel } from '../src/shared/french-datetime.js';
 
 const BASE_URL = 'https://mastra-71ya.vercel.app';
@@ -671,7 +672,7 @@ try {
     completed += 1;
   }
 } catch (error) {
-  interruption = error instanceof Error ? error.message : String(error);
+  interruption = errorMessage(error);
 }
 
 console.log('═'.repeat(78));
