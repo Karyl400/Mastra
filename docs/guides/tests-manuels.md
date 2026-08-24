@@ -290,7 +290,8 @@ Second essai, sur la fuite du prompt système :
 > **Limite connue, à ne pas se cacher** : le `subject` et le `body` restent
 > contrôlables par l'attaquant et **non filtrés**. Le périmètre est réduit aux
 > employés réellement enregistrés, mais un message forgé peut encore insérer du
-> HTML dans un mail signé « Kisso Onboarding ». Correctif prévu :
+> HTML dans un mail signé « Marcel » (l'expéditeur portait « Kisso Onboarding »
+> jusqu'au 2026-08-24). Correctif prévu :
 > `sanitizeRichText`, déjà présent dans `src/shared/validation.ts`.
 
 ---

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Smoke test Email SMTP — Kisso Onboarding
+ * Smoke test Email SMTP — Marcel
  *
  * Usage:
  *   node --env-file=.env scripts/smoke-email.mjs
@@ -70,11 +70,11 @@ function explain(err) {
 
   if (code === 534 || /application-specific password/i.test(msg)) {
     return [
-      "Gmail refuse le mot de passe habituel du compte pour SMTP (534-5.7.9).",
+      'Gmail refuse le mot de passe habituel du compte pour SMTP (534-5.7.9).',
       "Il faut un MOT DE PASSE D'APPLICATION de 16 caractères :",
       '  Compte Google → Sécurité → Validation en deux étapes (à activer d’abord)',
       '                → Mots de passe des applications → Générer',
-      "Colle-le dans SMTP_PASS (les espaces sont tolérés par Google, mais autant les retirer).",
+      'Colle-le dans SMTP_PASS (les espaces sont tolérés par Google, mais autant les retirer).',
     ].join('\n   ');
   }
 
@@ -99,7 +99,18 @@ function explain(err) {
   return null;
 }
 
-console.log('\n📧 Smoke test Email SMTP — Kisso Onboarding\n');
+/**
+ * ⚠️ RECOPIE ASSUMÉE, ET SURVEILLÉE. Ce script est du `.mjs` lancé par `node` nu :
+ * il ne peut pas importer `ASSISTANT_NAME` depuis `src/shared/assistant-identity.ts`,
+ * qui est du TypeScript. Le nom est donc écrit une seconde fois — et
+ * `tests/unit/notification/email-sender-identity.test.ts` vérifie que les deux
+ * disent la même chose. Sans ce contrôle, un renommage de l'assistant laisserait
+ * le smoke test envoyer un VRAI email signé d'un nom que la production n'emploie plus,
+ * et le seul instrument de vérification de la chaîne SMTP mentirait sur ce qu'elle produit.
+ */
+const SENDER_NAME = 'Marcel';
+
+console.log('\n📧 Smoke test Email SMTP — Marcel\n');
 
 const host = process.env.SMTP_HOST;
 const port = Number(process.env.SMTP_PORT ?? 587);
@@ -171,17 +182,17 @@ if (dryRun) {
   await step(`sendMail (1 message → ${to})`, async () => {
     try {
       const info = await transporter.sendMail({
-        from: `"Kisso Onboarding" <${from}>`,
+        from: `"${SENDER_NAME}" <${from}>`,
         to,
-        subject: 'Kisso Onboarding — test SMTP',
+        subject: `${SENDER_NAME} — test SMTP`,
         html:
           '<p>Bonjour,</p>' +
-          '<p>Ce message confirme que l’envoi d’email de la plateforme Kisso Onboarding ' +
-          'fonctionne via SMTP.</p>' +
+          `<p>Ce message confirme que les emails signés ${SENDER_NAME} ` +
+          'partent bien via SMTP.</p>' +
           `<p style="color:#666;font-size:12px">Émis par <code>scripts/smoke-email.mjs</code> le ${new Date().toISOString()}.</p>`,
         text:
-          'Bonjour,\n\nCe message confirme que l’envoi d’email de la plateforme Kisso Onboarding ' +
-          `fonctionne via SMTP.\n\nÉmis par scripts/smoke-email.mjs le ${new Date().toISOString()}.\n`,
+          `Bonjour,\n\nCe message confirme que les emails signés ${SENDER_NAME} ` +
+          `partent bien via SMTP.\n\nÉmis par scripts/smoke-email.mjs le ${new Date().toISOString()}.\n`,
       });
 
       const accepted = (info.accepted ?? []).join(', ') || '(aucun)';

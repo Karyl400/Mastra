@@ -1547,7 +1547,7 @@ La proposition de correction n'a de sens que si l'on vient d'affirmer quelque ch
 ⚠️ La SEULE projection dans le futur, et elle est vraie : ce DM part réellement, et le
 
 formulaire derrière le bouton existe et écrit en base.
-**Avant ``<p>Tu vas recevoir un message direct de notre bot sur Slack : il t'expliquera comment compléter`**
+**Avant ``<p>Tu vas recevoir un message direct de ${ASSISTANT_NAME} sur Slack : il t'expliquera comment`**
 
 ⚠️ « avec un bouton pour compléter ton profil » a été RETIRÉ le 2026-08-19. Le bouton
 

@@ -12,6 +12,7 @@ export interface WelcomeEmail {
 }
 
 import { formatFrenchDay } from '../../../../shared/french-date';
+import { ASSISTANT_NAME } from '../../../../shared/assistant-identity';
 
 const COMPANY = 'Kisso Industries';
 
@@ -57,7 +58,7 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): WelcomeEmail {
   }
 
   parts.push(
-    `<p>Tu vas recevoir un message direct de notre bot sur Slack : il t'expliquera comment compléter ton dossier, en quelques messages. C'est par là que tout commence.</p>`,
+    `<p>Tu vas recevoir un message direct de ${ASSISTANT_NAME} sur Slack : il t'expliquera comment compléter ton dossier, en quelques messages. C'est par là que tout commence.</p>`,
     `<p>À très vite,<br/><strong>L'équipe ${COMPANY}</strong></p>`,
   );
 

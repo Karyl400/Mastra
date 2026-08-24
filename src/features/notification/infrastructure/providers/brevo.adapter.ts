@@ -5,10 +5,12 @@ import { assertEmailAttachmentsFit } from '../../domain/services/email-attachmen
 export class BrevoAdapter implements EmailProvider {
   private apiKey: string;
   private from: string;
+  private fromName?: string;
 
-  constructor(apiKey: string, from: string) {
+  constructor(apiKey: string, from: string, fromName?: string) {
     this.apiKey = apiKey;
     this.from = from;
+    this.fromName = fromName;
   }
 
   async sendEmail(
@@ -27,7 +29,7 @@ export class BrevoAdapter implements EmailProvider {
         accept: 'application/json',
       },
       body: JSON.stringify({
-        sender: { email: this.from },
+        sender: { email: this.from, ...(this.fromName ? { name: this.fromName } : {}) },
         to: [{ email: to }],
         subject,
         htmlContent: body.html,

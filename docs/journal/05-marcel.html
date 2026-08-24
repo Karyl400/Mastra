@@ -1,0 +1,610 @@
+<title>Kisso — § 5 · Marcel, une mémoire et une horloge extérieure</title>
+<style>
+  :root {
+    --ink: #101418;
+    --paper: #f6f5f2;
+    --slate: #616c6b;
+    --verified: #0e6b57;
+    --claimed: #a33420;
+    --rule: rgba(16, 20, 24, 0.13);
+    --raise: rgba(14, 107, 87, 0.06);
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", ui-serif, serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e6e1;
+      --paper: #0e1214;
+      --slate: #8f9b98;
+      --verified: #4fbfa2;
+      --claimed: #e0765c;
+      --rule: rgba(232, 230, 225, 0.16);
+      --raise: rgba(79, 191, 162, 0.08);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e8e6e1;
+    --paper: #0e1214;
+    --slate: #8f9b98;
+    --verified: #4fbfa2;
+    --claimed: #e0765c;
+    --rule: rgba(232, 230, 225, 0.16);
+    --raise: rgba(79, 191, 162, 0.08);
+  }
+  :root[data-theme="light"] {
+    --ink: #101418;
+    --paper: #f6f5f2;
+    --slate: #616c6b;
+    --verified: #0e6b57;
+    --claimed: #a33420;
+    --rule: rgba(16, 20, 24, 0.13);
+    --raise: rgba(14, 107, 87, 0.06);
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 5rem) clamp(1.1rem, 4vw, 3rem) 6rem;
+  }
+
+  /* ---- rail de marge : les dates et les mesures, comme un carnet ---- */
+  .row { display: grid; grid-template-columns: 1fr; gap: 0.5rem 2.5rem; }
+  @media (min-width: 1000px) {
+    .row { grid-template-columns: 11rem 1fr; }
+  }
+  .rail {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.5;
+    letter-spacing: 0.04em;
+    color: var(--slate);
+    text-transform: uppercase;
+    padding-top: 0.55rem;
+  }
+  @media (min-width: 1000px) { .rail { text-align: right; } }
+  .rail b { display: block; color: var(--ink); font-weight: 700; letter-spacing: 0.02em; }
+
+  .body { max-width: 66ch; }
+  .body > * + * { margin-top: 1.05rem; }
+
+  h1, h2, h3 { text-wrap: balance; font-weight: 700; letter-spacing: -0.014em; }
+  h1 { font-size: clamp(2.2rem, 6vw, 3.5rem); line-height: 1.06; }
+  h2 { font-size: clamp(1.5rem, 3.4vw, 2.05rem); line-height: 1.14; }
+  h3 { font-size: 1.16rem; line-height: 1.3; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--verified);
+    margin-bottom: 0.7rem;
+  }
+  .lede { font-size: 1.24rem; line-height: 1.5; color: var(--slate); }
+
+  section { padding-top: clamp(2.6rem, 6vw, 4.6rem); }
+  section + section { border-top: 1px solid var(--rule); }
+
+  a { color: var(--verified); text-underline-offset: 0.18em; }
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--verified);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  code, .m { font-family: var(--mono); font-size: 0.855em; }
+  code { background: var(--raise); padding: 0.08em 0.32em; border-radius: 3px; }
+
+  /* ---- le motif central : ce qui a été AFFIRMÉ, ce qui a été CONSTATÉ ---- */
+  .pair { margin-top: 1.6rem; }
+  .pair .said, .pair .saw { display: block; padding-left: 1.05rem; }
+  .pair .said {
+    font-style: italic;
+    color: var(--slate);
+    border-left: 2px solid var(--claimed);
+    padding-bottom: 0.15rem;
+  }
+  .pair .saw {
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    line-height: 1.55;
+    border-left: 2px solid var(--verified);
+    padding-top: 0.5rem;
+  }
+  .pair .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 0.2rem;
+  }
+  .pair .said .tag { color: var(--claimed); }
+  .pair .saw .tag { color: var(--verified); }
+
+  ul, ol { padding-left: 1.25rem; }
+  li + li { margin-top: 0.5rem; }
+
+  .scroll { overflow-x: auto; margin-top: 1.4rem; }
+  table { border-collapse: collapse; width: 100%; min-width: 33rem; font-size: 0.93rem; }
+  th, td { text-align: left; padding: 0.62rem 0.9rem 0.62rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--slate);
+    font-weight: 400;
+  }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  details {
+    border-top: 1px solid var(--rule);
+    padding: 0.9rem 0;
+  }
+  summary { cursor: pointer; font-weight: 700; list-style-position: outside; }
+  summary::marker { color: var(--verified); }
+  details > *:not(summary) { margin-top: 0.85rem; max-width: 66ch; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1.6rem 1.2rem; margin-top: 2rem; }
+  .stat b { display: block; font-family: var(--mono); font-size: 1.65rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .stat span { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--slate); }
+
+  footer { margin-top: 5rem; padding-top: 1.6rem; border-top: 1px solid var(--rule); color: var(--slate); font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.04em; }
+
+  /* ---- propre au journal : la navigation entre chapitres ---- */
+  nav.chapters { margin-top: 2.2rem; display: grid; gap: 0.1rem; }
+  nav.chapters a {
+    display: grid; grid-template-columns: 3.2rem 1fr; gap: 1rem;
+    padding: 0.72rem 0; border-top: 1px solid var(--rule);
+    text-decoration: none; color: var(--ink);
+  }
+  nav.chapters a:last-child { border-bottom: 1px solid var(--rule); }
+  nav.chapters a:hover strong { text-decoration: underline; text-underline-offset: 0.18em; }
+  nav.chapters .no { font-family: var(--mono); font-size: 0.72rem; color: var(--slate); padding-top: 0.28em; letter-spacing: 0.08em; }
+  nav.chapters strong { display: block; font-weight: 700; }
+  nav.chapters em { display: block; font-style: normal; font-size: 0.9rem; color: var(--slate); margin-top: 0.12rem; }
+
+  .pager {
+    margin-top: 3.4rem; padding-top: 1.4rem; border-top: 1px solid var(--rule);
+    display: flex; flex-wrap: wrap; gap: 0.4rem 1.6rem;
+    font-family: var(--mono); font-size: 0.76rem; letter-spacing: 0.04em;
+  }
+
+  /* ---- propre au journal : une journée, quatre temps ---- */
+  article.day { padding-top: clamp(2.2rem, 5vw, 3.4rem); }
+  article.day + article.day { border-top: 1px solid var(--rule); }
+  article.day h3 { margin-bottom: 0.15rem; }
+
+  .beat { margin-top: 1.05rem; padding-left: 1.05rem; border-left: 2px solid var(--rule); max-width: 66ch; }
+  .beat > * + * { margin-top: 0.7rem; }
+  .beat .tag {
+    display: block; font-family: var(--mono); font-size: 0.66rem;
+    letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 0.28rem; color: var(--slate);
+  }
+  .beat.c { border-left-color: var(--claimed); }
+  .beat.c .tag { color: var(--claimed); }
+  .beat.r { border-left-color: var(--verified); }
+  .beat.r .tag { color: var(--verified); }
+  .beat.l { border-left-style: dotted; }
+  .beat.l ul { font-family: var(--mono); font-size: 0.8rem; line-height: 1.5; list-style: none; padding-left: 0; }
+  .beat.l li + li { margin-top: 0.28rem; }
+  .beat.l .sha { color: var(--slate); }
+
+  /* ---- propre au journal : la frise ---- */
+  .frise { margin-top: 2rem; display: grid; gap: 0.1rem; }
+  .frise .d {
+    display: grid; grid-template-columns: 5.6rem 3.2rem 1fr; gap: 0.9rem;
+    align-items: baseline; padding: 0.42rem 0; border-top: 1px solid var(--rule);
+    font-size: 0.92rem;
+  }
+  .frise .d:last-child { border-bottom: 1px solid var(--rule); }
+  .frise .dd { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.05em; color: var(--slate); }
+  .frise .bar { font-family: var(--mono); font-size: 0.74rem; color: var(--verified); white-space: nowrap; }
+  .frise .d.void .bar { color: var(--slate); }
+  .frise .d.void { color: var(--slate); font-style: italic; }
+  @media (max-width: 33rem) {
+    .frise .d { grid-template-columns: 4.6rem 2.6rem 1fr; gap: 0.55rem; font-size: 0.86rem; }
+  }
+
+  .note {
+    margin-top: 1.4rem; padding: 0.9rem 1.05rem; background: var(--raise);
+    border-left: 2px solid var(--verified); border-radius: 0 3px 3px 0;
+    font-size: 0.95rem; max-width: 66ch;
+  }
+  .note.warn { border-left-color: var(--claimed); }
+  .note > * + * { margin-top: 0.6rem; }
+</style>
+
+<div class="sheet">
+
+<header class="row">
+  <div class="rail"><b>§ 5</b>20 août → 23 août<br>61 commits<br>dernier commit<br><span class="m">80a730f</span></div>
+  <div class="body">
+    <p class="eyebrow">Journal · chapitre 5</p>
+    <h1>Marcel — un nom, une mémoire, et une horloge extérieure</h1>
+    <p class="lede">La contrainte qui gouvernait tout le projet — 19 messages par jour — tombe en
+    une soirée. Le bot obtient un prénom, une base de connaissance qui était vide depuis des
+    semaines sans que rien ne le dise, et le seul mécanisme qu’une fonction serverless ne peut pas
+    se donner à elle‑même : une horloge.</p>
+  </div>
+</header>
+
+<article class="day row" id="j-08-20">
+  <div class="rail"><b>20 août</b>24 commits<br><span class="m">1 sur 7</span><br>en accès complet<br>déploiement<br><code>5wlfv0c77</code></div>
+  <div class="body">
+    <h3>Le Manager, et lui seul — puis la contrainte centrale tombe</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>La frontière d’autorisation accordait l’accès complet sur le <strong>domaine de l’adresse
+      email</strong>. Deux défauts, et le second est le plus grave :</p>
+      <ol>
+        <li><strong>La portée était collective</strong> — les six personnes de l’organisation
+        obtenaient la même, donc chacune pouvait lire le dossier RH des cinq autres. « Membre de la
+        maison » et « habilité à consulter le dossier de tout le monde » avaient été
+        confondus.</li>
+        <li><strong>Le fait décisif était contrôlé par le bénéficiaire</strong> : l’adresse vient
+        du profil Slack, que son porteur édite.</li>
+      </ol>
+      <p>Second constat, à portée immédiate : <strong>PERSONNE ne pouvait terminer son
+      profil</strong> — Slack encadre les adresses email dans les messages, et le parcours ne le
+      savait pas.</p>
+      <p>Troisième : <strong><code>sendNotification</code> ne passait par AUCUN filtre de
+      sortie</strong> — troisième canal de sortie non filtré du projet, après Slack et le contenu
+      des documents.</p>
+      <p>Quatrième : <strong><code>agent.generate</code> n’était pas borné</strong>. C’était le
+      seul échec qui ne laissait <em>aucune trace</em> — ni erreur, ni log, ni réponse.</p>
+      <p>Cinquième, sur la sécurité : la détresse <strong>ne parlait que français</strong> — « I
+      want to die » ne déclenchait rien — et <strong>un seul caractère cyrillique désarmait le
+      détecteur d’injection</strong>.</p>
+      <p>Et le fait qui commande tout le reste : <strong>les deux plafonds internes du produit
+      étaient des DÉCALQUES du quota Groq</strong>. Ils n’avaient de sens que tant que ce quota
+      était la contrainte.</p>
+    </div>
+
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Pour la frontière, <strong>la donnée réelle a réfuté la première implémentation</strong>.
+      L’idée naturelle est de poser le rôle sur la table des employés. Impossible : <strong>le
+      General Manager de l’entreprise n’a AUCUNE ligne dans cette table</strong>, et 5 des
+      6 personnes vivantes non plus. Lui en fabriquer une aurait exigé d’inventer une date d’entrée
+      et un poste pour quelqu’un que ce produit n’a jamais intégré.</p>
+      <p>Deuxième piste écartée : dériver l’autorisation du <em>titre</em>. Le relevé de production
+      dit pourquoi — « Product Manager » y désigne quelqu’un qui n’est pas <em>le</em> manager,
+      « Software Engineer » l’administratrice de l’onboarding, et « General Manager » celui qui
+      l’est. C’est un champ <strong>déclaratif, édité par son porteur</strong> : une autorisation
+      qui en dériverait s’obtiendrait en la déclarant.</p>
+      <p>Sur l’activation, une question restait sans réponse depuis dix jours — <em>qui perdrait
+      quoi ?</em> Le mode observation ne journalise QUE les gens qui écrivent au bot, or c’est
+      <strong>celui qui ne lui a jamais parlé qu’on cassera</strong> le jour de l’activation. « Lire
+      les logs, puis activer » ne pouvait pas rendre la réponse.</p>
+    </div>
+
+    <div class="beat r"><span class="tag">Retenu</span>
+      <ul>
+        <li>L’accès complet vaut <strong>si et seulement si</strong> le compte porte le rôle
+        <span class="m">manager</span> dans l’annuaire Slack — une colonne posée à côté de
+        <code>is_bot</code> et <code>is_deleted</code>, parce que <em>le sujet d’une décision
+        d’autorisation n’est pas un dossier RH, c’est un membre du workspace</em>.</li>
+        <li>Un script en <strong>lecture seule</strong> évalue tout l’annuaire d’un coup, et
+        <strong>en important la règle elle‑même</strong> — une seconde copie dirait un jour autre
+        chose que la première, et ce serait le jour où quelqu’un s’en sert pour décider. Relevé
+        après désignation : <strong>1 personne sur 7 en accès complet</strong>, 6 en lecture, dont
+        5 sans aucun dossier — elles ne perdent donc rien qu’elles aient.</li>
+        <li><strong>Le garde REFUSE d’appliquer tant qu’aucun manager n’est désigné.</strong> La
+        colonne naît vide : « aucun manager » est l’état de DÉPART, pas un accident. Appliquer
+        rétrograderait l’organisation entière, et le symptôme — « le bot ne sait plus rien
+        faire » — ne désignerait pas sa cause.</li>
+        <li><strong>La variable est POSÉE en production, et vérifiée par les DEUX moitiés</strong> :
+        depuis un compte non manager, le profil d’un tiers → refus ; son propre profil → dossier
+        complet. <em>Un refus généralisé est indiscernable d’une frontière qui marche.</em></li>
+      </ul>
+
+      <p style="margin-top:1.2rem"><strong>Puis la contrainte tombe.</strong> Gemini devient le
+      modèle primaire, Groq le premier repli, Mistral le dernier recours. Le budget passe de
+      100 000 tokens par jour à plusieurs millions — <strong>la limite qui a gouverné chaque
+      décision de coût de ce dépôt depuis le 11 août cesse d’être la limite.</strong> Le
+      <em>plancher</em> de doctrine reste : le nombre d’étapes reste le poste dominant, et rien de
+      ce qui a été gagné n’est repris.</p>
+
+      <p><strong>Et une base de connaissance à deux niveaux</strong> : le message brut archivé à
+      l’arrivée, et ce qui a été retenu — décision, engagement, blocage, échéance, question —
+      distillé par du <strong>CODE</strong>, à coût nul, rejouable et testable.</p>
+    </div>
+
+    <div class="note warn">
+      <p><strong>16 600 lignes de commentaires quittent <code>src/</code></strong>
+      (<span class="sha">7b7736c</span>). Le <em>pourquoi</em> part dans <code>docs/conception/</code>,
+      une page par feature.</p>
+      <p>C’est une décision à contre‑courant, et elle est assumée avec sa contrepartie explicite :
+      l’audit du 20 août avait compté <strong>onze affirmations fausses dans ce dépôt — les onze
+      dans la documentation à distance, aucune dans un commentaire adjacent au code</strong>. Un
+      texte cesse d’être relu dès qu’il cesse d’être sous les yeux de celui qui modifie. La règle
+      posée en échange : <em>quand une décision change, sa page change dans le MÊME commit</em>, et
+      un test fait rougir le retour d’un commentaire dans <code>src/</code>.</p>
+    </div>
+
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul>
+        <li><span class="sha">b54da2b</span> feat(authz) — le Manager, et lui seul, voit les données de tout le monde</li>
+        <li><span class="sha">4fccc52</span> feat(authz) — rendre l’activation décidable : sonde en lecture seule</li>
+        <li><span class="sha">e6c5df1</span> feat(llm) — Gemini primaire, Groq en repli, Mistral en dernier recours</li>
+        <li><span class="sha">50a44df</span> feat(knowledge) — une base à DEUX niveaux</li>
+        <li><span class="sha">297b49f</span> fix(onboarding) — PERSONNE ne pouvait terminer son profil</li>
+        <li><span class="sha">f9f5171</span> fix(sécurité) — fermer le troisième canal de sortie</li>
+        <li><span class="sha">3027e66</span> fix(llm) — borner <code>agent.generate</code> : le seul échec sans aucune trace</li>
+        <li><span class="sha">05f6cdf</span> fix — huit défauts d’audit : détresse anglaise, homoglyphes, course sur le quota</li>
+        <li><span class="sha">7b7736c</span> refactor(docs) — 16 600 lignes de commentaires vers <code>docs/conception/</code></li>
+        <li class="sha">… et 15 autres · déploiement <code>5wlfv0c77</code></li>
+      </ul>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-08-21">
+  <div class="rail"><b>21 août</b>26 commits<br><span class="m">channel_messages : 0<br>knowledge_facts : 0</span><br>l’agent obtient<br>un prénom</div>
+  <div class="body">
+    <h3>Marcel, une horloge extérieure, et une base qui n’avait jamais rien reçu</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>Le relevé qui change la question posée : <strong><code>channel_messages</code> = 0 ligne,
+      <code>knowledge_facts</code> = 0 ligne.</strong> Les tables existent, les index aussi, le
+      pipeline est câblé depuis des semaines — <em>et rien n’y était jamais entré</em>. La
+      recherche ne pouvait rendre QUE « je ne sais rien », et rien ne le signalait. Ce qui manquait
+      n’était pas du code : <strong>ce sont les événements</strong>, dont l’abonnement est un geste
+      humain dans une console.</p>
+
+      <p>Deuxième : <strong>le rappel ne partait jamais tout seul</strong>, et le verdict du
+      propriétaire sur la réponse honnête du bot — <em>« je ne sais pas te relancer tout seul le
+      jour venu, repasse me le demander »</em> — était : <strong>« ce n’est pas le but d’un
+      rappel »</strong>. Il avait raison. L’honnêteté avait remplacé un mensonge par une
+      <em>inutilité</em>.</p>
+      <p>Et la raison n’était ni un oubli ni une paresse : <strong>dans un serverless, RIEN ne
+      s’exécute tant que personne ne frappe à la porte.</strong> La fonction ne vit que le temps
+      d’une requête ; aucun <code>setTimeout</code> ne survit au gel. La fonction de recherche des
+      rappels dus était écrite et correcte, et n’avait aucun appelant <em>parce qu’il n’existait
+      personne pour l’appeler</em>.</p>
+
+      <p>Troisième : <strong>deux pertes de données silencieuses dans le parcours
+      d’accueil</strong>, et ni l’une ni l’autre n’a été trouvée par relecture — il a fallu
+      <em>rejouer une arrivée complète en production</em>. Le dossier ne se retrouvait que par
+      l’adresse d’annuaire, qui peut être vide ; et une réponse trop courte mettait fin à
+      l’entretien, en silence, la phrase suivante — celle où la personne prend la peine de
+      développer — n’étant enregistrée nulle part.</p>
+
+      <p>Quatrième : le bot <strong>n’avait aucun nom</strong> et se présentait par sa nature
+      (« Je suis un outil d’onboarding »). Six textes renvoyaient vers <strong>« l’équipe RH », qui
+      n’existe pas</strong> — sept personnes au workspace, une seule porte le rôle de manager.</p>
+      <p>Cinquième, et c’est le plus grave : <strong>« je suis harcelé par mon manager » recevait le
+      message de PRÉVENTION DU SUICIDE.</strong> La détection était bonne, la réponse était à
+      côté — un numéro d’écoute là où il faut la police, et personne de nommé qui puisse
+      agir.</p>
+    </div>
+
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Pour le rappel, une exécution horaire. <strong>Impossible — c’est un fait de plateforme,
+      pas un choix</strong> : le plan Hobby n’autorise qu’une exécution par jour, et l’échec est
+      <em>au déploiement</em>. Il ne garantit l’heure qu’à ±59 minutes.</p>
+      <p>Des deux erreurs possibles — <em>le matin du BON JOUR</em> ou <em>le LENDEMAIN</em> — on
+      choisit le bon jour : un rappel est un objet à granularité de journée dans l’usage réel. Et
+      plutôt que d’interdire au modèle d’annoncer une heure, <strong>on lui retire de quoi</strong> :
+      l’outil ne rend plus l’heure demandée, seulement « le lundi 24 août 2026 au matin ».</p>
+      <p>Pour les numéros d’urgence, une recherche rapide ne suffisait pas — et
+      <strong>trois numéros ont été écartés à la vérification, chacun aurait été une faute
+      plausible</strong> : le <span class="m">122</span> est congolais, le
+      <span class="m">143</span> ivoirien (sigle presque identique à un ministère béninois), le
+      <span class="m">3114</span> français. Les trois sont réels, gratuits, et joignent
+      quelqu’un — <em>dans un autre pays</em>. Le <span class="m">138</span> béninois est vérifié
+      mais délibérément absent : c’est la ligne pour les enfants.</p>
+      <p>Pour la distillation, un passage de modèle sur chaque message. Écarté : ce serait un appel
+      par message, l’inverse de ce qu’on cherche. <strong>Code d’abord, modèle en rattrapage</strong>,
+      par lots de cinq et sur une fenêtre de 6 heures — <em>allumer un rideau réveille tout ce qui
+      dormait</em>, leçon payée le même jour sur les rappels.</p>
+    </div>
+
+    <div class="beat r"><span class="tag">Retenu</span>
+      <ul>
+        <li><strong>Un cron quotidien</strong> — la seule chose qu’une fonction ne peut pas se
+        donner à elle‑même. La prise est <strong>l’écriture, et elle rend un compte</strong> : deux
+        exécutions ne remettent pas deux fois le même rappel. Et une prise qui ne se termine jamais
+        perdrait le rappel <em>pour toujours</em> — pas une erreur, un <strong>silence</strong> —
+        donc une prise abandonnée est reprise au‑delà de 6 heures.</li>
+        <li><strong>Le détecteur de fausse promesse a dû bouger avec le câblage.</strong> Il ne
+        contenait que le rappel, et n’avait de sens que tant que rien ne partait ; le garder ferait
+        <em>démentir une phrase VRAIE</em> — la faute exactement symétrique de celle qu’il
+        corrigeait. <em>Un détecteur encode le câblage ; quand le câblage bouge, il ne devient pas
+        inoffensif, il devient faux dans l’autre sens.</em></li>
+        <li><strong>Marcel</strong> — un prénom, un ton de collègue, et il ne se dit plus jamais
+        outil, agent ou IA. La garantie n’est pas une consigne : <strong>un test scanne tout
+        <code>src/</code> et échoue sur toute auto‑désignation</strong> — ce dépôt a mesuré quatre
+        consignes en échec. Et un second test vérifie que les motifs <em>reconnaissent</em> ce
+        qu’ils interdisent, sans quoi le premier serait vert et vide de sens.</li>
+        <li>Détresse et agression deviennent <strong>deux cas séparés</strong>, et l’auto‑agression
+        l’emporte en cas de doute : traiter une agression comme une détresse donne quand même un
+        numéro joignable ; l’inverse remplace une aide vitale par une démarche
+        administrative.</li>
+        <li>Le second rideau <strong>désigne par un RANG (1..5), jamais par un identifiant</strong>.
+        Première mesure réelle : <span class="m">{"examined":5,"recorded":0,"rejected":5}</span> —
+        le modèle avait répondu, et aucune ligne n’était rattachable. <em>Un identifiant qu’on
+        demande au modèle est un identifiant qu’il peut inventer — et qu’il peut simplement recopier
+        de travers</em>, ce qui échoue en silence puisque le rejet est le comportement sûr.</li>
+        <li>Les motifs de distillation sont <strong>écrits sans accent, et le texte est plié avant
+        d’être testé</strong> : « on a <em>decide</em> de partir sur postgres » était archivé et ne
+        produisait aucun fait. Sur un clavier de téléphone, une bonne part du français s’écrit sans
+        accents — <strong>troisième forme du même piège</strong>.</li>
+      </ul>
+    </div>
+
+    <div class="note warn">
+      <p><strong>Un audit complet trouve sept défauts, et le premier est dans la documentation
+      elle‑même</strong> (<span class="sha">3f753b8</span>). <code>CLAUDE.md</code> rangeait la clé
+      du <em>modèle primaire</em> dans la liste « config morte à purger » : l’appliquer aurait coupé
+      le primaire <strong>sans aucun symptôme visible</strong> — le repli aurait répondu, jusqu’à ce
+      que le quota journalier que le passage à Gemini existe précisément pour lever remorde.</p>
+      <p>C’est la classe de panne que tout ce dépôt est construit pour rendre impossible, produite
+      ici <em>par sa propre documentation</em>. La leçon dépasse le cas : <strong>une liste « à
+      purger » est une instruction, pas une observation</strong>, et un test la re‑vérifie
+      désormais contre le code.</p>
+      <p>Le même audit trouve que <strong><code>npm run test:unit</code> exécutait un CLONE périmé
+      du projet</strong> : 315 fichiers / 4 612 tests affichés pour 163 / 2 426 réels. Le clone
+      étant absent du runner de CI, <strong>local et CI mesuraient deux choses différentes, et
+      c’est le local qui mentait</strong>. Et que <code>scripts/</code> — 8 146 lignes — était hors
+      de toute vérification : trois défauts réels y ont été trouvés dans la minute.</p>
+    </div>
+
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul>
+        <li><span class="sha">ebebb29</span> feat(marcel) — un nom, un ton de collègue, et le détecteur élargi AVANT le ton</li>
+        <li><span class="sha">6cfa8f4</span> feat(rappel) — une horloge extérieure : le rappel part enfin tout seul</li>
+        <li><span class="sha">7d72c52</span> feat(connaissance) — les DM entrent dans la base, et Slack est relu avant de dire « je ne sais pas »</li>
+        <li><span class="sha">26dc2f8</span> feat(connaissance) — le SECOND RIDEAU : code d’abord, modèle en rattrapage</li>
+        <li><span class="sha">3f753b8</span> fix(audit) — les sept défauts que l’audit a nommés, et les garde‑fous qui les tiennent</li>
+        <li><span class="sha">c931172</span> fix(accueil) — deux pertes de données silencieuses, trouvées par le rejeu de production</li>
+        <li><span class="sha">cc5ba82</span> fix(garde‑fous) — trois listes recopiées deviennent dérivées</li>
+        <li><span class="sha">dd0d708</span> docs(conception) — le POURQUOI quitte le code, et une garde l’y maintient</li>
+        <li class="sha">… et 18 autres</li>
+      </ul>
+      <p>Vérifié en production : <span class="m">401</span> sans en‑tête et avec un faux secret,
+      <span class="m">200</span> avec le vrai et <strong>3 rappels réellement remis</strong> ;
+      second passage → <span class="m">due: 0</span>, la prise tient.</p>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-08-22">
+  <div class="rail"><b>22 août</b>4 commits<br><span class="m">6 phrases<br>sur 9</span><br>en faux positif</div>
+  <div class="body">
+    <h3>Deux contournements de sécurité, et un détecteur devenu son propre cri au loup</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>Deux contournements réels, tous deux atteignables depuis un simple message :</p>
+      <ul>
+        <li><strong>la liste blanche d’URL se contournait avec un antislash</strong> ;</li>
+        <li>un <strong>ReDoS quadratique atteignable par un DM</strong>.</li>
+      </ul>
+      <p>Et un défaut d’un genre plus subtil : <strong>le motif de détresse ajouté la veille
+      déclenchait sur six phrases de travail sur neuf.</strong> « je veux en finir avec ce ticket
+      avant jeudi », « avec ce projet », « avec cette réunion », « avec la migration ». Dans un bot
+      d’onboarding d’entreprise, ce n’est pas un cas limite — <strong>c’est le vocabulaire
+      quotidien</strong>, et le cri au loup coûte la confiance au moment où elle compte.</p>
+      <p>Troisième : <strong>« Je n’ai transmis ce message à personne : il reste entre nous » était
+      FAUX</strong>, et sur trois canaux à la fois. L’ingestion tourne <em>avant</em> le
+      court‑circuit : au moment où la phrase était prononcée, le texte était déjà écrit en base,
+      pouvait produire un fait, et surtout <strong>partait chez un fournisseur de modèle hors de
+      l’entreprise</strong> via le second rideau.</p>
+    </div>
+
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Resserrer un détecteur de détresse est le geste le plus dangereux du dépôt : on échange
+      des faux positifs contre le risque d’un faux négatif, et le coût des deux erreurs n’est pas
+      comparable.</p>
+      <p><strong>Ce qui rend le resserrement admissible n’est pas le raisonnement, c’est le
+      corpus à DEUX colonnes</strong> — les phrases que dirait quelqu’un en détresse
+      <em>et</em> celles que dirait quelqu’un qui ne l’est pas. N’en exercer qu’une moitié ne mesure
+      rien.</p>
+    </div>
+
+    <div class="beat r"><span class="tag">Retenu</span>
+      <p>Le resserrement, mesuré : <strong>0 faux négatif, 0 faux positif</strong>, contre 2 et 6.
+      Et il a fait <em>gagner</em> deux formulations que le motif n’énumérait pas — « j’aimerais en
+      finir », « je voudrais en finir ». Le reste du module continue de s’abstenir <em>vers</em> la
+      détection : seul « en finir » est conditionné à son complément, parce que son ambiguïté est
+      purement idiomatique.</p>
+      <p>La garde de confidentialité vit dans <strong>la taille par laquelle les trois écritures
+      descendent</strong>, et non au site d’appel : un futur appelant est ainsi couvert d’avance.</p>
+      <p>Le test d’architecture <strong>couvre enfin <code>src/shared/</code></strong> — 4 760
+      lignes, autant que tout le domaine des huit features réunies. L’affirmation
+      « <code>shared/</code> n’importe aucune feature » était VRAIE mais <em>rien ne la
+      recalculait</em>.</p>
+    </div>
+
+    <div class="note">
+      <p><strong>Trouvé par un contrôle positif écrit pour autre chose.</strong> La phrase neutre
+      choisie pour prouver que l’archivage fonctionnait encore était « je veux en finir avec ce
+      ticket ». <strong>Deux fois de suite, ce motif a été corrigé par un test qui regardait
+      ailleurs.</strong></p>
+    </div>
+
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul>
+        <li><span class="sha">a3f6e97</span> fix(sécurité) — la liste blanche d’URL se contournait, et le ReDoS était atteignable par DM</li>
+        <li><span class="sha">b499242</span> fix — sonder les constats non corrigés, et deux d’entre eux avaient changé de sens</li>
+        <li><span class="sha">0940fd5</span> fix(détresse) — un nom nu ne suffit plus, et les ancres de conception sont vérifiées</li>
+        <li><span class="sha">aed2c82</span> fix(accueil) — « j’ai fini » cesse de redemander ce qu’il sait déjà</li>
+      </ul>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-08-23">
+  <div class="rail"><b>23 août</b>7 commits<br><span class="m">33 conformes</span><br>après 24 jouées</div>
+  <div class="body">
+    <h3>Le vocabulaire, l’outillage, et une campagne qui se félicitait d’un travail qu’elle n’avait pas fait</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>Le défaut du jour est de la même famille que tous les autres, appliqué cette fois à
+      l’<em>instrument</em> : <strong>la campagne de sondes annonçait 33 contrôles conformes après
+      en avoir joué 24.</strong> Une coupure réseau l’interrompait, et elle concluait sur le
+      total prévu plutôt que sur le total exécuté.</p>
+      <p>Deuxième : la reprise sur coupure était <strong>écrite trois fois</strong> dans le
+      dossier des scripts — trois sondes tuées par la même panne réseau avant qu’on ne l’écrive
+      une seule fois.</p>
+      <p>Troisième : le vocabulaire du dépôt avait dérivé — plusieurs mots pour un même concept, et
+      la vérification a montré que ce n’était <em>pas toujours</em> le même concept.</p>
+      <p>Et une page de documentation <strong>mentait depuis un jour</strong>.</p>
+    </div>
+
+    <div class="beat r"><span class="tag">Retenu</span>
+      <ul>
+        <li>La campagne rend le compte de ce qu’elle a <strong>joué</strong>, et sait reprendre où
+        le réseau l’a coupée (<span class="m">--from N</span>).</li>
+        <li>La reprise sur la base est écrite <strong>une seule fois</strong>, et toutes les
+        requêtes y passent.</li>
+        <li>Un mot par concept — <strong>après vérification que c’est bien le même concept</strong>,
+        ce qui a écarté une partie des renommages proposés.</li>
+        <li>Une page de notions agentiques, et la correction de celle qui mentait — <em>dans le
+        même commit</em>, comme la règle du 21 l’exige.</li>
+      </ul>
+    </div>
+
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul>
+        <li><span class="sha">e7d64f5</span> test(production) — une sonde pour la frontière de détresse, et elle a reproduit deux défauts connus</li>
+        <li><span class="sha">39a122a</span> fix(outillage) — la reprise sur Turso écrite une fois, après avoir tué trois sondes</li>
+        <li><span class="sha">c274003</span> fix(sonde) — la campagne annonçait 33 conformes après en avoir joué 24</li>
+        <li><span class="sha">4dd30e7</span> feat(sonde) — <span class="m">--from N</span> reprend la campagne là où le réseau l’a coupée</li>
+        <li><span class="sha">e3ff21c</span> refactor(nommage) — un seul mot par concept, et la page bouge dans le même commit</li>
+        <li><span class="sha">80a730f</span> docs(notions) — les notions agentiques du projet, et la page qui mentait depuis un jour</li>
+        <li><span class="sha">883cb57</span> fix(sonde) — la campagne réutilise le message d’erreur au lieu d’en recopier la forme</li>
+      </ul>
+    </div>
+
+    <div class="note">
+      <p><strong>C’est le dernier jour couvert par ce journal</strong> — dernier commit
+      <span class="m">80a730f</span>. La boucle est refermée sur elle‑même : le projet a commencé
+      par croire ce qu’il affirmait, et il termine en corrigeant ses propres instruments de
+      mesure, parce que ce sont les derniers endroits où une affirmation non constatée pouvait
+      encore se cacher.</p>
+    </div>
+  </div>
+</article>
+
+<div class="pager">
+  <span><a href="04-refonte.html">← § 4 — Démonter</a></span>
+  <span><a href="index.html">Sommaire</a></span>
+  <span><a href="../recapitulatif-projet.html">Récapitulatif thématique →</a></span>
+</div>
+
+<footer>
+  Chapitre 5 · 20 août → 23 août 2026 · 61 commits · dérivé de <code>git log</code> et de
+  <code>CHANGELOG.md</code>
+</footer>
+
+</div>

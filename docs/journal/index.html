@@ -1,0 +1,441 @@
+<title>Kisso — journal de bord, jour par jour</title>
+<style>
+  :root {
+    --ink: #101418;
+    --paper: #f6f5f2;
+    --slate: #616c6b;
+    --verified: #0e6b57;
+    --claimed: #a33420;
+    --rule: rgba(16, 20, 24, 0.13);
+    --raise: rgba(14, 107, 87, 0.06);
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", ui-serif, serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e6e1;
+      --paper: #0e1214;
+      --slate: #8f9b98;
+      --verified: #4fbfa2;
+      --claimed: #e0765c;
+      --rule: rgba(232, 230, 225, 0.16);
+      --raise: rgba(79, 191, 162, 0.08);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e8e6e1;
+    --paper: #0e1214;
+    --slate: #8f9b98;
+    --verified: #4fbfa2;
+    --claimed: #e0765c;
+    --rule: rgba(232, 230, 225, 0.16);
+    --raise: rgba(79, 191, 162, 0.08);
+  }
+  :root[data-theme="light"] {
+    --ink: #101418;
+    --paper: #f6f5f2;
+    --slate: #616c6b;
+    --verified: #0e6b57;
+    --claimed: #a33420;
+    --rule: rgba(16, 20, 24, 0.13);
+    --raise: rgba(14, 107, 87, 0.06);
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 5rem) clamp(1.1rem, 4vw, 3rem) 6rem;
+  }
+
+  /* ---- rail de marge : les dates et les mesures, comme un carnet ---- */
+  .row { display: grid; grid-template-columns: 1fr; gap: 0.5rem 2.5rem; }
+  @media (min-width: 1000px) {
+    .row { grid-template-columns: 11rem 1fr; }
+  }
+  .rail {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.5;
+    letter-spacing: 0.04em;
+    color: var(--slate);
+    text-transform: uppercase;
+    padding-top: 0.55rem;
+  }
+  @media (min-width: 1000px) { .rail { text-align: right; } }
+  .rail b { display: block; color: var(--ink); font-weight: 700; letter-spacing: 0.02em; }
+
+  .body { max-width: 66ch; }
+  .body > * + * { margin-top: 1.05rem; }
+
+  h1, h2, h3 { text-wrap: balance; font-weight: 700; letter-spacing: -0.014em; }
+  h1 { font-size: clamp(2.2rem, 6vw, 3.5rem); line-height: 1.06; }
+  h2 { font-size: clamp(1.5rem, 3.4vw, 2.05rem); line-height: 1.14; }
+  h3 { font-size: 1.16rem; line-height: 1.3; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--verified);
+    margin-bottom: 0.7rem;
+  }
+  .lede { font-size: 1.24rem; line-height: 1.5; color: var(--slate); }
+
+  section { padding-top: clamp(2.6rem, 6vw, 4.6rem); }
+  section + section { border-top: 1px solid var(--rule); }
+
+  a { color: var(--verified); text-underline-offset: 0.18em; }
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--verified);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  code, .m { font-family: var(--mono); font-size: 0.855em; }
+  code { background: var(--raise); padding: 0.08em 0.32em; border-radius: 3px; }
+
+  /* ---- le motif central : ce qui a été AFFIRMÉ, ce qui a été CONSTATÉ ---- */
+  .pair { margin-top: 1.6rem; }
+  .pair .said, .pair .saw { display: block; padding-left: 1.05rem; }
+  .pair .said {
+    font-style: italic;
+    color: var(--slate);
+    border-left: 2px solid var(--claimed);
+    padding-bottom: 0.15rem;
+  }
+  .pair .saw {
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    line-height: 1.55;
+    border-left: 2px solid var(--verified);
+    padding-top: 0.5rem;
+  }
+  .pair .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 0.2rem;
+  }
+  .pair .said .tag { color: var(--claimed); }
+  .pair .saw .tag { color: var(--verified); }
+
+  ul, ol { padding-left: 1.25rem; }
+  li + li { margin-top: 0.5rem; }
+
+  .scroll { overflow-x: auto; margin-top: 1.4rem; }
+  table { border-collapse: collapse; width: 100%; min-width: 33rem; font-size: 0.93rem; }
+  th, td { text-align: left; padding: 0.62rem 0.9rem 0.62rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--slate);
+    font-weight: 400;
+  }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  details {
+    border-top: 1px solid var(--rule);
+    padding: 0.9rem 0;
+  }
+  summary { cursor: pointer; font-weight: 700; list-style-position: outside; }
+  summary::marker { color: var(--verified); }
+  details > *:not(summary) { margin-top: 0.85rem; max-width: 66ch; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1.6rem 1.2rem; margin-top: 2rem; }
+  .stat b { display: block; font-family: var(--mono); font-size: 1.65rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .stat span { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--slate); }
+
+  footer { margin-top: 5rem; padding-top: 1.6rem; border-top: 1px solid var(--rule); color: var(--slate); font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.04em; }
+
+  /* ---- propre au journal : la navigation entre chapitres ---- */
+  nav.chapters { margin-top: 2.2rem; display: grid; gap: 0.1rem; }
+  nav.chapters a {
+    display: grid; grid-template-columns: 3.2rem 1fr; gap: 1rem;
+    padding: 0.72rem 0; border-top: 1px solid var(--rule);
+    text-decoration: none; color: var(--ink);
+  }
+  nav.chapters a:last-child { border-bottom: 1px solid var(--rule); }
+  nav.chapters a:hover strong { text-decoration: underline; text-underline-offset: 0.18em; }
+  nav.chapters .no { font-family: var(--mono); font-size: 0.72rem; color: var(--slate); padding-top: 0.28em; letter-spacing: 0.08em; }
+  nav.chapters strong { display: block; font-weight: 700; }
+  nav.chapters em { display: block; font-style: normal; font-size: 0.9rem; color: var(--slate); margin-top: 0.12rem; }
+
+  .pager {
+    margin-top: 3.4rem; padding-top: 1.4rem; border-top: 1px solid var(--rule);
+    display: flex; flex-wrap: wrap; gap: 0.4rem 1.6rem;
+    font-family: var(--mono); font-size: 0.76rem; letter-spacing: 0.04em;
+  }
+
+  /* ---- propre au journal : une journée, quatre temps ---- */
+  article.day { padding-top: clamp(2.2rem, 5vw, 3.4rem); }
+  article.day + article.day { border-top: 1px solid var(--rule); }
+  article.day h3 { margin-bottom: 0.15rem; }
+
+  .beat { margin-top: 1.05rem; padding-left: 1.05rem; border-left: 2px solid var(--rule); max-width: 66ch; }
+  .beat > * + * { margin-top: 0.7rem; }
+  .beat .tag {
+    display: block; font-family: var(--mono); font-size: 0.66rem;
+    letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 0.28rem; color: var(--slate);
+  }
+  .beat.c { border-left-color: var(--claimed); }
+  .beat.c .tag { color: var(--claimed); }
+  .beat.r { border-left-color: var(--verified); }
+  .beat.r .tag { color: var(--verified); }
+  .beat.l { border-left-style: dotted; }
+  .beat.l ul { font-family: var(--mono); font-size: 0.8rem; line-height: 1.5; list-style: none; padding-left: 0; }
+  .beat.l li + li { margin-top: 0.28rem; }
+  .beat.l .sha { color: var(--slate); }
+
+  /* ---- propre au journal : la frise ---- */
+  .frise { margin-top: 2rem; display: grid; gap: 0.1rem; }
+  .frise .d {
+    display: grid; grid-template-columns: 5.6rem 3.2rem 1fr; gap: 0.9rem;
+    align-items: baseline; padding: 0.42rem 0; border-top: 1px solid var(--rule);
+    font-size: 0.92rem;
+  }
+  .frise .d:last-child { border-bottom: 1px solid var(--rule); }
+  .frise .dd { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.05em; color: var(--slate); }
+  .frise .bar { font-family: var(--mono); font-size: 0.74rem; color: var(--verified); white-space: nowrap; }
+  .frise .d.void .bar { color: var(--slate); }
+  .frise .d.void { color: var(--slate); font-style: italic; }
+  @media (max-width: 33rem) {
+    .frise .d { grid-template-columns: 4.6rem 2.6rem 1fr; gap: 0.55rem; font-size: 0.86rem; }
+  }
+
+  .note {
+    margin-top: 1.4rem; padding: 0.9rem 1.05rem; background: var(--raise);
+    border-left: 2px solid var(--verified); border-radius: 0 3px 3px 0;
+    font-size: 0.95rem; max-width: 66ch;
+  }
+  .note.warn { border-left-color: var(--claimed); }
+  .note > * + * { margin-top: 0.6rem; }
+</style>
+
+<div class="sheet">
+
+<header class="row">
+  <div class="rail"><b>2026‑07‑28</b>→ 2026‑08‑23<br>237 commits<br>16 jours actifs</div>
+  <div class="body">
+    <p class="eyebrow">Journal de bord</p>
+    <h1>Vingt‑six jours, jour par jour</h1>
+    <p class="lede">Ce qui a été constaté, ce qui a été envisagé, ce qui a été retenu — et ce
+    que chaque décision a écarté. Tout ce qui suit est dérivé de <code>git log</code> et de
+    <code>CHANGELOG.md</code>. Quand les deux se contredisent, la contradiction est imprimée.</p>
+  </div>
+</header>
+
+<section class="row">
+  <div class="rail"><b>Comment lire</b>quatre temps par jour</div>
+  <div class="body">
+    <h2>La forme d’une journée</h2>
+    <p>Chaque jour porte la même structure, sans exception, pour que deux jours se comparent.</p>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>Le problème, avec sa mesure et sa provenance : un log de production, une sonde, un
+      relevé en base. Jamais « le bot était lent » — <span class="m">5 229 ms à froid, Slack en
+      accorde 3 000</span>.</p>
+    </div>
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Les options réellement pesées ce jour‑là, fausses pistes comprises. Elles ont autant
+      servi que les bonnes : trois hypothèses ont été écartées par la mesure sur les boutons
+      cassés, et la mémoire de la fonction a paru être le correctif sans l’être.</p>
+    </div>
+    <div class="beat r"><span class="tag">Retenu</span>
+      <p>La décision, et <strong>ce qu’elle a écarté</strong>. Une décision sans son alternative
+      perdue n’est pas une décision, c’est un compte rendu.</p>
+    </div>
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul><li><span class="sha">80a730f</span> le commit, son sujet, et le déploiement s’il y en
+      a eu un</li></ul>
+    </div>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>Cinq chapitres</b>et ce qui les sépare</div>
+  <div class="body">
+    <h2>Le parcours</h2>
+    <p>Le découpage n’est pas arbitraire : chaque chapitre commence là où le projet a changé
+    d’objet. On construit, puis on met en ligne et l’on découvre que rien n’arrive, puis on
+    s’aperçoit que ce qui répond ment, puis on démonte, puis on donne un nom à ce qui reste.</p>
+
+    <nav class="chapters">
+      <a href="01-fondation.html">
+        <span class="no">§ 1</span>
+        <span><strong>La fondation, et les versions qui s’arrêtent</strong>
+        <em>28 juillet → 7 août · 32 commits · v0.1.0 → v0.9.0</em></span>
+      </a>
+      <a href="02-mise-en-ligne.html">
+        <span class="no">§ 2</span>
+        <span><strong>Le bot était muet, et la cause n’était pas dans le code</strong>
+        <em>8 août → 12 août · 34 commits</em></span>
+      </a>
+      <a href="03-honnetete.html">
+        <span class="no">§ 3</span>
+        <span><strong>Il répondait, et il mentait</strong>
+        <em>13 août → 15 août · 34 commits</em></span>
+      </a>
+      <a href="04-refonte.html">
+        <span class="no">§ 4</span>
+        <span><strong>Démonter : le god object, les boutons, le démarrage à froid</strong>
+        <em>17 août → 19 août · 76 commits</em></span>
+      </a>
+      <a href="05-marcel.html">
+        <span class="no">§ 5</span>
+        <span><strong>Marcel — un nom, une mémoire, et une horloge extérieure</strong>
+        <em>20 août → 23 août · 61 commits</em></span>
+      </a>
+    </nav>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>La frise</b>16 jours actifs<br>10 jours creux</div>
+  <div class="body">
+    <h2>Où le travail s’est réellement passé</h2>
+    <p>Un tiers des commits tient en trois jours — les 19, 21 et 20 août. Les jours creux sont
+    laissés visibles : un trou nommé vaut mieux qu’un trou masqué par le resserrement des dates,
+    et deux d’entre eux portent l’épisode le plus coûteux du projet.</p>
+
+    <div class="frise">
+      <div class="d"><span class="dd">28 juil.</span><span class="bar">—</span><span>architecture validée sur le papier — <span class="m">v0.1.0</span>, aucun commit</span></div>
+      <div class="d"><span class="dd">29 juil.</span><span class="bar">███</span><span>premier commit, Clean Architecture, passerelle de sécurité LLM</span></div>
+      <div class="d"><span class="dd">30 juil.</span><span class="bar">—</span><span>stratégie de test — <span class="m">v0.6.0</span>, aucun commit</span></div>
+      <div class="d"><span class="dd">31 juil.</span><span class="bar">██</span><span><code>.extend()</code> sur un <code>ZodEffects</code> — le premier bug de schéma</span></div>
+      <div class="d void"><span class="dd">1–2 août</span><span class="bar">·</span><span>rien</span></div>
+      <div class="d"><span class="dd">3 août</span><span class="bar">—</span><span>PDF et découverte du workspace Slack — <span class="m">v0.8.0</span>, aucun commit</span></div>
+      <div class="d void"><span class="dd">4 août</span><span class="bar">·</span><span>rien</span></div>
+      <div class="d"><span class="dd">5 août</span><span class="bar">███████████████████████████</span><span>27 commits de déploiement — Docker, puis Turso, puis Vercel</span></div>
+      <div class="d void"><span class="dd">6 août</span><span class="bar">·</span><span>rien</span></div>
+      <div class="d"><span class="dd">7 août</span><span class="bar">—</span><span>la route Slack est enfin montée — <span class="m">v0.9.0</span>, aucun commit</span></div>
+      <div class="d"><span class="dd">8 août</span><span class="bar">—</span><span>le bot ne recevait rien : la cause était l’installation, aucun commit</span></div>
+      <div class="d void"><span class="dd">9 août</span><span class="bar">·</span><span>rien</span></div>
+      <div class="d"><span class="dd">10 août</span><span class="bar">█████████████</span><span>le code de production est enfin committé — tag <code>checkpoint/prod-20260810</code></span></div>
+      <div class="d"><span class="dd">11 août</span><span class="bar">███████████</span><span>mémoire, documents réels, et la croyance centrale du projet réfutée</span></div>
+      <div class="d"><span class="dd">12 août</span><span class="bar">██████████</span><span>le bundle ne démarrait pas alors que le build sortait vert</span></div>
+      <div class="d"><span class="dd">13 août</span><span class="bar">███████████████████</span><span>frontière RH, effacement réel, cinq court‑circuits sans modèle</span></div>
+      <div class="d"><span class="dd">14 août</span><span class="bar">████████████</span><span>le questionnaire n’avait jamais eu de destinataire — supprimé</span></div>
+      <div class="d"><span class="dd">15 août</span><span class="bar">███</span><span>le prompt système fuyait par un simple <code>GET</code></span></div>
+      <div class="d void"><span class="dd">16 août</span><span class="bar">·</span><span>rien</span></div>
+      <div class="d"><span class="dd">17 août</span><span class="bar">██████████████████████</span><span>ReDoS à distance, le god object démonté, 90 warnings instruits</span></div>
+      <div class="d"><span class="dd">18 août</span><span class="bar">██████████████████</span><span>SOLID, le ton, et zéro warning</span></div>
+      <div class="d"><span class="dd">19 août</span><span class="bar">████████████████████████████████████</span><span>les boutons ne pouvaient pas marcher — ils disparaissent tous</span></div>
+      <div class="d"><span class="dd">20 août</span><span class="bar">████████████████████████</span><span>le Manager et lui seul ; Gemini primaire ; la base de connaissance</span></div>
+      <div class="d"><span class="dd">21 août</span><span class="bar">██████████████████████████</span><span>Marcel ; le rappel part tout seul ; le POURQUOI quitte le code</span></div>
+      <div class="d"><span class="dd">22 août</span><span class="bar">████</span><span>deux contournements de sécurité, et un détecteur trop zélé</span></div>
+      <div class="d"><span class="dd">23 août</span><span class="bar">███████</span><span>le vocabulaire, et une page qui mentait depuis un jour</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>Versions</b>trois réponses<br>à une question</div>
+  <div class="body">
+    <h2>« Quelle version est‑ce ? »</h2>
+    <p>Le projet donne trois réponses différentes, et aucune n’est fausse — elles répondent à
+    trois questions distinctes qu’on avait cessé de distinguer.</p>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Source</th><th>Réponse</th><th>Dernière mise à jour</th></tr></thead>
+        <tbody>
+          <tr><td><code>CHANGELOG.md</code></td><td>numérote de <span class="m">0.1.0</span> à <span class="m">0.9.0</span>, puis <strong><span class="m">[Unreleased]</span> sur 205 des 237 commits</strong></td><td class="n">2026‑08‑07</td></tr>
+          <tr><td><code>package.json</code></td><td><span class="m">"version": "0.1.0"</span> — jamais incrémenté</td><td class="n">jamais</td></tr>
+          <tr><td>Git</td><td>un seul tag : <code>checkpoint/prod-20260810</code></td><td class="n">2026‑08‑10</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Et les numéros du <code>CHANGELOG</code> ne sont pas chronologiques :</p>
+
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Date</th><th>Version déclarée</th><th>Contenu</th></tr></thead>
+        <tbody>
+          <tr><td class="n">28 juil.</td><td class="n">0.1.0</td><td>architecture validée : 3 agents, 8+ outils, 4 workflows</td></tr>
+          <tr><td class="n">29 juil.</td><td class="n">0.1.1 → 0.5.0</td><td>structure, ADR, outils Mastra, Clean Architecture, passerelle LLM, Drizzle</td></tr>
+          <tr><td class="n">30 juil.</td><td class="n">0.6.0</td><td>stratégie de test, 15 tests contre l’injection de prompt</td></tr>
+          <tr><td class="n">31 juil.</td><td class="n">0.7.0</td><td><code>.extend()</code> sur <code>ZodEffects</code></td></tr>
+          <tr><td class="n">3 août</td><td class="n">0.8.0</td><td>PDF, découverte du workspace Slack</td></tr>
+          <tr><td class="n">5 août</td><td class="n">0.1.3</td><td>Turso, Vercel — <em>numéro inférieur à la version précédente</em></td></tr>
+          <tr><td class="n">7 août</td><td class="n">0.9.0</td><td>l’endpoint Slack est monté ; le bot répond pour la première fois</td></tr>
+          <tr><td class="n">8 août →</td><td class="n">[Unreleased]</td><td>tout le reste : 205 commits, 16 jours</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note">
+      <p><strong>Ce n’est pas un reproche, c’est une bascule datée.</strong> Le projet a cessé de
+      se versionner le 7 août — le jour exact où il est passé en production continue. À partir de
+      là, la question utile n’était plus « quelle version ? » mais « quel déploiement, et
+      qu’est‑ce qui y a été vérifié ? ». Les déploiements sont nommés dans le journal :
+      <code>l71qz4x5f</code>, <code>9t5yxexhg</code>, <code>5wlfv0c77</code>,
+      <code>gq3firksv</code>.</p>
+      <p>Le journal ne fabrique donc pas de numérotation rétroactive. Il en fabriquerait une
+      plausible, et ce serait exactement le défaut que tout ce dépôt s’emploie à traquer.</p>
+    </div>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>Le fil rouge</b>affirmé ≠ constaté</div>
+  <div class="body">
+    <h2>Ce que le journal raconte, en une phrase</h2>
+    <p>Un même défaut revient d’un bout à l’autre, sous des formes qui n’ont l’air d’avoir aucun
+    rapport : <strong>quelque chose est affirmé sans que rien ne le constate</strong>. Le bot dit
+    « c’est envoyé » sans avoir appelé d’outil. Un statut dit « succès » avec
+    <code>emailSent: false</code> dedans. Une colonne manque et l’écriture est perdue sans
+    erreur. La documentation déclare une clé morte alors qu’elle porte le modèle primaire.</p>
+
+    <div class="pair">
+      <span class="said"><span class="tag">Affirmé</span>« Ton document est prêt, tu peux le
+      télécharger ici : <span class="m">https://kisso.internal/docs/…/download</span> »</span>
+      <span class="saw"><span class="tag">Constaté</span>grep kisso.internal → 0 occurrence dans
+      le dépôt. Aucune URL de téléchargement n’a jamais existé.</span>
+    </div>
+
+    <p style="margin-top:1.6rem">L’issue trouvée n’est jamais « demander au modèle d’être
+    honnête » — ce dépôt a mesuré cinq consignes en échec. Elle est toujours la même :
+    <strong>dériver l’affirmation de la trace</strong>, en code, et faire rougir un test quand la
+    dérivation cesse d’être possible.</p>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>À côté</b>les autres documents</div>
+  <div class="body">
+    <h2>Où va le reste</h2>
+    <ul>
+      <li><a href="../recapitulatif-projet.html">Récapitulatif du projet</a> — la même histoire
+      par <em>thème</em> plutôt que par jour : le but, la stack, les décisions, ce qui reste
+      ouvert.</li>
+      <li><a href="../notions-agentiques.html">Notions agentiques</a> — les <em>notions</em>,
+      délibérément hors du temps : le contrat serverless, le routage, les frontières
+      d’autorisation, les six familles de risque.</li>
+      <li><a href="../audit-2026-08-20-100-points.html">Audit — 100 points de contrôle</a> — un
+      verdict par point, relevé le 20 août.</li>
+      <li><a href="../conception/">docs/conception/</a> — le <em>pourquoi</em> du code, sorti de
+      <code>src/</code> le 21 août : une page par feature.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  Dérivé de <code>git log</code> et de <code>CHANGELOG.md</code> — aucun chiffre saisi de
+  mémoire · dernier commit couvert : <span class="m">80a730f</span>, 2026‑08‑23
+</footer>
+
+</div>

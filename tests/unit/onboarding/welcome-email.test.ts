@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { buildWelcomeEmail } from '../../../src/features/onboarding/domain/services/welcome-email';
+import { ASSISTANT_NAME } from '../../../src/shared/assistant-identity';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -42,7 +43,12 @@ describe('buildWelcomeEmail — ne promet que ce qui existe', () => {
     // l'existence du DM, pas le libellé d'un bouton — c'est l'invariant, le reste est un
     // détail d'interface qui a déjà changé une fois.
     const mail = buildWelcomeEmail(BASE);
-    expect(mail.body).toMatch(/message direct de notre bot sur Slack/i);
+    // ⚠️ Le message NOMME l'assistant depuis le 2026-08-24, il ne le désigne plus par sa
+    // nature (« notre bot »). L'expéditeur de cet email s'appelle désormais Marcel : la
+    // personne lisait « notre bot » puis recevait un DM signé Marcel, soit deux
+    // interlocuteurs pour un seul. L'assertion compare à `ASSISTANT_NAME`, jamais au
+    // littéral — un renommage doit traverser sans réécrire ce test.
+    expect(mail.body).toContain(`message direct de ${ASSISTANT_NAME} sur Slack`);
     expect(mail.body).toMatch(/dossier/i);
   });
 });

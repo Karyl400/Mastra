@@ -111,14 +111,14 @@ describe('SmtpAdapter', () => {
       const adapter = new SmtpAdapter({
         ...baseConfig,
         from: 'noreply@kisso.com',
-        fromName: 'Kisso Onboarding',
+        fromName: 'Marcel',
         transporter: makeTransporter(sendMail),
       });
 
       await adapter.sendEmail('dest@example.com', 'Sujet', htmlEmailBody('<p>Corps</p>'));
 
       expect(sendMail).toHaveBeenCalledWith(
-        expect.objectContaining({ from: '"Kisso Onboarding" <noreply@kisso.com>' }),
+        expect.objectContaining({ from: '"Marcel" <noreply@kisso.com>' }),
       );
     });
   });

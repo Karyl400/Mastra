@@ -1,4 +1,5 @@
 import type { EmailProvider } from '../../domain/ports/providers';
+import { ASSISTANT_NAME } from '../../../../shared/assistant-identity';
 import { SmtpAdapter } from './smtp.adapter';
 import { BrevoAdapter } from './brevo.adapter';
 
@@ -15,9 +16,13 @@ export function createEmailProvider(): EmailProvider {
       user,
       pass,
       from: from || user,
-      fromName: 'Kisso Onboarding',
+      fromName: ASSISTANT_NAME,
     });
   }
 
-  return new BrevoAdapter(process.env.BREVO_API_KEY ?? '', from ?? 'noreply@kissohq.com');
+  return new BrevoAdapter(
+    process.env.BREVO_API_KEY ?? '',
+    from ?? 'noreply@kissohq.com',
+    ASSISTANT_NAME,
+  );
 }

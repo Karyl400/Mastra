@@ -1,0 +1,742 @@
+<title>Kisso — Harness Engineering : ce qui est utilisé, ce qui est omis</title>
+<style>
+  :root {
+    --ink: #101418;
+    --paper: #f6f5f2;
+    --slate: #616c6b;
+    --verified: #0e6b57;
+    --claimed: #a33420;
+    --rule: rgba(16, 20, 24, 0.13);
+    --raise: rgba(14, 107, 87, 0.06);
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", ui-serif, serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e6e1;
+      --paper: #0e1214;
+      --slate: #8f9b98;
+      --verified: #4fbfa2;
+      --claimed: #e0765c;
+      --rule: rgba(232, 230, 225, 0.16);
+      --raise: rgba(79, 191, 162, 0.08);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e8e6e1;
+    --paper: #0e1214;
+    --slate: #8f9b98;
+    --verified: #4fbfa2;
+    --claimed: #e0765c;
+    --rule: rgba(232, 230, 225, 0.16);
+    --raise: rgba(79, 191, 162, 0.08);
+  }
+  :root[data-theme="light"] {
+    --ink: #101418;
+    --paper: #f6f5f2;
+    --slate: #616c6b;
+    --verified: #0e6b57;
+    --claimed: #a33420;
+    --rule: rgba(16, 20, 24, 0.13);
+    --raise: rgba(14, 107, 87, 0.06);
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 5rem) clamp(1.1rem, 4vw, 3rem) 6rem;
+  }
+
+  /* ---- rail de marge : les dates et les mesures, comme un carnet ---- */
+  .row { display: grid; grid-template-columns: 1fr; gap: 0.5rem 2.5rem; }
+  @media (min-width: 1000px) {
+    .row { grid-template-columns: 11rem 1fr; }
+  }
+  .rail {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.5;
+    letter-spacing: 0.04em;
+    color: var(--slate);
+    text-transform: uppercase;
+    padding-top: 0.55rem;
+  }
+  @media (min-width: 1000px) { .rail { text-align: right; } }
+  .rail b { display: block; color: var(--ink); font-weight: 700; letter-spacing: 0.02em; }
+
+  .body { max-width: 66ch; }
+  .body > * + * { margin-top: 1.05rem; }
+
+  h1, h2, h3 { text-wrap: balance; font-weight: 700; letter-spacing: -0.014em; }
+  h1 { font-size: clamp(2.2rem, 6vw, 3.5rem); line-height: 1.06; }
+  h2 { font-size: clamp(1.5rem, 3.4vw, 2.05rem); line-height: 1.14; }
+  h3 { font-size: 1.16rem; line-height: 1.3; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--verified);
+    margin-bottom: 0.7rem;
+  }
+  .lede { font-size: 1.24rem; line-height: 1.5; color: var(--slate); }
+
+  section { padding-top: clamp(2.6rem, 6vw, 4.6rem); }
+  section + section { border-top: 1px solid var(--rule); }
+
+  a { color: var(--verified); text-underline-offset: 0.18em; }
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--verified);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  code, .m { font-family: var(--mono); font-size: 0.855em; }
+  code { background: var(--raise); padding: 0.08em 0.32em; border-radius: 3px; }
+
+  /* ---- le motif central : ce qui a été AFFIRMÉ, ce qui a été CONSTATÉ ---- */
+  .pair { margin-top: 1.6rem; }
+  .pair .said, .pair .saw { display: block; padding-left: 1.05rem; }
+  .pair .said {
+    font-style: italic;
+    color: var(--slate);
+    border-left: 2px solid var(--claimed);
+    padding-bottom: 0.15rem;
+  }
+  .pair .saw {
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    line-height: 1.55;
+    border-left: 2px solid var(--verified);
+    padding-top: 0.5rem;
+  }
+  .pair .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 0.2rem;
+  }
+  .pair .said .tag { color: var(--claimed); }
+  .pair .saw .tag { color: var(--verified); }
+
+  ul, ol { padding-left: 1.25rem; }
+  li + li { margin-top: 0.5rem; }
+
+  .scroll { overflow-x: auto; margin-top: 1.4rem; }
+  table { border-collapse: collapse; width: 100%; min-width: 33rem; font-size: 0.93rem; }
+  th, td { text-align: left; padding: 0.62rem 0.9rem 0.62rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--slate);
+    font-weight: 400;
+  }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  details {
+    border-top: 1px solid var(--rule);
+    padding: 0.9rem 0;
+  }
+  summary { cursor: pointer; font-weight: 700; list-style-position: outside; }
+  summary::marker { color: var(--verified); }
+  details > *:not(summary) { margin-top: 0.85rem; max-width: 66ch; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1.6rem 1.2rem; margin-top: 2rem; }
+  .stat b { display: block; font-family: var(--mono); font-size: 1.65rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .stat span { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--slate); }
+
+  footer { margin-top: 5rem; padding-top: 1.6rem; border-top: 1px solid var(--rule); color: var(--slate); font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.04em; }
+
+  /* ---- propre au journal : la navigation entre chapitres ---- */
+  nav.chapters { margin-top: 2.2rem; display: grid; gap: 0.1rem; }
+  nav.chapters a {
+    display: grid; grid-template-columns: 3.2rem 1fr; gap: 1rem;
+    padding: 0.72rem 0; border-top: 1px solid var(--rule);
+    text-decoration: none; color: var(--ink);
+  }
+  nav.chapters a:last-child { border-bottom: 1px solid var(--rule); }
+  nav.chapters a:hover strong { text-decoration: underline; text-underline-offset: 0.18em; }
+  nav.chapters .no { font-family: var(--mono); font-size: 0.72rem; color: var(--slate); padding-top: 0.28em; letter-spacing: 0.08em; }
+  nav.chapters strong { display: block; font-weight: 700; }
+  nav.chapters em { display: block; font-style: normal; font-size: 0.9rem; color: var(--slate); margin-top: 0.12rem; }
+
+  .pager {
+    margin-top: 3.4rem; padding-top: 1.4rem; border-top: 1px solid var(--rule);
+    display: flex; flex-wrap: wrap; gap: 0.4rem 1.6rem;
+    font-family: var(--mono); font-size: 0.76rem; letter-spacing: 0.04em;
+  }
+
+  /* ---- propre au journal : une journée, quatre temps ---- */
+  article.day { padding-top: clamp(2.2rem, 5vw, 3.4rem); }
+  article.day + article.day { border-top: 1px solid var(--rule); }
+  article.day h3 { margin-bottom: 0.15rem; }
+
+  .beat { margin-top: 1.05rem; padding-left: 1.05rem; border-left: 2px solid var(--rule); max-width: 66ch; }
+  .beat > * + * { margin-top: 0.7rem; }
+  .beat .tag {
+    display: block; font-family: var(--mono); font-size: 0.66rem;
+    letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 0.28rem; color: var(--slate);
+  }
+  .beat.c { border-left-color: var(--claimed); }
+  .beat.c .tag { color: var(--claimed); }
+  .beat.r { border-left-color: var(--verified); }
+  .beat.r .tag { color: var(--verified); }
+  .beat.l { border-left-style: dotted; }
+  .beat.l ul { font-family: var(--mono); font-size: 0.8rem; line-height: 1.5; list-style: none; padding-left: 0; }
+  .beat.l li + li { margin-top: 0.28rem; }
+  .beat.l .sha { color: var(--slate); }
+
+  /* ---- propre au journal : la frise ---- */
+  .frise { margin-top: 2rem; display: grid; gap: 0.1rem; }
+  .frise .d {
+    display: grid; grid-template-columns: 5.6rem 3.2rem 1fr; gap: 0.9rem;
+    align-items: baseline; padding: 0.42rem 0; border-top: 1px solid var(--rule);
+    font-size: 0.92rem;
+  }
+  .frise .d:last-child { border-bottom: 1px solid var(--rule); }
+  .frise .dd { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.05em; color: var(--slate); }
+  .frise .bar { font-family: var(--mono); font-size: 0.74rem; color: var(--verified); white-space: nowrap; }
+  .frise .d.void .bar { color: var(--slate); }
+  .frise .d.void { color: var(--slate); font-style: italic; }
+  @media (max-width: 33rem) {
+    .frise .d { grid-template-columns: 4.6rem 2.6rem 1fr; gap: 0.55rem; font-size: 0.86rem; }
+  }
+
+  .note {
+    margin-top: 1.4rem; padding: 0.9rem 1.05rem; background: var(--raise);
+    border-left: 2px solid var(--verified); border-radius: 0 3px 3px 0;
+    font-size: 0.95rem; max-width: 66ch;
+  }
+  .note.warn { border-left-color: var(--claimed); }
+  .note > * + * { margin-top: 0.6rem; }
+</style>
+
+<div class="sheet">
+
+<header class="row">
+  <div class="rail"><b>Harness</b>12 modules<br>confrontés au code<br>2026‑08‑24</div>
+  <div class="body">
+    <p class="eyebrow">Grille de lecture</p>
+    <h1>Ce que ce harness utilise, ce qu’il omet, et pourquoi</h1>
+    <p class="lede">Le programme de <em>Harness Engineering</em> décrit douze modules. Ce document
+    les confronte un par un au code réellement déployé. Chaque « utilisé » nomme le fichier ;
+    chaque « omis » nomme la raison, et la raison n’est jamais « pas eu le temps ».</p>
+  </div>
+</header>
+
+<section class="row">
+  <div class="rail"><b>La contrainte</b>qui explique<br>la moitié des omissions</div>
+  <div class="body">
+    <h2>Trois faits d’environnement gouvernent tout le reste</h2>
+    <p>Avant de juger une omission, il faut connaître le terrain. Trois contraintes, toutes
+    mesurées, expliquent la plupart des écarts au programme :</p>
+    <ol>
+      <li><strong>Un quota de modèle qui se compte à la JOURNÉE.</strong> Mesuré le 11 août :
+      <span class="m">TPD: Limit 100000, Used 98207</span>, soit <strong>≈ 19 messages par jour
+      pour toute l’entreprise</strong>. Conséquence de doctrine : le poste de coût dominant n’est
+      pas la taille du prompt mais le <strong>nombre d’étapes</strong>, chaque étape étant une
+      requête pleine. Tout module qui ajoute un aller‑retour est donc coûteux par construction.
+      <em>La contrainte est levée depuis le 20 août (Gemini primaire), mais les décisions qu’elle
+      a produites sont restées — elles étaient justes pour d’autres raisons.</em></li>
+      <li><strong>Le serverless.</strong> Rien ne s’exécute tant que personne ne frappe à la
+      porte : pas de processus, pas de <code>setTimeout</code> qui survive, pas d’état en mémoire
+      entre deux messages. Et Slack accorde <strong>3 secondes</strong> pour acquitter.</li>
+      <li><strong>Sept personnes, un workspace, un produit interne.</strong> Ce qui rend
+      indispensables des modules pensés pour l’échelle — orchestration, files, multi‑agents
+      négociants — et disproportionnés ici.</li>
+    </ol>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>1 — 2</b>Fondamentaux<br>et architecture</div>
+  <div class="body">
+    <h2>Modules 1 &amp; 2 — Anatomie et boucle agentique</h2>
+    <div class="beat r"><span class="tag">Utilisé</span>
+      <p>La séparation <em>modèle / harness</em> est le principe organisateur du dépôt, poussé plus
+      loin que le programme ne le demande : <strong>l’architecture est découpée par domaine
+      métier</strong> (huit features en <code>domain</code> / <code>application</code> /
+      <code>infrastructure</code>), pas par rôle technique. Le modèle est injecté, jamais instancié
+      dans une feature.</p>
+      <p>Le pattern retenu est <strong>événementiel</strong> — le harness réagit à un événement
+      Slack — et non pipeline. La boucle est celle de Mastra
+      (<em>perception → raisonnement → outil → observation</em>), le harness fournissant
+      l’encadrement d’entrée, le routage, les court‑circuits, les frontières et le filtre de
+      sortie.</p>
+      <p>Modularité vérifiée par un <strong>test</strong>, pas par une intention :
+      <code>tests/unit/quality/architecture.test.ts</code> fait échouer toute violation de la règle
+      de dépendance.</p>
+    </div>
+    <div class="beat c"><span class="tag">Omis</span>
+      <p><strong>Aucun framework d’agents généraliste</strong> — pas de LangChain, AutoGen, CrewAI
+      ni Semantic Kernel. Mastra fournit l’agent et l’outil ; <em>tout le reste est écrit à la
+      main</em>.</p>
+      <p><strong>Aucun orchestrateur en graphe ni machine à états déclarée.</strong> Les machines à
+      états du parcours d’accueil sont reconstituées <em>à la lecture du fil Slack</em>, sans
+      persistance d’état de dialogue.</p>
+    </div>
+    <div class="beat"><span class="tag">Pourquoi</span>
+      <p>Le prix d’un framework se paie en tokens à chaque aller‑retour, et son abstraction cache
+      exactement ce qu’il fallait voir : combien d’étapes, quel schéma, quelle taille de résultat.
+      Trois des gains les plus importants du projet — résultats d’outil bornés
+      (<span class="m">≈ 9 600 → 177</span> tokens), étape de résolution supprimée
+      (<span class="m">−37 %</span>), court‑circuits à coût nul — <strong>supposent de contrôler la
+      fenêtre du modèle au caractère près</strong>.</p>
+      <p>Sur l’état non persisté, c’est un choix payé cher et assumé : le reconstituer du fil évite
+      une table et une classe de désynchronisation, mais <strong>a produit deux pertes de données
+      silencieuses</strong> le 21 août, quand deux machines à états suivant la même règle sans la
+      partager ont divergé.</p>
+    </div>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>3</b>Perception<br>et entrées</div>
+  <div class="body">
+    <h2>Module 3 — Perception, contexte, RAG</h2>
+    <div class="beat r"><span class="tag">Utilisé</span>
+      <ul>
+        <li><strong>Normalisation et encadrement</strong> : tout texte entrant passe par
+        <code>wrapAgentInput()</code>, qui le borne dans un délimiteur à marqueur de session, et par
+        un nettoyage qui retire la mention du bot — <em>et elle seule</em>, une version antérieure
+        les retirait toutes et perdait le sujet de la phrase.</li>
+        <li><strong>Fenêtre de contexte gérée en TOKENS, pas en messages</strong>
+        (<code>conversation/domain/services/token-window.ts</code>, budget 1 600, ratio
+        3,5 car./token). Elle ne coupe jamais une salve <em>user + assistant</em> : un tour
+        d’assistant orphelin répondrait à une question invisible pour le modèle, <em>ce qui est
+        pire que pas de mémoire</em>. Un tour dépassant 40 % du budget est tronqué, pas exclu.</li>
+        <li><strong>Récupération d’information</strong> : deux niveaux — l’archive brute des
+        messages, et les faits distillés — plus une <strong>lecture en direct de Slack</strong>
+        avant de prétendre ne rien savoir.</li>
+        <li><strong>Dire ce qu’on ne montre PAS</strong> : quand le résultat est tronqué, la
+        couverture est collée au contenu (« extraits de 6 messages sur 31, du … au … »). Sans elle,
+        un modèle à qui l’on montre 6 messages sur 31 affirme une exhaustivité que rien ne
+        garantit.</li>
+      </ul>
+    </div>
+    <div class="beat c"><span class="tag">Omis</span>
+      <p><strong>Le RAG vectoriel du programme — embeddings, FAISS, Pinecone, recherche par
+      similarité cosinus — n’existe pas.</strong> La recherche est <strong>lexicale</strong>, par
+      index FTS5 SQLite (<code>scripts/ddl-knowledge-facts.sql</code>).</p>
+      <p><strong>Aucun résumé automatique de conversation</strong> : la fenêtre glisse, elle ne
+      condense pas.</p>
+      <p><strong>Aucune entrée non textuelle</strong> — ni image, ni audio, ni flux de capteurs.</p>
+    </div>
+    <div class="beat"><span class="tag">Pourquoi</span>
+      <p>Un embedding est <strong>un appel de modèle par message ingéré</strong>. À 19 messages par
+      jour de budget total, indexer vectoriellement l’archive d’un workspace aurait consommé le
+      quota du produit pour alimenter une recherche que personne n’avait encore utilisée. Le FTS
+      lexical coûte <em>zéro token</em>, il est rejouable et testable — et sur un corpus de
+      quelques milliers de messages en une seule langue, l’écart de qualité ne justifiait pas la
+      dépense. <strong>C’est le premier candidat à réévaluer maintenant que le budget est
+      levé.</strong></p>
+      <p>Le résumé automatique est écarté pour la même raison, avec un argument supplémentaire :
+      un résumé est une <em>réécriture</em>, donc une occasion de plus de faire dire au modèle
+      quelque chose que personne n’a dit. Le projet a passé trois semaines à retirer ces
+      occasions.</p>
+    </div>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>4</b>Actions<br>et outils</div>
+  <div class="body">
+    <h2>Module 4 — Outils, <em>function calling</em>, orchestration</h2>
+    <div class="beat r"><span class="tag">Utilisé</span>
+      <ul>
+        <li><strong>Treize outils</strong> déclarés par schéma Zod, appelés par <em>function
+        calling</em>, câblés à quatre agents. Le câblage agent → outils est <strong>déclaré une
+        seule fois</strong> (<code>src/shared/agent-capabilities.ts</code>) : il était recopié à la
+        main à deux endroits, et les deux copies avaient dérivé.</li>
+        <li><strong>Le schéma est un instrument de coût, pas seulement un contrat.</strong>
+        <code>sendNotification</code> est passé de 5 champs obligatoires à 3, et son énumération de
+        canaux de 7 valeurs à 2 — les cinq autres n’avaient aucun transport, et le « tu préfères
+        quel canal ? » observé en production était <em>littéralement cette énumération remontée à
+        l’humain</em>. Un défaut de schéma épargne un tour de dialogue ; un tour de dialogue vaut
+        ≈ 1 500 tokens.</li>
+        <li><strong>Sécurité des outils</strong> : permissions par outil, quarantaines croisées
+        (un agent qui écrit vers l’extérieur <strong>lève au démarrage</strong> si on lui câble un
+        outil de lecture agrégée), assainissement des arguments produits par le modèle, et
+        journalisation.</li>
+        <li><strong>Idempotence</strong> (<code>src/shared/tool-idempotency.ts</code>) — née d’un
+        incident réel : 7 documents et 3 emails identiques en 8 minutes.</li>
+        <li><strong>Repli en cascade sur trois fournisseurs</strong>
+        (<code>src/shared/llm/model-fallback.ts</code>), l’ordre étant le contrat, avec
+        <code>maxRetries</code> sur le dernier maillon seulement.</li>
+      </ul>
+    </div>
+    <div class="beat c"><span class="tag">Omis</span>
+      <p><strong>Aucune exécution parallèle d’outils</strong>, aucune orchestration conditionnelle
+      pilotée par le harness : c’est le modèle qui enchaîne, dans sa propre boucle.</p>
+      <p><strong>Aucun sandbox d’exécution.</strong> Il n’y a pas d’outil qui exécute du code,
+      donc rien à isoler.</p>
+      <p><strong>Aucune politique générique de <em>retry</em> avec <em>backoff</em>
+      exponentiel</strong> par outil.</p>
+    </div>
+    <div class="beat"><span class="tag">Pourquoi</span>
+      <p>Le sandbox est <em>sans objet</em> : ne pas offrir la primitive vaut mieux que l’isoler.
+      C’est la même logique qui fait que l’agent de recrutement ne reçoit <strong>aucun champ de
+      prose libre</strong> — le pire cas d’une injection réussie y est un spam d’invitation, jamais
+      une fuite, parce qu’il n’y a rien à exfiltrer par ce chemin.</p>
+      <p>Le <em>backoff</em> générique est écarté par une mesure : le repli plafonne en
+      <strong>REQUÊTES</strong> (4/min), pas en tokens. <em>Un <code>backoff</code> d’une seconde
+      ne peut structurellement pas franchir un seau par minute</em> — il ajoute de la latence sans
+      changer l’issue. Ce qui protège réellement, c’est la cascade de fournisseurs.</p>
+    </div>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>5</b>Mémoire<br>et état</div>
+  <div class="body">
+    <h2>Module 5 — Mémoire</h2>
+    <div class="beat r"><span class="tag">Utilisé</span>
+      <p>Quatre des cinq types du programme, chacun avec sa politique de rétention :</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Type</th><th>Support</th><th>Rétention</th></tr></thead>
+          <tbody>
+            <tr><td>de travail</td><td>fenêtre en tokens</td><td class="n">1 600 tokens</td></tr>
+            <tr><td>court terme</td><td><code>conversation_turns</code></td><td class="n">TTL 60 min</td></tr>
+            <tr><td>long terme</td><td><code>pinned_facts</code></td><td class="n">5 faits × 120 car., éviction du plus ancien</td></tr>
+            <tr><td>épisodique / sémantique</td><td><code>channel_messages</code>, <code>knowledge_facts</code></td><td>opt‑in, sans valeur par défaut</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:1.1rem">Deux décisions qui ne figurent pas au programme et qui ont
+      compté :</p>
+      <ul>
+        <li><strong>On ne stocke que du TEXTE</strong> — jamais un appel d’outil, jamais un
+        résultat d’outil. Conséquence directe et mesurée : au message suivant, un identifiant rendu
+        par un résultat précédent <em>n’est plus dans la fenêtre du modèle</em>. C’est pourquoi la
+        correction d’un document se déclare par un <strong>booléen</strong>, le serveur résolvant
+        la cible.</li>
+        <li><strong>Un droit à l’oubli exécutable</strong> — <code>forget(scope)</code>, déclenché
+        par un court‑circuit déterministe. La réponse <strong>nomme ce que l’effacement ne
+        couvre pas</strong>, et ne prétend jamais avoir effacé sur échec.</li>
+      </ul>
+    </div>
+    <div class="beat c"><span class="tag">Omis</span>
+      <p><strong>Aucune mémoire vectorielle</strong>, aucun <em>summary memory</em> progressif,
+      <strong>aucun état de dialogue persisté</strong>.</p>
+      <p><strong><code>@mastra/memory</code> a été examiné et rejeté</strong>, pour deux raisons
+      nommées : il dépend de <code>zod ^4</code> quand le projet épingle <span class="m">3.25.76</span>,
+      et il ne sait plafonner qu’en <em>nombre de messages</em> — inadapté quand un seul résultat
+      d’outil pesait 2 506 tokens.</p>
+    </div>
+    <div class="beat"><span class="tag">Pourquoi</span>
+      <p>Le second motif du rejet est le plus instructif : <strong>plafonner en messages sur une
+      ressource qui se consomme en tokens, c’est mesurer la mauvaise grandeur</strong>. Le projet a
+      commis exactement la même faute dans son propre limiteur de débit — un compteur de messages
+      posé sur un problème de tokens — et l’a corrigée le 13 août.</p>
+    </div>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>6</b>Validation<br>et garde‑fous</div>
+  <div class="body">
+    <h2>Module 6 — Le module le plus densément couvert</h2>
+    <div class="beat r"><span class="tag">Utilisé</span>
+      <p>Les quatre types de validateurs du programme sont présents — syntaxique (Zod),
+      métier, sécurité, et une forme <em>sémantique</em> que le programme ne nomme pas.
+      Et deux catégories de garde‑fous que ce projet a dû inventer :</p>
+      <ul>
+        <li><strong>Garde‑fous de VÉRACITÉ.</strong> Le harness est le seul point qui voit à la
+        fois la réponse du modèle et sa trace d’exécution ; il les <em>confronte</em>. Une formule
+        d’accompli (14 familles de motifs) sans aucun appel d’outil fait accoler une note de
+        requalification. Symétrique : la <strong>promesse d’avenir</strong> — « je te l’enverrai
+        lundi » — est démentie si aucun mécanisme ne peut la tenir, et cette condition est
+        <strong>DÉDUITE du câblage</strong>, jamais écrite.</li>
+        <li><strong>Garde‑fous sur les ÉNONCÉS DU DÉPÔT lui‑même.</strong> Des tests vérifient que
+        toute phrase « verrouillé par <code>X</code> » cite un fichier existant, qu’une liste « config
+        morte à purger » ne nomme pas une clé vivante, qu’un prompt ne prescrit jamais une sortie
+        que le filtre censure, et que le miroir des court‑circuits reste exact entrée par
+        entrée.</li>
+      </ul>
+      <p>S’y ajoutent les limites de débit à deux tiers (rafale / journée), l’exemption explicite
+      des gestes qui ne coûtent rien, et l’approbation humaine sur la seule action irréversible
+      vers l’extérieur.</p>
+    </div>
+    <div class="beat c"><span class="tag">Omis</span>
+      <p><strong>La boucle d’auto‑correction du programme — renvoyer l’erreur au modèle pour qu’il
+      corrige — n’est PAS implémentée.</strong> Quand une validation échoue, le harness
+      <em>accole une note</em>, dégrade proprement ou refuse ; il ne re‑sollicite pas le
+      modèle.</p>
+      <p>Pas de validateur sémantique par un second modèle (<em>LLM‑as‑judge</em>) sur le chemin
+      nominal ; le seul passage de modèle secondaire est le « second rideau » de distillation, par
+      lots de cinq, sur une fenêtre de 6 heures, et hors du chemin de réponse.</p>
+    </div>
+    <div class="beat"><span class="tag">Pourquoi</span>
+      <p>Une boucle d’auto‑correction <strong>double le nombre d’étapes dans le cas le plus
+      défavorable</strong> — précisément le poste de coût dominant. Et elle porte un risque propre
+      que ce projet a documenté ailleurs : faire réécrire au modèle ce qu’il vient de produire, en
+      lui montrant sa propre erreur, produit souvent une seconde version plus <em>plausible</em>
+      sans être plus <em>vraie</em>.</p>
+      <p>Le choix retenu — <strong>accoler un démenti plutôt que régénérer</strong> — coûte zéro
+      appel et laisse la trace visible pour l’humain. Sa contrepartie est assumée : la réponse
+      publiée reste imparfaite, et le démenti n’entre pas en mémoire, <em>car la rejouer
+      apprendrait au modèle à imiter le démenti</em>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>7</b>Planification<br>et raisonnement</div>
+  <div class="body">
+    <h2>Module 7 — Le module le plus largement écarté</h2>
+    <div class="beat r"><span class="tag">Utilisé</span>
+      <p>De la planification <strong>statique</strong>, et une seule : un workflow déterministe
+      d’accueil (<code>employeeOnboardingWorkflow</code>), dont l’issue est un verdict à trois
+      valeurs — <span class="m">completed | degraded | failed</span> — accompagné du couple
+      <em>quoi / pourquoi</em> pour chaque étape dégradée.</p>
+    </div>
+    <div class="beat c"><span class="tag">Omis</span>
+      <p><strong>Toute planification dynamique.</strong> Aucun plan généré par le modèle, aucune
+      décomposition en sous‑tâches, aucune replanification sur échec, aucun solveur externe.</p>
+      <p>Et <strong>trois workflows sur quatre ont été supprimés</strong> le 12 août.</p>
+    </div>
+    <div class="beat"><span class="tag">Pourquoi</span>
+      <p>Trois raisons, dans l’ordre de force :</p>
+      <ol>
+        <li><strong>Les trois workflows supprimés se déclaraient réussis sans faire la moindre
+        entrée‑sortie.</strong> Ils étaient de la planification sans exécution — la forme la plus
+        pure du défaut central de ce projet.</li>
+        <li><strong>Un plan généré par le modèle est une narration tant que rien ne l’exécute</strong>,
+        et ce dépôt a payé cette leçon plusieurs fois. Le suivi de tâches a été supprimé
+        intégralement le 14 août pour ce motif exact : cinq tâches qu’<em>aucun mécanisme ne faisait
+        avancer</em> — ni humain, ni automate, ni outil ne pouvait en marquer une comme faite.
+        <strong>Un suivi qui ne bouge jamais est un suivi qui ment.</strong></li>
+        <li>Un plan coûte au moins un aller‑retour de plus, et souvent un par étape.</li>
+      </ol>
+      <p>La règle qui en est sortie : <strong>quand la séquence est connue, elle est écrite en code
+      ; quand elle ne l’est pas, on pose une question à l’humain.</strong> Le modèle choisit l’outil
+      suivant, il ne rédige pas de plan.</p>
+    </div>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>8</b>Communication<br>et interaction</div>
+  <div class="body">
+    <h2>Module 8 — Interfaces, multi‑agents, style</h2>
+    <div class="beat r"><span class="tag">Utilisé</span>
+      <ul>
+        <li><strong>Une seule interface : Slack</strong> — DM et fils de canal — plus l’email en
+        sortie. Un marqueur de progression poste « Je regarde ça, un instant… » puis se fait
+        <em>remplacer</em> par la réponse : un run prend 2 à 17 secondes, pendant lesquelles le bot
+        paraissait muet.</li>
+        <li><strong>Gestion du dialogue</strong> : un routage à quatre paliers, dont un palier
+        <em>collant</em> (l’agent du dernier tour, si le fil a moins de 60 minutes) et un palier
+        thématique qui peut déloger un fil <strong>à une seule condition, dérivée du câblage</strong> :
+        l’agent qui le mène ne porte pas l’outil exigé.</li>
+        <li><strong>Personnalité et style</strong> : un prénom, un ton de collègue, des réponses
+        figées qui varient de façon <em>déterministe</em> (empreinte de l’horodatage), et un test
+        qui scanne tout <code>src/</code> et échoue sur toute auto‑désignation comme outil ou
+        IA.</li>
+      </ul>
+    </div>
+    <div class="beat c"><span class="tag">Omis</span>
+      <p><strong>Toute la coordination multi‑agents du programme.</strong> Quatre agents existent,
+      mais il n’y a <em>aucun protocole d’échange entre eux</em> : pas de maître‑esclave, pas
+      d’égal à égal, pas d’enchères. Le routage vit dans le harness, <strong>hors de portée du
+      modèle</strong>.</p>
+      <p>Pas de voix, pas d’interface graphique — et, depuis le 19 août,
+      <strong>plus aucun bouton</strong>.</p>
+    </div>
+    <div class="beat"><span class="tag">Pourquoi</span>
+      <p>La passation entre agents a été explicitement <strong>retirée du prompt</strong> : la
+      consigne « pour un email, passe la main à l’agent de notification » <em>ordonnait
+      l’impossible</em> — aucun mécanisme de passation n’existe — et invitait le modèle à
+      <strong>NARRER une délégation qui n’a jamais lieu</strong>. Deux tests protègent cette
+      suppression.</p>
+      <p>Un agent unique portant les treize outils a été examiné puis rejeté sur mesure : les
+      schémas réunis pèsent <strong>≈ 1 622 tokens</strong>, soit ≈ +80 % par aller‑retour. Le coût
+      des agents est <em>alternatif</em>, pas additif — un message va chez un seul agent.</p>
+      <p>Les boutons ont disparu pour une raison physique, mesurée : <strong>5 229 ms à froid pour
+      3 000 accordées</strong>, et un <code>trigger_id</code> qui expire en 3 secondes. Un portier
+      d’acquittement sans dépendance sauve le clic, mais <em>ne peut pas sauver une modale</em> —
+      il répond vite précisément parce qu’il ne connaît rien du produit.</p>
+    </div>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>9</b>Déploiement<br>et échelle</div>
+  <div class="body">
+    <h2>Module 9 — Production</h2>
+    <div class="beat r"><span class="tag">Utilisé</span>
+      <ul>
+        <li><strong>Gestion des coûts et de la latence</strong> — c’est le module où ce projet est
+        le plus avancé, par nécessité : résultats d’outil bornés et rendus <em>indépendants</em> de
+        la taille des données, étapes supprimées, court‑circuits à coût nul, budget débité juste
+        avant l’appel du modèle et non à l’acquittement, bundle élagué par <strong>atteignabilité</strong>
+        (264 → 160 Mo, 20 447 → 8 766 fichiers), portier d’acquittement séparé.</li>
+        <li><strong>Observabilité</strong> : logs JSON structurés avec masquage automatique des
+        données personnelles, y compris la prose écrite par un humain.</li>
+        <li><strong>Séparation des environnements</strong> et secrets en variables d’environnement,
+        jamais journalisés — <em>seulement leur présence</em>.</li>
+        <li><strong>Vérification du livrable</strong> : le contrôle de bundle <em>importe réellement</em>
+        le point d’entrée et produit un vrai PDF et un vrai DOCX depuis le bundle. C’est le seul
+        contrôle qui distingue une liaison ESM rompue d’un pair non satisfait inoffensif.</li>
+      </ul>
+    </div>
+    <div class="beat c"><span class="tag">Omis</span>
+      <p><strong>Docker et Kubernetes.</strong> Essayés le 5 août, <em>abandonnés le jour
+      même</em>.</p>
+      <p><strong>Aucune métrique, aucune trace distribuée</strong> — pas de Prometheus, pas
+      d’OpenTelemetry. <strong>Aucun déploiement progressif</strong>, aucun gestionnaire de secrets
+      dédié. Et <strong>aucune file durable</strong> : le travail de fond est déclaré au lanceur
+      Vercel, ce qui empêche le gel de la fonction mais ne survit pas à sa mort.</p>
+      <p><strong>Aucun choix de modèle selon la complexité</strong> : la cascade est un repli sur
+      panne, pas un routage économique.</p>
+    </div>
+    <div class="beat"><span class="tag">Pourquoi</span>
+      <p>Kubernetes pour sept personnes et ≈ 19 messages par jour serait un système à opérer plus
+      gros que le système opéré. Le serverless a été choisi en connaissance de cause — et sa facture
+      a été présentée quinze jours plus tard, <em>en entier</em> : les rappels programmés n’avaient
+      aucun mécanisme pour partir, et il a fallu un cron externe.</p>
+      <p>Les métriques et les traces sont l’omission <strong>la moins bien justifiée</strong> de ce
+      document, et il faut le dire : ce sont les logs bruts et des sondes écrites à la main qui ont
+      tenu ce rôle. Cela a suffi <em>parce que le volume est faible et que l’auteur lit chaque
+      log</em> — ni l’un ni l’autre n’est une propriété du système.</p>
+    </div>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>10</b>Sécurité<br>et robustesse</div>
+  <div class="body">
+    <h2>Module 10 — Menaces</h2>
+    <div class="beat r"><span class="tag">Utilisé</span>
+      <p>Les cinq menaces du programme sont traitées, et chacune a produit un incident réel :</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Menace</th><th>Traitement</th><th>Incident qui l’a motivé</th></tr></thead>
+          <tbody>
+            <tr><td>Injection de prompt</td><td>en‑tête de sécurité obligatoire, délimiteur à marqueur de session, détecteur d’entrée, filtre de sortie</td><td>garde‑fou écrit mais <strong>jamais appelé</strong> pendant dix jours</td></tr>
+            <tr><td>Fuite de données</td><td>frontière d’autorisation avant toute lecture, rédaction des marqueurs, refus qui ne devient jamais un <em>oracle</em> d’existence</td><td>le prompt système rendu en clair par un simple <code>GET</code></td></tr>
+            <tr><td>Actions non autorisées</td><td>garde sur les deux seuls écrivains exposés, quarantaines croisées, confirmation humaine sur l’envoi externe</td><td>un invité mono‑canal pouvait clore le parcours d’un tiers</td></tr>
+            <tr><td>Déni de service</td><td>limite de rafale, borne de longueur, correctifs ReDoS</td><td>un DM de 8 000 caractères gelait l’instance <span class="m">106 s</span></td></tr>
+            <tr><td>Usurpation d’identité</td><td>contexte de requête refusé (400) s’il est forgé dans le corps HTTP</td><td>le jeton de service valait l’usurpation totale</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:1.1rem">Robustesse : dégradation gracieuse partout (déduplication
+      indisponible → on accepte, <em>un doublon visible vaut mieux qu’un message perdu</em>), et
+      une exception délibérée — la route du cron est <strong>fail‑closed</strong>, parce que sans
+      secret elle serait une primitive publique d’envoi de messages à des salariés.</p>
+    </div>
+    <div class="beat c"><span class="tag">Omis</span>
+      <p><strong>Aucun gestionnaire de secrets</strong> (Vault, AWS Secrets Manager) : variables
+      d’environnement Vercel.</p>
+      <p><strong>La FRAGMENTATION d’injection reste ouverte</strong> — documentée, non corrigée.</p>
+      <p><strong>Aucun chemin d’effacement</strong> pour les notifications, les documents et les
+      données d’un candidat non salarié — nommé comme un trou, pas comme une décision.</p>
+    </div>
+    <div class="beat"><span class="tag">Pourquoi</span>
+      <p>Ce qui distingue ce harness sur ce module n’est pas la liste des protections, c’est
+      <strong>ce qui les vérifie</strong>. Un test mesure 89 charges adverses sur les deux portes
+      d’entrée réelles ; un autre vérifie que les motifs <em>reconnaissent</em> ce qu’ils
+      interdisent, <em>sans quoi le premier serait vert et vide de sens</em>. Et un garde refuse
+      d’appliquer la frontière d’autorisation tant qu’aucun manager n’est désigné — l’appliquer
+      rétrograderait l’organisation entière, et le symptôme ne désignerait pas sa cause.</p>
+    </div>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>11 — 12</b>Patterns avancés<br>et évaluation</div>
+  <div class="body">
+    <h2>Modules 11 &amp; 12 — Patterns, tests, évaluation</h2>
+    <div class="beat r"><span class="tag">Utilisé</span>
+      <p>Le produit <em>est</em> le cas d’usage « agent de support / RH » du module 11, avec ses
+      trois traits : outils métier, approbation humaine sur l’action irréversible, mémoire de
+      conversation et préférences.</p>
+      <p>Côté évaluation : <strong>2 455 tests unitaires</strong>, une suite d’intégration séparée
+      sur base isolée, des tests de <em>mutation</em> qui ont trouvé deux survivants sur des
+      garde‑fous « non négociables », et surtout des <strong>sondes de production</strong> —
+      certaines à coût nul, une explicitement marquée « cette sonde coûte de vrais appels de
+      modèle ».</p>
+    </div>
+    <div class="beat c"><span class="tag">Omis</span>
+      <p><strong>Aucun jeu de données d’évaluation, aucune métrique de qualité agrégée</strong>
+      (taux de succès, score de pertinence), aucun harnais d’<em>eval</em> automatisé.</p>
+      <p>Pas d’agent de codage, pas d’agent créatif, pas de multi‑agents coordonnés.</p>
+    </div>
+    <div class="beat"><span class="tag">Pourquoi</span>
+      <p>Un jeu d’évaluation demande des <em>exécutions répétées</em> — exactement ce que le budget
+      interdisait. Ce qui l’a remplacé n’est pas rien, et vaut d’être nommé : <strong>le rejeu de
+      transcrits de production réels</strong>, message par message, dont sont sortis
+      <strong>sept défauts le 13 août</strong>, quatre le lendemain, et <strong>deux pertes de
+      données silencieuses le 21 août que la relecture n’avait pas vues</strong>.</p>
+      <p>C’est un remplacement inférieur sur un point et supérieur sur un autre : il ne donne aucun
+      chiffre comparable dans le temps, mais il porte sur des phrases que des gens ont réellement
+      tapées. La règle qui en est tirée revient trois fois dans le dépôt : <strong>un détecteur ne
+      se relit pas, il s’exerce sur des phrases que des gens diraient</strong> — et sur un corpus à
+      deux colonnes, celles qui doivent déclencher <em>et</em> celles qui ne le doivent pas.</p>
+    </div>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>L’écart</b>ce que le programme<br>ne couvre pas</div>
+  <div class="body">
+    <h2>Ce qui a dominé ce projet et ne figure dans aucun module</h2>
+    <p>Le programme couvre bien la <em>capacité</em> — percevoir, décider, agir, se protéger. Il ne
+    couvre pas ce qui a occupé la majorité des 237 commits :</p>
+    <ol>
+      <li><strong>La véracité comme propriété du harness, pas du modèle.</strong> Le module 6
+      valide le <em>format</em> et la <em>sécurité</em> d’une sortie ; il ne demande jamais
+      « <em>cette phrase correspond‑elle à ce qui s’est réellement passé ?</em> ». C’est pourtant
+      la question qui a produit le plus de code ici, et le harness est le seul endroit où l’on
+      puisse y répondre : il voit à la fois la réponse et la trace.</li>
+      <li><strong>Le câblage manquant entre deux bords corrects.</strong> Le défaut le plus fréquent
+      du projet n’a jamais été un composant faux, mais deux composants justes que rien ne relie :
+      un garde‑fou jamais appelé, une colonne écrite par aucun chemin, une fonction correcte sans
+      appelant, une route jamais montée. Aucun module ne parle de <em>vérifier l’atteignabilité</em>
+      de ce qu’on a construit.</li>
+      <li><strong>La dérive de ce que le système affirme sur lui‑même.</strong> Sur onze
+      affirmations fausses trouvées lors d’un audit, <strong>onze étaient dans la documentation à
+      distance du code</strong>. Une documentation périmée n’est pas un défaut cosmétique dans un
+      harness : elle a failli faire purger la clé du modèle primaire, et la panne aurait été
+      <em>silencieuse</em>.</li>
+      <li><strong>Le coût comme contrainte de conception, pas d’optimisation.</strong> Le module 9
+      traite le coût en fin de parcours. Ici, il a décidé de l’architecture : pas de RAG vectoriel,
+      pas de plan généré, pas d’auto‑correction, pas de résumé — <em>et neuf réponses qui
+      n’appellent jamais le modèle</em>.</li>
+    </ol>
+    <div class="note">
+      <p>La formule fondatrice du programme — <strong>Agent = Modèle + Harness</strong> — reste
+      juste. Ce projet en propose une lecture plus étroite, tirée de trois semaines de mesures :
+      <em>le harness n’est pas ce qui donne des pouvoirs au modèle, c’est ce qui rend vérifiable ce
+      que le modèle prétend avoir fait.</em></p>
+    </div>
+  </div>
+</section>
+
+<div class="pager">
+  <span><a href="journal/index.html">Journal de bord, jour par jour</a></span>
+  <span><a href="notions-agentiques.html">Notions agentiques</a></span>
+  <span><a href="recapitulatif-projet.html">Récapitulatif du projet</a></span>
+</div>
+
+<footer>
+  Confronté au code du 2026‑08‑24 · chaque « utilisé » est vérifiable dans <code>src/</code> ·
+  chaque « omis » a été cherché avant d’être déclaré absent
+</footer>
+
+</div>

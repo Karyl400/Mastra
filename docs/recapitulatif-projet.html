@@ -164,18 +164,19 @@
 <div class="sheet">
 
 <header class="row">
-  <div class="rail"><b>2026‑08‑05</b>→ 2026‑08‑19<br>152 commits</div>
+  <div class="rail"><b>2026‑07‑28</b>→ 2026‑08‑23<br>237 commits<br>16 jours actifs</div>
   <div class="body">
     <p class="eyebrow">Carnet de bord</p>
     <h1>Un bot qui a d’abord appris à ne plus mentir</h1>
     <p class="lede">Kisso est un assistant d’intégration RH sur Slack : quatre agents qui retrouvent une fiche, produisent un document, écrivent à un candidat, résument un canal. L’essentiel du travail n’a pas porté sur ce qu’il sait faire, mais sur l’écart entre ce qu’il faisait et ce qu’il en disait.</p>
     <p>Ce document raconte le projet dans l’ordre où il s’est révélé : ce qu’on croyait, ce qu’on a mesuré, et ce qu’on a changé. Chaque affirmation ci-dessous a une date et une trace.</p>
+    <p>Il est <b>thématique</b>. Pour le même parcours <b>jour par jour</b> — le problème constaté, les options envisagées, celle retenue et ce qu’elle a écarté — voir le <a href="journal/index.html">journal de bord</a>. Pour la grille d’ingénierie de <i>harness</i> confrontée à ce code, voir <a href="harness-engineering.html">ce qui est utilisé et ce qui est omis</a>.</p>
     <div class="stats">
       <div class="stat"><b>4</b><span>agents exposés</span></div>
       <div class="stat"><b>13</b><span>outils câblés</span></div>
-      <div class="stat"><b>1&nbsp;701</b><span>tests unitaires</span></div>
-      <div class="stat"><b>32&nbsp;256</b><span>lignes TypeScript</span></div>
-      <div class="stat"><b>100&nbsp;000</b><span>tokens / jour</span></div>
+      <div class="stat"><b>2&nbsp;579</b><span>tests unitaires</span></div>
+      <div class="stat"><b>22&nbsp;028</b><span>lignes dans <code>src/</code></span></div>
+      <div class="stat"><b>9</b><span>réponses sans modèle</span></div>
       <div class="stat"><b>3&nbsp;s</b><span>budget Slack</span></div>
     </div>
   </div>
@@ -185,14 +186,14 @@
   <div class="rail"><b>Le but</b>Ce que le produit fait</div>
   <div class="body">
     <h2>Ce que le produit fait, et pour qui</h2>
-    <p>Kisso Industries accueille des salariés à Lagos. Le bot vit dans leur Slack et sert quatre choses, chacune portée par un agent distinct :</p>
+    <p>Kisso Industries accueille des salariés en Afrique de l’Ouest. Le bot vit dans leur Slack et sert quatre choses, chacune portée par un agent distinct :</p>
     <ul>
       <li><b>Accueillir.</b> Quand quelqu’un rejoint le workspace, il reçoit un message privé, complète sa fiche, et répond à deux questions sur son quotidien.</li>
       <li><b>Retrouver.</b> « Le profil de la personne dont l’email est X », « qui s’occupe du backend ? ».</li>
       <li><b>Produire.</b> Un guide d’accueil ou une lettre, rendus en PDF ou DOCX et déposés dans la conversation.</li>
       <li><b>Écrire.</b> Un rappel à un collègue, une invitation d’entretien à un candidat externe — celle-ci relue par un humain avant de partir.</li>
     </ul>
-    <p>Rien de tout cela n’est spectaculaire. Ce qui l’est, c’est la contrainte : <b>≈ 19 messages par jour pour tout le workspace</b>, et <b>3 secondes</b> pour répondre à Slack. Ces deux chiffres ont dicté presque toutes les décisions qui suivent.</p>
+    <p>Rien de tout cela n’est spectaculaire. Ce qui l’est, c’est la contrainte : <b>≈ 19 messages par jour pour tout le workspace</b>, et <b>3 secondes</b> pour répondre à Slack. Ces deux chiffres ont dicté presque toutes les décisions qui suivent. <b>Le premier est tombé le 20 août</b> — voir plus bas ; les décisions qu’il a produites, elles, sont restées.</p>
   </div>
 </section>
 
@@ -401,7 +402,7 @@
 
     <details>
       <summary>Le message de détresse</summary>
-      <p>Le seul texte du produit dont un défaut peut nuire à une personne. Il citait le <b>3114</b>, numéro français : il ne joignait personne depuis Lagos. Il cite désormais une ligne nigériane vérifiée et le numéro d’urgence national. Il n’a délibérément <b>aucune variante</b>, et un test le verrouille : chaque phrase y est pesée, varier n’y apporterait qu’un risque.</p>
+      <p>Le seul texte du produit dont un défaut peut nuire à une personne. Il citait le <b>3114</b>, numéro français : il ne joignait personne depuis l’Afrique de l’Ouest. Depuis le 21 août il cite le <b>117</b> (Police Républicaine du Bénin, gratuit 24 h/24) et le <b>112</b>, chacun accompagné de sa source dans le code — et <b>trois autres numéros ont été écartés à la vérification</b>, tous réels, gratuits, et joignant quelqu’un <i>dans un autre pays</i>. Il n’a délibérément <b>aucune variante</b>, et un test le verrouille : chaque phrase y est pesée, varier n’y apporterait qu’un risque.</p>
     </details>
   </div>
 </section>
@@ -417,7 +418,74 @@
       <span class="said"><span class="tag">État des migrations versionnées</span>Le dossier <code>drizzle/</code> décrit une table à 11 colonnes.</span>
       <span class="saw"><span class="tag">Réalité</span>Le schéma en déclare 20. Les appliquer sur une base vierge échoue. La base de travail n’a jamais été construite par le migrateur — c’est une dette connue, écrite noir sur blanc plutôt que découverte un jour d’incident.</span>
     </div>
-    <p>En production aujourd’hui : <span class="m">18 tables applicatives</span>, dont 2 fiches employés, 41 personnes dans l’annuaire Slack, 20 documents et 20 tours de conversation.</p>
+    <p>Relevé en production <b>le 19 août</b>, et non revérifié depuis : <span class="m">18 tables applicatives</span>, dont 2 fiches employés, 41 personnes dans l’annuaire Slack, 20 documents et 20 tours de conversation. Trois tables ont été ajoutées depuis — l’archive des messages, les faits distillés, et la marque de distillation.</p>
+  </div>
+</section>
+
+<section class="row">
+  <div class="rail"><b>20 → 23 août</b>ce qui a changé<br>après la première<br>rédaction</div>
+  <div class="body">
+    <h2>Quatre jours qui ont déplacé les fondations</h2>
+    <p>Ce document a été écrit le 19 août. Les quatre jours suivants ont défait trois de ses
+    prémisses — il faut donc les lire ici plutôt que de les découvrir en contradiction.</p>
+
+    <div class="pair">
+      <span class="said"><span class="tag">Écrit le 19 août</span>« ≈ 19 messages par jour reste la
+      contrainte qui gouverne tout. Aucun correctif logiciel ne la déplace. »</span>
+      <span class="saw"><span class="tag">20 août</span>Gemini devient le modèle primaire, Groq le
+      premier repli, Mistral le dernier recours. Le budget passe à plusieurs millions de tokens par
+      jour. <b>La contrainte qui gouvernait chaque décision de coût depuis le 11 août cesse d’être
+      la contrainte</b> — et rien de ce qu’elle avait produit n’est repris : les résultats d’outil
+      restent bornés, les étapes supprimées le restent, et les neuf réponses sans modèle
+      aussi.</span>
+    </div>
+
+    <div class="pair">
+      <span class="said"><span class="tag">Écrit le 19 août</span>« La frontière d’autorisation ne
+      refuse rien tant qu’elle n’est pas activée. »</span>
+      <span class="saw"><span class="tag">20 août</span>Elle est <b>activée en production</b>, après
+      deux corrections de fond : la portée était <i>collective</i> (les six personnes obtenaient le
+      même accès complet, donc chacune pouvait lire le dossier des cinq autres), et le fait décisif
+      — le domaine de l’adresse email — était <b>contrôlé par le bénéficiaire</b>. L’accès complet
+      vaut désormais si et seulement si le compte porte le rôle <i>manager</i> dans l’annuaire.
+      Relevé après désignation : <b>1 personne sur 7</b>. Vérifié par les deux moitiés, parce qu’un
+      refus généralisé est indiscernable d’une frontière qui marche.</span>
+    </div>
+
+    <div class="pair">
+      <span class="said"><span class="tag">Écrit le 19 août</span>« Aucun ordonnanceur. Les rappels
+      sont enregistrés, jamais envoyés — et le bot le dit désormais. »</span>
+      <span class="saw"><span class="tag">21 août</span>Le verdict du propriétaire sur cette réponse
+      honnête : <b>« ce n’est pas le but d’un rappel »</b>. Il avait raison — l’honnêteté avait
+      remplacé un mensonge par une <i>inutilité</i>. Un cron quotidien remet les rappels dus,
+      vérifié en production le jour même : <b>3 rappels réellement remis</b>, second passage
+      <span class="m">due: 0</span>. La granularité est un fait de plateforme et non un choix : une
+      exécution par jour, l’heure garantie à ±59 min. Des deux erreurs possibles — le matin du
+      <i>bon jour</i> ou le <i>lendemain</i> — on choisit le bon jour.</span>
+    </div>
+
+    <h3>Et trois choses qui n’existaient pas</h3>
+    <ul>
+      <li><b>Marcel.</b> Le bot n’avait aucun nom et se présentait par sa nature. Il en a un, un ton
+      de collègue, et ne se dit plus jamais outil, agent ou IA — garanti par un test qui scanne tout
+      <code>src/</code>, parce que ce dépôt a mesuré quatre consignes en échec. L’ordre des gestes a
+      décidé de tout : le détecteur de fausses annonces est passé de 6 à 14 familles de motifs
+      <i>avant</i> la première modification de ton, l’ancien reposant sur des tournures
+      administratives où « Voilà, ton document t’attend » n’entrait pas.</li>
+      <li><b>Une base de connaissance à deux niveaux</b> — le message brut, et ce qui en vaut la
+      peine, distillé par du <i>code</i> et non par un modèle. Constat de départ, et il change la
+      question : <b>les deux tables étaient vides</b>. Le pipeline était câblé depuis des semaines,
+      la recherche ne pouvait rendre que « je ne sais rien », et rien ne le signalait. Ce qui
+      manquait n’était pas du code — ce sont les abonnements Slack, un geste humain dans une
+      console, <b>toujours en attente</b>.</li>
+      <li><b>Le pourquoi a quitté le code.</b> 16 600 lignes de commentaires explicatifs sont
+      parties dans <code>docs/conception/</code>, une page par feature. Décision à contre-courant,
+      assumée avec sa contrepartie : l’audit du 20 août avait trouvé onze affirmations fausses dans
+      ce dépôt, <b>les onze dans la documentation à distance, aucune dans un commentaire adjacent au
+      code</b>. La règle posée en échange — <i>quand une décision change, sa page change dans le
+      même commit</i> — et un test qui fait rougir le retour d’un commentaire dans
+      <code>src/</code>.</li>
+    </ul>
   </div>
 </section>
 
@@ -440,19 +508,37 @@
   <div class="rail"><b>Ouvert</b>ce qui reste</div>
   <div class="body">
     <h2>Ce qui reste ouvert</h2>
+    <p class="lede" style="font-size:1.02rem">Relevé le 24 août, depuis <code>AUDIT_REPORT.md</code>
+    §8 et le code. Les cinq points écrits le 19 août sont <b>tous fermés ou dépassés</b> sauf
+    un — les migrations versionnées.</p>
     <ul>
-      <li><b>Le quota.</b> ≈ 19 messages par jour reste la contrainte qui gouverne tout. Aucun correctif logiciel ne la déplace : c’est un palier payant, ou l’acceptation de la limite.</li>
-      <li><b>La frontière d’autorisation en observation.</b> Écrite et testée, elle ne refuse rien tant qu’elle n’est pas activée — et l’activer demande d’abord de corriger une adresse d’annuaire.</li>
-      <li><b>Le démarrage à froid.</b> Ramené sur le chemin tiède, intact à froid : 5 s. Il n’est plus <i>bloquant</i> puisque plus rien d’irrattrapable n’en dépend, mais Slack affiche encore une erreur sur le premier clic d’une journée.</li>
-      <li><b>Aucun ordonnanceur.</b> Les rappels sont enregistrés, jamais envoyés — et le bot le dit désormais, plutôt que de le taire.</li>
-      <li><b>Les migrations versionnées</b> restent désynchronisées du schéma réel.</li>
+      <li><b>La rétention n’a jamais tourné.</b> <code>KNOWLEDGE_RETENTION_DAYS</code> est déclarée
+      <i>vide</i> dans <code>.env.example</code>, donc la copier ne suffit pas ; elle n’est posée ni
+      en local ni en production. Le cron appelle fidèlement la purge chaque matin pour ressortir
+      aussitôt désactivé : <b>rien n’a jamais été purgé</b>, et depuis le 21 août les messages privés
+      sont archivés et lisibles par le manager. Ce n’est pas un défaut de code, c’est une valeur à
+      poser.</li>
+      <li><b>La base de connaissance ne reçoit rien.</b> <code>message.channels</code> et
+      <code>message.groups</code> ne sont pas abonnés dans la console Slack. Le code fonctionne, de
+      bout en bout et vérifié ; ce qui manque est un geste humain.</li>
+      <li><b>Les migrations versionnées</b> restent désynchronisées du schéma réel — 12 tables sur
+      21 y manquent, et aucune création de base n’est reproductible. Le seul point du 19 août
+      encore ouvert à l’identique.</li>
+      <li><b>Le fail-open sur le jeton de service</b> : un porteur du jeton d’API ne se voit pas
+      poser de niveau d’accès, et vaut donc toutes les routes.</li>
+      <li><b>Aucun chemin d’effacement</b> pour les notifications, les documents, et les données
+      d’un candidat non salarié.</li>
+      <li><b>La fragmentation d’injection</b> — documentée, mesurée, non corrigée.</li>
+      <li><b>Node tourne en 20.19.4</b> alors que le projet exige <span class="m">&gt;=22.13.0</span>.</li>
+      <li><b>Ni couverture ni tests d’intégration en CI</b>, et aucun jeu de données d’évaluation :
+      ce qui tient ce rôle, ce sont des sondes de production écrites à la main.</li>
     </ul>
   </div>
 </section>
 
 <footer class="row">
   <div class="rail">fin</div>
-  <div class="body">Kisso Industries · branche <span class="m">refactor/cleanup-20260810</span> · 152 commits, du 5 au 19 août 2026 · chiffres relevés en production, non estimés</div>
+  <div class="body">Kisso Industries · branche <span class="m">refactor/cleanup-20260810</span> · 237 commits, du 28 juillet au 23 août 2026 · chiffres relevés en production ou re-mesurés le 24 août, jamais estimés · <a href="journal/index.html">journal jour par jour</a> · <a href="harness-engineering.html">grille harness</a></div>
 </footer>
 
 </div>

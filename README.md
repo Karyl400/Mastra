@@ -120,9 +120,10 @@ Autres répertoires :
 | --- | --- |
 | `tests/unit/` | Miroir de `src/`. Les dépôts `in-memory-*` servent de doublure — ne jamais mocker Drizzle à la main |
 | `tests/integration/` | Tests touchant de vrais fournisseurs. **Non lancés par la CI** : ils consomment du quota |
+| `docs/journal/` | **Le parcours jour par jour** — constaté / envisagé / retenu / livré. 6 pages HTML, du 28 juillet au 23 août |
 | `docs/conception/` | Les décisions de conception, une page par feature |
 | `docs/adr/` | Décisions d'architecture. On n'en modifie jamais une : on en crée une nouvelle |
-| `scripts/` | Outillage d'exploitation. Hors `typecheck` et hors `lint` |
+| `scripts/` | Outillage d'exploitation. **Couvert par `typecheck` et `lint` depuis le 2026-08-21** — trois défauts réels y ont été trouvés dans la minute |
 | `drizzle/` | Migrations générées. **Désynchronisées du schéma** — voir `docs/conception/plateforme.md` |
 | `public/` | Actifs statiques servis par le CDN, jamais par la fonction |
 
@@ -234,8 +235,20 @@ Trois réglages non évidents, chacun ayant déjà rendu le bot muet :
 5. Documentation en français, **code et identifiants en anglais**.
 
 Les décisions de conception ne vivent pas dans le code : elles sont dans
-[`docs/conception/`](docs/conception/), une page par feature, chaque entrée renvoyant au
-fichier et à la ligne concernés.
+[`docs/conception/`](docs/conception/), une page par feature, chaque entrée ancrée sur la
+**déclaration** qu'elle précédait — jamais sur un numéro de ligne, qui se périme au premier
+retrait de commentaire.
+
+### Les documents à lire, et dans quel ordre
+
+| Document | Ce qu'il répond |
+| --- | --- |
+| [Journal de bord](docs/journal/index.html) | **Le parcours jour par jour** : ce qui a été constaté, envisagé, retenu, et ce que chaque décision a écarté |
+| [Récapitulatif du projet](docs/recapitulatif-projet.html) | Le même parcours par **thème** : le but, la stack, les décisions, ce qui reste ouvert |
+| [Harness Engineering](docs/harness-engineering.html) | **Ce que ce harness utilise, ce qu'il omet, et pourquoi** — les douze modules confrontés au code |
+| [Notions agentiques](docs/notions-agentiques.html) | Les notions, délibérément hors du temps |
+| [Audit — 100 points](docs/audit-2026-08-20-100-points.html) | Un verdict par point de contrôle |
+| `AUDIT_REPORT.md` §8 | **La liste des points ouverts**, par priorité |
 
 ---
 

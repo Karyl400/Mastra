@@ -1,0 +1,538 @@
+<title>Kisso — § 1 · La fondation, et les versions qui s’arrêtent</title>
+<style>
+  :root {
+    --ink: #101418;
+    --paper: #f6f5f2;
+    --slate: #616c6b;
+    --verified: #0e6b57;
+    --claimed: #a33420;
+    --rule: rgba(16, 20, 24, 0.13);
+    --raise: rgba(14, 107, 87, 0.06);
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", ui-serif, serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e6e1;
+      --paper: #0e1214;
+      --slate: #8f9b98;
+      --verified: #4fbfa2;
+      --claimed: #e0765c;
+      --rule: rgba(232, 230, 225, 0.16);
+      --raise: rgba(79, 191, 162, 0.08);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e8e6e1;
+    --paper: #0e1214;
+    --slate: #8f9b98;
+    --verified: #4fbfa2;
+    --claimed: #e0765c;
+    --rule: rgba(232, 230, 225, 0.16);
+    --raise: rgba(79, 191, 162, 0.08);
+  }
+  :root[data-theme="light"] {
+    --ink: #101418;
+    --paper: #f6f5f2;
+    --slate: #616c6b;
+    --verified: #0e6b57;
+    --claimed: #a33420;
+    --rule: rgba(16, 20, 24, 0.13);
+    --raise: rgba(14, 107, 87, 0.06);
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 5rem) clamp(1.1rem, 4vw, 3rem) 6rem;
+  }
+
+  /* ---- rail de marge : les dates et les mesures, comme un carnet ---- */
+  .row { display: grid; grid-template-columns: 1fr; gap: 0.5rem 2.5rem; }
+  @media (min-width: 1000px) {
+    .row { grid-template-columns: 11rem 1fr; }
+  }
+  .rail {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.5;
+    letter-spacing: 0.04em;
+    color: var(--slate);
+    text-transform: uppercase;
+    padding-top: 0.55rem;
+  }
+  @media (min-width: 1000px) { .rail { text-align: right; } }
+  .rail b { display: block; color: var(--ink); font-weight: 700; letter-spacing: 0.02em; }
+
+  .body { max-width: 66ch; }
+  .body > * + * { margin-top: 1.05rem; }
+
+  h1, h2, h3 { text-wrap: balance; font-weight: 700; letter-spacing: -0.014em; }
+  h1 { font-size: clamp(2.2rem, 6vw, 3.5rem); line-height: 1.06; }
+  h2 { font-size: clamp(1.5rem, 3.4vw, 2.05rem); line-height: 1.14; }
+  h3 { font-size: 1.16rem; line-height: 1.3; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--verified);
+    margin-bottom: 0.7rem;
+  }
+  .lede { font-size: 1.24rem; line-height: 1.5; color: var(--slate); }
+
+  section { padding-top: clamp(2.6rem, 6vw, 4.6rem); }
+  section + section { border-top: 1px solid var(--rule); }
+
+  a { color: var(--verified); text-underline-offset: 0.18em; }
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--verified);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  code, .m { font-family: var(--mono); font-size: 0.855em; }
+  code { background: var(--raise); padding: 0.08em 0.32em; border-radius: 3px; }
+
+  /* ---- le motif central : ce qui a été AFFIRMÉ, ce qui a été CONSTATÉ ---- */
+  .pair { margin-top: 1.6rem; }
+  .pair .said, .pair .saw { display: block; padding-left: 1.05rem; }
+  .pair .said {
+    font-style: italic;
+    color: var(--slate);
+    border-left: 2px solid var(--claimed);
+    padding-bottom: 0.15rem;
+  }
+  .pair .saw {
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    line-height: 1.55;
+    border-left: 2px solid var(--verified);
+    padding-top: 0.5rem;
+  }
+  .pair .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 0.2rem;
+  }
+  .pair .said .tag { color: var(--claimed); }
+  .pair .saw .tag { color: var(--verified); }
+
+  ul, ol { padding-left: 1.25rem; }
+  li + li { margin-top: 0.5rem; }
+
+  .scroll { overflow-x: auto; margin-top: 1.4rem; }
+  table { border-collapse: collapse; width: 100%; min-width: 33rem; font-size: 0.93rem; }
+  th, td { text-align: left; padding: 0.62rem 0.9rem 0.62rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--slate);
+    font-weight: 400;
+  }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  details {
+    border-top: 1px solid var(--rule);
+    padding: 0.9rem 0;
+  }
+  summary { cursor: pointer; font-weight: 700; list-style-position: outside; }
+  summary::marker { color: var(--verified); }
+  details > *:not(summary) { margin-top: 0.85rem; max-width: 66ch; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1.6rem 1.2rem; margin-top: 2rem; }
+  .stat b { display: block; font-family: var(--mono); font-size: 1.65rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .stat span { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--slate); }
+
+  footer { margin-top: 5rem; padding-top: 1.6rem; border-top: 1px solid var(--rule); color: var(--slate); font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.04em; }
+
+  /* ---- propre au journal : la navigation entre chapitres ---- */
+  nav.chapters { margin-top: 2.2rem; display: grid; gap: 0.1rem; }
+  nav.chapters a {
+    display: grid; grid-template-columns: 3.2rem 1fr; gap: 1rem;
+    padding: 0.72rem 0; border-top: 1px solid var(--rule);
+    text-decoration: none; color: var(--ink);
+  }
+  nav.chapters a:last-child { border-bottom: 1px solid var(--rule); }
+  nav.chapters a:hover strong { text-decoration: underline; text-underline-offset: 0.18em; }
+  nav.chapters .no { font-family: var(--mono); font-size: 0.72rem; color: var(--slate); padding-top: 0.28em; letter-spacing: 0.08em; }
+  nav.chapters strong { display: block; font-weight: 700; }
+  nav.chapters em { display: block; font-style: normal; font-size: 0.9rem; color: var(--slate); margin-top: 0.12rem; }
+
+  .pager {
+    margin-top: 3.4rem; padding-top: 1.4rem; border-top: 1px solid var(--rule);
+    display: flex; flex-wrap: wrap; gap: 0.4rem 1.6rem;
+    font-family: var(--mono); font-size: 0.76rem; letter-spacing: 0.04em;
+  }
+
+  /* ---- propre au journal : une journée, quatre temps ---- */
+  article.day { padding-top: clamp(2.2rem, 5vw, 3.4rem); }
+  article.day + article.day { border-top: 1px solid var(--rule); }
+  article.day h3 { margin-bottom: 0.15rem; }
+
+  .beat { margin-top: 1.05rem; padding-left: 1.05rem; border-left: 2px solid var(--rule); max-width: 66ch; }
+  .beat > * + * { margin-top: 0.7rem; }
+  .beat .tag {
+    display: block; font-family: var(--mono); font-size: 0.66rem;
+    letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 0.28rem; color: var(--slate);
+  }
+  .beat.c { border-left-color: var(--claimed); }
+  .beat.c .tag { color: var(--claimed); }
+  .beat.r { border-left-color: var(--verified); }
+  .beat.r .tag { color: var(--verified); }
+  .beat.l { border-left-style: dotted; }
+  .beat.l ul { font-family: var(--mono); font-size: 0.8rem; line-height: 1.5; list-style: none; padding-left: 0; }
+  .beat.l li + li { margin-top: 0.28rem; }
+  .beat.l .sha { color: var(--slate); }
+
+  /* ---- propre au journal : la frise ---- */
+  .frise { margin-top: 2rem; display: grid; gap: 0.1rem; }
+  .frise .d {
+    display: grid; grid-template-columns: 5.6rem 3.2rem 1fr; gap: 0.9rem;
+    align-items: baseline; padding: 0.42rem 0; border-top: 1px solid var(--rule);
+    font-size: 0.92rem;
+  }
+  .frise .d:last-child { border-bottom: 1px solid var(--rule); }
+  .frise .dd { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.05em; color: var(--slate); }
+  .frise .bar { font-family: var(--mono); font-size: 0.74rem; color: var(--verified); white-space: nowrap; }
+  .frise .d.void .bar { color: var(--slate); }
+  .frise .d.void { color: var(--slate); font-style: italic; }
+  @media (max-width: 33rem) {
+    .frise .d { grid-template-columns: 4.6rem 2.6rem 1fr; gap: 0.55rem; font-size: 0.86rem; }
+  }
+
+  .note {
+    margin-top: 1.4rem; padding: 0.9rem 1.05rem; background: var(--raise);
+    border-left: 2px solid var(--verified); border-radius: 0 3px 3px 0;
+    font-size: 0.95rem; max-width: 66ch;
+  }
+  .note.warn { border-left-color: var(--claimed); }
+  .note > * + * { margin-top: 0.6rem; }
+</style>
+
+<div class="sheet">
+
+<header class="row">
+  <div class="rail"><b>§ 1</b>28 juil. → 7 août<br>32 commits<br>v0.1.0 → v0.9.0</div>
+  <div class="body">
+    <p class="eyebrow">Journal · chapitre 1</p>
+    <h1>La fondation, et les versions qui s’arrêtent</h1>
+    <p class="lede">Onze jours, dont sept sans un seul commit. C’est la seule période du projet
+    qui porte des numéros de version — et la seule où le dépôt ne consigne presque jamais
+    l’alternative écartée. Les deux faits sont liés : on construisait, on ne tranchait pas
+    encore.</p>
+  </div>
+</header>
+
+<article class="day row" id="j-07-28">
+  <div class="rail"><b>28 juillet</b>0 commit<br><span class="m">v0.1.0</span></div>
+  <div class="body">
+    <h3>L’architecture est validée avant d’exister</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>Rien encore. Le premier enregistrement du projet est une <em>intention</em> : « 3 agents
+      (OnboardingOrchestrator, QuestionnaireEngine, NotificationAgent), 8+ outils, 4 workflows ».
+      Aucun code, aucun commit — la version <span class="m">0.1.0</span> décrit un plan.</p>
+    </div>
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Le <code>CHANGELOG</code> ne consigne aucune alternative. Les cinq ADR initiaux
+      (<code>docs/adr/001</code> à <code>005</code>) seront rédigés le lendemain et portent, eux,
+      les arbitrages : architecture et stack, structure des agents, modèle de données, stratégie
+      de notifications, workflows et orchestration.</p>
+    </div>
+    <div class="beat r"><span class="tag">Retenu</span>
+      <p>Trois agents et quatre workflows. <strong>Il en restera quatre agents et un seul
+      workflow</strong> — les trois autres seront retirés le 12 août parce qu’ils se déclaraient
+      réussis sans faire la moindre entrée‑sortie. La cible de départ n’était pas fausse ; elle
+      était non vérifiée, ce qui est le sujet de tout ce journal.</p>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-07-29">
+  <div class="rail"><b>29 juillet</b>3 commits<br><span class="m">v0.1.1 → v0.5.0</span><br>six versions<br>en un jour</div>
+  <div class="body">
+    <h3>Six versions en une journée, et une passerelle de sécurité contre 30 vecteurs</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>Le premier jet mettait Zod <em>dans les entités du domaine</em> et faisait dépendre le
+      métier d’une bibliothèque de validation. Par ailleurs <code>npm run typecheck</code>
+      échouait : la signature des outils avait changé dans <code>@mastra/core</code> 1.53.0.</p>
+    </div>
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Garder Zod partout — c’est le chemin court, et c’est ce que fait la majorité des projets
+      Mastra. Le dépôt ne consigne pas de débat ; il consigne le résultat : <em>« Purification du
+      domaine : retrait total de Zod des entités »</em>.</p>
+    </div>
+    <div class="beat r"><span class="tag">Retenu</span>
+      <p>Clean Architecture stricte, en trois couches par feature. <code>domain</code> devient du
+      TypeScript pur, avec un value‑object <code>Email</code> et des classes immuables ; Zod ne
+      vit plus que dans <code>application</code>. <strong>Ce qui a été écarté</strong> : la
+      commodité d’un schéma unique partagé de bout en bout.</p>
+      <p>Le même jour, une passerelle de sécurité LLM est posée
+      (<code>prompt-defense.ts</code>, <code>llm-guardrail.ts</code>) contre 30 vecteurs
+      d’attaque — injection directe et indirecte, exfiltration, <em>token flooding</em>,
+      empoisonnement RAG — et le <code>SYSTEM_SECURITY_PROMPT</code> devient l’en‑tête obligatoire
+      des agents.</p>
+    </div>
+
+    <div class="note warn">
+      <p><strong>Ce qui n’a pas été vu ce jour‑là, et qui coûtera dix jours.</strong> La
+      passerelle est écrite, testée, et <em>n’est appelée que par ses propres tests</em>.
+      <code>wrapUserInput()</code>, <code>wrapExternalData()</code> et
+      <code>assembleSecurePrompt()</code> n’ont aucun appelant en production ; les agents importent
+      la constante brute, si bien que les littéraux <span class="m">{DELIMITER_PREFIX}</span> et
+      <span class="m">[[SESSION_MARKER]]</span> partent au modèle sans être substitués. Le
+      branchement n’aura lieu que le <strong>8 août</strong>.</p>
+      <p>C’est la première occurrence de la forme qui domine tout le projet : <em>deux bords
+      corrects, aucun câblage entre les deux</em>.</p>
+    </div>
+
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul>
+        <li><span class="sha">c4f3a55</span> Initial commit — Clean Architecture, LLM Security, Drizzle ORM</li>
+        <li><span class="sha">ba648e1</span> Refactor — Clean Architecture, Security, Code Quality (phases 1‑4)</li>
+        <li><span class="sha">74443e1</span> chore — désindexe les markdown racine et <code>.env.example</code></li>
+      </ul>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-07-30">
+  <div class="rail"><b>30 juillet</b>0 commit<br><span class="m">v0.6.0</span></div>
+  <div class="body">
+    <h3>Une liste de 500 tests, dont 15 sont écrits</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>Aucune stratégie de test. La sécurité LLM posée la veille n’a pas d’exercice adverse.</p>
+    </div>
+    <div class="beat r"><span class="tag">Retenu</span>
+      <p>Une liste de 500 tests planifiés, et la première suite réellement écrite : <strong>15
+      tests</strong> contre l’injection de prompt, la fuite de données et le <em>token
+      flooding</em>. Une expression régulière d’extraction de secrets est corrigée au passage.</p>
+      <p>Le rapport 15 / 500 est le vrai enseignement du jour. Il tiendra : la suite passera
+      2 455 tests un mois plus tard, mais jamais par l’application d’une liste — toujours par
+      <em>un défaut trouvé, puis verrouillé</em>.</p>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-07-31">
+  <div class="rail"><b>31 juillet</b>2 commits<br><span class="m">v0.7.0</span></div>
+  <div class="body">
+    <h3><code>.extend() is not a function</code> — le premier piège de schéma</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p><code>createEmployeeSchema.extend is not a function</code>, et trois fois le même défaut
+      sur <code>createTaskSchema</code>, <code>createNotificationSchema</code>,
+      <code>createQuestionnaireSchema</code>. Cause : <code>.refine()</code> enveloppe un
+      <code>z.object</code> dans un <code>ZodEffects</code>, qui n’a pas de méthode
+      <code>.extend()</code>.</p>
+    </div>
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Deux issues seulement : abandonner <code>.refine()</code> et perdre la validation
+      croisée, ou dupliquer les schémas.</p>
+    </div>
+    <div class="beat r"><span class="tag">Retenu</span>
+      <p>Ni l’un ni l’autre — extraire la base <code>z.object</code> nue dans une constante non
+      exportée (<code>createEmployeeBaseSchema</code>…), appliquer <code>.extend()</code> et
+      <code>.partial()</code> dessus, et n’exporter que les versions enveloppées de
+      <code>.refine()</code>. Une seule source, les deux capacités.</p>
+      <p>C’est le premier d’une longue série d’ennuis avec Zod. Le projet finira par
+      <strong>épingler <code>3.25.76</code></strong> et par s’interdire
+      <code>z.discriminatedUnion</code> et les classes Unicode <code>\p{L}</code> dans les schémas
+      d’outils — le parseur de schémas du SDK casse dessus.</p>
+    </div>
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul>
+        <li><span class="sha">ab30906</span> fix — TypeError <code>.extend()</code> sur les schémas <code>ZodEffects</code></li>
+        <li><span class="sha">7dda708</span> docs — <code>TODO.md</code> et <code>CHANGELOG.md</code></li>
+      </ul>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-08-03">
+  <div class="rail"><b>3 août</b>0 commit<br><span class="m">v0.8.0</span></div>
+  <div class="body">
+    <h3>Le PDF, et une API qui n’existait plus</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p><code>PdfmakeService</code> était écrit contre <code>PdfPrinter</code> — l’API de
+      pdfmake&nbsp;0.2, incompatible avec la 0.3 installée. Et
+      <code>documentGenerationWorkflow</code> rendait un champ <code>documentUrl</code> pour un
+      fichier local, c’est‑à‑dire une URL qui n’en était pas une.</p>
+    </div>
+    <div class="beat r"><span class="tag">Retenu</span>
+      <p>Adaptation à <code>createPdf</code> + VFS Roboto, et <code>documentUrl</code> renommé en
+      <code>documentPath</code>. Ce renommage est minuscule et il annonce toute la doctrine du
+      projet : <strong>un champ dont le nom promet plus que ce qu’il contient est un
+      mensonge en attente</strong>. Le même défaut reviendra le 11 août sous une forme bien plus
+      coûteuse — un lien de téléchargement inventé de toutes pièces par le modèle.</p>
+      <p>Arrivent aussi le port <code>SlackWorkspaceProvider</code> et l’outil
+      <code>discoverSlackWorkspace</code>. Ce dernier <strong>sera supprimé le 18 août</strong> :
+      il portait une action <code>inviteToChannel</code> sans aucune garde d’autorisation, dans un
+      fichier qu’un recâblage aurait pu rebrancher sans le relire.</p>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-08-05">
+  <div class="rail"><b>5 août</b>27 commits<br><span class="m">v0.1.3</span><br>8 commits nommés<br>« correction »</div>
+  <div class="body">
+    <h3>Vingt‑sept commits pour déployer — et un demi‑tour complet</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>La journée la plus dense du mois en volume, et la moins productive en fonctionnalité :
+      27 commits, dont <strong>huit portent littéralement le message
+      <span class="m">correction</span>, <span class="m">correction2</span>,
+      <span class="m">correction3</span>, <span class="m">correction4</span></strong>. Le
+      déploiement ne passait pas, et chaque tentative en découvrait une autre.</p>
+      <p>Quatre obstacles distincts, tous d’intégration :</p>
+      <ul>
+        <li>CI en <span class="m">ERESOLVE</span> — résolu par un <code>.npmrc</code> en
+        <code>legacy-peer-deps</code> ;</li>
+        <li>les règles de lint strictes bloquaient la CI ;</li>
+        <li><code>isomorphic-dompurify</code> incompatible avec l’environnement Vercel ;</li>
+        <li>et surtout : <strong>le parseur de schémas LLM cassait sur les expressions
+        régulières Unicode et sur <code>z.discriminatedUnion</code></strong>.</li>
+      </ul>
+    </div>
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Le jour commence par <span class="sha">f4c4d64</span> — <em>« setup docker deployment
+      architecture for production »</em> — avec un <code>Dockerfile</code> et une configuration
+      Fly.io. C’est l’alternative réellement tentée, et elle est abandonnée <em>dans la même
+      journée</em>.</p>
+    </div>
+    <div class="beat r"><span class="tag">Retenu</span>
+      <p><strong>Serverless Vercel + Turso/LibSQL</strong> (<span class="sha">80041d4</span>), et
+      suppression du <code>Dockerfile</code> et de Fly.io. <code>better-sqlite3</code> laisse la
+      place à <code>@libsql/client</code> : un binaire natif ne survit pas au packaging d’une
+      fonction serverless.</p>
+      <p>Ce que ce choix a écarté : un environnement d’exécution qui <em>tourne</em>. C’est la
+      décision la plus structurante du projet, et sa facture ne sera présentée que quinze jours
+      plus tard — <strong>dans un serverless, rien ne s’exécute tant que personne ne frappe à la
+      porte</strong>. Les rappels programmés n’auront aucun mécanisme pour partir jusqu’au
+      21 août, et il faudra une horloge extérieure.</p>
+      <p>Les deux contournements Zod, eux, sont définitifs :
+      <code>z.discriminatedUnion</code> → <code>z.object</code>
+      (<span class="sha">6d2577f</span>), et les classes Unicode retirées des schémas
+      (<span class="sha">65b1fc2</span>, <span class="sha">f826788</span>).
+      <code>isomorphic-dompurify</code> → <code>sanitize-html</code>.</p>
+    </div>
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul>
+        <li><span class="sha">f4c4d64</span> feat — architecture de déploiement Docker <em>(annulée le jour même)</em></li>
+        <li><span class="sha">80041d4</span> feat(infra) — migration vers Turso libsql et Vercel serverless</li>
+        <li><span class="sha">a4f0828</span> fix(deps) — <code>isomorphic-dompurify</code> → <code>sanitize-html</code></li>
+        <li><span class="sha">6d2577f</span> fix — <code>discriminatedUnion</code> → <code>object</code> pour le parseur LLM</li>
+        <li><span class="sha">501efc8</span> fix(deploy) — <code>DATABASE_URL</code> strictement requis, Node 22</li>
+        <li class="sha">… et 22 autres, dont huit nommés « correction »</li>
+      </ul>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-08-07">
+  <div class="rail"><b>7 août</b>0 commit<br><span class="m">v0.9.0</span><br>dernière version<br>numérotée</div>
+  <div class="body">
+    <h3>Le bot répond pour la première fois — et la cause du silence était une route jamais montée</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>Le bot était déployé et muet. <strong><code>src/api/slack-events*.ts</code> était du code
+      mort</strong> : Mastra ne monte pas <code>src/api/</code> automatiquement, et
+      <code>src/mastra/index.ts</code> n’avait aucun bloc <code>server</code>. <code>POST
+      /api/slack-events</code> répondait 404.</p>
+      <p>Deux autres constats du même jour, tout aussi matériels :</p>
+      <ul>
+        <li><strong>la base Turso de production ne contenait aucune table applicative</strong> —
+        seulement 38 tables internes <code>mastra_*</code>. Le bot déployé ne persistait
+        rien ;</li>
+        <li>une ligne <code>console.log('DEBUG ENV', { brevo: process.env.BREVO_API_KEY })</code>
+        imprimait <strong>une clé API vivante</strong> dans les logs.</li>
+      </ul>
+    </div>
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Monter la route sous <code>/api/slack-events</code>, ce qui est le chemin naturel.
+      <strong>Impossible</strong> : <code>@mastra/server</code> réserve le préfixe
+      <code>/api</code> et refuse toute route personnalisée qui commence par lui — et c’est un
+      <em>échec au démarrage</em>, pas un 404.</p>
+      <p>Côté base : <code>drizzle-kit push</code> contre un <code>libsql://</code> distant
+      <strong>se bloque sans jamais rendre la main</strong> — pas d’erreur, rien.</p>
+      <p>Côté email : Brevo était le fournisseur prévu. La clé est valide
+      (<code>GET /v3/account</code> → 200) mais <code>POST /v3/smtp/email</code> rend
+      <span class="m">403 permission_denied</span> — <em>« Your SMTP account is not yet
+      activated »</em>. Le blocage est au niveau du <em>compte</em>, reproduit même avec un
+      expéditeur validé : aucune configuration ne le contourne.</p>
+    </div>
+    <div class="beat r"><span class="tag">Retenu</span>
+      <ul>
+        <li>Endpoint sur <strong><code>POST /slack/events</code></strong>, hors du préfixe
+        réservé, déclaré dans <code>server.apiRoutes</code>.</li>
+        <li>Signature HMAC‑SHA256 sur <span class="m">v0:{timestamp}:{rawBody}</span>, comparaison
+        à temps constant, fenêtre anti‑rejeu de 5 minutes, <strong>fail‑closed</strong> si le
+        secret est absent. Vérifié en direct : signé → <span class="m">200 {"challenge":…}</span>
+        en 2,4 s ; non signé → <span class="m">401 missing_signature_headers</span>.</li>
+        <li>DDL exporté depuis <code>schema.ts</code> et appliqué en direct :
+        <strong>10 tables, 69 index</strong>.</li>
+        <li>Email : <strong>SMTP (nodemailer) en primaire, Brevo en repli</strong> — ADR‑006. Un
+        email réel a été délivré (<span class="m">250 OK</span>).</li>
+        <li>La clé API dans les logs devient <code>hasBrevoKey: Boolean(…)</code>. La règle
+        « jamais la valeur d’une clé, seulement sa présence » naît ici.</li>
+      </ul>
+    </div>
+
+    <div class="note">
+      <p><strong>Un faux positif de routage, corrigé le même jour, annonce toute une famille de
+      pièges.</strong> <code>routeToAgent()</code> cherchait le mot <span class="m">test</span>
+      par sous‑chaîne : « je con<strong>test</strong>e cette décision », « peux‑tu
+      at<strong>test</strong>er de mon poste », « protestation » partaient vers l’agent de
+      questionnaire. Correctif : un bord de mot à gauche, <span class="m">(?&lt;![\p{L}])</span>.</p>
+      <p>Il faudra <strong>trois autres rencontres</strong> avec ce même piège — le bord de mot
+      droit qui casse les infinitifs le 11 août, <code>\b</code> qui raisonne en ASCII et ne matche
+      jamais « bloqué » le 14 août, et les motifs sans accent le 21 août.</p>
+    </div>
+
+    <div class="beat l"><span class="tag">Livré</span>
+      <p><strong>Aucun commit ce jour‑là.</strong> Le code de la <span class="m">v0.9.0</span> a
+      tourné en production quatre jours avant d’entrer dans Git : il sera enregistré le 10 août
+      par <span class="sha">ddc42a0</span>, <em>« checkpoint : snapshot fidèle du code déployé en
+      production »</em>, et marqué du seul tag du dépôt,
+      <code>checkpoint/prod-20260810</code>.</p>
+    </div>
+
+    <div class="note warn">
+      <p><strong>C’est la dernière version numérotée du projet.</strong> Tout ce qui suit —
+      205 commits, seize jours — porte <span class="m">[Unreleased]</span>. Le basculement est
+      exactement daté : le jour où le produit est passé en production continue, la question utile
+      a cessé d’être « quelle version ? » pour devenir « quel déploiement, et qu’est‑ce qui y a
+      été vérifié ? ».</p>
+    </div>
+  </div>
+</article>
+
+<div class="pager">
+  <span><a href="index.html">← Sommaire</a></span>
+  <span><a href="02-mise-en-ligne.html">§ 2 — Le bot était muet →</a></span>
+</div>
+
+<footer>
+  Chapitre 1 · 28 juillet → 7 août 2026 · 32 commits · dérivé de <code>git log</code> et de
+  <code>CHANGELOG.md</code>
+</footer>
+
+</div>

@@ -1,0 +1,639 @@
+<title>Kisso — § 2 · Le bot était muet, et la cause n’était pas dans le code</title>
+<style>
+  :root {
+    --ink: #101418;
+    --paper: #f6f5f2;
+    --slate: #616c6b;
+    --verified: #0e6b57;
+    --claimed: #a33420;
+    --rule: rgba(16, 20, 24, 0.13);
+    --raise: rgba(14, 107, 87, 0.06);
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", ui-serif, serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e6e1;
+      --paper: #0e1214;
+      --slate: #8f9b98;
+      --verified: #4fbfa2;
+      --claimed: #e0765c;
+      --rule: rgba(232, 230, 225, 0.16);
+      --raise: rgba(79, 191, 162, 0.08);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e8e6e1;
+    --paper: #0e1214;
+    --slate: #8f9b98;
+    --verified: #4fbfa2;
+    --claimed: #e0765c;
+    --rule: rgba(232, 230, 225, 0.16);
+    --raise: rgba(79, 191, 162, 0.08);
+  }
+  :root[data-theme="light"] {
+    --ink: #101418;
+    --paper: #f6f5f2;
+    --slate: #616c6b;
+    --verified: #0e6b57;
+    --claimed: #a33420;
+    --rule: rgba(16, 20, 24, 0.13);
+    --raise: rgba(14, 107, 87, 0.06);
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 5rem) clamp(1.1rem, 4vw, 3rem) 6rem;
+  }
+
+  /* ---- rail de marge : les dates et les mesures, comme un carnet ---- */
+  .row { display: grid; grid-template-columns: 1fr; gap: 0.5rem 2.5rem; }
+  @media (min-width: 1000px) {
+    .row { grid-template-columns: 11rem 1fr; }
+  }
+  .rail {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.5;
+    letter-spacing: 0.04em;
+    color: var(--slate);
+    text-transform: uppercase;
+    padding-top: 0.55rem;
+  }
+  @media (min-width: 1000px) { .rail { text-align: right; } }
+  .rail b { display: block; color: var(--ink); font-weight: 700; letter-spacing: 0.02em; }
+
+  .body { max-width: 66ch; }
+  .body > * + * { margin-top: 1.05rem; }
+
+  h1, h2, h3 { text-wrap: balance; font-weight: 700; letter-spacing: -0.014em; }
+  h1 { font-size: clamp(2.2rem, 6vw, 3.5rem); line-height: 1.06; }
+  h2 { font-size: clamp(1.5rem, 3.4vw, 2.05rem); line-height: 1.14; }
+  h3 { font-size: 1.16rem; line-height: 1.3; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--verified);
+    margin-bottom: 0.7rem;
+  }
+  .lede { font-size: 1.24rem; line-height: 1.5; color: var(--slate); }
+
+  section { padding-top: clamp(2.6rem, 6vw, 4.6rem); }
+  section + section { border-top: 1px solid var(--rule); }
+
+  a { color: var(--verified); text-underline-offset: 0.18em; }
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--verified);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  code, .m { font-family: var(--mono); font-size: 0.855em; }
+  code { background: var(--raise); padding: 0.08em 0.32em; border-radius: 3px; }
+
+  /* ---- le motif central : ce qui a été AFFIRMÉ, ce qui a été CONSTATÉ ---- */
+  .pair { margin-top: 1.6rem; }
+  .pair .said, .pair .saw { display: block; padding-left: 1.05rem; }
+  .pair .said {
+    font-style: italic;
+    color: var(--slate);
+    border-left: 2px solid var(--claimed);
+    padding-bottom: 0.15rem;
+  }
+  .pair .saw {
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    line-height: 1.55;
+    border-left: 2px solid var(--verified);
+    padding-top: 0.5rem;
+  }
+  .pair .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 0.2rem;
+  }
+  .pair .said .tag { color: var(--claimed); }
+  .pair .saw .tag { color: var(--verified); }
+
+  ul, ol { padding-left: 1.25rem; }
+  li + li { margin-top: 0.5rem; }
+
+  .scroll { overflow-x: auto; margin-top: 1.4rem; }
+  table { border-collapse: collapse; width: 100%; min-width: 33rem; font-size: 0.93rem; }
+  th, td { text-align: left; padding: 0.62rem 0.9rem 0.62rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--slate);
+    font-weight: 400;
+  }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  details {
+    border-top: 1px solid var(--rule);
+    padding: 0.9rem 0;
+  }
+  summary { cursor: pointer; font-weight: 700; list-style-position: outside; }
+  summary::marker { color: var(--verified); }
+  details > *:not(summary) { margin-top: 0.85rem; max-width: 66ch; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1.6rem 1.2rem; margin-top: 2rem; }
+  .stat b { display: block; font-family: var(--mono); font-size: 1.65rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .stat span { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--slate); }
+
+  footer { margin-top: 5rem; padding-top: 1.6rem; border-top: 1px solid var(--rule); color: var(--slate); font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.04em; }
+
+  /* ---- propre au journal : la navigation entre chapitres ---- */
+  nav.chapters { margin-top: 2.2rem; display: grid; gap: 0.1rem; }
+  nav.chapters a {
+    display: grid; grid-template-columns: 3.2rem 1fr; gap: 1rem;
+    padding: 0.72rem 0; border-top: 1px solid var(--rule);
+    text-decoration: none; color: var(--ink);
+  }
+  nav.chapters a:last-child { border-bottom: 1px solid var(--rule); }
+  nav.chapters a:hover strong { text-decoration: underline; text-underline-offset: 0.18em; }
+  nav.chapters .no { font-family: var(--mono); font-size: 0.72rem; color: var(--slate); padding-top: 0.28em; letter-spacing: 0.08em; }
+  nav.chapters strong { display: block; font-weight: 700; }
+  nav.chapters em { display: block; font-style: normal; font-size: 0.9rem; color: var(--slate); margin-top: 0.12rem; }
+
+  .pager {
+    margin-top: 3.4rem; padding-top: 1.4rem; border-top: 1px solid var(--rule);
+    display: flex; flex-wrap: wrap; gap: 0.4rem 1.6rem;
+    font-family: var(--mono); font-size: 0.76rem; letter-spacing: 0.04em;
+  }
+
+  /* ---- propre au journal : une journée, quatre temps ---- */
+  article.day { padding-top: clamp(2.2rem, 5vw, 3.4rem); }
+  article.day + article.day { border-top: 1px solid var(--rule); }
+  article.day h3 { margin-bottom: 0.15rem; }
+
+  .beat { margin-top: 1.05rem; padding-left: 1.05rem; border-left: 2px solid var(--rule); max-width: 66ch; }
+  .beat > * + * { margin-top: 0.7rem; }
+  .beat .tag {
+    display: block; font-family: var(--mono); font-size: 0.66rem;
+    letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 0.28rem; color: var(--slate);
+  }
+  .beat.c { border-left-color: var(--claimed); }
+  .beat.c .tag { color: var(--claimed); }
+  .beat.r { border-left-color: var(--verified); }
+  .beat.r .tag { color: var(--verified); }
+  .beat.l { border-left-style: dotted; }
+  .beat.l ul { font-family: var(--mono); font-size: 0.8rem; line-height: 1.5; list-style: none; padding-left: 0; }
+  .beat.l li + li { margin-top: 0.28rem; }
+  .beat.l .sha { color: var(--slate); }
+
+  /* ---- propre au journal : la frise ---- */
+  .frise { margin-top: 2rem; display: grid; gap: 0.1rem; }
+  .frise .d {
+    display: grid; grid-template-columns: 5.6rem 3.2rem 1fr; gap: 0.9rem;
+    align-items: baseline; padding: 0.42rem 0; border-top: 1px solid var(--rule);
+    font-size: 0.92rem;
+  }
+  .frise .d:last-child { border-bottom: 1px solid var(--rule); }
+  .frise .dd { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.05em; color: var(--slate); }
+  .frise .bar { font-family: var(--mono); font-size: 0.74rem; color: var(--verified); white-space: nowrap; }
+  .frise .d.void .bar { color: var(--slate); }
+  .frise .d.void { color: var(--slate); font-style: italic; }
+  @media (max-width: 33rem) {
+    .frise .d { grid-template-columns: 4.6rem 2.6rem 1fr; gap: 0.55rem; font-size: 0.86rem; }
+  }
+
+  .note {
+    margin-top: 1.4rem; padding: 0.9rem 1.05rem; background: var(--raise);
+    border-left: 2px solid var(--verified); border-radius: 0 3px 3px 0;
+    font-size: 0.95rem; max-width: 66ch;
+  }
+  .note.warn { border-left-color: var(--claimed); }
+  .note > * + * { margin-top: 0.6rem; }
+</style>
+
+<div class="sheet">
+
+<header class="row">
+  <div class="rail"><b>§ 2</b>8 août → 12 août<br>34 commits<br><span class="m">[Unreleased]</span></div>
+  <div class="body">
+    <p class="eyebrow">Journal · chapitre 2</p>
+    <h1>Le bot était muet, et la cause n’était pas dans le code</h1>
+    <p class="lede">Cinq jours qui commencent par une panne dont le correctif ne s’écrit pas —
+    il se clique — et qui se terminent par la réfutation de la croyance centrale du projet, par
+    des logs de production. Entre les deux, le bot obtient une mémoire, et livre son premier
+    fichier réel.</p>
+  </div>
+</header>
+
+<article class="day row" id="j-08-08">
+  <div class="rail"><b>8 août</b>0 commit<br>−30 % de tokens<br>600 tests verts</div>
+  <div class="body">
+    <h3>Plusieurs heures cherchées côté configuration, pour un problème d’installation</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>Le bot ne recevait <strong>aucun événement</strong>. Le manifeste de l’app Slack était
+      pourtant conforme — c’est ce qui a fait perdre plusieurs heures à chercher du côté de la
+      configuration.</p>
+      <p>Deux réglages bloquaient réellement, et ils sont indépendants :</p>
+      <ul>
+        <li><code>features.app_home.messages_tab_enabled: false</code> ⇒
+        <strong>aucun <code>message.im</code> n’est jamais émis</strong>. Ce réglage vit dans
+        <em>App Home</em>, pas dans <em>Event Subscriptions</em> — la page des abonnements
+        paraissait donc parfaite ;</li>
+        <li>l’installation du workspace ne reflétait pas la configuration de l’app ⇒
+        <strong>aucun <code>app_mention</code> non plus</strong>.</li>
+      </ul>
+      <p>Second constat, indépendant : <code>notificationAgent</code> consommait
+      <strong>7 849 tokens d’entrée pour un message trivial</strong> (« ok »), au‑dessus du
+      plafond Groq dès qu’un flux enchaîne plusieurs appels d’outils.</p>
+    </div>
+
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Toutes les pistes de configuration ont été épuisées avant celle qui a résolu. Ce qui a
+      tranché, ce sont trois instruments dont la valeur diagnostique dépasse le cas :</p>
+      <ul>
+        <li><strong>Lire le manifeste réel</strong>, pas la console — elle peut afficher un état
+        différent de ce qui est stocké. Il faut un <em>App Configuration Token</em>, passé par
+        <code>tooling.tokens.rotate</code> : le <span class="m">xoxe-1-…</span> brut est un
+        <em>refresh token</em> et <code>apps.manifest.export</code> le refuse.</li>
+        <li><strong><code>app_home_opened</code> comme sonde</strong> : aucun scope requis,
+        indépendante de l’appartenance aux canaux et de l’onglet Messages. Si elle arrive, la
+        livraison fonctionne et le problème est ailleurs.</li>
+        <li><strong>Le badge <em>Verified</em> ne prouve rien</strong> sur la livraison courante —
+        seulement qu’un <em>challenge</em> a réussi un jour. Un <em>Save</em> sur une URL
+        inchangée ne redéclenche aucune vérification.</li>
+      </ul>
+    </div>
+
+    <div class="beat r"><span class="tag">Retenu</span>
+      <p><strong>Réinstaller l’app dans le workspace</strong> — <em>Settings → Install App →
+      Reinstall to Workspace</em>, en allant jusqu’au bouton <em>Allow</em>. Seule la
+      réinstallation propage la configuration à l’installation.</p>
+      <p>Sur les tokens, trois décisions, dont la troisième est la plus instructive :</p>
+      <ul>
+        <li><code>discoverSlackWorkspace</code> est retiré du jeu d’outils de
+        <code>notificationAgent</code> — c’était le plus cher (356 caractères de schéma,
+        426 de description), il n’était mentionné nulle part dans les instructions de cet agent,
+        et <code>sendNotification</code> résout déjà le compte Slack côté serveur ;</li>
+        <li>le bloc <code>SECURITY DIRECTIVE:</code> terminal est <strong>retiré des trois
+        agents</strong> : il dupliquait fidèlement les DIRECTIVE 2.1, 4.1, 5.1 et 6.1 déjà
+        appliquées par l’en‑tête de sécurité obligatoire. On payait deux fois la même
+        interdiction, à chaque aller‑retour ;</li>
+        <li>ce qui a été <strong>écarté</strong> : toucher au fond. Les interdictions, la règle
+        anti‑invention et les directives d’extraction sont conservées mot pour mot.</li>
+      </ul>
+
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Agent</th><th>Instructions</th><th>Outils</th><th>Δ total</th></tr></thead>
+          <tbody>
+            <tr><td><code>notificationAgent</code></td><td class="n">3 670 → 2 430 car. (−33,8 %)</td><td class="n">3 486 → 2 591 car. (5 → 4 outils)</td><td class="n">−29,8 %</td></tr>
+            <tr><td><code>onboardingOrchestrator</code></td><td class="n">4 509 → 3 528 car. (−21,8 %)</td><td>inchangé</td><td class="n">—</td></tr>
+            <tr><td><code>questionnaireEngine</code></td><td class="n">3 454 → 2 595 car. (−24,9 %)</td><td>inchangé</td><td class="n">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:1rem">Méthode assumée comme une <em>estimation</em> :
+      <code>zodToJsonSchema</code> appliqué à chaque <code>inputSchema</code> plus
+      <code>getInstructions()</code>, ratio <strong>3,5 caractères par token</strong> calibré sur
+      la seule donnée officielle disponible — l’en‑tête de sécurité, 1 308 caractères ≈
+      374 tokens.</p>
+    </div>
+
+    <div class="note warn">
+      <p><strong>Le garde‑fou anti‑injection est enfin branché — dix jours après avoir été
+      écrit.</strong> <code>wrapUserInput()</code>, <code>wrapExternalData()</code> et
+      <code>assembleSecurePrompt()</code> n’étaient appelés <em>que par les tests</em>. Les trois
+      agents importaient la constante brute et envoyaient au modèle les littéraux non substitués
+      <span class="m">{DELIMITER_PREFIX}</span> et <span class="m">[[SESSION_MARKER]]</span> —
+      <strong>visibles publiquement par <code>GET /api/agents</code></strong> — et le texte Slack
+      partait sans aucun encadrement.</p>
+      <p>Bug latent trouvé au passage : <code>KeyManager.KEY_ITERATIONS = 100000</code> n’est pas
+      une puissance de 2, or <code>scryptSync</code> l’exige. Toute instanciation réelle levait
+      <span class="m">ERR_CRYPTO_INVALID_SCRYPT_PARAMS</span> — masqué parce que <em>rien
+      n’instanciait la classe</em>. Corrigé à <span class="m">16384</span> (2¹⁴, RFC 7914).</p>
+    </div>
+
+    <div class="beat l"><span class="tag">Livré</span>
+      <p><strong>Aucun commit ce jour‑là</strong> — ni les deux suivants. Le travail du 8 août
+      entre dans Git le 10, avec le reste du code de production, par
+      <span class="sha">ddc42a0</span>. Vérifié après coup : <span class="m">600/600</span> tests
+      verts (référence : 597).</p>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-08-10">
+  <div class="rail"><b>10 août</b>13 commits<br>−381 assertions<br>vides<br>tag <code>checkpoint</code></div>
+  <div class="body">
+    <h3>Le code de production entre enfin dans Git, et l’on compte ce qui ne sert à rien</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>Le dépôt et la production avaient divergé : ce qui tournait n’était pas ce qui était
+      committé. Et en regardant, on trouve un dépôt encombré de choses qui ne s’exécutent
+      jamais :</p>
+      <ul>
+        <li><strong>381 assertions <em>placeholder</em></strong> dans les tests — des tests qui
+        passaient sans rien vérifier ;</li>
+        <li><code>src/config/</code>, du code mort, plus des doublons de
+        <code>html-sanitizer</code> ;</li>
+        <li><code>api/index.ts</code>, une entrée Vercel morte et structurellement cassée ;</li>
+        <li>quatre dépendances jamais importées — <span class="m">−208 entrées</span> de
+        <em>lock file</em>.</li>
+      </ul>
+      <p>Et un défaut de routage à portée majeure : <strong>le mot‑clé
+      <span class="m">email</span> aiguillait vers <code>notificationAgent</code></strong>. Or une
+      demande de recherche par adresse contient nécessairement ce mot — <strong>la recherche par
+      email était donc structurellement inatteignable</strong>.</p>
+    </div>
+
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Pour le routage : renforcer les mots‑clés, ou les hiérarchiser. Le dépôt tranche par une
+      hiérarchie — un <strong>palier d’ÉCHAPPEMENT</strong> évalué avant le palier thématique,
+      avec un critère d’admission strict : le terme doit <em>ouvrir une tâche nouvelle</em>, pas
+      continuer celle en cours.</p>
+      <p>Ce critère écarte explicitement des candidats plausibles, et c’est le plus intéressant :
+      <span class="m">ajoute</span> (verbe français trop générique), <span class="m">word</span>
+      (mot anglais courant), <span class="m">profil</span>, <span class="m">statut</span>,
+      <span class="m">intégration</span> (trop fréquents), <span class="m">génère</span> (sert
+      deux outils différents).</p>
+    </div>
+
+    <div class="beat r"><span class="tag">Retenu</span>
+      <ul>
+        <li>Un <strong>commit‑photographie</strong> du code réellement déployé
+        (<span class="sha">ddc42a0</span>), marqué <code>checkpoint/prod-20260810</code> —
+        <em>le seul tag du dépôt</em>. Ce qui a été écarté : reconstruire l’historique des quatre
+        jours non committés, c’est‑à‑dire fabriquer une chronologie plausible.</li>
+        <li>Les 381 assertions vides sont supprimées <em>et</em> remplacées par ce qui manquait :
+        <strong>un test qui verrouille enfin la règle de dépendance</strong>
+        (<span class="sha">1fb8a58</span>). C’est le premier garde‑fou d’architecture du projet ;
+        il en restera un seul, et il couvrira <code>shared/</code> à partir du 22 août.</li>
+        <li>La sortie des agents est filtrée avant publication (<span class="sha">3fc40c3</span>)
+        — l’unique filet qui empêchera, le lendemain, un faux lien de téléchargement d’atteindre
+        Slack.</li>
+        <li>Le poste devient un <strong>champ libre</strong> et non plus une liste blanche
+        (<span class="sha">8afa934</span>) : une liste d’intitulés de poste est une promesse
+        d’exhaustivité qu’aucune entreprise ne tient.</li>
+      </ul>
+      <p>Arrivent aussi la route d’interactivité et la modale « Compléter mon profil »
+      (<span class="sha">97c8a2c</span>), et la réaction à <code>team_join</code>
+      (<span class="sha">64ed37c</span>). <strong>Les deux seront supprimés le 19 août</strong> —
+      les modales pour une raison physique, mesurée : un <code>trigger_id</code> expire en
+      3 secondes, et la fonction est froide.</p>
+    </div>
+
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul>
+        <li><span class="sha">ddc42a0</span> checkpoint — snapshot fidèle du code déployé en production</li>
+        <li><span class="sha">1fb8a58</span> test — 381 assertions placeholders retirées, règle de dépendance verrouillée</li>
+        <li><span class="sha">a707244</span> chore — <code>src/config</code> (code mort) et doublons <code>html-sanitizer</code></li>
+        <li><span class="sha">ab56831</span> chore — <code>api/index.ts</code>, entrée Vercel morte</li>
+        <li><span class="sha">97c8a2c</span> feat(slack) — route d’interactivité et modale « Compléter mon profil »</li>
+        <li><span class="sha">64ed37c</span> feat(slack) — <code>team_join</code> → DM de bienvenue</li>
+        <li><span class="sha">3fc40c3</span> fix(slack) — filtrer la sortie des agents avant publication</li>
+        <li><span class="sha">396f3f3</span> fix(slack) — supprimer la double réponse en message direct</li>
+        <li class="sha">… et 5 autres</li>
+      </ul>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-08-11">
+  <div class="rail"><b>11 août</b>11 commits<br><span class="m">TPD 98 207<br>/ 100 000</span><br>déploiement<br><code>l71qz4x5f</code></div>
+  <div class="body">
+    <h3>La croyance centrale du projet était fausse, et ce sont les logs qui l’ont dit</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>Une campagne de production entre <span class="m">19:19</span> et
+      <span class="m">19:40</span> fait tomber le bot. <code>CLAUDE.md</code> consacrait alors une
+      longue section à « <em>PLAFOND GROQ 12 000 tokens/minute — c’est la limite qui casse la
+      production</em> ». Les logs disent l’inverse, et sans ambiguïté :</p>
+      <ul>
+        <li>le seau par <strong>minute</strong> était <strong>PLEIN</strong> au moment de l’échec
+        — <span class="m">x-ratelimit-remaining-tokens: 12000</span> dans
+        <strong>56 échantillons sur 64</strong> ;</li>
+        <li>la limite réellement atteinte est <strong><span class="m">TPD: Limit 100000, Used
+        98207</span></strong> — un quota <em>par jour</em>, soit, à
+        <strong>5 168 tokens par message</strong> mesurés, <strong>≈ 19 messages par jour, tous
+        canaux confondus</strong> ;</li>
+        <li>le repli Mistral plafonne en <strong>REQUÊTES</strong>
+        (<span class="m">x-ratelimit-limit-req-minute: '4'</span>) — une limite
+        <em>insensible à tout dégraissage de prompt</em>, documentée nulle part jusque‑là.</li>
+      </ul>
+      <p>Trois autres constats, tous coûteux :</p>
+      <ul>
+        <li><strong>La table <code>documents</code> n’avait aucune colonne
+        <code>content</code></strong>. Drizzle ignore silencieusement toute clé de
+        <code>.values()</code> sans colonne déclarée : <strong>6 lignes sur 6 écrites sans leur
+        contenu, sans erreur ni avertissement</strong>, irrécupérables.</li>
+        <li>Sommé de livrer un document qu’il ne pouvait pas produire, le modèle a inventé la
+        seule chose qu’il savait fabriquer : un lien
+        <span class="m">https://kisso.internal/docs/&lt;uuid&gt;/download</span>. Un
+        <code>grep</code> rend <strong>zéro occurrence</strong> dans le dépôt.</li>
+        <li>Le routage était recalculé sur le texte de <em>chaque</em> message, isolément :
+        « Par email » répondait à une question posée par l’orchestrateur et arrivait chez un agent
+        qui ne l’avait jamais posée.</li>
+      </ul>
+      <p>Et le verdict de l’utilisatrice testeuse, qui devient la phrase directrice du projet :
+      <em>« il parle exactement de la même façon quand il a fait le travail et quand il l’a
+      inventé »</em>.</p>
+    </div>
+
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Sur le coût, quatre correctifs sont pesés et <strong>classés par rendement réel</strong>
+      — le classement compte plus que la liste :</p>
+      <ol>
+        <li><strong>passer Groq en palier payant</strong> — meilleur rapport effort/effet du
+        dossier, et pas une ligne de code ;</li>
+        <li><strong>réduire le NOMBRE D’ÉTAPES</strong> : des défauts de schéma plutôt que des
+        questions posées à l’humain, des résultats d’outil qui <em>instruisent</em> au lieu
+        d’échouer ;</li>
+        <li>alléger schémas et instructions — utile, mais <em>rendement bien plus faible qu’on ne
+        l’a longtemps cru</em>. C’est ce qui avait été surestimé pendant deux campagnes ;</li>
+        <li>ne compter que sur le repli — sachant qu’il a son propre plafond, en requêtes.</li>
+      </ol>
+      <p>Sur la mémoire, <code>@mastra/memory</code> est examiné puis <strong>écarté pour deux
+      raisons</strong> : il dépend de <code>zod ^4</code> quand le projet épingle
+      <span class="m">3.25.76</span>, et il ne sait plafonner qu’en <em>nombre de messages</em> —
+      inadapté quand un seul résultat d’outil pèse 2 506 tokens.</p>
+    </div>
+
+    <div class="beat r"><span class="tag">Retenu</span>
+      <p><strong>Une bascule de doctrine, écrite noir sur blanc :</strong> le poste de coût
+      dominant n’est plus la <em>taille</em> du prompt mais le <strong>NOMBRE D’ÉTAPES</strong>.
+      Chaque étape est une requête pleine chez les deux fournisseurs. Un aller‑retour épargné vaut
+      davantage que plusieurs centaines de tokens rabotés — et un tour de dialogue épargné vaut
+      plus encore.</p>
+      <p>Les résultats d’outil sont donc bornés et projetés, et la propriété visée n’est pas le
+      chiffre mais <strong>l’indépendance</strong> : la taille ne dépend plus du nombre de lignes
+      ni de la longueur du contenu.</p>
+
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Résultat d’outil</th><th>Avant</th><th>Après</th><th>Ce qui le rendait non borné</th></tr></thead>
+          <tbody>
+            <tr><td><code>getNotificationHistory</code></td><td class="n">≈ 9 600 tok.</td><td class="n">177</td><td>lignes Drizzle brutes, 18 colonnes, <code>body</code> non borné, <code>limit</code> à 50</td></tr>
+            <tr><td><code>getEmployeeProfile</code></td><td class="n">2 506</td><td class="n">329</td><td><code>tasks</code> non borné, 19 colonnes</td></tr>
+            <tr><td><code>generateDocument</code></td><td class="n">685</td><td class="n">39</td><td>rendait l’entité complète, <code>content</code> compris — il refacturait au modèle le texte qu’il venait d’écrire</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="margin-top:1.2rem">Sur le mensonge, la réponse n’est pas une consigne : c’est un
+      <strong>garde‑fou déterministe</strong>. Le handler est le seul point qui voit à la fois la
+      réponse et la trace d’exécution — il les confronte. Une formule d’accompli alors que
+      <code>response.toolCalls</code> est <em>vide</em> fait accoler une note de requalification.
+      On cherche une <strong>contradiction</strong>, jamais une invraisemblance : « je peux
+      t’envoyer… » n’en est pas une. Et <code>null</code> (trace illisible) n’est pas
+      <code>[]</code> (zéro appel) : sans preuve positive, on se tait.</p>
+      <p>Prérequis découvert en l’écrivant : <strong><code>readToolCalls</code> journalisait
+      <span class="m">"unknown"</span> sur 100 % des appels</strong> — 19 runs de production.
+      Mastra met le nom sous <code>chunk.payload.toolName</code> ; la lecture ne trouvait jamais
+      rien. Le champ ajouté précisément pour distinguer une action d’une narration ne répondait à
+      aucune question.</p>
+      <p>Le reste du jour : une mémoire conversationnelle maison, fenêtrée <strong>en
+      tokens</strong> (budget 1 600, ratio 3,5) et jamais coupée au milieu d’une salve
+      <code>user</code>+<code>assistant</code> ; un palier de routage <strong>COLLANT</strong>
+      (l’agent du dernier tour, si le fil a moins de 60 minutes) ; un marqueur de progression qui
+      poste « Je regarde ça, un instant… » puis se fait <em>remplacer</em> par la réponse ; et la
+      livraison réelle d’un fichier — <strong>un PDF a bel et bien été rendu puis posté</strong>
+      (<span class="m">{"filename":"guide-….pdf","hasPermalink":true}</span>).</p>
+    </div>
+
+    <div class="note">
+      <p><strong>Le scope <code>files:write</code> était accordé depuis le début.</strong> Le
+      dépôt affirmait le contraire à quatre endroits — <code>CLAUDE.md</code>,
+      <code>TODO.md</code>, et deux commentaires dans <code>src/</code>. L’upload réussi les a
+      tous démentis d’un coup. Le chemin <span class="m">missing_scope</span> reste néanmoins
+      câblé, et c’est délibéré : un scope se retire aussi bien qu’il s’accorde.</p>
+    </div>
+
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul>
+        <li><span class="sha">fc84fe4</span> feat(conversation) — mémoire et interlocuteur stable</li>
+        <li><span class="sha">a32bdda</span> feat(document) — rendre et livrer réellement les PDF et DOCX</li>
+        <li><span class="sha">51d72ea</span> fix(agents) — faire dire au bot ce qu’il a fait, et rien d’autre</li>
+        <li><span class="sha">05a3e39</span> fix(slack) — recherche et création atteignables depuis Slack</li>
+        <li><span class="sha">a803cf7</span> fix(agents) — <code>createEmployee</code> retiré de l’orchestrateur</li>
+        <li><span class="sha">c7321a9</span> fix(security) — durcissement de la frontière du garde‑fou LLM</li>
+        <li><span class="sha">889ab66</span> fix(security) — projection explicite du profil employé</li>
+        <li class="sha">… et 4 autres · déploiement <code>l71qz4x5f</code></li>
+      </ul>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-08-12">
+  <div class="rail"><b>12 août</b>10 commits<br>bundle vert,<br>bundle mort<br>déploiement<br><code>9t5yxexhg</code></div>
+  <div class="body">
+    <h3>Le build sortait vert et le bundle ne démarrait pas</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>Une revue croisée avant redéploiement trouve trois choses que rien ne signalait :</p>
+      <ul>
+        <li><strong>Le bundle Vercel ne démarrait pas en local pendant que le build sortait en
+        vert.</strong> Le déployeur Mastra épingle <code>@mastra/core</code> 0.24.9 et installe sa
+        fermeture (<code>lru-cache@7</code>, <code>@isaacs/ttlcache@1</code>), que le script de
+        correction laissait derrière en écrasant le noyau par le vrai 1.57.0 :
+        <span class="m">SyntaxError: Named export 'TTLCache' not found</span> — mort avant la
+        première instruction. <em>La production, elle, tournait</em> : sa fermeture est différente,
+        328 paquets contre 659 en local.</li>
+        <li><strong>La suite de tests n’était verte que parce qu’une table MANQUAIT</strong> de
+        la base locale. Tout handler construit sans limiteur injecté en fabrique un vrai :
+        compteurs partagés entre tests et persistés d’un run à l’autre. Onze tests basculaient en
+        <span class="m">rate_limited</span> dès que la table existait.</li>
+        <li>La réconciliation FAIT/NARRATION, livrée la veille, <strong>était désarmée dans le cas
+        courant</strong>.</li>
+      </ul>
+      <p>Et le soir, un constat qui n’a rien de technique : <em>« il ne retrouve pas les autres
+      profils à part le mien »</em>. <strong>L’annuaire Slack était là, aucun outil ne le
+      lisait.</strong></p>
+    </div>
+
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Pour garder le bundle honnête, une <strong>heuristique de version</strong> a été
+      réellement essayée : comparer les versions installées à celles attendues. Elle a été
+      <strong>abandonnée le jour même</strong> — elle dénonçait cinq écarts préexistants que la
+      production fait tourner sans problème. Un instrument qui crie sur ce qui marche n’est pas un
+      instrument.</p>
+    </div>
+
+    <div class="beat r"><span class="tag">Retenu</span>
+      <ul>
+        <li><code>verify:bundle</code> <strong>importe réellement <code>index.mjs</code></strong>.
+        C’est le seul contrôle qui distingue une liaison ESM rompue d’un pair non satisfait
+        inoffensif, et il tourne sur le <em>builder</em> Vercel. Consigne écrite pour l’avenir :
+        ne pas le remplacer par une heuristique.</li>
+        <li><strong>Trois workflows sur quatre sont retirés</strong>
+        (<span class="sha">764d04c</span>) : ils se déclaraient réussis <em>sans faire la moindre
+        entrée‑sortie</em>. Il n’en reste qu’un, <code>employeeOnboardingWorkflow</code>. C’est le
+        premier grand retrait du projet, et le motif — <em>ne garder que ce qui fait réellement
+        quelque chose</em> — servira quatre fois encore.</li>
+        <li>Un quatrième agent, <code>knowledgeAgent</code>, qui lit les conversations
+        <strong>et rien d’autre</strong> (<span class="sha">bb3cb7c</span>) ; et une feature
+        <code>directory</code> pour répondre à « qui parle ? », avec une borne explicite sur ce
+        qu’elle peut déclencher (<span class="sha">783a55f</span>).</li>
+        <li><code>evaluateResponse</code> est <strong>débranché</strong>
+        (<span class="sha">2e5655e</span>) : son seul appelant possible était un modèle qui
+        <em>fabriquait les réponses d’un humain</em>. Il n’existait ni formulaire, ni modale, ni
+        route de soumission — rien qu’une personne pût remplir.</li>
+      </ul>
+    </div>
+
+    <div class="note warn">
+      <p><strong>Un défaut est diagnostiqué ce jour‑là et laissé ouvert : le palier collant a
+      <em>déplacé</em> l’état absorbant, il ne l’a pas supprimé.</strong> Après « Envoie un rappel
+      à Pamela », la demande « Génère‑moi le guide en PDF » restait chez
+      <code>notificationAgent</code>, <em>qui ne porte pas <code>generateDocument</code></em> — et
+      en DM la clé de conversation est le canal, donc le verrou tenait une heure sur tous les
+      sujets.</p>
+      <p>Pire : <strong>un test rejouait cette campagne et verrouillait le défaut</strong>, en le
+      justifiant par « un agent qui promet une capacité qu’il n’a pas ». C’est l’inverse.
+      Il faudra attendre le 14 août pour que la règle soit <em>dérivée du câblage</em> plutôt
+      qu’écrite.</p>
+    </div>
+
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul>
+        <li><span class="sha">187b647</span> fix — revue croisée : le bundle ne démarrait pas, et le build était vert</li>
+        <li><span class="sha">764d04c</span> chore(workflows) — ne garder que le workflow qui fait réellement quelque chose</li>
+        <li><span class="sha">bb3cb7c</span> feat(knowledge) — un 4ᵉ agent qui lit les conversations, et rien d’autre</li>
+        <li><span class="sha">783a55f</span> feat(directory) — répondre à « qui parle ? », et borner ce qu’il déclenche</li>
+        <li><span class="sha">706f17b</span> fix — l’annuaire Slack était là, aucun tool ne le lisait</li>
+        <li><span class="sha">2e5655e</span> fix — débrancher <code>evaluateResponse</code>, il fabriquait des réponses RH</li>
+        <li><span class="sha">199692b</span> fix(sécurité) — fuite de données RH, garde‑fou anti‑injection armé</li>
+        <li class="sha">… et 3 autres · déploiement <code>9t5yxexhg</code></li>
+      </ul>
+      <p>Vérifié après déploiement : <code>POST /slack/events</code> non signé →
+      <span class="m">401 missing_signature_headers</span> ; signé →
+      <span class="m">200 {"challenge":…}</span> en 1,4 s.</p>
+    </div>
+  </div>
+</article>
+
+<div class="pager">
+  <span><a href="01-fondation.html">← § 1 — La fondation</a></span>
+  <span><a href="index.html">Sommaire</a></span>
+  <span><a href="03-honnetete.html">§ 3 — Il répondait, et il mentait →</a></span>
+</div>
+
+<footer>
+  Chapitre 2 · 8 août → 12 août 2026 · 34 commits · dérivé de <code>git log</code> et de
+  <code>CHANGELOG.md</code>
+</footer>
+
+</div>

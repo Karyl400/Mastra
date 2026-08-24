@@ -1,0 +1,568 @@
+<title>Kisso — § 4 · Démonter : le god object, les boutons, le démarrage à froid</title>
+<style>
+  :root {
+    --ink: #101418;
+    --paper: #f6f5f2;
+    --slate: #616c6b;
+    --verified: #0e6b57;
+    --claimed: #a33420;
+    --rule: rgba(16, 20, 24, 0.13);
+    --raise: rgba(14, 107, 87, 0.06);
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", ui-serif, serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e8e6e1;
+      --paper: #0e1214;
+      --slate: #8f9b98;
+      --verified: #4fbfa2;
+      --claimed: #e0765c;
+      --rule: rgba(232, 230, 225, 0.16);
+      --raise: rgba(79, 191, 162, 0.08);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #e8e6e1;
+    --paper: #0e1214;
+    --slate: #8f9b98;
+    --verified: #4fbfa2;
+    --claimed: #e0765c;
+    --rule: rgba(232, 230, 225, 0.16);
+    --raise: rgba(79, 191, 162, 0.08);
+  }
+  :root[data-theme="light"] {
+    --ink: #101418;
+    --paper: #f6f5f2;
+    --slate: #616c6b;
+    --verified: #0e6b57;
+    --claimed: #a33420;
+    --rule: rgba(16, 20, 24, 0.13);
+    --raise: rgba(14, 107, 87, 0.06);
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vw, 5rem) clamp(1.1rem, 4vw, 3rem) 6rem;
+  }
+
+  /* ---- rail de marge : les dates et les mesures, comme un carnet ---- */
+  .row { display: grid; grid-template-columns: 1fr; gap: 0.5rem 2.5rem; }
+  @media (min-width: 1000px) {
+    .row { grid-template-columns: 11rem 1fr; }
+  }
+  .rail {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    line-height: 1.5;
+    letter-spacing: 0.04em;
+    color: var(--slate);
+    text-transform: uppercase;
+    padding-top: 0.55rem;
+  }
+  @media (min-width: 1000px) { .rail { text-align: right; } }
+  .rail b { display: block; color: var(--ink); font-weight: 700; letter-spacing: 0.02em; }
+
+  .body { max-width: 66ch; }
+  .body > * + * { margin-top: 1.05rem; }
+
+  h1, h2, h3 { text-wrap: balance; font-weight: 700; letter-spacing: -0.014em; }
+  h1 { font-size: clamp(2.2rem, 6vw, 3.5rem); line-height: 1.06; }
+  h2 { font-size: clamp(1.5rem, 3.4vw, 2.05rem); line-height: 1.14; }
+  h3 { font-size: 1.16rem; line-height: 1.3; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--verified);
+    margin-bottom: 0.7rem;
+  }
+  .lede { font-size: 1.24rem; line-height: 1.5; color: var(--slate); }
+
+  section { padding-top: clamp(2.6rem, 6vw, 4.6rem); }
+  section + section { border-top: 1px solid var(--rule); }
+
+  a { color: var(--verified); text-underline-offset: 0.18em; }
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--verified);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  code, .m { font-family: var(--mono); font-size: 0.855em; }
+  code { background: var(--raise); padding: 0.08em 0.32em; border-radius: 3px; }
+
+  /* ---- le motif central : ce qui a été AFFIRMÉ, ce qui a été CONSTATÉ ---- */
+  .pair { margin-top: 1.6rem; }
+  .pair .said, .pair .saw { display: block; padding-left: 1.05rem; }
+  .pair .said {
+    font-style: italic;
+    color: var(--slate);
+    border-left: 2px solid var(--claimed);
+    padding-bottom: 0.15rem;
+  }
+  .pair .saw {
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    line-height: 1.55;
+    border-left: 2px solid var(--verified);
+    padding-top: 0.5rem;
+  }
+  .pair .tag {
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 0.2rem;
+  }
+  .pair .said .tag { color: var(--claimed); }
+  .pair .saw .tag { color: var(--verified); }
+
+  ul, ol { padding-left: 1.25rem; }
+  li + li { margin-top: 0.5rem; }
+
+  .scroll { overflow-x: auto; margin-top: 1.4rem; }
+  table { border-collapse: collapse; width: 100%; min-width: 33rem; font-size: 0.93rem; }
+  th, td { text-align: left; padding: 0.62rem 0.9rem 0.62rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--slate);
+    font-weight: 400;
+  }
+  td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  details {
+    border-top: 1px solid var(--rule);
+    padding: 0.9rem 0;
+  }
+  summary { cursor: pointer; font-weight: 700; list-style-position: outside; }
+  summary::marker { color: var(--verified); }
+  details > *:not(summary) { margin-top: 0.85rem; max-width: 66ch; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1.6rem 1.2rem; margin-top: 2rem; }
+  .stat b { display: block; font-family: var(--mono); font-size: 1.65rem; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .stat span { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--slate); }
+
+  footer { margin-top: 5rem; padding-top: 1.6rem; border-top: 1px solid var(--rule); color: var(--slate); font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.04em; }
+
+  /* ---- propre au journal : la navigation entre chapitres ---- */
+  nav.chapters { margin-top: 2.2rem; display: grid; gap: 0.1rem; }
+  nav.chapters a {
+    display: grid; grid-template-columns: 3.2rem 1fr; gap: 1rem;
+    padding: 0.72rem 0; border-top: 1px solid var(--rule);
+    text-decoration: none; color: var(--ink);
+  }
+  nav.chapters a:last-child { border-bottom: 1px solid var(--rule); }
+  nav.chapters a:hover strong { text-decoration: underline; text-underline-offset: 0.18em; }
+  nav.chapters .no { font-family: var(--mono); font-size: 0.72rem; color: var(--slate); padding-top: 0.28em; letter-spacing: 0.08em; }
+  nav.chapters strong { display: block; font-weight: 700; }
+  nav.chapters em { display: block; font-style: normal; font-size: 0.9rem; color: var(--slate); margin-top: 0.12rem; }
+
+  .pager {
+    margin-top: 3.4rem; padding-top: 1.4rem; border-top: 1px solid var(--rule);
+    display: flex; flex-wrap: wrap; gap: 0.4rem 1.6rem;
+    font-family: var(--mono); font-size: 0.76rem; letter-spacing: 0.04em;
+  }
+
+  /* ---- propre au journal : une journée, quatre temps ---- */
+  article.day { padding-top: clamp(2.2rem, 5vw, 3.4rem); }
+  article.day + article.day { border-top: 1px solid var(--rule); }
+  article.day h3 { margin-bottom: 0.15rem; }
+
+  .beat { margin-top: 1.05rem; padding-left: 1.05rem; border-left: 2px solid var(--rule); max-width: 66ch; }
+  .beat > * + * { margin-top: 0.7rem; }
+  .beat .tag {
+    display: block; font-family: var(--mono); font-size: 0.66rem;
+    letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 0.28rem; color: var(--slate);
+  }
+  .beat.c { border-left-color: var(--claimed); }
+  .beat.c .tag { color: var(--claimed); }
+  .beat.r { border-left-color: var(--verified); }
+  .beat.r .tag { color: var(--verified); }
+  .beat.l { border-left-style: dotted; }
+  .beat.l ul { font-family: var(--mono); font-size: 0.8rem; line-height: 1.5; list-style: none; padding-left: 0; }
+  .beat.l li + li { margin-top: 0.28rem; }
+  .beat.l .sha { color: var(--slate); }
+
+  /* ---- propre au journal : la frise ---- */
+  .frise { margin-top: 2rem; display: grid; gap: 0.1rem; }
+  .frise .d {
+    display: grid; grid-template-columns: 5.6rem 3.2rem 1fr; gap: 0.9rem;
+    align-items: baseline; padding: 0.42rem 0; border-top: 1px solid var(--rule);
+    font-size: 0.92rem;
+  }
+  .frise .d:last-child { border-bottom: 1px solid var(--rule); }
+  .frise .dd { font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.05em; color: var(--slate); }
+  .frise .bar { font-family: var(--mono); font-size: 0.74rem; color: var(--verified); white-space: nowrap; }
+  .frise .d.void .bar { color: var(--slate); }
+  .frise .d.void { color: var(--slate); font-style: italic; }
+  @media (max-width: 33rem) {
+    .frise .d { grid-template-columns: 4.6rem 2.6rem 1fr; gap: 0.55rem; font-size: 0.86rem; }
+  }
+
+  .note {
+    margin-top: 1.4rem; padding: 0.9rem 1.05rem; background: var(--raise);
+    border-left: 2px solid var(--verified); border-radius: 0 3px 3px 0;
+    font-size: 0.95rem; max-width: 66ch;
+  }
+  .note.warn { border-left-color: var(--claimed); }
+  .note > * + * { margin-top: 0.6rem; }
+</style>
+
+<div class="sheet">
+
+<header class="row">
+  <div class="rail"><b>§ 4</b>17 août → 19 août<br>76 commits<br>un tiers du projet<br>en trois jours</div>
+  <div class="body">
+    <p class="eyebrow">Journal · chapitre 4</p>
+    <h1>Démonter : le god object, les boutons, le démarrage à froid</h1>
+    <p class="lede">Trois jours qui portent un tiers des commits du projet. On y découvre qu’un
+    modèle a disparu du fournisseur sans que rien ne le dise, qu’un prompt prescrivait une sortie
+    que le filtre censurait, et que les quatre boutons du produit ne pouvaient
+    <em>physiquement</em> pas fonctionner.</p>
+  </div>
+</header>
+
+<article class="day row" id="j-08-17">
+  <div class="rail"><b>17 août</b>22 commits<br><span class="m">404 model<br>_not_found</span><br>90 → 5 warnings</div>
+  <div class="body">
+    <h3>Le modèle primaire n’existait plus, et le bot répondait quand même</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p><strong><code>llama-3.3-70b-versatile</code> répond <span class="m">404
+      model_not_found</span></strong> : Groq l’a retiré du compte. <code>GET /openai/v1/models</code>
+      ne rend plus <em>aucun modèle de chat Llama</em>. La clé, elle, est parfaitement valide — les
+      autres modèles répondent 200 avec elle.</p>
+      <p><strong>Le symptôme trompe, et c’est tout le problème</strong> : le bot RÉPOND, la chaîne
+      de repli faisant son travail. Mais chaque message paie un aller‑retour Groq perdu puis tombe
+      chez Mistral, <em>4 requêtes par minute</em>, que le moindre flux multi‑étapes épuise.</p>
+
+      <p>Deuxième constat, d’une classe rare : <strong>un prompt prescrivait une sortie que le
+      filtre de sortie censure.</strong> La directive ordonnait de répondre littéralement
+      <span class="m">[SECURITY_BLOCK] …</span> — chaîne qui figure dans les marqueurs internes.
+      Toute réponse <em>obéissant à la directive</em> était donc détectée comme fuite et
+      <strong>remplacée en bloc</strong>.</p>
+      <div class="pair">
+        <span class="said"><span class="tag">Ce qu’on lisait</span>« Réponse retirée : elle
+        exposait la configuration interne. »</span>
+        <span class="saw"><span class="tag">Ce qui s’était passé</span>l’outil de préparation
+        d’entretien avait bien tourné. La feature était cassée par le garde‑fou censé la protéger,
+        et le symptôme est indiscernable d’une panne.</span>
+      </div>
+
+      <p style="margin-top:1.4rem">Troisième : <strong>l’entrée est cumulative.</strong> Mesuré
+      sur « profil de l’employé dont l’email est X » :
+      <span class="m">1 417 + 1 559 + 1 735 = 4 711 tokens</span> pour trois étapes. Économiser X
+      tokens de prompt en économise X × le nombre d’étapes — la vérification chiffrée de la
+      doctrine posée le 11 août.</p>
+
+      <p>Quatrième, sur le code lui‑même : <strong>90 warnings de lint</strong>, dont deux vrais
+      défauts noyés sous <strong>19 faux positifs</strong> ; <strong>1 323 lignes d’une couche DTO
+      parallèle que personne n’importait</strong> ; et un <em>god object</em> portant six
+      responsabilités.</p>
+      <p>Cinquième : un <strong>ReDoS atteignable à distance</strong> — un DM de 8 000 caractères
+      gelait l’instance <span class="m">106 secondes</span>.</p>
+    </div>
+
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Sur le modèle de remplacement, <strong>deux candidats testés, un écarté par une mesure et
+      non par une préférence</strong> : <code>qwen/qwen3.6-27b</code> répond
+      <span class="m">200</span> mais <em>n’appelle jamais d’outil</em>, vérifié par une requête
+      portant un vrai schéma. <code>openai/gpt-oss-120b</code> produit bien un
+      <span class="m">tool_calls</span>. Pour un produit dont tout repose sur les outils, ce test
+      est le seul qui compte.</p>
+      <p>Sur les tokens, une possibilité écartée depuis le 11 : dégraisser encore. Ce qui est
+      attaqué à la place, c’est le <strong>nombre d’étapes</strong>.</p>
+    </div>
+
+    <div class="beat r"><span class="tag">Retenu</span>
+      <ul>
+        <li>Primaire → <code>openai/gpt-oss-120b</code>. Et surtout :
+        <strong>l’identifiant du modèle est déclaré UNE SEULE FOIS</strong>. L’étiquette et le
+        modèle réellement demandé étaient deux littéraux séparés — c’est ce qui a laissé un modèle
+        mort survivre dans le code, et <strong>quatre fichiers de tests recopiaient le même
+        littéral</strong>, donc restaient verts en vérifiant qu’on demandait bien un modèle qui
+        n’existe plus.</li>
+        <li>La directive cesse de prescrire un code entre crochets, et <strong>un test d’invariant
+        interdit désormais toute prescription d’un marqueur interne</strong>. La règle est
+        générale : <em>un prompt ne doit jamais prescrire une sortie que le filtre de sortie
+        censure</em>.</li>
+        <li><strong>Une étape entière supprimée</strong> : <code>getEmployeeProfile</code> et
+        <code>getNotificationHistory</code> acceptent un <em>email</em> en plus de l’identifiant,
+        donc l’aller‑retour de résolution disparaît. Mesuré en production :
+        <span class="m">4 954 → 3 097</span> tokens (−37 %) et <span class="m">4 424 → 2 866</span>
+        (−35 %). Capacité quotidienne <strong>≈ 20 → ≈ 32 messages</strong>.</li>
+        <li>Le chemin par email <strong>ne doit jamais devenir un ORACLE</strong> : il passe
+        l’identifiant <em>résolu</em> (ou <code>null</code>) à la frontière, si bien qu’un demandeur
+        non autorisé reçoit le <em>même</em> verdict que l’adresse désigne quelqu’un ou personne.
+        Sinon on énumère l’annuaire une adresse à la fois.</li>
+        <li>Le budget modèle n’est plus débité à l’acquittement mais <strong>juste avant l’appel
+        du modèle</strong> : un fil abandonné ne coûte plus rien à personne.</li>
+        <li>Le <em>god object</em> perd <strong>1 061 lignes et six responsabilités</strong> ; les
+        1 323 lignes de DTO orphelines disparaissent ; les 90 warnings passent à
+        <strong>5, tous nommés</strong>.</li>
+      </ul>
+    </div>
+
+    <div class="note">
+      <p><strong>Une correction de sévérité, et c’est un geste rare.</strong> Le ReDoS avait été
+      déclaré exploitable à distance. Réexamen : <strong>il ne l’était PAS</strong>
+      (<span class="sha">3600b1e</span>). Le dépôt corrige son propre rapport <em>à la baisse</em>
+      — exactement la même exigence que pour les affirmations à la hausse. Le correctif technique,
+      lui, est conservé.</p>
+      <p>Même jour, dans l’autre sens : <strong>la documentation mentait sur les abonnements
+      Slack, dans les DEUX sens</strong> (<span class="sha">dfc735d</span>). Elle affirmait des
+      abonnements inexistants — donc tout un correctif décrivait un comportement
+      <em>structurellement impossible</em> — et en niait un qui existait bel et bien.</p>
+    </div>
+
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul>
+        <li><span class="sha">f4bd560</span> fix(llm) — le modèle primaire n’existait plus : Groq a retiré <code>llama-3.3-70b</code></li>
+        <li><span class="sha">9a823e0</span> fix(sécurité) — le prompt prescrivait des sorties que le filtre censure</li>
+        <li><span class="sha">53dbfdc</span> perf(tokens) — supprimer une ÉTAPE entière</li>
+        <li><span class="sha">4a5b41b</span> refactor(SOLID) — le god object perd 1 061 lignes et six responsabilités</li>
+        <li><span class="sha">4bc9f3c</span> refactor — 1 323 lignes de couche DTO que personne n’importait</li>
+        <li><span class="sha">d8e90be</span> fix(qualité) — les 90 warnings instruits jusqu’au bout, 5 restants</li>
+        <li><span class="sha">0533cdb</span> fix(sécurité) — ReDoS : un DM de 8 000 caractères gelait l’instance 106 s</li>
+        <li><span class="sha">dcbfbc2</span> fix(slack) — le bouton « Envoyer » bloquait l’ACK 22,5 s</li>
+        <li class="sha">… et 14 autres</li>
+      </ul>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-08-18">
+  <div class="rail"><b>18 août</b>18 commits<br><span class="m">64 → &lt; 15</span><br>complexité<br>0 warning</div>
+  <div class="body">
+    <h3>SOLID, le ton, et la promesse d’avenir</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p><code>handleMessage</code> était à une complexité de <strong>64</strong>,
+      <code>generateDocument</code> à <strong>55</strong>. Cinq chemins laissaient l’utilisateur
+      <em>ne rien apprendre</em> du tout. Les documents signés de l’entreprise imprimaient
+      « N/A » et vouvoyaient quand tout le reste tutoie.</p>
+      <p>Deux écrivains exposés à un agent <strong>n’avaient aucune garde d’autorisation</strong> —
+      <code>updateOnboardingStatus</code> et <code>scheduleReminder</code>, alors que leur voisin de
+      gravité a la sienne depuis le 13. Un invité mono‑canal pouvait déclarer terminé le parcours
+      d’intégration d’un tiers.</p>
+      <p>Et une découverte de forme : <strong><code>**gras**</code> s’affichait littéralement dans
+      Slack</strong> — constaté <em>sur le message de détresse</em>. Cause :
+      <code>sanitizeAgentOutput</code>, qui convertit le markdown, n’a qu’un seul site d’appel, la
+      réponse du modèle. <strong>Les textes écrits en dur ne passent par aucun filtre.</strong></p>
+      <p>Enfin, le démarrage à froid : <strong>4,9 secondes consommées avant la première ligne de
+      logique</strong>.</p>
+    </div>
+
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p>Sur le ton, le dépôt <strong>refusait</strong> le registre chaleureux, avec un argument
+      qui était juste : le détecteur d’accompli non appuyé par un outil reposait sur une
+      <em>liste fermée de six motifs</em>, tous des tournures administratives. « Voilà, ton document
+      t’attend » n’y entrait pas.</p>
+      <p>Mais l’argument ne disait pas « jamais » — il disait <strong>« pas AVANT le
+      détecteur »</strong>. L’ordre des deux gestes est donc la décision : élargir d’abord, changer
+      le ton ensuite.</p>
+    </div>
+
+    <div class="beat r"><span class="tag">Retenu</span>
+      <ul>
+        <li>Le détecteur passe de <strong>6 à 14 familles</strong> de motifs, livré et testé
+        <em>avant</em> la première modification de ton. Et un <strong>filtre interrogatif</strong>
+        est ajouté, qui compte plus que les motifs : sans lui, « Tout est bon pour toi ? » se ferait
+        requalifier — un démenti accolé à une <em>question</em>.</li>
+        <li><strong>La promesse d’AVENIR</strong>, symétrique de la réconciliation FAIT/NARRATION :
+        le premier détecteur attrape « c’est envoyé » sans envoi, celui‑ci attrape « je te
+        l’enverrai lundi » quand rien ne le fera partir.</li>
+        <li>Les réponses figées <strong>varient</strong>, sans toucher au prompt — le choix est
+        <em>déterministe</em> (empreinte de l’horodatage du message), jamais aléatoire : un test ne
+        peut pas verrouiller une réponse aléatoire, et un diagnostic ne peut pas la rejouer. La
+        détresse, elle, n’a aucune variante, et un test le verrouille.</li>
+        <li>Les textes en dur s’écrivent désormais en <em>mrkdwn</em>, et un test le vérifie.</li>
+        <li><code>discoverSlackWorkspace</code> est <strong>supprimé</strong>. Le commentaire
+        affirmait qu’il « reste câblé et testé isolément » — il n’était câblé à <em>aucun</em>
+        agent, seulement testé, ce qui n’est pas la même chose. Ce qui a emporté la décision est ce
+        qu’il portait : une action d’invitation <em>sans aucune garde d’autorisation</em>, dans un
+        fichier qu’un futur recâblage aurait pu rebrancher sans le relire.</li>
+        <li>Complexité : <code>handleMessage</code> 64 → moins de 15, <code>generateDocument</code>
+        55 → moins de 15, l’unique violation de la règle de dépendance corrigée — <strong>et le test
+        qui la manquait</strong>. Le dépôt atteint <strong>zéro warning</strong>.</li>
+      </ul>
+    </div>
+
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul>
+        <li><span class="sha">ce9c9c3</span> fix(sécurité) — les deux seuls écrivains exposés sans garde d’autorisation</li>
+        <li><span class="sha">7e6074f</span> fix(honnêteté) — la PROMESSE D’AVENIR, symétrique de FAIT/NARRATION</li>
+        <li><span class="sha">fbe3964</span> refactor(SOLID) — <code>handleMessage</code> passe de 64 à moins de 15</li>
+        <li><span class="sha">c727d8d</span> refactor(SOLID) — <code>generateDocument</code> de 55 à moins de 15, zéro warning</li>
+        <li><span class="sha">62b3950</span> refactor(DIP) — l’unique violation de la règle de dépendance, et le test qui la manquait</li>
+        <li><span class="sha">1f2dfcc</span> feat(ton) — faire varier les réponses figées, sans toucher au prompt</li>
+        <li><span class="sha">72485b6</span> fix(textes) — <code>**gras**</code> s’affichait littéralement, sur le message de détresse</li>
+        <li><span class="sha">9c28c2a</span> perf — 4,9 s consommées AVANT la première ligne de logique</li>
+        <li class="sha">… et 10 autres</li>
+      </ul>
+    </div>
+  </div>
+</article>
+
+<article class="day row" id="j-08-19">
+  <div class="rail"><b>19 août</b>36 commits<br><span class="m">5 229 ms<br>pour 3 000</span><br>4 boutons<br>supprimés</div>
+  <div class="body">
+    <h3>Les boutons ne pouvaient pas marcher, et la cause n’était pas dans le code du handler</h3>
+
+    <div class="beat c"><span class="tag">Constaté</span>
+      <p>Un clic signé, mesuré en production : <strong><span class="m">5 229 ms</span> à froid,
+      <span class="m">9 173 ms</span> sur un déploiement neuf, <span class="m">684 ms</span> à
+      chaud. Slack accorde 3 secondes.</strong></p>
+      <p>Le handler acquitte pourtant sans la moindre entrée‑sortie, et l’import du graphe
+      applicatif ne prend que <span class="m">0,82 s</span> en local : <strong>le reste est le
+      téléchargement et le dépaquetage de la fonction</strong> — 264 Mo, 20 447 fichiers. Et à
+      ≈ 19 messages par jour, presque chaque clic tombe sur une instance froide : <strong>le cas
+      froid EST le cas nominal.</strong></p>
+
+      <p>Second front, découvert le soir : <strong>la cause racine du parcours d’accueil.</strong>
+      La colonne qui relie un compte Slack à un dossier employé <strong>n’était écrite par AUCUN
+      chemin de production</strong>. Deux conséquences : l’entretien répondait « Noté », puis
+      « j’y mettrai ce que tu viens de me dire », et <em>n’enregistrait rien</em> ; et activer la
+      frontière d’autorisation aurait coupé chacun de <strong>son propre</strong> dossier.</p>
+      <div class="pair">
+        <span class="said"><span class="tag">Le test de production</span>« La feature marche, je
+        viens de la vérifier. »</span>
+        <span class="saw"><span class="tag">Constaté</span>la ligne de la personne qui testait avait
+        été reliée par une exécution passée d’un script manuel. <strong>La feature marchait pour
+        son testeur.</strong></span>
+      </div>
+
+      <p style="margin-top:1.4rem">Troisième : <strong>deux détecteurs étaient désarmés.</strong>
+      La liste des outils en lecture seule gardait un outil <em>retiré</em> et ignorait les deux
+      <em>ajoutés le même jour</em> — un nom inconnu valant ACTEUR, la réconciliation
+      FAIT/NARRATION se taisait sur le chemin le plus fréquent du produit. Et le test annoncé dans
+      l’en‑tête du fichier <strong>n’existait pas</strong>.</p>
+
+      <p>Quatrième : <strong>le modèle ne savait pas quel jour on est.</strong> Sonde signée :
+      « Prépare un entretien lundi prochain à 9h » → <em>« samedi 22 août 2026 à 08:00 »</em>.
+      Mauvais jour, mauvaise heure. Ce n’est pas une faiblesse du modèle : <em>rien</em>, dans toute
+      la fenêtre qu’on lui donne, ne disait la date. Toute date relative était une invention
+      obligée.</p>
+    </div>
+
+    <div class="beat"><span class="tag">Envisagé</span>
+      <p><strong>Trois hypothèses ont été écartées par la mesure</strong>, et elles ont autant servi
+      que le correctif :</p>
+      <ul>
+        <li><em>Fluid Compute</em> — déjà actif ;</li>
+        <li>augmenter la mémoire de la fonction — <strong>déjà au maximum (3 009 Mo)</strong>. Elle
+        avait paru être le correctif ; elle ne l’était pas ;</li>
+        <li>optimiser le code du handler — il n’exécute rien avant d’acquitter.</li>
+      </ul>
+      <p>Pour la complétion de profil, la piste évidente était de <strong>garder les modales et
+      accélérer</strong>. Elle est réfutée par un fait de plateforme : <strong>un portier ne sauve
+      pas une modale.</strong> Il répond vite précisément parce qu’il ne connaît rien du produit ;
+      l’ouverture de la fenêtre a lieu ensuite, dans la fonction restée froide, et le
+      <code>trigger_id</code> est périmé — <span class="m">invalid_trigger_id</span> dans les
+      journaux.</p>
+      <p>Pour la date, la consigne « calcule toute date relative à partir de là » a été
+      <strong>écrite puis retirée</strong> : le bloc anti‑invention interdit déjà d’inventer. Seul
+      <strong>le fait nu</strong> reste — <em>17 tokens</em>.</p>
+    </div>
+
+    <div class="beat r"><span class="tag">Retenu</span>
+      <ul>
+        <li><strong>Un PORTIER D’ACK : une seconde fonction Vercel sans aucune dépendance</strong>
+        (24 Ko, zéro <code>node_modules</code>). Il vérifie le HMAC, répond, et rejoue la requête
+        telle quelle vers un chemin interne où la route applicative la retraite. Il ne décide rien :
+        aucune base, aucun appel Slack, aucun identifiant d’action connu de lui. Mesuré ensuite sur
+        dix clics signés : <strong>734 ms de médiane</strong>, et l’acquittement reste sous la limite
+        après 13 minutes d’inactivité totale.</li>
+        <li><strong>Le bundle est élagué par ATTEIGNABILITÉ à chaque build</strong> : le graphe des
+        imports est calculé depuis les modules racines, et ce qu’aucun chemin n’atteint est
+        supprimé — <span class="m">178 paquets, 11 696 fichiers, 64 Mo</span>. La fonction passe de
+        <strong>264 à 160 Mo</strong>, de 20 447 à 8 766 fichiers. <em>La liste est calculée, jamais
+        écrite</em> : une liste se périme au premier changement de dépendance, en silence.</li>
+        <li><strong>Plus AUCUN bouton sur le chemin nominal.</strong> Les quatre identifiants
+        d’action sont retirés, tous pour la même cause physique, jamais pour une préférence. La
+        complétion de profil devient un <em>échange écrit</em> : quatre questions au plus, une par
+        message, <strong>zéro token</strong>, l’état reconstitué du fil.</li>
+        <li>Mais <strong>le branchement de soumission reste</strong>, et c’est la seule chose qui
+        compte : sur une fonction chaude, un bouton posté hier peut encore ouvrir sa fenêtre. Sans
+        ce chemin, la personne remplirait le formulaire, verrait la fenêtre se fermer comme sur un
+        succès, et rien ne serait gardé. On acquitte, et <strong>on dit en DM que rien n’a été
+        retenu</strong>.</li>
+        <li><code>generateDocument</code> sait <strong>CORRIGER</strong> — un champ, jamais un
+        second outil (un outil de plus est un schéma réémis à chaque aller‑retour, ≈ 150 tokens ;
+        mesuré : <strong>+25 tokens</strong> contre ≈ 1 500 pour l’aller‑retour épargné). Et
+        <strong>un booléen, non un UUID</strong> : la mémoire ne stocke que du texte, donc au message
+        suivant l’identifiant n’est plus dans la fenêtre du modèle. <em>Un identifiant qu’on demande
+        au modèle est un identifiant qu’il peut inventer.</em></li>
+        <li><strong>Le destinataire d’un document est nommé PAR LE CODE.</strong> La consigne
+        l’exigeait du modèle depuis le 14 ; mesuré sur deux sondes, <em>il ne le cite pas</em>.
+        C’est la <strong>troisième consigne d’agent mesurée en échec</strong> : une consigne est
+        PROBABLE, le code est GARANTI.</li>
+        <li>Le préambule porte désormais « Nous sommes le mercredi 19 août 2026, fuseau
+        Africa/Lagos ». Vérifié après correctif : la même phrase rend
+        <em>« lundi 24 août 2026 à 09:00 »</em>.</li>
+      </ul>
+    </div>
+
+    <div class="note warn">
+      <p><strong>Un garde‑fou de méthode naît ce jour‑là, et c’est la leçon du chapitre.</strong>
+      Un test vérifie désormais que toute phrase « verrouillé par <code>X</code> » cite un fichier
+      qui existe. Les trois défauts les plus coûteux de la revue avaient été <em>masqués par un
+      commentaire</em>, et ils partagent une forme : <strong>le commentaire énonce une propriété
+      GLOBALE que rien ne recalcule</strong> — « la seule feature qui… », « verrouillé par… »,
+      « délibérément absente ».</p>
+      <p>Ce dépôt DÉRIVE ses listes ; il ne dérivait pas ses énoncés d’invariant.</p>
+    </div>
+
+    <div class="beat l"><span class="tag">Livré</span>
+      <ul>
+        <li><span class="sha">8d053c2</span> fix(slack) — les boutons ne pouvaient PAS marcher : un portier d’ACK sans dépendance</li>
+        <li><span class="sha">db29f4e</span> perf — 558 Mo → 264 Mo : le temps était dans le DÉBALLAGE</li>
+        <li><span class="sha">2de094e</span> feat(accueil) — plus AUCUN bouton, le parcours devient entièrement conversationnel</li>
+        <li><span class="sha">64f545e</span> fix(accueil) — l’entretien disait « Noté » et n’enregistrait RIEN : la cause racine</li>
+        <li><span class="sha">3d383d0</span> fix(sécurité) — deux détecteurs désarmés</li>
+        <li><span class="sha">c994c61</span> feat(document) — CORRIGER un document plutôt qu’en produire un second</li>
+        <li><span class="sha">b76ae52</span> feat — destinataire nommé par le code, date connue du modèle, modales supprimées</li>
+        <li><span class="sha">25350a7</span> docs — la revue du Conseil, et un garde‑fou sur les invariants qu’on ANNONCE</li>
+        <li><span class="sha">48fe319</span> docs — récapitulatif du projet en HTML</li>
+        <li class="sha">… et 27 autres</li>
+      </ul>
+    </div>
+
+    <div class="note">
+      <p><strong>Une réserve écrite le jour même sur ses propres chiffres.</strong> Les latences
+      mesurées sont un <em>majorant</em> : la requête entre au Cap et la fonction tourne à
+      Washington. Un simple <code>GET</code> CDN depuis cette machine oscille entre 0,34 s et
+      2,26 s, et Slack ne paie pas ce trajet. La <em>cause</em> reste établie par la comparaison
+      chaud/froid sur la même machine, pas par la valeur absolue.</p>
+    </div>
+  </div>
+</article>
+
+<div class="pager">
+  <span><a href="03-honnetete.html">← § 3 — Il répondait, et il mentait</a></span>
+  <span><a href="index.html">Sommaire</a></span>
+  <span><a href="05-marcel.html">§ 5 — Marcel →</a></span>
+</div>
+
+<footer>
+  Chapitre 4 · 17 août → 19 août 2026 · 76 commits · dérivé de <code>git log</code> et de
+  <code>CHANGELOG.md</code>
+</footer>
+
+</div>
