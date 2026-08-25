@@ -106,7 +106,7 @@ describe('Règle de dépendance — la couche domain ne dépend de rien', () => 
     ).toEqual([]);
   });
 
-  it('scanne effectivement les 8 features et leurs fichiers domain (anti faux-négatif)', () => {
+  it('scanne effectivement les 9 features et leurs fichiers domain (anti faux-négatif)', () => {
     // Sans cette assertion, un renommage de dossier ferait passer le garde-fou
     // au vert à vide — exactement le défaut de la version précédente.
     //
@@ -122,6 +122,7 @@ describe('Règle de dépendance — la couche domain ne dépend de rien', () => 
     const features = listFeatures();
     expect(features).toEqual([
       'conversation',
+      'dashboard',
       'directory',
       'document',
       'employee',
@@ -361,7 +362,7 @@ function featureTargetOf(
 describe('Règle de dépendance — `src/shared/` ne connaît AUCUNE feature', () => {
   /**
    * Pourquoi cette frontière et pas une autre : `src/shared/` est importé par les trois couches
-   * des huit features. S'il importait une feature en retour, tout `domain/` deviendrait
+   * des neuf features. S'il importait une feature en retour, tout `domain/` deviendrait
    * transitivement dépendant de cette feature — et le test de transitivité ci-dessus ne le
    * dirait pas, puisqu'il ne cherche que des PAQUETS interdits, jamais des features.
    *
@@ -525,7 +526,7 @@ describe("Règle de dépendance — l'infrastructure d'une feature ignore celle 
     ).toEqual([]);
   });
 
-  it('scanne bien les 8 dossiers infrastructure et sait voir une arête (anti faux-négatif)', () => {
+  it('scanne bien les 9 dossiers infrastructure et sait voir une arête (anti faux-négatif)', () => {
     // Même exigence que partout ailleurs dans ce fichier : prouver que le scan REGARDE.
     // Ici l'anti-faux-négatif est double, parce que le test principal attend `[]` :
     // sans lui, une résolution cassée le rendrait vert sans avoir rien lu.

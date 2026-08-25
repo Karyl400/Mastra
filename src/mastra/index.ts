@@ -58,6 +58,7 @@ import { DocxService } from '../features/document/infrastructure/services/docx.s
 import { createEmployeeOnboardingWorkflow } from '../features/onboarding/application/workflows/employee-onboarding';
 
 import { slackEventsRoute, slackEventsWorkRoute } from '../api/slack-events.route';
+import { dashboardMetricsRoute, dashboardPageRoute } from '../api/dashboard.route';
 import { remindersDispatchRoute } from '../api/reminders-dispatch.route';
 import {
   slackInteractionsRoute,
@@ -243,6 +244,8 @@ export const mastra = new Mastra({
       remindersDispatchRoute,
       slackInteractionsRoute,
       slackInteractionsWorkRoute,
+      dashboardPageRoute,
+      dashboardMetricsRoute,
     ],
     middleware: [
       { path: '*', handler: createSecurityHeadersMiddleware() },
