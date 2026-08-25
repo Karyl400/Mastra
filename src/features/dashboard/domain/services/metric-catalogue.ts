@@ -253,10 +253,27 @@ const CATALOGUE: readonly MetricSpec[] = [
     unit: 'count',
     source: {
       derived: true,
-      from: ["audit_logs (action='AGENT_RUN')"],
+      from: ["audit_logs (action='AGENT_RUN', status='failure')"],
       caveat:
-        'Réunit trois cas : le run qui a levé, celui dont l’agent n’a pas pu être résolu, et ' +
-        'celui dont la réponse a été requalifiée. Le troisième n’est pas une panne technique.',
+        'Réunit le run qui a levé, celui dont l’agent n’a pas pu être résolu, et celui dont la ' +
+        'réponse a été requalifiée. ⚠️ N’inclut PAS les entrées refusées par le garde-fou ' +
+        'anti-injection : compter un refus réussi comme une panne était le défaut relevé en ' +
+        'production le 2026-08-25, quatre injections bloquées en 0 à 2 ms s’affichant comme ' +
+        'quatre échecs.',
+    },
+  },
+  {
+    key: 'ai.injectionsBlocked',
+    family: 'ai',
+    label: 'Injections bloquées (24 h)',
+    unit: 'count',
+    source: {
+      derived: true,
+      from: ["audit_logs (action='AGENT_RUN', status='denied')"],
+      caveat:
+        'Le refus tombe AVANT tout appel de modèle — 0 à 2 ms mesurées en production — donc ' +
+        'une injection ne coûte rien. Un compte non nul n’est pas une alerte : c’est le ' +
+        'garde-fou qui travaille.',
     },
   },
   {

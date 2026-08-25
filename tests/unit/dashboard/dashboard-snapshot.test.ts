@@ -20,6 +20,7 @@ const FACTS: DashboardFacts = {
   modelHandledMessages: 24,
   agentRuns: 24,
   agentRunsFailed: 3,
+  injectionsBlocked: 4,
   requalifiedResponses: 1,
   latenciesMs: [2_000, 4_000, 12_000],
   toolCallCounts: { findPersonByName: 5, generateDocument: 2 },
@@ -226,5 +227,29 @@ describe('ce que `AGENT_RUN` a rendu mesurable', () => {
       available: false,
       gap: 'no_data_yet',
     });
+  });
+});
+
+/**
+ * ⚠️ QUATRE INJECTIONS BLOQUÉES S'AFFICHAIENT COMME QUATRE PANNES — relevé en production le
+ * 2026-08-25, sur la campagne d'attaques.
+ *
+ * Le journal disait vrai (`status: 'failure'`, `Input rejected: injection attempt detected`,
+ * 0 à 2 ms) et le tableau de bord le lisait de travers. Compter un refus RÉUSSI comme un échec
+ * technique est la même famille de défaut que tout le reste de ce module : un chiffre qui a
+ * l'air d'une mesure et qui dit autre chose que ce qu'on lit.
+ *
+ * Le coût aurait été concret : on cherche une panne là où le garde-fou a fait son travail.
+ */
+describe('un refus d’injection n’est PAS une panne', () => {
+  const read = (key: string) => buildSnapshot(FACTS).find((m) => m.key === key)?.reading;
+
+  it('compte les injections séparément des échecs', () => {
+    expect(read('ai.injectionsBlocked')).toEqual({
+      available: true,
+      value: 4,
+      detail: 'sur 24 runs',
+    });
+    expect(read('ai.runFailures')).toEqual({ available: true, value: 3, detail: 'sur 24 runs' });
   });
 });

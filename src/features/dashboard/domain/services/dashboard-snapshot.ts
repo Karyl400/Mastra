@@ -126,6 +126,8 @@ function readingFor(spec: MetricSpec, f: DashboardFacts): MetricReading {
       return count(f.requalifiedResponses, `sur ${f.agentRuns} runs`);
     case 'ai.runFailures':
       return count(f.agentRunsFailed, `sur ${f.agentRuns} runs`);
+    case 'ai.injectionsBlocked':
+      return count(f.injectionsBlocked, `sur ${f.agentRuns} runs`);
     case 'ai.toolCalls': {
       const entries = Object.entries(f.toolCallCounts).sort((a, b) => b[1] - a[1]);
       const total = entries.reduce((sum, [, n]) => sum + n, 0);

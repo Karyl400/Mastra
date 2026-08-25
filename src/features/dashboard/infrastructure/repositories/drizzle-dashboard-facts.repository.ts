@@ -67,6 +67,7 @@ interface RunRow {
 function summariseRuns(rows: readonly RunRow[]): {
   agentRuns: number;
   agentRunsFailed: number;
+  injectionsBlocked: number;
   requalifiedResponses: number;
   latenciesMs: readonly number[];
   toolCallCounts: Record<string, number>;
@@ -74,10 +75,12 @@ function summariseRuns(rows: readonly RunRow[]): {
   const latenciesMs: number[] = [];
   const toolCallCounts: Record<string, number> = {};
   let agentRunsFailed = 0;
+  let injectionsBlocked = 0;
   let requalifiedResponses = 0;
 
   for (const row of rows) {
     if (row.status === 'failure') agentRunsFailed += 1;
+    if (row.status === 'denied') injectionsBlocked += 1;
 
     const details = parseDetails(row.details);
     if (!details) continue;
@@ -95,6 +98,7 @@ function summariseRuns(rows: readonly RunRow[]): {
   return {
     agentRuns: rows.length,
     agentRunsFailed,
+    injectionsBlocked,
     requalifiedResponses,
     latenciesMs,
     toolCallCounts,

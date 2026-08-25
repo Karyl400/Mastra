@@ -25,6 +25,7 @@ export interface DashboardFacts {
   readonly modelHandledMessages: number;
   readonly agentRuns: number;
   readonly agentRunsFailed: number;
+  readonly injectionsBlocked: number;
   readonly requalifiedResponses: number;
   readonly latenciesMs: readonly number[];
   readonly toolCallCounts: Readonly<Record<string, number>>;

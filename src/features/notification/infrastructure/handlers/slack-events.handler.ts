@@ -172,7 +172,7 @@ import { DrizzleRateLimitRepository } from '../repositories/drizzle-rate-limit.r
 import { writeAuditLog } from '../../../../infrastructure/audit/audit-log';
 import { agentHasTool, isActingTool } from '../../../../shared/agent-capabilities';
 import { AUDIT_ACTIONS } from '../../../../shared/audit-actions';
-import { errorMessage } from '../../../../shared/errors';
+import { errorMessage, SecurityBlockError } from '../../../../shared/errors';
 
 export interface SlackMessageEvent {
   type?: string;
@@ -388,6 +388,34 @@ export function buildReminderNotice(requestContext: unknown, answer: string): st
   if (answer.includes(day)) return "\n\n_(Au matin — je ne passe qu'une fois par jour.)_";
 
   return `\n\n_(Je te le remettrai ${label} — je ne passe qu'une fois par jour.)_`;
+}
+
+function describeAgentRun(run: {
+  toolCalls: string[] | null;
+  durationMs: number;
+  steps: number | null;
+  inputTokens: number | null;
+  unsupportedClaim: string | null;
+  deliveryPromise: string | null;
+  truncated: boolean;
+  redacted: number;
+}): { status: 'success' | 'failure'; details: Record<string, unknown> } {
+  const called = run.toolCalls;
+
+  return {
+    status: (run.unsupportedClaim ?? run.deliveryPromise) ? 'failure' : 'success',
+    details: {
+      toolCalls: called,
+      actedOn: called === null ? null : called.filter(isActingTool),
+      durationMs: run.durationMs,
+      steps: run.steps,
+      inputTokens: run.inputTokens,
+      unsupportedClaim: run.unsupportedClaim,
+      deliveryPromise: run.deliveryPromise,
+      truncated: run.truncated,
+      redacted: run.redacted,
+    },
+  };
 }
 
 export class SlackEventsHandler {
@@ -1310,6 +1338,42 @@ export class SlackEventsHandler {
     logger.info('Profile form posted — answered without any LLM call', { channel, first });
   }
 
+  private auditFailedRun(run: {
+    user?: string;
+    agentId: string;
+    error: unknown;
+    phase: string;
+    startedAt: number;
+  }): void {
+    const blocked = run.error instanceof SecurityBlockError;
+
+    this.auditAgentRun({
+      user: run.user,
+      agentId: run.agentId,
+      status: blocked ? 'denied' : 'failure',
+      errorMessage: errorMessage(run.error),
+      details: { phase: run.phase, durationMs: Date.now() - run.startedAt, blocked },
+    });
+  }
+
+  private auditAgentRun(entry: {
+    user?: string;
+    agentId: string;
+    status: 'success' | 'failure' | 'denied';
+    errorMessage?: string;
+    details: Record<string, unknown>;
+  }): void {
+    void this.audit({
+      action: AUDIT_ACTIONS.agentRun,
+      actorId: entry.user ?? 'unknown',
+      status: entry.status,
+      resourceType: 'Agent',
+      resourceId: entry.agentId,
+      ...(entry.errorMessage ? { errorMessage: entry.errorMessage } : {}),
+      details: entry.details,
+    });
+  }
+
   private async runAgentPipeline(ctx: {
     event: SlackMessageEvent;
     text: string;
@@ -1362,12 +1426,10 @@ export class SlackEventsHandler {
             'si ça recommence, remonte-le.',
         );
         logger.error('Agent introuvable dans le registre Mastra', { agentId });
-        void this.audit({
-          action: AUDIT_ACTIONS.agentRun,
-          actorId: user ?? 'unknown',
+        this.auditAgentRun({
+          user,
+          agentId,
           status: 'failure',
-          resourceType: 'Agent',
-          resourceId: agentId,
           errorMessage: 'agent_unresolved',
           details: { phase, durationMs: Date.now() - startedAt },
         });
@@ -1504,15 +1566,11 @@ export class SlackEventsHandler {
         deliveryPromise,
       });
 
-      void this.audit({
-        action: AUDIT_ACTIONS.agentRun,
-        actorId: user ?? 'unknown',
-        status: unsupportedClaim || deliveryPromise ? 'failure' : 'success',
-        resourceType: 'Agent',
-        resourceId: agentId,
-        details: {
-          toolCalls: toolCalls ?? null,
-          actedOn: toolCalls?.filter((name) => isActingTool(name)) ?? null,
+      this.auditAgentRun({
+        user,
+        agentId,
+        ...describeAgentRun({
+          toolCalls,
           durationMs,
           steps: this.readSteps(response),
           inputTokens,
@@ -1520,7 +1578,7 @@ export class SlackEventsHandler {
           deliveryPromise,
           truncated: shape.truncated,
           redacted: safeOutput.redacted.length,
-        },
+        }),
       });
 
       void this.getRateLimiter()?.consumeTokens(inputTokens);
@@ -1540,15 +1598,7 @@ export class SlackEventsHandler {
         user,
       });
 
-      void this.audit({
-        action: AUDIT_ACTIONS.agentRun,
-        actorId: user ?? 'unknown',
-        status: 'failure',
-        resourceType: 'Agent',
-        resourceId: agentId,
-        errorMessage: errorMessage(error),
-        details: { phase, durationMs: Date.now() - startedAt },
-      });
+      this.auditFailedRun({ user, agentId, error, phase, startedAt });
 
       await progress.fail(userFacingFailure(error));
     }
