@@ -247,6 +247,8 @@ retrait de commentaire.
 | [Récapitulatif du projet](docs/recapitulatif-projet.html) | Le même parcours par **thème** : le but, la stack, les décisions, ce qui reste ouvert |
 | [Harness Engineering](docs/harness-engineering.html) | **Ce que ce harness utilise, ce qu'il omet, et pourquoi** — les douze modules confrontés au code |
 | [Notions agentiques](docs/notions-agentiques.html) | Les notions, délibérément hors du temps |
+| [Le projet](docs/PROJET.md) | **Le produit** — son but, ce qu'il sait faire, et toutes ses spécificités |
+| [Audit Tool Design](docs/tool-design-audit.md) | **Les 13 outils, module par module** — ce qui est inclus, ce qui manque, et pourquoi |
 | [Audit — 100 points](docs/audit-2026-08-20-100-points.html) | Un verdict par point de contrôle |
 | `AUDIT_REPORT.md` §8 | **La liste des points ouverts**, par priorité |
 
