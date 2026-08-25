@@ -6146,3 +6146,55 @@ que le défaut.
 Signe qui ne trompe pas : la désactivation `sonarjs/super-linear-regex` en tête de fichier est
 devenue **inutile** et a été retirée. La règle signalait un motif réel ; la désactivation le
 masquait.
+
+## 2026-08-25 (soir) — la marque d'échec cesse d'être le privilège d'un outil
+
+### `src/shared/tool-step-outcome.ts`
+
+**Avant `export function classifyToolOutcome(result: unknown): StepVerdict {`**
+
+La marque `slackStepBlocked`, livrée le matin même, n'était posée que par `getChannelHistory` —
+inscrite en dette nommée dans `TODO.md`, et tranchée le jour même par le propriétaire : *« pose
+la marque d'échec posée sur getChannelHistory sur les autres outils »*.
+
+⚠️ **ELLE EST DÉRIVÉE, PAS RECOPIÉE, ET C'EST TOUT LE LOT.** Poser treize appels à
+`writeStepBlocked` aurait produit treize occasions d'en oublier un, puis une liste qui se périme
+au premier outil ajouté — la forme exacte que ce dépôt a déjà payée avec `READ_ONLY_TOOL_NAMES`
+gardant `getTaskList` et avec la constante `WIRING` du test de budget. Ce module lit la **forme
+du résultat**, que les treize outils partagent déjà sans s'être concertés : un drapeau positif
+(`found` / `saved` / `sent` / `stored` / `updated`), un `status`, un `reason`. Un outil écrit
+demain est couvert sans que personne n'y pense.
+
+⚠️ **UN DRAPEAU POSITIF VRAI L'EMPORTE SUR UN `reason`.** `generateDocument` rend
+`{ saved: true, delivery: 'failed', reason: 'delivery_failed' }` : le document EXISTE, il n'a
+pas été livré. Ce dépôt a un mot pour cela depuis le 2026-08-11 — **dégradé** — et le distingue
+d'**échoué**. Une chaîne ne s'arrête donc pas là-dessus. Choix conservateur assumé : le pire cas
+est l'ancien comportement, jamais une régression.
+
+⚠️ **ET LE SUCCÈS EFFACE.** Un agent qui appelle `findPersonByName` sans résultat, puis le
+rappelle avec une autre orthographe, a RÉUSSI son étape. Sans effacement, la marque du premier
+appel condamnerait la suite de la chaîne. Le défaut existait déjà dans la version à un seul
+outil ; il y était invisible parce que `getChannelHistory` n'est appelé qu'une fois.
+
+⚠️ **CONSÉQUENCE À CONNAÎTRE : la règle est SENSIBLE À L'ORDRE.** C'est le dernier outil du tour
+qui décide. Un pas de plus (compter les refus, pondérer) demanderait au harness de juger de
+l'utilité d'une étape, ce qu'il ne sait pas faire ; « le dernier geste a-t-il abouti ? » est la
+seule question à laquelle il peut répondre sans deviner.
+
+**Avant `function markOne(tool: unknown): void {`**
+
+⚠️ **LE POINT DE MONTAGE EST LA FABRIQUE D'AGENT, PAS `src/mastra/index.ts`.** Les quatre agents
+reçoivent tous leurs outils par injection et les passent tels quels à `new Agent`. Envelopper là
+couvre TOUT outil câblé sur TOUT agent, sans liste à tenir — envelopper au câblage aurait exigé
+d'énumérer treize constantes. `tests/unit/quality/step-outcome-is-mounted.test.ts` verrouille le
+montage, sur le modèle de `guards-are-mounted.test.ts` : une marque écrite n'est pas une marque
+posée.
+
+⚠️ **L'ENVELOPPE ENVELOPPE UNE ENVELOPPE.** `createTool` a déjà remplacé `execute` par sa propre
+validation d'entrée. On mute donc `tool.execute` APRÈS construction, ce qui préserve cette
+validation — et fait au passage entrer dans le champ un cas qui échappait à tout le monde :
+Mastra ne LÈVE pas sur une entrée invalide, il **retourne `{ error: true, message }`** au modèle.
+Un appel qui n'a rien fait est une étape qui n'a rien fait. `tests/unit/shared/tool-step-outcome.test.ts`
+le vérifie contre un vrai `Tool`, et pas seulement contre une doublure : le risque réel n'était
+pas la logique mais le CÂBLAGE — que `requestContext` n'arrive pas dans le second argument, ce
+qui n'aurait rien levé, rien cassé, et rien fait.

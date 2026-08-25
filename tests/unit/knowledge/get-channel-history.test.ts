@@ -232,16 +232,22 @@ describe('getChannelHistory — restitution', () => {
     expect(result.reason).toBe('no_message');
   });
 
-  it("nomme le geste humain quand le bot n'est pas dans le canal", async () => {
+  it("dit que le bot n'est pas dans le canal — sans demander qu'on l'y invite", async () => {
     channels.failWith(PRIVATE_CHANNEL, 'bot_not_in_channel');
 
     const result = await run(PRIVATE_CHANNEL, HR);
 
-    // Trois situations, trois phrases : « rien à lire », « invite-moi »,
-    // « Slack est en panne ». Les fondre en un `null` referait le défaut de
-    // `getTaskList`.
+    // Trois situations, trois phrases : « rien à lire », « je ne suis pas dans ce canal »,
+    // « Slack est en panne ». Les fondre en un `null` referait le défaut de `getTaskList`.
+    //
+    // ⚠️ Le hint disait « Invite-moi dans ce canal » jusqu'au 2026-08-25, et le modèle le
+    // recopiait tel quel en production. Verdict du propriétaire : *« ne demande jamais à un
+    // utilisateur d'inviter Marcel »*. Un `hint` déjà rédigé à la première personne est un
+    // texte qui SORT — la prohibition est verrouillée à l'échelle du dépôt par
+    // `tests/unit/quality/never-asks-for-an-invite.test.ts`.
     expect(result.reason).toBe('bot_not_in_channel');
-    expect(result.hint).toContain('Invite-moi');
+    expect(result.hint).toContain('Je ne suis pas dans ce canal');
+    expect(result.hint).not.toMatch(/invite/i);
   });
 });
 

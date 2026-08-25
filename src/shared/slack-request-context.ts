@@ -53,6 +53,10 @@ export function readStepBlocked(requestContext: unknown): string | undefined {
   return readContextNote(requestContext, SLACK_STEP_BLOCKED_KEY);
 }
 
+export function clearStepBlocked(requestContext: unknown): void {
+  eraseContextNote(requestContext, SLACK_STEP_BLOCKED_KEY);
+}
+
 export const SLACK_REMINDER_DELIVERY_KEY = 'slackReminderDelivery';
 
 export function writeReminderDelivery(requestContext: unknown, label: string): void {
@@ -72,6 +76,17 @@ function writeContextNote(requestContext: unknown, key: string, value: string): 
 
   try {
     (set as (this: unknown, k: string, v: unknown) => void).call(requestContext, key, value);
+  } catch {}
+}
+
+function eraseContextNote(requestContext: unknown, key: string): void {
+  if (typeof requestContext !== 'object' || requestContext === null) return;
+
+  const set = (requestContext as { set?: unknown }).set;
+  if (typeof set !== 'function') return;
+
+  try {
+    (set as (this: unknown, k: string, v: unknown) => void).call(requestContext, key, '');
   } catch {}
 }
 

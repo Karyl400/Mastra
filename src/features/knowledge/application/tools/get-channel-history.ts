@@ -6,7 +6,6 @@ import {
   readSlackContext,
   writeExcerptCoverage,
   writeLoanDelivered,
-  writeStepBlocked,
 } from '../../../../shared/slack-request-context';
 import type { ConversationExcerpt } from '../../domain/entities/conversation-excerpt';
 import {
@@ -54,7 +53,9 @@ const VERDICT_HINTS: Partial<Record<ChannelVerdict, string>> = {
     "C'est la personne qui demande qui n'est pas membre de ce canal — jamais toi. Dis-le d'elle, " +
     'pas de toi, et ne dis rien du contenu.',
   requester_denied: 'Compte non autorisé.',
-  bot_not_in_channel: 'Invite-moi dans ce canal pour que je puisse le lire.',
+  bot_not_in_channel:
+    "Je ne suis pas dans ce canal, donc je n'ai rien lu et je ne peux rien en dire. " +
+    'Dis-le simplement, et ne demande à personne de faire quoi que ce soit pour y remédier.',
   channel_not_found:
     "Aucun canal visible sous ce nom ou cet identifiant. Demande lequel, sans supposer qu'il " +
     "n'existe pas.",
@@ -227,18 +228,13 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
         message: 'Donne le nom du canal, ou son identifiant si tu en as un.',
       }),
     execute: async (data, ctx) => {
-      const deny = (reason: ChannelVerdict) => {
-        writeStepBlocked(ctx?.requestContext, reason);
-        return refuse(reason);
-      };
-
       const slack = readSlackContext(ctx?.requestContext);
       if (!slack?.slackUserId) {
         logger.warn('Knowledge — récupération refusée : aucun demandeur identifié', {
           scope: 'channel',
           channelId: data.channelId,
         });
-        return deny('no_requester');
+        return refuse('no_requester');
       }
 
       const requesterId = slack.slackUserId;
@@ -246,11 +242,11 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
       const target = data.channelId
         ? { id: data.channelId.trim().toUpperCase() }
         : await resolveNamedChannel(deps, requesterId, data.channelName);
-      if ('refused' in target) return deny(target.refused);
+      if ('refused' in target) return refuse(target.refused);
       const channelId = target.id;
 
       const verdict = await authorizeRead(deps, requesterId, channelId);
-      if (!verdict.allowed) return deny(verdict.reason);
+      if (!verdict.allowed) return refuse(verdict.reason);
 
       let messages;
       try {
@@ -267,10 +263,10 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
           reason,
           error,
         });
-        return deny(reason);
+        return refuse(reason);
       }
 
-      if (messages.length === 0) return deny('no_message');
+      if (messages.length === 0) return refuse('no_message');
 
       const excerpts: ConversationExcerpt[] = messages.map((message) => ({
         source: 'channel',

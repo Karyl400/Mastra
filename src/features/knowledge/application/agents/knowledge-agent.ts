@@ -9,6 +9,7 @@ import {
   agentToolBoundary,
 } from '../../../../shared/agent-style';
 import { assertNoOutboundTools } from '../../domain/services/outbound-tool-quarantine';
+import { markStepOutcomes } from '../../../../shared/tool-step-outcome';
 
 export function makeKnowledgeAgent(tools: ToolsInput) {
   assertNoOutboundTools(Object.keys(tools));
@@ -31,6 +32,6 @@ ${AGENT_STYLE_BLOCK}
 
 ${AGENT_ANTI_INVENTION_BLOCK}`),
     model: makeModelChain(),
-    tools: tools,
+    tools: markStepOutcomes(tools),
   });
 }

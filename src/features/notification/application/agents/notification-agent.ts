@@ -7,6 +7,7 @@ import {
   AGENT_ANTI_INVENTION_BLOCK,
   agentToolBoundary,
 } from '../../../../shared/agent-style';
+import { markStepOutcomes } from '../../../../shared/tool-step-outcome';
 
 export function makeNotificationAgent(tools: ToolsInput) {
   return new Agent({
@@ -21,6 +22,6 @@ ${AGENT_STYLE_BLOCK}
 
 ${AGENT_ANTI_INVENTION_BLOCK}`),
     model: makeModelChain(),
-    tools: tools,
+    tools: markStepOutcomes(tools),
   });
 }

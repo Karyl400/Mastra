@@ -9,6 +9,7 @@ import {
   agentToolBoundary,
 } from '../../../../shared/agent-style';
 import { assertNoReadTools } from '../../domain/services/read-tool-quarantine';
+import { markStepOutcomes } from '../../../../shared/tool-step-outcome';
 
 export function makeRecruitmentAgent(tools: ToolsInput) {
   assertNoReadTools(Object.keys(tools));
@@ -29,6 +30,6 @@ ${AGENT_STYLE_BLOCK}
 
 ${AGENT_ANTI_INVENTION_BLOCK}`),
     model: makeModelChain(),
-    tools: tools,
+    tools: markStepOutcomes(tools),
   });
 }

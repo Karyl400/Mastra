@@ -2585,3 +2585,37 @@ raison.
 ⚠️ `conversations.members` répond `200` sur un canal public dont le BOT n'est pas membre : le
 contrôle porte donc bien sur le demandeur, et l'impossibilité de lire ce canal se manifeste plus
 tard, dans `fetchRecent`, en `bot_not_in_channel`.
+
+## 2026-08-25 (soir) — Marcel ne demande jamais qu'on l'invite
+
+### `src/features/knowledge/application/tools/get-channel-history.ts`
+
+**Avant `const VERDICT_HINTS: Partial<Record<ChannelVerdict, string>> = {`**
+
+⚠️ **UN `hint` DÉJÀ RÉDIGÉ À LA PREMIÈRE PERSONNE EST UN TEXTE QUI SORT.** `bot_not_in_channel`
+valait « Invite-moi dans ce canal pour que je puisse le lire », et la sonde de production du
+2026-08-25 a montré le modèle le recopiant mot pour mot : *« Je n'ai pas accès au canal
+"institute". Invite-moi dans ce canal… »*. Verdict du propriétaire : **ne jamais demander à
+quelqu'un d'inviter Marcel.**
+
+C'est la **deuxième fois en deux jours** que ce champ produit une phrase fausse ou déplacée, et
+la cause est la même que pour `not_channel_member` la veille : ces valeurs ne sont pas des
+messages d'erreur destinés à un développeur, ce sont des **brouillons de réponse**. Un impératif
+écrit là est un impératif prononcé.
+
+Le hint énonce désormais un FAIT (« je ne suis pas dans ce canal, donc je n'ai rien lu ») et une
+CONTRAINTE (« ne demande à personne de faire quoi que ce soit pour y remédier »).
+
+⚠️ **Ce qui est GARANTI et ce qui ne l'est pas.** Le dépôt ne sème plus la formule —
+`tests/unit/quality/never-asks-for-an-invite.test.ts` scanne tout `src/` et rougit sur
+« invite-moi », « ajoute-moi », « m'inviter », « m'ajouter », « inviter le bot ». Un modèle
+reste libre de l'inventer ; la mesure de production dit qu'il recopiait, il n'inventait pas.
+Le second bloc du test vérifie que les motifs reconnaissent ce qu'ils interdisent et épargnent
+« invite la personne à te redemander », dont l'objet n'est pas le bot.
+
+**Avant `export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {`**
+
+⚠️ **LE `deny` LOCAL A DISPARU, ET C'EST UN GAIN.** Il posait `writeStepBlocked` à la main dans
+ce seul outil. La marque est désormais **dérivée de la forme du résultat**, une fois pour tous
+les outils — voir `docs/conception/shared.md`. Garder les deux aurait été la situation exacte
+de la constante `WIRING` recopiée : deux sources pour une même règle, dont l'une dérive.
