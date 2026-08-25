@@ -43,6 +43,8 @@ import { DrizzleBotMemoryRepository } from '../features/knowledge/infrastructure
 import { SlackChannelHistoryAdapter } from '../features/knowledge/infrastructure/providers/slack-channel-history.adapter';
 import { makeGetUserConversations } from '../features/knowledge/application/tools/get-user-conversations';
 import { makeGetChannelHistory } from '../features/knowledge/application/tools/get-channel-history';
+import type { DigestDeliveryPort } from '../features/knowledge/domain/ports/digest-delivery.port';
+import { DocumentType } from '../shared/types';
 import { makeSearchKnowledge } from '../features/knowledge/application/tools/search-knowledge';
 import { DrizzleMessageArchiveRepository } from '../features/knowledge/infrastructure/repositories/drizzle-message-archive.repository';
 import { DrizzleKnowledgeFactRepository } from '../features/knowledge/infrastructure/repositories/drizzle-knowledge-fact.repository';
@@ -172,9 +174,38 @@ const getUserConversations = makeGetUserConversations({
   directory: directoryRepo,
   memory: new DrizzleBotMemoryRepository(),
 });
+const channelDigestDelivery: DigestDeliveryPort = {
+  async deliver(digest, target) {
+    const rendered = await pdfService.render({
+      type: DocumentType.Guide,
+      title: digest.title,
+      content: [digest.coverage, '', ...digest.lines].filter(Boolean).join('\n'),
+    });
+
+    try {
+      await chatProvider.uploadFile({
+        channel: target.channel,
+        ...(target.threadTs ? { threadTs: target.threadTs } : {}),
+        bytes: rendered.bytes,
+        filename: rendered.filename,
+        title: digest.title,
+      });
+    } catch (error) {
+      logger.error('Livraison du résumé de canal en document impossible', {
+        channelId: digest.channelId,
+        error,
+      });
+      return { delivered: false, reason: 'post_failed' };
+    }
+
+    return { delivered: true, filename: rendered.filename };
+  },
+};
+
 const getChannelHistory = makeGetChannelHistory({
   directory: directoryRepo,
   channels: channelHistory,
+  digests: channelDigestDelivery,
 });
 
 const messageArchive = new DrizzleMessageArchiveRepository();

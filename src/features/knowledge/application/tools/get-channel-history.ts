@@ -2,7 +2,11 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
 import { logger } from '../../../../shared/logger';
-import { readSlackContext, writeExcerptCoverage } from '../../../../shared/slack-request-context';
+import {
+  readSlackContext,
+  writeExcerptCoverage,
+  writeLoanDelivered,
+} from '../../../../shared/slack-request-context';
 import type { ConversationExcerpt } from '../../domain/entities/conversation-excerpt';
 import {
   ChannelUnavailableError,
@@ -25,11 +29,15 @@ import {
 } from '../../domain/value-objects/retrieval-window';
 import { wrapRetrievedContent } from '../services/untrusted-excerpt.service';
 import { buildNameLookup } from '../services/directory-names';
+import type { DigestDeliveryPort } from '../../domain/ports/digest-delivery.port';
 
 export interface GetChannelHistoryDeps {
   readonly directory: PersonDirectoryPort;
   readonly channels: ChannelHistoryPort;
+  readonly digests?: DigestDeliveryPort;
 }
+
+export type DigestOutcome = 'delivered' | 'failed' | 'unavailable';
 
 const CHANNEL_ID_RE = /^[CGD][A-Z0-9]{4,}$/i;
 
@@ -50,6 +58,58 @@ function refuse(reason: ChannelVerdict) {
   return hint ? { found: false as const, reason, hint } : { found: false as const, reason };
 }
 
+async function deliverDigest(
+  digests: DigestDeliveryPort | undefined,
+  request: {
+    channelId: string;
+    requesterId: string;
+    target: { channel?: string; threadTs?: string };
+    title: string;
+    coverage: string;
+    lines: string;
+  },
+): Promise<DigestOutcome> {
+  if (!digests || !request.target.channel) return 'unavailable';
+
+  try {
+    const verdict = await digests.deliver(
+      {
+        channelId: request.channelId,
+        title: request.title,
+        coverage: request.coverage,
+        lines: request.lines.split('\n').filter((line) => line.trim().length > 0),
+      },
+      {
+        channel: request.target.channel,
+        ...(request.target.threadTs ? { threadTs: request.target.threadTs } : {}),
+      },
+    );
+
+    if (verdict.delivered) {
+      logger.info('Knowledge — résumé de canal livré en document', {
+        requesterId: request.requesterId,
+        channelId: request.channelId,
+        filename: verdict.filename,
+      });
+      return 'delivered';
+    }
+
+    logger.error('Knowledge — livraison du résumé en document impossible', {
+      requesterId: request.requesterId,
+      channelId: request.channelId,
+      reason: verdict.reason,
+    });
+    return 'failed';
+  } catch (error) {
+    logger.error('Knowledge — livraison du résumé en document en échec', {
+      requesterId: request.requesterId,
+      channelId: request.channelId,
+      error,
+    });
+    return 'failed';
+  }
+}
+
 export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
   return createTool({
     id: 'getChannelHistory',
@@ -60,6 +120,10 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
         .trim()
         .regex(CHANNEL_ID_RE, 'Identifiant de canal Slack attendu (C…, G… ou D…)')
         .describe('Identifiant du canal, pas son nom (ex. CMLKC4S5T).'),
+      asDocument: z
+        .boolean()
+        .optional()
+        .describe('true pour joindre aussi un PDF du résumé dans ce fil.'),
     }),
     execute: async (data, ctx) => {
       const slack = readSlackContext(ctx?.requestContext);
@@ -154,12 +218,26 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
       const humanCoverage = describeCoverageForHuman(excerpts, shown);
       if (humanCoverage) writeExcerptCoverage(ctx?.requestContext, humanCoverage);
 
+      const document = data.asDocument
+        ? await deliverDigest(deps.digests, {
+            channelId,
+            requesterId,
+            target: { channel: slack.channel, threadTs: slack.threadTs },
+            title: `Résumé de la conversation`,
+            coverage: humanCoverage ?? coverage ?? '',
+            lines,
+          })
+        : undefined;
+
+      if (document === 'delivered') writeLoanDelivered(ctx?.requestContext, 'channelDigest');
+
       return {
         found: true,
         conversation: wrapRetrievedContent(lines, coverage),
         shown,
         scanned: messages.length,
         ...(coverage ? { hint: coverage } : {}),
+        ...(document ? { document } : {}),
       };
     },
   });

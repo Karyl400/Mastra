@@ -13,6 +13,16 @@ export function writeExcerptCoverage(requestContext: unknown, coverage: string):
   writeContextNote(requestContext, SLACK_EXCERPT_COVERAGE_KEY, coverage);
 }
 
+export const SLACK_LOAN_DELIVERED_KEY = 'slackLoanDelivered';
+
+export function writeLoanDelivered(requestContext: unknown, capability: string): void {
+  writeContextNote(requestContext, SLACK_LOAN_DELIVERED_KEY, capability);
+}
+
+export function readLoanDelivered(requestContext: unknown): string | undefined {
+  return readContextNote(requestContext, SLACK_LOAN_DELIVERED_KEY);
+}
+
 export const SLACK_DOCUMENT_RECIPIENT_KEY = 'slackDocumentRecipient';
 
 export function writeDocumentRecipient(requestContext: unknown, recipient: string): void {

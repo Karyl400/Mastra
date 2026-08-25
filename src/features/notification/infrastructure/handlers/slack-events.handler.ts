@@ -82,6 +82,7 @@ import {
   readReminderDelivery,
   readDocumentRecipient,
   type SlackAccessLevel,
+  readLoanDelivered,
 } from '../../../../shared/slack-request-context';
 import { textMentionsName } from '../../../../shared/name-matching';
 import { escalationName } from '../../../../shared/escalation';
@@ -1491,8 +1492,10 @@ export class SlackEventsHandler {
       });
 
       const toolCalls = readToolCallNames(response);
+      const loanDelivered = readLoanDelivered(requestContext);
+      const acted = loanDelivered !== undefined;
       const unsupportedClaim =
-        toolCalls !== null && !hasActingToolCall(toolCalls)
+        toolCalls !== null && !acted && !hasActingToolCall(toolCalls)
           ? detectUnsupportedCompletionClaim(safeOutput.text)
           : null;
 
@@ -1506,7 +1509,7 @@ export class SlackEventsHandler {
       }
 
       const deliveryPromise =
-        toolCalls !== null && promisesWithoutActing(toolCalls)
+        toolCalls !== null && !acted && promisesWithoutActing(toolCalls)
           ? detectUnsupportedDeliveryPromise(safeOutput.text)
           : null;
 
