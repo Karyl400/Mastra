@@ -4563,6 +4563,37 @@ lesquelles le bot paraissait totalement muet. `startProgress` ne bloque pas : il
 la main sans attendre l'aller-retour Slack, et la réponse finale REMPLACE le marqueur
 
 — un seul message dans le fil, jamais deux.
+**Avant `const chain = planIntentChain(ctx.text, ctx.history.at(-1)?.agentId);`**
+
+⚠️ **DEUX DEMANDES DANS UN MESSAGE, ET LA SECONDE DISPARAISSAIT EN SILENCE — 2026-08-25.**
+
+Le routage choisit UN agent par message. Mesuré sur cinq phrases réelles : deux marchaient
+par hasard, deux perdaient la moitié de la demande sans le dire, et la cinquième était la
+phrase que la quarantaine interdit.
+
+Le harness découpe donc le message sur les connecteurs et route chaque fragment. ⚠️ **Si tous
+les fragments vont au même agent, RIEN ne change** — c'est l'immense majorité des messages, et
+ils ne paient pas un token de plus.
+
+⚠️ **CE QUI REND L'ENCHAÎNEMENT SÛR N'EST PAS UNE LISTE NOIRE, C'EST L'INDÉPENDANCE.** Une
+première version refusait certains enchaînements d'après la boîte à outils du second agent :
+trop strict (« résume ce canal ET RAPPELLE-MOI JEUDI », bénin, s'y faisait refuser) et trop
+lâche (une liste se périme au premier outil déplacé). La règle retenue est structurelle — **une
+étape ne reçoit jamais la sortie d'une étape précédente** — et il en découle un théorème :
+
+> Aucun contenu ne circule entre les étapes, donc l'ensemble ne porte rien que ses parties ne
+> portaient déjà : **l'ensemble est sûr si et seulement si chaque partie l'est.**
+
+⚠️ **ET EN CAS DE CONFUSION, ON DEMANDE AU LIEU D'EXÉCUTER** — recommandation du propriétaire.
+Quand la seconde demande RENVOIE à la première (« et envoie *ça* à… »), elle réclame un
+transport de contenu qui n'aura pas lieu : l'exécuter produirait « qu'est-ce que je dois
+envoyer ? », ce qui se lit comme un bot ayant perdu le fil. La clarification coûte ZÉRO token et
+dit la vraie raison. Même chose au-delà de deux demandes.
+
+Verrouillé par `tests/unit/notification/intent-chain.test.ts` (le plan) et
+`tests/unit/handlers/intent-chain-execution.test.ts` (l'indépendance, qui ne se vérifie qu'à
+l'exécution).
+
 **Avant `pendingEmailReminder: pendingEmail.reminder,`**
 
 ⚠️ ACCOLÉ à la réponse de l'agent, jamais posté à part : deux messages feraient

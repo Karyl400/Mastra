@@ -17,6 +17,7 @@ import {
   hasNoTextualContent,
 } from '../../../../shared/message-shape';
 import { pickVariant } from '../../../../shared/reply-variants';
+import { REFERS_BACK_REPLY, TOO_MANY_INTENTS_REPLY, planIntentChain } from './intent-chain';
 import { MAX_USER_INPUT_LENGTH } from '../../../../shared/security/llm-guardrail';
 
 export const FILE_SHARE_SUBTYPE = 'file_share';
@@ -79,6 +80,16 @@ export const DETERMINISTIC_REPLIES: readonly DeterministicReply[] = [
       textLength: text.length,
       distressLanguage: distressLanguage(text),
     }),
+  },
+  {
+    name: 'too_many_intents',
+    matches: ({ text }) => planIntentChain(text)?.refused === 'too_many_intents',
+    reply: TOO_MANY_INTENTS_REPLY,
+  },
+  {
+    name: 'chain_refers_back',
+    matches: ({ text }) => planIntentChain(text)?.refused === 'refers_back',
+    reply: REFERS_BACK_REPLY,
   },
   {
     name: 'profile_done',

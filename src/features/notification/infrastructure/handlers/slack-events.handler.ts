@@ -172,6 +172,7 @@ import { DrizzlePinnedFactRepository } from '../../../conversation/infrastructur
 import { DrizzleRateLimitRepository } from '../repositories/drizzle-rate-limit.repository';
 import { writeAuditLog } from '../../../../infrastructure/audit/audit-log';
 import { agentHasTool, isActingTool } from '../../../../shared/agent-capabilities';
+import { planIntentChain } from '../../domain/services/intent-chain';
 import { AUDIT_ACTIONS } from '../../../../shared/audit-actions';
 import { errorMessage, SecurityBlockError } from '../../../../shared/errors';
 
@@ -1925,7 +1926,8 @@ export class SlackEventsHandler {
     }
 
     const progress = await startProgress(this.slack, { channel, threadTs });
-    await this.runAgentPipeline({
+
+    await this.runIntentChain({
       event,
       text,
       channel,
@@ -1940,6 +1942,35 @@ export class SlackEventsHandler {
       pendingEmailReminder: pendingEmail.reminder,
       onboardingReminder: onboardingNudge(pendingStep, event.ts),
     });
+  }
+
+  private async runIntentChain(
+    ctx: Parameters<SlackEventsHandler['runAgentPipeline']>[0],
+  ): Promise<void> {
+    const chain = planIntentChain(ctx.text, ctx.history.at(-1)?.agentId);
+    const steps = chain?.steps.length ? chain.steps : [{ text: ctx.text, agentId: '' }];
+
+    if (steps.length > 1) {
+      logger.info('Message à plusieurs demandes — enchaînement déterministe', {
+        channel: ctx.channel,
+        conversationId: ctx.conversationId,
+        steps: steps.map((step) => step.agentId),
+      });
+    }
+
+    for (const [index, step] of steps.entries()) {
+      const progress =
+        index === 0
+          ? ctx.progress
+          : await startProgress(this.slack, { channel: ctx.channel, threadTs: ctx.threadTs });
+
+      await this.runAgentPipeline({
+        ...ctx,
+        text: step.text,
+        progress,
+        ...(index === 0 ? {} : { pendingEmailReminder: undefined, onboardingReminder: undefined }),
+      });
+    }
   }
 
   private logSanitizerVerdicts(

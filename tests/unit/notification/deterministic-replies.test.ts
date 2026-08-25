@@ -1,7 +1,7 @@
 /**
  * Le miroir entre les court-circuits et le rationnement ne peut plus diverger — vérifions-le.
  *
- * Ces neuf cas vivaient à DEUX endroits du handler : la suite de `if` de `handleMessage` et
+ * Ces cas vivaient à DEUX endroits du handler : la suite de `if` de `handleMessage` et
  * `isAnsweredWithoutModel`, dont le commentaire d'origine exigeait qu'il en soit « le MIROIR
  * EXACT ». Un court-circuit ajouté d'un seul côté fait rationner un message gratuit — c'est
  * exactement le défaut trouvé en production, où quelqu'un ayant atteint son quota recevait
@@ -16,7 +16,7 @@ import {
 } from '../../../src/features/notification/domain/services/deterministic-replies';
 
 describe('court-circuits déterministes — la table est la source unique', () => {
-  it('énumère les neuf cas documentés, dans leur ordre contractuel', () => {
+  it('énumère les onze cas documentés, dans leur ordre contractuel', () => {
     // ⚠️ `profile_done` est le NEUVIÈME, ajouté le 2026-08-19, et sa place est l'ordre RÉEL
     // d'exécution : `maybeAdvanceOnboarding` est appelé avant le `switch (acting.action)`.
     // Il coûte zéro token — il lit un dossier et rend un verdict écrit en dur — mais il
@@ -29,6 +29,8 @@ describe('court-circuits déterministes — la table est la source unique', () =
       'no_textual_content',
       'over_length',
       'distress',
+      'too_many_intents',
+      'chain_refers_back',
       'profile_done',
       'erasure_request',
       'pin_fact',
@@ -68,7 +70,7 @@ describe('court-circuits déterministes — la table est la source unique', () =
     expect(isAnsweredWithoutModel(ordinaire)).toBe(false);
   });
 
-  it('DÉRIVE le rationnement de la table — les neuf cas y sont couverts', () => {
+  it('DÉRIVE le rationnement de la table — les onze cas y sont couverts', () => {
     // L'invariant qui compte : tout ce que la table reconnaît est gratuit. Le vérifier
     // entrée par entrée plutôt que sur une liste recopiée est justement le point du module.
     const payloads: Record<string, { text: string; subtype?: string; isDirectMessage?: boolean }> =
@@ -81,6 +83,19 @@ describe('court-circuits déterministes — la table est la source unique', () =
         // ⚠️ Le seul de la table dont la reconnaissance exige un critère NON textuel entrant
         // dans la décision. En canal, la vérification exposerait à des témoins ce qui manque
         // au dossier de quelqu'un d'autre — même asymétrie que le formulaire lui-même.
+        // ⚠️ Le DIXIÈME, ajouté le 2026-08-25. Il refuse d'exécuter la moitié d'une demande à
+        // trois volets — donc il ne coûte AUCUN token, donc il doit être ici. L'oublier ferait
+        // refuser au quota un message que le produit décline gratuitement : le défaut mesuré
+        // trois fois déjà (« bonjour », `profile_done`, le « oui » d'un email en attente).
+        too_many_intents: {
+          text: 'résume <#C0BMLKC4S5T|kisso-hq> et rappelle-moi jeudi de le relire et génère le guide en PDF',
+        },
+        // ⚠️ Le ONZIÈME, ajouté le 2026-08-25 sur recommandation du propriétaire : « en cas de
+        // confusion dans la requête, clarifier plutôt, et attendre la confirmation avant
+        // d'exécuter ». Il ne coûte aucun token, donc il doit figurer ici.
+        chain_refers_back: {
+          text: 'résume <#C0BMLKC4S5T|kisso-hq> et envoie ça à recrue@exemple.com par email',
+        },
         profile_done: { text: "c'est fait", isDirectMessage: true },
         erasure_request: { text: "oublie ce que je t'ai dit" },
         pin_fact: { text: 'souviens-toi que je suis basé à Lagos' },
