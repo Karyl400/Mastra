@@ -113,7 +113,8 @@ function readingFor(spec: MetricSpec, f: DashboardFacts): MetricReading {
 
     case 'ai.zeroTokenShare': {
       if (f.userTurns <= 0) return NO_DATA_YET;
-      const withoutModel = Math.max(0, f.userTurns - f.modelHandledMessages);
+      if (f.modelHandledMessages > f.userTurns) return { available: false, gap: 'not_comparable' };
+      const withoutModel = f.userTurns - f.modelHandledMessages;
       return {
         available: true,
         value: Math.round((withoutModel / f.userTurns) * 100),

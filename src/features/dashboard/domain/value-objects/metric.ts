@@ -10,7 +10,13 @@ export const METRIC_FAMILIES = [
 export type MetricFamily = (typeof METRIC_FAMILIES)[number];
 
 export type MetricGap =
-  'no_mechanism' | 'not_persisted' | 'no_events' | 'external_owner' | 'read_failed' | 'no_data_yet';
+  | 'no_mechanism'
+  | 'not_persisted'
+  | 'no_events'
+  | 'external_owner'
+  | 'read_failed'
+  | 'no_data_yet'
+  | 'not_comparable';
 
 export type MetricUnit = 'count' | 'percent' | 'minutes' | 'ms';
 

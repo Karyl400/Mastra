@@ -148,7 +148,8 @@ export const DASHBOARD_PAGE = String.raw`<!doctype html>
     no_events: 'L’abonnement Slack manque',
     external_owner: 'La mesure appartient à la plateforme',
     read_failed: 'Table illisible sur cette base',
-    no_data_yet: 'Rien encore — le produit sait mesurer ceci'
+    no_data_yet: 'Rien encore — le produit sait mesurer ceci',
+    not_comparable: 'Compteurs de durées de vie différentes'
   };
 
   var UNITS = { percent: ' %', minutes: ' min', ms: ' ms', count: '' };
@@ -177,7 +178,7 @@ export const DASHBOARD_PAGE = String.raw`<!doctype html>
     var s = m.source;
     return '<div class="card gap">'
       + '<div class="label">' + esc(m.label) + '</div>'
-      + '<div class="value none' + (r.gap === 'no_data_yet' ? ' soft' : '') + '">'
+      + '<div class="value none' + (r.gap === 'no_data_yet' || r.gap === 'not_comparable' ? ' soft' : '') + '">'
           + esc(GAPS[r.gap] || r.gap) + '</div>'
       + (s.derived ? '' : '<div class="because">' + esc(s.because)
           + '<br /><br /><b>Ce qu’il faudrait :</b> ' + esc(s.wouldTake) + '</div>')

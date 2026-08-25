@@ -185,8 +185,11 @@ const CATALOGUE: readonly MetricSpec[] = [
       caveat:
         'ESTIMATION, et sa formule doit être lue. `SLACK_MESSAGE` n’est journalisé qu’APRÈS les ' +
         'court-circuits ; la différence avec les tours `user` approxime les réponses à zéro ' +
-        'token. Elle est imprécise dans les deux sens : certains court-circuits n’écrivent aucun ' +
-        'tour, et tous les tours écrits ne viennent pas d’un message entrant.',
+        'token. ⚠️ Les deux compteurs n’ont PAS la même durée de vie : `conversation_turns` est ' +
+        'effaçable par la personne (« oublie ce que je t’ai dit »), `audit_logs` non. Quand le ' +
+        'second dépasse le premier, la soustraction n’a plus de sens et la métrique se déclare ' +
+        'incomparable — afficher 0 % se lirait comme « aucune réponse gratuite », l’inverse de ' +
+        'la vérité.',
     },
   },
   {

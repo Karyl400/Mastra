@@ -253,3 +253,33 @@ describe('un refus d’injection n’est PAS une panne', () => {
     expect(read('ai.runFailures')).toEqual({ available: true, value: 3, detail: 'sur 24 runs' });
   });
 });
+
+/**
+ * ⚠️ 0 % LÀ OÙ LA SOUSTRACTION N'A PLUS DE SENS — relevé en production le 2026-08-25.
+ *
+ * `ai.zeroTokenShare` soustrait les messages passés par un modèle (`audit_logs`) des tours
+ * `user` (`conversation_turns`). Les deux compteurs n'ont PAS la même durée de vie : le second
+ * est effaçable par la personne elle-même — « oublie ce que je t'ai dit » est un droit du
+ * produit — tandis que le journal d'audit ne l'est pas.
+ *
+ * Après la campagne, qui remet le fil à zéro entre les scénarios : 44 runs pour 6 tours. La
+ * borne à zéro rendait alors « 0 % », c'est-à-dire **« aucune réponse gratuite »** — l'inverse
+ * exact de la vérité, sur un produit dont neuf court-circuits répondent sans modèle.
+ */
+describe('une soustraction entre compteurs de durées de vie différentes', () => {
+  it('se déclare INCOMPARABLE au lieu d’afficher 0 %', () => {
+    const skewed = buildSnapshot({ ...FACTS, userTurns: 6, modelHandledMessages: 44 });
+    expect(skewed.find((m) => m.key === 'ai.zeroTokenShare')?.reading).toEqual({
+      available: false,
+      gap: 'not_comparable',
+    });
+  });
+
+  it('reste une estimation chiffrée quand les deux compteurs sont cohérents', () => {
+    const reading = buildSnapshot({ ...FACTS, userTurns: 40, modelHandledMessages: 24 }).find(
+      (m) => m.key === 'ai.zeroTokenShare',
+    )?.reading;
+    expect(reading?.available).toBe(true);
+    if (reading?.available) expect(reading.value).toBe(40);
+  });
+});
