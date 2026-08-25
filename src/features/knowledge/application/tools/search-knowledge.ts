@@ -134,7 +134,9 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
   async function sweepLive(query: string, requesterId: string, only?: string): Promise<Line[]> {
     const channelIds = only
       ? [only]
-      : await deps.channels.listMemberChannels(requesterId, MAX_CHANNELS_CHECKED);
+      : (await deps.channels.listMemberChannels(requesterId, MAX_CHANNELS_CHECKED)).map(
+          (channel) => channel.id,
+        );
 
     if (channelIds.length === 0) return [];
 

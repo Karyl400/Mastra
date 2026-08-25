@@ -7465,3 +7465,56 @@ n'aurait pas permis de distinguer « aucun n'a reçu » de « le troisième n'a 
 
 ⚠️ Le nom du porteur est ASSAINI (`sanitizeDisplayName`) : il vient du profil Slack, donc de
 son propre porteur, et ce message entre dans l'historique conversationnel rejoué au modèle.
+
+---
+
+## UNE CHAÎNE NE CONTINUE PAS SUR UNE ÉTAPE QUI N'A RIEN PU FAIRE (2026-08-25)
+
+Verdict du propriétaire sur la première version de l'enchaînement : *« pourquoi maintient-il le
+rappel si le résumé n'a pas été fait ? Ça ne sert à rien. »* La trace de production lui donne
+raison en deux messages — « Je ne peux pas résumer le canal kisso-hq. » puis « Rappel programmé
+pour jeudi 27 août 2026 au matin. » Un rappel « de relire le compte rendu » posé alors qu'aucun
+compte rendu n'existe est du bruit qui arrivera jeudi matin, et l'ensemble se lit comme un bot
+qui n'écoute pas.
+
+### Pourquoi cela ne casse PAS le théorème d'indépendance
+
+L'invariant qui rend l'enchaînement sûr est qu'**aucun CONTENU ne circule entre les étapes**.
+Une ISSUE n'est pas un contenu :
+
+- elle vaut UN BIT, produit par le harness et jamais par le modèle ;
+- elle ne porte aucun texte, donc rien qu'un attaquant contrôle ;
+- et elle ne peut que RETIRER du travail, jamais en déclencher.
+
+Un canal qui ne transporte pas de donnée et qui ne sait que s'arrêter n'exfiltre rien.
+
+### C'est le filet de rattrapage du détecteur d'anaphore
+
+`refersToPreviousStep` reconnaît « ça », « ce résumé », « envoie-le-moi ». Il ne reconnaît PAS
+« de relire le compte rendu », qui renvoie pourtant bel et bien à l'étape 1 — et aucune liste de
+tournures ne sera jamais complète. S'arrêter sur échec couvre exactement les cas où la dépendance
+était réelle et non détectée, **sans rien avoir à énumérer**. C'est la même préférence que celle
+qui a fait remplacer la liste noire d'outils par l'invariant d'indépendance.
+
+### Et on le DIT
+
+Le silence sur la seconde demande était le défaut d'origine ; l'exécuter dans le vide en est un
+autre. La troisième voie — s'arrêter ET l'annoncer — coûte ZÉRO token et laisse la main à la
+personne. Verrouillé par `tests/unit/handlers/intent-chain-stops-on-failure.test.ts`.
+
+### `src/features/notification/domain/services/intent-chain.ts`
+
+**Avant `export const CHAIN_STOPPED_NOTICE =`**
+
+La phrase ne REPREND PAS le texte de la demande abandonnée. C'est le texte de la personne, donc
+sûr par nature — mais il n'est pas assaini par `sanitizeAgentOutput`, qui n'a qu'un seul site
+d'appel (`response.text`), et le renvoyer dans Slack ferait de ce chemin une réflexion de mrkdwn
+non filtré. Une phrase générique dit la même chose sans ouvrir ce canal.
+
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
+**Avant `private async postPlainMessage(`**
+
+Un échec de publication de la note d'arrêt est journalisé en `warn`, jamais propagé : la réponse
+de l'étape 1 est déjà partie, et perdre le fil entier pour une phrase complémentaire serait un
+mauvais échange. Même règle que le marqueur de progression, qui n'est jamais un point de panne.

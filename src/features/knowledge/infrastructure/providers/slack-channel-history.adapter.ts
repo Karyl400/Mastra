@@ -7,6 +7,7 @@ import {
   type ChannelHistoryPort,
   type ChannelHistoryReadOptions,
   type ChannelMessage,
+  type ChannelRef,
   type ChannelUnavailableReason,
 } from '../../domain/ports/channel-history.port';
 
@@ -18,6 +19,25 @@ export type DisplayNameResolver = (slackUserId: string) => Promise<string | null
 export interface SlackChannelHistoryOptions {
   readonly client?: WebClient;
   readonly resolveDisplayName?: DisplayNameResolver;
+}
+
+function toUnprovable(error: unknown, channelId: string): ChannelUnavailableError {
+  const code = slackErrorCode(error);
+
+  if (code === 'channel_not_found') {
+    return new ChannelUnavailableError(
+      'channel_not_found',
+      `Aucun canal visible sous ${channelId} (${code})`,
+      { cause: error },
+    );
+  }
+
+  const detail = code ? ` (${code})` : '';
+  return new ChannelUnavailableError(
+    'unavailable',
+    `Appartenance non vérifiable sur ${channelId}${detail}`,
+    { cause: error },
+  );
 }
 
 function toUnavailable(error: unknown, channelId: string): ChannelUnavailableError {
@@ -64,21 +84,26 @@ export class SlackChannelHistoryAdapter implements ChannelHistoryPort {
         if (!cursor) return false;
       }
 
-      logger.warn('Knowledge — canal trop grand pour vérifier l’appartenance, accès refusé', {
+      logger.warn('Knowledge — canal trop grand pour vérifier l’appartenance', {
         channelId,
         pages: MAX_MEMBER_PAGES,
       });
-      return false;
+      throw new ChannelUnavailableError(
+        'unavailable',
+        `Appartenance non vérifiable sur ${channelId} (canal trop grand)`,
+      );
     } catch (error) {
+      if (error instanceof ChannelUnavailableError) throw error;
+
       logger.warn('Knowledge — conversations.members a échoué, appartenance non prouvée', {
         channelId,
         slackError: slackErrorCode(error),
       });
-      return false;
+      throw toUnprovable(error, channelId);
     }
   }
 
-  async listMemberChannels(slackUserId: string, limit: number): Promise<string[]> {
+  async listMemberChannels(slackUserId: string, limit: number): Promise<ChannelRef[]> {
     try {
       const response = await this.slack.users.conversations({
         user: slackUserId,
@@ -89,8 +114,14 @@ export class SlackChannelHistoryAdapter implements ChannelHistoryPort {
 
       const channels = Array.isArray(response.channels) ? response.channels : [];
       return channels
-        .map((channel) => (channel as { id?: unknown }).id)
-        .filter((id): id is string => typeof id === 'string')
+        .map((channel) => channel as { id?: unknown; name?: unknown })
+        .filter(
+          (channel): channel is { id: string; name?: unknown } => typeof channel.id === 'string',
+        )
+        .map((channel) => ({
+          id: channel.id,
+          name: typeof channel.name === 'string' ? channel.name : '',
+        }))
         .slice(0, limit);
     } catch (error) {
       logger.warn('Knowledge — users.conversations a échoué, pas de lecture en direct', {

@@ -6,6 +6,7 @@ import {
   readSlackContext,
   writeExcerptCoverage,
   writeLoanDelivered,
+  writeStepBlocked,
 } from '../../../../shared/slack-request-context';
 import type { ConversationExcerpt } from '../../domain/entities/conversation-excerpt';
 import {
@@ -13,6 +14,7 @@ import {
   type ChannelHistoryPort,
   type ChannelUnavailableReason,
 } from '../../domain/ports/channel-history.port';
+import { resolveChannelName } from '../../domain/services/channel-name-matching';
 import type {
   DirectoryPerson,
   PersonDirectoryPort,
@@ -41,16 +43,25 @@ export type DigestOutcome = 'delivered' | 'failed' | 'unavailable';
 
 const CHANNEL_ID_RE = /^[CGD][A-Z0-9]{4,}$/i;
 
-type ChannelVerdict = DisclosureReason | ChannelUnavailableReason | 'no_message';
+const CHANNEL_LOOKUP_LIMIT = 200;
+
+type ChannelVerdict =
+  DisclosureReason | ChannelUnavailableReason | 'no_message' | 'ambiguous_channel';
 
 const VERDICT_HINTS: Partial<Record<ChannelVerdict, string>> = {
   no_requester: "Hors Slack : pas d'identité, donc rien à divulguer. Dis-le, ne réessaie pas.",
-  not_channel_member: "Tu ne montres un canal qu'à ses membres. Ne dis rien de son contenu.",
+  not_channel_member:
+    "C'est la personne qui demande qui n'est pas membre de ce canal — jamais toi. Dis-le d'elle, " +
+    'pas de toi, et ne dis rien du contenu.',
   requester_denied: 'Compte non autorisé.',
   bot_not_in_channel: 'Invite-moi dans ce canal pour que je puisse le lire.',
-  channel_not_found: 'Cet identifiant ne désigne aucun canal.',
+  channel_not_found:
+    "Aucun canal visible sous ce nom ou cet identifiant. Demande lequel, sans supposer qu'il " +
+    "n'existe pas.",
   unavailable: 'Slack indisponible. Réessayer a un sens.',
   no_message: 'Aucun message exploitable dans la fenêtre consultée.',
+  ambiguous_channel:
+    'Plusieurs canaux portent ce début de nom. Demande lequel, en citant ceux que je propose.',
 };
 
 function refuse(reason: ChannelVerdict) {
@@ -110,68 +121,136 @@ async function deliverDigest(
   }
 }
 
+async function resolveNamedChannel(
+  deps: GetChannelHistoryDeps,
+  requesterId: string,
+  wanted: string | undefined,
+): Promise<{ id: string } | { refused: ChannelVerdict }> {
+  let visible;
+  try {
+    visible = await deps.channels.listMemberChannels(requesterId, CHANNEL_LOOKUP_LIMIT);
+  } catch (error) {
+    logger.error('Knowledge — liste des canaux du demandeur illisible', { requesterId, error });
+    return { refused: 'unavailable' };
+  }
+
+  const match = resolveChannelName(visible, wanted);
+
+  if (!match) {
+    logger.info('Knowledge — nom de canal non résolu parmi ceux du demandeur', {
+      requesterId,
+      visible: visible.length,
+    });
+    return { refused: 'channel_not_found' };
+  }
+
+  if ('ambiguous' in match) {
+    logger.info('Knowledge — nom de canal ambigu', { requesterId, candidates: match.ambiguous });
+    return { refused: 'ambiguous_channel' };
+  }
+
+  return { id: match.id };
+}
+
+async function authorizeRead(
+  deps: GetChannelHistoryDeps,
+  requesterId: string,
+  channelId: string,
+): Promise<
+  { allowed: true; reason: DisclosureReason } | { allowed: false; reason: ChannelVerdict }
+> {
+  let requesterPerson: DirectoryPerson | null = null;
+  try {
+    requesterPerson = await deps.directory.findBySlackUserId(requesterId);
+  } catch (error) {
+    logger.warn('Knowledge — annuaire indisponible, demandeur traité comme inconnu', {
+      requesterId,
+      error,
+    });
+  }
+
+  const requester: Requester = { slackUserId: requesterId, subject: requesterPerson };
+
+  let isMember: boolean;
+  try {
+    isMember = await deps.channels.isMember(channelId, requesterId);
+  } catch (error) {
+    const reason: ChannelUnavailableReason =
+      error instanceof ChannelUnavailableError ? error.reason : 'unavailable';
+    logger.error("Knowledge — contrôle d'appartenance impossible, accès refusé", {
+      requesterId,
+      channelId,
+      reason,
+      error,
+    });
+    return { allowed: false, reason };
+  }
+
+  const verdict = authorizeChannelRead(requester, isMember);
+  if (verdict.allowed) return { allowed: true, reason: verdict.reason };
+
+  logger.warn('Knowledge — récupération refusée par la politique de divulgation', {
+    scope: 'channel',
+    requesterId,
+    channelId,
+    reason: verdict.reason,
+  });
+  return { allowed: false, reason: verdict.reason };
+}
+
 export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
   return createTool({
     id: 'getChannelHistory',
-    description: "Retrouve les derniers messages d'un canal dont on te donne l'identifiant.",
-    inputSchema: z.object({
-      channelId: z
-        .string()
-        .trim()
-        .regex(CHANNEL_ID_RE, 'Identifiant de canal Slack attendu (C…, G… ou D…)')
-        .describe('Identifiant du canal, pas son nom (ex. CMLKC4S5T).'),
-      asDocument: z
-        .boolean()
-        .optional()
-        .describe('true pour joindre aussi un PDF du résumé dans ce fil.'),
-    }),
+    description:
+      "Retrouve les derniers messages d'un canal, désigné par son nom ou son identifiant.",
+    inputSchema: z
+      .object({
+        channelId: z
+          .string()
+          .trim()
+          .regex(CHANNEL_ID_RE, 'Identifiant de canal Slack attendu (C…, G… ou D…)')
+          .optional()
+          .describe('Identifiant du canal, quand la personne a écrit un jeton <#C…>.'),
+        channelName: z
+          .string()
+          .trim()
+          .min(2)
+          .max(80)
+          .optional()
+          .describe('Nom du canal tel que la personne l’écrit (ex. engineer-karyl).'),
+        asDocument: z
+          .boolean()
+          .optional()
+          .describe('true pour joindre aussi un PDF du résumé dans ce fil.'),
+      })
+      .refine((input) => Boolean(input.channelId ?? input.channelName), {
+        message: 'Donne le nom du canal, ou son identifiant si tu en as un.',
+      }),
     execute: async (data, ctx) => {
+      const deny = (reason: ChannelVerdict) => {
+        writeStepBlocked(ctx?.requestContext, reason);
+        return refuse(reason);
+      };
+
       const slack = readSlackContext(ctx?.requestContext);
       if (!slack?.slackUserId) {
         logger.warn('Knowledge — récupération refusée : aucun demandeur identifié', {
           scope: 'channel',
           channelId: data.channelId,
         });
-        return refuse('no_requester');
+        return deny('no_requester');
       }
 
       const requesterId = slack.slackUserId;
-      const channelId = data.channelId.trim().toUpperCase();
 
-      let requesterPerson: DirectoryPerson | null = null;
-      try {
-        requesterPerson = await deps.directory.findBySlackUserId(requesterId);
-      } catch (error) {
-        logger.warn('Knowledge — annuaire indisponible, demandeur traité comme inconnu', {
-          requesterId,
-          error,
-        });
-      }
+      const target = data.channelId
+        ? { id: data.channelId.trim().toUpperCase() }
+        : await resolveNamedChannel(deps, requesterId, data.channelName);
+      if ('refused' in target) return deny(target.refused);
+      const channelId = target.id;
 
-      const requester: Requester = { slackUserId: requesterId, subject: requesterPerson };
-
-      let isMember: boolean;
-      try {
-        isMember = await deps.channels.isMember(channelId, requesterId);
-      } catch (error) {
-        logger.error("Knowledge — contrôle d'appartenance impossible, accès refusé", {
-          requesterId,
-          channelId,
-          error,
-        });
-        return refuse('unavailable');
-      }
-
-      const verdict = authorizeChannelRead(requester, isMember);
-      if (!verdict.allowed) {
-        logger.warn('Knowledge — récupération refusée par la politique de divulgation', {
-          scope: 'channel',
-          requesterId,
-          channelId,
-          reason: verdict.reason,
-        });
-        return refuse(verdict.reason);
-      }
+      const verdict = await authorizeRead(deps, requesterId, channelId);
+      if (!verdict.allowed) return deny(verdict.reason);
 
       let messages;
       try {
@@ -188,10 +267,10 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
           reason,
           error,
         });
-        return refuse(reason);
+        return deny(reason);
       }
 
-      if (messages.length === 0) return refuse('no_message');
+      if (messages.length === 0) return deny('no_message');
 
       const excerpts: ConversationExcerpt[] = messages.map((message) => ({
         source: 'channel',

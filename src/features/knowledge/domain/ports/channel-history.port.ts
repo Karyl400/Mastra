@@ -19,6 +19,11 @@ export class ChannelUnavailableError extends Error {
   }
 }
 
+export interface ChannelRef {
+  readonly id: string;
+  readonly name: string;
+}
+
 export interface ChannelHistoryReadOptions {
   readonly sinceMs: number;
   readonly limit: number;
@@ -29,5 +34,5 @@ export interface ChannelHistoryPort {
 
   fetchRecent(channelId: string, options: ChannelHistoryReadOptions): Promise<ChannelMessage[]>;
 
-  listMemberChannels(slackUserId: string, limit: number): Promise<string[]>;
+  listMemberChannels(slackUserId: string, limit: number): Promise<ChannelRef[]>;
 }

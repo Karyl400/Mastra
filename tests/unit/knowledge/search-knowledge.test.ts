@@ -67,7 +67,10 @@ function makeTool(
   const channels = {
     isMember: vi.fn(async (channelId: string) => memberOf.has(channelId)),
     listMemberChannels: vi.fn(async (_id: string, limit: number) =>
-      [...memberOf].filter((c) => !c.startsWith('D')).slice(0, limit),
+      [...memberOf]
+        .filter((c) => !c.startsWith('D'))
+        .slice(0, limit)
+        .map((id) => ({ id, name: id.toLowerCase() })),
     ),
     fetchRecent: vi.fn(async (channelId: string) =>
       (options.live?.[channelId] ?? []).map((m) => ({

@@ -43,6 +43,16 @@ export function readAuthorizationNotice(requestContext: unknown): string | undef
   return readContextNote(requestContext, SLACK_AUTHZ_NOTICE_KEY);
 }
 
+export const SLACK_STEP_BLOCKED_KEY = 'slackStepBlocked';
+
+export function writeStepBlocked(requestContext: unknown, reason: string): void {
+  writeContextNote(requestContext, SLACK_STEP_BLOCKED_KEY, reason);
+}
+
+export function readStepBlocked(requestContext: unknown): string | undefined {
+  return readContextNote(requestContext, SLACK_STEP_BLOCKED_KEY);
+}
+
 export const SLACK_REMINDER_DELIVERY_KEY = 'slackReminderDelivery';
 
 export function writeReminderDelivery(requestContext: unknown, label: string): void {

@@ -3,6 +3,7 @@ import {
   type ChannelHistoryPort,
   type ChannelHistoryReadOptions,
   type ChannelMessage,
+  type ChannelRef,
   type ChannelUnavailableReason,
 } from '../../domain/ports/channel-history.port';
 
@@ -10,9 +11,14 @@ export class InMemoryChannelHistoryAdapter implements ChannelHistoryPort {
   private readonly members = new Map<string, Set<string>>();
   private readonly messages = new Map<string, ChannelMessage[]>();
   private readonly failures = new Map<string, ChannelUnavailableReason>();
+  private readonly names = new Map<string, string>();
 
   setMembers(channelId: string, slackUserIds: readonly string[]): void {
     this.members.set(channelId, new Set(slackUserIds));
+  }
+
+  nameChannel(channelId: string, name: string): void {
+    this.names.set(channelId, name);
   }
 
   seed(channelId: string, messages: readonly ChannelMessage[]): void {
@@ -27,10 +33,10 @@ export class InMemoryChannelHistoryAdapter implements ChannelHistoryPort {
     return this.members.get(channelId)?.has(slackUserId) ?? false;
   }
 
-  async listMemberChannels(slackUserId: string, limit: number): Promise<string[]> {
+  async listMemberChannels(slackUserId: string, limit: number): Promise<ChannelRef[]> {
     return [...this.members.entries()]
       .filter(([channelId, ids]) => ids.has(slackUserId) && !/^D/i.test(channelId))
-      .map(([channelId]) => channelId)
+      .map(([channelId]) => ({ id: channelId, name: this.names.get(channelId) ?? '' }))
       .slice(0, limit);
   }
 

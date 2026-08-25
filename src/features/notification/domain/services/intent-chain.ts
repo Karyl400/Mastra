@@ -117,3 +117,8 @@ export const REFERS_BACK_REPLY =
 export const TOO_MANY_INTENTS_REPLY =
   'Tu me demandes plus de deux choses d’un coup, et je préfère te le dire plutôt que d’en ' +
   'faire la moitié : reprends-les en deux messages, je m’en occupe.';
+
+export const CHAIN_STOPPED_NOTICE =
+  'Je m’arrête là : la première demande n’a pas abouti, donc je n’ai pas enchaîné sur la ' +
+  'seconde — la traiter dans le vide ne t’avancerait à rien. Redis-la-moi seule si tu la veux ' +
+  'quand même.';

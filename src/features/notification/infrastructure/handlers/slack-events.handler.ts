@@ -83,6 +83,7 @@ import {
   readDocumentRecipient,
   type SlackAccessLevel,
   readLoanDelivered,
+  readStepBlocked,
 } from '../../../../shared/slack-request-context';
 import { textMentionsName } from '../../../../shared/name-matching';
 import { escalationName } from '../../../../shared/escalation';
@@ -172,7 +173,7 @@ import { DrizzlePinnedFactRepository } from '../../../conversation/infrastructur
 import { DrizzleRateLimitRepository } from '../repositories/drizzle-rate-limit.repository';
 import { writeAuditLog } from '../../../../infrastructure/audit/audit-log';
 import { agentHasTool, isActingTool } from '../../../../shared/agent-capabilities';
-import { planIntentChain } from '../../domain/services/intent-chain';
+import { CHAIN_STOPPED_NOTICE, planIntentChain } from '../../domain/services/intent-chain';
 import { AUDIT_ACTIONS } from '../../../../shared/audit-actions';
 import { errorMessage, SecurityBlockError } from '../../../../shared/errors';
 
@@ -347,6 +348,8 @@ interface MessageContext {
   readonly requesterIdentity: Promise<RequesterIdentity>;
   readonly history: ConversationTurn[];
 }
+
+type StepOutcome = 'served' | 'blocked';
 
 function cancellationReply(cleared: number): string {
   if (cleared > 0) return CANCELLED_REPLY;
@@ -1390,7 +1393,7 @@ export class SlackEventsHandler {
     progress: Awaited<ReturnType<typeof startProgress>>;
     pendingEmailReminder?: string;
     onboardingReminder?: string;
-  }): Promise<void> {
+  }): Promise<StepOutcome> {
     const {
       event,
       text,
@@ -1435,7 +1438,7 @@ export class SlackEventsHandler {
           errorMessage: 'agent_unresolved',
           details: { phase, durationMs: Date.now() - startedAt },
         });
-        return;
+        return 'blocked';
       }
 
       phase = 'wrap';
@@ -1590,6 +1593,8 @@ export class SlackEventsHandler {
       this.schedulePruneIfDue();
       this.scheduleDedupPruneIfDue();
       this.scheduleRateLimitPruneIfDue();
+
+      return readStepBlocked(requestContext) ? 'blocked' : 'served';
     } catch (error) {
       logger.error('Error processing Slack message', {
         error,
@@ -1605,6 +1610,7 @@ export class SlackEventsHandler {
       this.auditFailedRun({ user, agentId, error, phase, startedAt });
 
       await progress.fail(userFacingFailure(error));
+      return 'blocked';
     }
   }
 
@@ -1944,6 +1950,22 @@ export class SlackEventsHandler {
     });
   }
 
+  private async postPlainMessage(
+    channel: string,
+    threadTs: string | undefined,
+    text: string,
+  ): Promise<void> {
+    try {
+      await this.slack.chat.postMessage({
+        channel,
+        text,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+      });
+    } catch (error) {
+      logger.warn('Slack — message complémentaire non posté', { channel, error });
+    }
+  }
+
   private async runIntentChain(
     ctx: Parameters<SlackEventsHandler['runAgentPipeline']>[0],
   ): Promise<void> {
@@ -1964,12 +1986,23 @@ export class SlackEventsHandler {
           ? ctx.progress
           : await startProgress(this.slack, { channel: ctx.channel, threadTs: ctx.threadTs });
 
-      await this.runAgentPipeline({
+      const outcome = await this.runAgentPipeline({
         ...ctx,
         text: step.text,
         progress,
         ...(index === 0 ? {} : { pendingEmailReminder: undefined, onboardingReminder: undefined }),
       });
+
+      if (outcome === 'blocked' && index < steps.length - 1) {
+        logger.info('Enchaînement interrompu — une étape n’a rien pu faire', {
+          channel: ctx.channel,
+          conversationId: ctx.conversationId,
+          stoppedAt: step.agentId,
+          skipped: steps.length - index - 1,
+        });
+        await this.postPlainMessage(ctx.channel, ctx.threadTs, CHAIN_STOPPED_NOTICE);
+        return;
+      }
     }
   }
 

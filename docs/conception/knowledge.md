@@ -2162,7 +2162,7 @@ Purement syntaxique : AUCUNE lecture, donc aucune information rendue avant le ve
 
 ### `src/features/knowledge/domain/ports/channel-history.port.ts`
 
-**Avant `listMemberChannels(slackUserId: string, limit: number): Promise<string[]>;`**
+**Avant `listMemberChannels(slackUserId: string, limit: number): Promise<ChannelRef[]>;`**
 
 ⚠️ **LES CANAUX DU DEMANDEUR, pas ceux du bot — et la distinction est la garantie.**
 
@@ -2424,7 +2424,7 @@ Les identifiants mentionnés dans un lot de textes, sans doublon — pour ne ré
 
 ### `src/features/knowledge/infrastructure/providers/in-memory-channel-history.adapter.ts`
 
-**Avant `async listMemberChannels(slackUserId: string, limit: number): Promise<string[]> {`**
+**Avant `async listMemberChannels(slackUserId: string, limit: number): Promise<ChannelRef[]> {`**
 
 ⚠️ DÉRIVÉ de `setMembers`, jamais d'une seconde liste : c'est cette doublure qui décide, dans
 tous les tests, quels canaux la lecture en direct balaie. Deux sources divergeraient, et le
@@ -2432,7 +2432,7 @@ test verrouillerait alors une frontière que la production n'applique pas.
 
 ### `src/features/knowledge/infrastructure/providers/slack-channel-history.adapter.ts`
 
-**Avant `async listMemberChannels(slackUserId: string, limit: number): Promise<string[]> {`**
+**Avant `async listMemberChannels(slackUserId: string, limit: number): Promise<ChannelRef[]> {`**
 
 `users.conversations` rend les conversations dont CETTE personne est membre — c'est
 exactement l'ensemble que la politique de divulgation autorise, obtenu en un appel au lieu
@@ -2482,3 +2482,106 @@ ce qui est exactement ce qui s'est produit avec les identifiants recopiés.
 ⚠️ AUCUN outil. Ce chemin lit du texte hostile et n'a rien à faire d'autre que rendre
 du texte : lui donner un outil ouvrirait une action déclenchable par le contenu d'un
 message Slack.
+
+---
+
+## LE CANAL DÉSIGNÉ PAR SON NOM, ET LES TROIS VERDICTS QUI N'EN FAISAIENT QU'UN (2026-08-25)
+
+> Deux symptômes de production rapportés le même jour par le propriétaire. Ce texte est la
+> source, pas une copie.
+
+### Ce qui a été constaté
+
+**1.** *« Je ne peux pas résumer le canal kisso-hq **car je n'en suis pas membre**. »* — alors
+que le bot **EST** membre de `#kisso-hq`. Relevé auprès de Slack le 2026-08-25 :
+
+| canal | identifiant réel | bot membre |
+| --- | --- | --- |
+| `kisso-hq` | `CMLKC4S5T` | oui |
+| `engineer-karyl` (privé) | `C0BJGBVB5HP` | oui |
+| `institute` | `C0BS2FU2R0U` | **non** |
+
+⚠️ **L'identifiant employé par la sonde qui a produit ce message, `C0BMLKC4S5T`, ne désignait
+AUCUN canal.** La sonde était fausse — mais elle a révélé un défaut réel, et c'est le seul
+point qui compte : *le harness a répondu « tu n'es pas membre » à une question dont la vraie
+réponse était « ce canal n'existe pas ».*
+
+**2.** *« Je ne trouve aucune information sur le canal « engineer-karyl ». **Sans l'identifiant
+du canal, je ne peux pas récupérer l'historique.** »* — le modèle disait la stricte vérité.
+
+### Pourquoi
+
+**Le premier** : `SlackChannelHistoryAdapter.isMember` enveloppait `conversations.members` dans
+un `try` qui rendait `false` sur **toute** erreur. Trois faits distincts — « la personne n'est
+pas membre », « aucun canal ne porte cet identifiant », « Slack n'a pas répondu » — sortaient
+donc sous le seul verdict `not_channel_member`, et c'était le plus accusateur des trois.
+
+⚠️ La décision d'ACCÈS était juste et n'a pas bougé : une appartenance non prouvée vaut NON.
+Ce qui était faux, c'est ce qu'on en DISAIT. **Refuser est correct ; en donner une fausse raison
+ne l'est pas.** Même famille que `no_data_yet` contre `not_persisted` au tableau de bord, et que
+`null` contre `[]` dans `readToolCalls` : une absence de preuve n'est pas une preuve d'absence.
+
+⚠️ Second défaut, superposé au premier et plus discret : le `hint` de `not_channel_member`
+était une **CONSIGNE** (« Tu ne montres un canal qu'à ses membres »), pas un **FAIT**. Le verdict
+porte sur le DEMANDEUR ; le modèle, ne voyant qu'une phrase à la deuxième personne, l'a reportée
+sur lui-même. D'où « je n'en suis pas membre », qui accuse le bot d'un défaut qu'il n'a pas et
+envoie le diagnostic dans le mur.
+
+**Le second** : `getChannelHistory` n'acceptait qu'un `C…`/`G…`, son `.describe()` disait
+« Identifiant du canal, pas son nom », et l'instruction de `knowledgeAgent` le répétait mot pour
+mot. **Personne ne connaît l'identifiant d'un canal Slack.** ⚠️ **Quatrième occurrence de la
+demande structurellement insatisfaisable**, après la recherche par email inatteignable
+(2026-08-10), la boucle « donne-moi son identifiant » (2026-08-11) et l'email d'entretien routé
+vers un agent exigeant une ligne d'annuaire qu'un candidat n'a pas (2026-08-14).
+
+⚠️ Le défaut est invisible quand on **clique** `#kisso-hq` dans le champ de saisie : le client
+Slack pose alors le jeton `<#C…|nom>`, qui porte l'identifiant. Il ne se manifeste que quand la
+personne ÉCRIT le nom — c'est-à-dire dans la formulation la plus naturelle.
+
+### La forme retenue
+
+La résolution se fait **contre les canaux dont le DEMANDEUR est membre**, jamais contre
+l'annuaire du workspace. C'est la même propriété que la lecture en direct de `searchKnowledge` :
+*la frontière tient par la CONSTRUCTION de la liste, pas par un filtre — donc il n'y a rien à
+filtrer ensuite, donc rien à oublier de filtrer.* Un nom que le demandeur ne peut pas voir est
+indiscernable d'un nom qui n'existe pas, et la résolution ne peut donc pas devenir un oracle
+d'existence de canaux privés.
+
+Verrouillé par `tests/unit/knowledge/channel-by-name.test.ts` et
+`tests/unit/knowledge/channel-verdicts.test.ts`.
+
+### `src/features/knowledge/domain/services/channel-name-matching.ts`
+
+**Avant `export function resolveChannelName(`**
+
+⚠️ **SUR AMBIGUÏTÉ, AUCUN IDENTIFIANT NE SORT** — même règle que `findPersonByName`. En rendre
+deux reviendrait à laisser le modèle en choisir un, c'est-à-dire le geste même qui a produit le
+bug de destinataire du 2026-08-14. Sans identifiant, l'appel suivant est structurellement
+impossible et le modèle DOIT demander.
+
+Un nom EXACT l'emporte sur un préfixe : sans cette précédence, `#random` resterait ambigu dès
+qu'un `#random-dev` existe, alors que la personne a nommé le canal sans la moindre équivoque.
+
+### `src/features/knowledge/application/tools/get-channel-history.ts`
+
+**Avant `async function resolveNamedChannel(`**
+
+Le verdict rendu est un OBJET, jamais une chaîne. La première version renvoyait
+`string | 'channel_not_found' | 'ambiguous_channel' | 'unavailable'` et se testait par
+`typeof x !== 'string'` — condition **jamais vraie**, puisque les sentinelles sont elles-mêmes
+des chaînes : `'channel_not_found'` partait comme identifiant de canal vers Slack, et
+ressortait en `not_channel_member`. Le défaut a été trouvé par un test, pas par relecture.
+
+### `src/features/knowledge/infrastructure/providers/slack-channel-history.adapter.ts`
+
+**Avant `async isMember(channelId: string, slackUserId: string): Promise<boolean> {`**
+
+⚠️ **UNE APPARTENANCE NON PROUVÉE N'EST PAS UNE NON-APPARTENANCE.** La méthode LÈVE désormais
+(`channel_not_found` quand Slack ne voit aucun canal, `unavailable` sinon) au lieu de rendre
+`false`. Les appelants qui n'ont qu'une décision à prendre — `searchKnowledge` — retombent sur
+`false` et restent fail-closed ; celui qui doit EXPLIQUER — `getChannelHistory` — dit la vraie
+raison.
+
+⚠️ `conversations.members` répond `200` sur un canal public dont le BOT n'est pas membre : le
+contrôle porte donc bien sur le demandeur, et l'impossibilité de lire ce canal se manifeste plus
+tard, dans `fetchRecent`, en `bot_not_in_channel`.
