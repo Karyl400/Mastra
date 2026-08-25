@@ -54,6 +54,7 @@ function makeDeps(
     save: vi.fn().mockResolvedValue(undefined),
     update: vi.fn().mockResolvedValue(undefined),
     claimForDispatch: vi.fn().mockResolvedValue(true),
+    cancelIfPending: vi.fn().mockResolvedValue(false),
     releaseClaim: vi.fn().mockResolvedValue(undefined),
     ...overrides.notificationRepo,
   };

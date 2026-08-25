@@ -1960,7 +1960,7 @@ message SUIVANT. Faux partout ailleurs, et délibérément : ni « 🎉 » ni un
 n'aident le tour d'après, et une confidence de détresse n'a pas à être conservée plus
 longtemps que nécessaire.
 
-**Avant `readonly action?: 'erasure' | 'pin_fact' | 'profile_form' | 'profile_done';`**
+**Avant `readonly action?: 'erasure' | 'pin_fact' | 'profile_form' | 'profile_done' | 'cancel_reminder';`**
 
 Le geste que ce court-circuit accomplit, quand `reply` vaut `null`.
 
@@ -3680,6 +3680,32 @@ vient de confier, elle n'a rien à faire dans un journal.
 ⚠️ Ne JAMAIS retomber sur `pinnedFactReply` ici. Promettre de se souvenir sans
 
 avoir pu écrire serait exactement le défaut qu'on corrige, sous une autre forme.
+**Avant `private async runCancelReminder(ctx: {`**
+
+Le DOUZIÈME court-circuit, ajouté le 2026-08-25 — et le premier geste RÉVERSIBLE du produit.
+
+Le raisonnement complet — pourquoi un court-circuit et non un treizième outil, pourquoi le
+modèle ne peut structurellement pas désigner le rappel — vit dans
+`docs/conception/shared.md`, section `shared/cancel-reminder.ts`. Ce qui se décide ICI est
+l'EXÉCUTION, parce que le handler est le seul à tenir à la fois le dépôt et le client Slack.
+
+⚠️ ON PART DU DOSSIER DU DEMANDEUR, jamais d'une liste qu'on filtrerait ensuite. Il n'y a
+donc rien à filtrer, donc rien à oublier de filtrer — la même construction que la liste des
+canaux de `searchKnowledge`, bâtie sur `users.conversations` du demandeur.
+
+⚠️ LES RAPPELS `sending` ENTRENT DANS LES CANDIDATS, et ce n'est pas une négligence. Répondre
+« tu n'as aucun rappel en attente » à quelqu'un dont le rappel est en cours de remise serait
+FAUX : il en a un, il est simplement trop tard. Ils sont donc listés, `cancelIfPending` les
+refuse, et la personne s'entend dire que le message part quand même. Deux états distincts,
+deux phrases distinctes — même exigence que `no_data_yet` contre `not_persisted` au tableau
+de bord.
+
+⚠️ AUCUN APPEL DE MODÈLE, et c'est ce qui rend le geste gratuit au plafond quotidien. Son
+entrée dans `DETERMINISTIC_REPLIES` suffit à l'inscrire au miroir `isAnsweredWithoutModel`,
+qui se DÉRIVE de la table : c'est la correction de 2026-08-18 qui paie ici, quatre mois après
+que « bonjour », `profile_done` et le « oui » d'un email en attente ont chacun été facturés à
+tort.
+
 **Avant `private async runProfileForm(ctx: {`**
 
 DEMANDE DU FORMULAIRE DE PROFIL — réponse déterministe, aucun appel LLM
@@ -6896,6 +6922,22 @@ une invocation tuée entre la prise et l'envoi (dépassement de `maxDuration`, r
 incident). Sans cette reprise, le rappel resterait `sending` à jamais, invisible de
 `findPending()` : perdu EN SILENCE, ce qui est pire qu'un doublon — un doublon se voit.
 
+**Avant `cancelIfPending(id: string, recipientId: string): Promise<boolean>;`**
+
+Annuler un rappel qui n'est pas encore parti — et RENDRE UN COMPTE.
+
+⚠️ MÊME FORME QUE `claimForDispatch`, ET POUR LA MÊME RAISON. Le cron tourne à 6 h et peut
+être en train de remettre le rappel à l'instant où la personne demande de l'annuler. Un
+`findById` puis un `update` inconditionnel — la forme « naturelle » — écraserait le statut
+d'un rappel DÉJÀ PARTI, et Marcel répondrait « c'est annulé » d'un message que la personne a
+sous les yeux. C'est le compte, et lui seul, qui décide de la phrase.
+
+⚠️ LE `recipientId` EST DANS LA CLAUSE, PAS SEULEMENT CHEZ L'APPELANT. La portée devient
+STRUCTURELLE : il n'existe aucun chemin, présent ou futur, par lequel l'annulation touche le
+rappel d'un tiers. Un filtre côté appelant est un filtre qu'on peut oublier de rappeler — et
+ce dépôt a déjà payé cette leçon avec `slack_directory.employee_id`, écrite par un chemin et
+lue par aucun.
+
 **Avant `releaseClaim(id: string): Promise<void>;`**
 
 Rend la prise. Sur un échec de TRANSPORT rien n'est parti : garder le rappel en « envoi en
@@ -7290,9 +7332,23 @@ Dérivé du câblage : si l'agent qui a répondu SAIT lire un canal, il n'y a ri
 
 Il a peut-être déjà dit la bonne chose — on ne double pas une réponse juste.
 
-**Avant `if (answer.includes(label) || /au matin\b/i.test(answer)) return '';`**
+**Avant `export const REMINDER_UNDO_HINT = ' Dis-moi « annule le rappel » si tu changes d’avis.';`**
 
-La réponse dit déjà tout : rien à ajouter.
+⚠️ UNE CAPACITÉ RÉVERSIBLE QUE PERSONNE NE SAIT INVOQUER N'EXISTE PAS. Ajouté le
+2026-08-25 avec le court-circuit d'annulation. C'est la situation du bouton « Compléter
+mon profil » avant `profile-request.ts` : il était RÉELLEMENT émis, et personne d'autre
+qu'un nouvel arrivant ne pouvait l'obtenir. La sortie est donc offerte à l'endroit exact
+où le geste vient d'être fait, par le CODE — pas par une consigne d'agent, dont ce dépôt a
+mesuré trois échecs.
+⚠️ Et elle est offerte sur les TROIS chemins de la note, pas sur le plus fréquent : sinon
+la découvrabilité dépendrait de la formulation du modèle, c'est-à-dire de rien.
+⚠️ `tests/unit/quality/taught-phrases.test.ts` EXTRAIT cette phrase du code et exige qu'un
+prédicat la reconnaisse. Le lien entre les deux bords n'est donc pas une intention, il est
+vérifié — c'est ce même test qui a rougi ici avant que le prédicat ne soit enregistré.
+
+**Avant `if (answer.includes(label) || /au matin\b/i.test(answer)) {`**
+
+La réponse dit déjà la date : il ne reste que la façon de défaire le geste.
 
 **Avant `const day = label.replace(/^le /i, '').replace(/ au matin$/i, '');`**
 
@@ -7412,6 +7468,14 @@ le rappel à la remise suivante.
 **Avant `async findPending(): Promise<Notification[]> {`**
 
 ⚠️ `sending` EN FAIT PARTIE — voir le port : une prise abandonnée est en attente.
+
+**Avant `async cancelIfPending(id: string, recipientId: string): Promise<boolean> {`**
+
+⚠️ `readAffectedRows` EST LA GARANTIE, PAS L'`UPDATE`. « L'UPDATE n'a touché aucune ligne »
+ne se démontre pas contre une doublure : le contrat est donc vérifié sur les DEUX
+implémentations par la même suite (`tests/unit/notification/notification-claim.test.ts`), la
+Drizzle contre une vraie base libsql en mémoire. C'est la doublure in-memory qui décide, dans
+tous les tests du handler, si un second « annule » annule une seconde fois.
 
 **Avant `async claimForDispatch(id: string, strandedBefore?: Date): Promise<boolean> {`**
 

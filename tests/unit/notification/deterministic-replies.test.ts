@@ -35,6 +35,7 @@ describe('court-circuits déterministes — la table est la source unique', () =
       'erasure_request',
       'pin_fact',
       'profile_form_request',
+      'cancel_reminder',
     ]);
   });
 
@@ -100,6 +101,10 @@ describe('court-circuits déterministes — la table est la source unique', () =
         erasure_request: { text: "oublie ce que je t'ai dit" },
         pin_fact: { text: 'souviens-toi que je suis basé à Lagos' },
         profile_form_request: { text: 'je veux compléter mon profil' },
+        // ⚠️ Le DOUZIÈME, ajouté le 2026-08-25. Premier geste RÉVERSIBLE du produit : jusque-là
+        // Marcel savait poser un rappel et jamais le reprendre, et la seule sortie était
+        // « repasse me le demander » — le verdict que le propriétaire avait déjà rejeté.
+        cancel_reminder: { text: 'annule le rappel de jeudi' },
       };
 
     // Aucune entrée de la table ne doit être sans charge d'essai : sinon un ajout futur

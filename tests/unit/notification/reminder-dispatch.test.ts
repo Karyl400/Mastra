@@ -444,11 +444,36 @@ describe('une prise abandonnée est reprise par la remise suivante', () => {
  * démenti corrigé plus tôt le 2026-08-21, sous une autre forme.
  */
 describe('la note de remise ne répète pas ce que l’agent vient de dire', () => {
-  it('s’efface entièrement quand la réponse dit déjà « au matin »', async () => {
+  it('ne garde que la SORTIE quand la réponse dit déjà « au matin »', async () => {
+    // ⚠️ Cette assertion valait `''` jusqu'au 2026-08-25. Ce qu'elle protégeait — ne pas
+    // répéter la date que l'agent vient de donner — est INTACT : la date a disparu de la
+    // note. Ce qui s'y est ajouté est d'une autre nature : la façon de DÉFAIRE le geste.
+    // Une capacité réversible que personne ne sait invoquer est la situation du bouton
+    // « Compléter mon profil », qui a existé des semaines sans chemin pour l'obtenir.
     const { buildReminderNotice } =
       await import('../../../src/features/notification/infrastructure/handlers/slack-events.handler');
     const ctx = new Map([['slackReminderDelivery', 'le lundi 24 août 2026 au matin']]);
-    expect(buildReminderNotice(ctx, 'Je te le remettrai lundi 24 août 2026 au matin.')).toBe('');
+    const notice = buildReminderNotice(ctx, 'Je te le remettrai lundi 24 août 2026 au matin.');
+
+    expect(notice).toContain('annule le rappel');
+    expect(notice).not.toContain('24 août');
+    expect(notice).not.toContain('une fois par jour');
+  });
+
+  it('la sortie est offerte sur TOUS les chemins de la note', async () => {
+    // Si un seul des trois l'oubliait, la découvrabilité dépendrait de la formulation du
+    // modèle — c'est-à-dire de rien.
+    const { buildReminderNotice } =
+      await import('../../../src/features/notification/infrastructure/handlers/slack-events.handler');
+    const ctx = new Map([['slackReminderDelivery', 'le lundi 24 août 2026 au matin']]);
+
+    for (const answer of [
+      'Je te le remettrai lundi 24 août 2026 au matin.',
+      'Rappel programmé pour le lundi 24 août 2026.',
+      "C'est noté.",
+    ]) {
+      expect(buildReminderNotice(ctx, answer)).toContain('annule le rappel');
+    }
   });
 
   it('se réduit à l’information NEUVE quand seule la date est déjà là', async () => {

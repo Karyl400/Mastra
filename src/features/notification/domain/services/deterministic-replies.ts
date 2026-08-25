@@ -8,6 +8,7 @@ import {
 import { requestsErasure } from '../../../../shared/forget';
 import { extractPinnedFact } from '../../../../shared/pin-fact';
 import { requestsProfileForm } from '../../../../shared/profile-request';
+import { requestsReminderCancellation } from '../../../../shared/cancel-reminder';
 import { claimsProfileDone } from '../../../../shared/profile-done';
 import {
   CONTENT_FREE_REPLIES,
@@ -40,7 +41,7 @@ export interface DeterministicReply {
   readonly resolveReply?: (input: DeterministicReplyInput) => string;
   readonly variants?: readonly string[];
   readonly remembersTurn?: boolean;
-  readonly action?: 'erasure' | 'pin_fact' | 'profile_form' | 'profile_done';
+  readonly action?: 'erasure' | 'pin_fact' | 'profile_form' | 'profile_done' | 'cancel_reminder';
   readonly logFields?: (input: DeterministicReplyInput) => Record<string, unknown>;
 }
 
@@ -114,6 +115,12 @@ export const DETERMINISTIC_REPLIES: readonly DeterministicReply[] = [
     matches: ({ text }) => requestsProfileForm(text),
     reply: null,
     action: 'profile_form',
+  },
+  {
+    name: 'cancel_reminder',
+    matches: ({ text }) => requestsReminderCancellation(text) !== null,
+    reply: null,
+    action: 'cancel_reminder',
   },
 ];
 

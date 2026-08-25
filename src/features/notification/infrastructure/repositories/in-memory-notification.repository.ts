@@ -51,6 +51,20 @@ export class InMemoryNotificationRepository implements NotificationRepository {
     return true;
   }
 
+  async cancelIfPending(id: string, recipientId: string): Promise<boolean> {
+    const current = this.store.get(id);
+    if (!current) return false;
+    if (current.recipientId !== recipientId) return false;
+    if (!isDispatchableStatus(current.status)) return false;
+
+    this.store.set(id, {
+      ...current,
+      status: NotificationStatus.Cancelled,
+      updatedAt: new Date().toISOString(),
+    });
+    return true;
+  }
+
   async releaseClaim(id: string): Promise<void> {
     const current = this.store.get(id);
     if (!current || current.status !== NotificationStatus.Sending) return;

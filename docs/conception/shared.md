@@ -274,6 +274,74 @@ rembourse pour une semaine.
 de la rédaction libre, et le mot coûtait 5 tokens à chaque aller-retour pour ne
 
 couvrir aucun cas que les trois autres ne couvrent pas.
+## `shared/cancel-reminder.ts`
+
+## Le défaut que ce module ferme
+
+Marcel savait POSER un rappel depuis le 2026-08-21 et n'a jamais su le REPRENDRE. La seule
+sortie offerte était « repasse me le demander » — mot pour mot le verdict que le
+propriétaire avait déjà rejeté à propos des rappels eux-mêmes : *« ce n'est pas le but d'un
+rappel »*. Un geste qu'on ne peut pas défaire n'est pas un geste sûr, c'est un geste qu'on
+hésite à faire. C'était la dette n° 6 de `docs/tool-design-audit.md`, seul point de la liste
+à parler de RÉVERSIBILITÉ.
+
+## ⚠️ POURQUOI CE N'EST PAS UN OUTIL — la seconde raison est décisive
+
+1. Un outil est un schéma réémis à CHAQUE aller-retour de l'agent qui le porte, et
+   `notificationAgent` en porte déjà sept. Le court-circuit coûte ZÉRO token.
+2. **Le modèle ne PEUT PAS désigner le rappel.** `getNotificationHistory` ne rend aucun `id`
+   — à dessein — et la mémoire conversationnelle ne stocke que du TEXTE, donc l'`id` rendu
+   par `scheduleReminder` n'est plus dans la fenêtre au message suivant, le seul qui compte.
+   C'est le mur exact qui a fait passer `generateDocument.revises` d'un UUID à un booléen.
+   Un `cancelReminder(id)` serait soit inutilisable, soit une invitation à inventer un
+   identifiant — et la cible d'un identifiant inventé, c'est le rappel de quelqu'un d'autre.
+
+**Avant `export function requestsReminderCancellation(`**
+
+Cette phrase demande-t-elle d'annuler un rappel, et lequel — un seul ou tous ?
+
+⚠️ L'ASYMÉTRIE VA DANS L'AUTRE SENS QUE `profile-request.ts`, ET C'EST ELLE QUI DICTE LA
+SÉVÉRITÉ. Un faux positif annule un rappel que personne ne reverra — la panne SILENCIEUSE
+que ce dépôt traque partout. Un faux négatif laisse partir un rappel dont on ne voulait
+plus : bruyant, visible, corrigible d'un message. On s'abstient donc VERS le refus, et la
+forme est celle de `forget.ts` — le verbe doit OUVRIR le message ou suivre une formule de
+demande, la négation est cherchée sur quatre mots de part et d'autre.
+
+**Avant `const REMINDER_WORDS: ReadonlySet<string> = new Set([`**
+
+⚠️ L'OBJET EST COMPARÉ MOT À MOT, JAMAIS EN SOUS-CHAÎNE — et c'est le piège propre à ce
+prédicat : **« rappelle » CONTIENT « rappel »**. Une recherche en sous-chaîne ferait mordre
+« annule la réunion et rappelle-moi jeudi », c'est-à-dire une phrase qui demande justement
+d'en POSER un. Même famille que `\b` en ASCII sur `bloqué` et que les motifs sans accent du
+distillateur : un motif qui mord (ou échoue) en silence sur du vocabulaire courant est pire
+qu'un motif absent, parce qu'il donne l'illusion d'une couverture.
+
+**Avant `export function pickReminderToCancel<T extends CancellableReminder>(`**
+
+Lequel des rappels en attente cette phrase désigne-t-elle ?
+
+⚠️ SANS CETTE FONCTION, LA QUESTION « LEQUEL ? » SERAIT UNE BOUCLE SANS SORTIE. Marcel
+demande lequel, la personne répond « celui de jeudi » — et le prédicat rend `last` une fois
+de plus, donc la même question repart. C'est exactement la forme que
+`PROFILE_EMAIL_TAKEN_REPLY` existe pour fermer : poser une question dont aucune réponse ne
+peut sortir.
+
+La désignation est DÉRIVÉE de ce que Marcel vient d'afficher — le jour et le sujet — jamais
+d'un identifiant demandé à quiconque. Les mots de la demande elle-même (« annule », « le »,
+« rappel », « mes ») sont écartés : s'ils comptaient, le premier candidat gagnerait toujours
+et le choix serait un tirage déguisé. Un mot commun à deux candidats ne tranche pas non
+plus — on préfère redemander plutôt que désigner au hasard, exactement comme
+`findPersonByName` refuse de rendre un identifiant sur une ambiguïté.
+
+**Avant `export const REMINDER_ALREADY_SENT_REPLY =`**
+
+⚠️ LE CRON TOURNE À 6 H, ET IL PEUT ÊTRE EN TRAIN DE REMETTRE LE RAPPEL. Prétendre l'avoir
+annulé alors qu'il est parti serait la famille de mensonge que tout ce dépôt traque —
+`emailSent: false` sous `status: 'success'`, `documents.content` perdu en silence,
+`status = Sent` posé avant le `try`. C'est le COMPTE rendu par `cancelIfPending` qui décide
+de la phrase, jamais une lecture préalable : un `findById` puis un `update` inconditionnel
+rouvrirait la course et son symptôme serait un « c'est annulé » sur un message déjà reçu.
+
 ## `shared/confirmation.ts`
 
 **Avant `const MAX_CHARS = 32;`**
@@ -871,9 +939,15 @@ C'est le correctif de la revue adversariale : « ne veux surtout **pas** que tu 
 plaçait la négation à deux mots du verbe, donc hors de portée d'une garde d'adjacence —
 et cette phrase, qui demande de GARDER la mémoire, l'effaçait.
 
-**Avant `function isAnOrder(words: readonly string[], verbIndex: number): boolean {`**
+**Avant `export function isAnOrder(`**
 
 Ce verbe-ci est-il employé comme un ORDRE ?
+
+⚠️ SORTI DE `forget.ts` VERS `imperative.ts` LE 2026-08-25, sans changer une ligne de sa
+logique. Le court-circuit d'annulation de rappel a besoin exactement de la même question —
+et la recopier aurait fabriqué deux listes de formules de demande qui auraient divergé au
+premier ajout. C'est la règle du dépôt appliquée à elle-même : ce qu'on DÉRIVE est juste,
+ce qu'on RECOPIE a dérivé.
 
 Deux formes seulement, et c'est volontairement peu :
  - **il ouvre le message** — c'est l'impératif français (« oublie… », « supprime… ») ;
@@ -1190,6 +1264,27 @@ cette table vient de fermer. Ce qui varie est l'ATTAQUE de la phrase, rien d'aut
 
 Pourquoi c'est ici que ça compte le plus : la salutation est, de très loin, la réponse la
 plus répétée du produit — et la répétition littérale est ce qui fait « machine ».
+
+## `shared/imperative.ts`
+
+## Pourquoi ce module existe
+
+⚠️ SORTI DE `forget.ts` LE 2026-08-25, sans changer une ligne de sa logique. Le court-circuit
+d'annulation de rappel a besoin exactement de la même question — *ce verbe est-il employé
+comme un ordre ?* — et la recopier aurait fabriqué deux listes de formules de demande qui
+auraient divergé au premier ajout. C'est la règle du dépôt appliquée à elle-même : ce qu'on
+DÉRIVE est juste, ce qu'on RECOPIE a dérivé. Ce dépôt en a la preuve chiffrée avec
+`READ_ONLY_TOOL_NAMES` et avec la constante `WIRING` du test de budget, toutes deux fausses
+sans que rien ne rougisse.
+
+**Avant `export const REQUEST_MARKERS: readonly string[] = [`**
+
+Les formules qui transforment une question en demande.
+
+⚠️ La liste est volontairement COURTE. Ce qu'elle doit laisser passer, c'est « peux-tu
+effacer… », « merci de supprimer… » ; ce qu'elle doit écarter, c'est « vas-tu oublier… ? »,
+« pourquoi as-tu oublié… ? », « tu risques d'oublier… » — mêmes verbes, mêmes objets. Aucune
+liste de MOTS ne peut les distinguer ; seule la POSITION le peut.
 
 ## `shared/intent-text.ts`
 

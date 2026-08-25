@@ -8,6 +8,7 @@ import { requestsProfileForm } from '../../../src/shared/profile-request';
 import { skipsInterview } from '../../../src/features/onboarding/domain/services/interview-chat';
 import { readsAsNo, readsAsYes } from '../../../src/shared/confirmation';
 import { requestsErasure } from '../../../src/shared/forget';
+import { requestsReminderCancellation } from '../../../src/shared/cancel-reminder';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -39,6 +40,7 @@ const RECOGNISERS: ReadonlyArray<(text: string) => unknown> = [
   readsAsYes,
   readsAsNo,
   (t) => requestsErasure(t),
+  (t) => requestsReminderCancellation(t),
 ];
 
 function isRecognised(phrase: string): boolean {

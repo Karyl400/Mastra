@@ -1,6 +1,7 @@
 import { registerApiRoute } from '@mastra/core/server';
 import type { Mastra } from '@mastra/core';
 
+import { DrizzleNotificationRepository } from '../features/notification/infrastructure/repositories/drizzle-notification.repository';
 import {
   SlackEventsHandler,
   type SlackEventEnvelope,
@@ -109,6 +110,7 @@ export function getSlackEventsHandler(mastra: Mastra): SlackEventsHandler {
       interviewRepository: new DrizzleOnboardingInterviewRepository(),
       profileRepository: new DrizzleEmployeeRepository(),
       pendingEmailRepository: new DrizzlePendingInterviewEmailRepository(),
+      notificationRepository: new DrizzleNotificationRepository(),
       knowledgeErasure: new KnowledgeErasureService({
         archive: knowledgeArchiveRepo,
         facts: knowledgeFactRepo,

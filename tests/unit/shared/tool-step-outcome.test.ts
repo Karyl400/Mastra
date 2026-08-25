@@ -243,6 +243,21 @@ describe('markStepOutcomes — la marque suit le résultat', () => {
  * `createTool` enveloppe déjà `execute` d'une validation d'entrée. On enveloppe donc une
  * enveloppe, et c'est la vraie forme du montage.
  */
+/**
+ * ⚠️ `Tool.execute` est typé `optional` et exige un `ToolExecutionContext` complet (`observe`
+ * compris) que le harness fabrique à l'exécution. Le test n'en a besoin d'AUCUN autre champ que
+ * `requestContext` : on franchit donc la frontière de types en UN SEUL endroit, nommé, plutôt
+ * qu'à chaque appel.
+ */
+async function runTool(
+  tool: { execute?: unknown },
+  input: unknown,
+  requestContext: RequestContext,
+): Promise<unknown> {
+  const run = tool.execute as (input: unknown, ctx: unknown) => Promise<unknown>;
+  return run(input, { requestContext });
+}
+
 describe('markStepOutcomes sur un Tool Mastra réel', () => {
   const build = (result: unknown) =>
     createTool({
@@ -257,7 +272,7 @@ describe('markStepOutcomes sur un Tool Mastra réel', () => {
     markStepOutcomes({ tool });
     const requestContext = new RequestContext();
 
-    await tool.execute({ who: 'Awa' }, { requestContext });
+    await runTool(tool, { who: 'Awa' }, requestContext);
 
     expect(readStepBlocked(requestContext)).toBe('no_match');
   });
@@ -268,7 +283,7 @@ describe('markStepOutcomes sur un Tool Mastra réel', () => {
     const requestContext = new RequestContext();
     requestContext.set(SLACK_STEP_BLOCKED_KEY, 'no_match');
 
-    await tool.execute({ who: 'Awa' }, { requestContext });
+    await runTool(tool, { who: 'Awa' }, requestContext);
 
     expect(readStepBlocked(requestContext)).toBeUndefined();
   });
@@ -280,7 +295,7 @@ describe('markStepOutcomes sur un Tool Mastra réel', () => {
     markStepOutcomes({ tool });
     const requestContext = new RequestContext();
 
-    const outcome = await tool.execute({} as { who: string }, { requestContext });
+    const outcome = await runTool(tool, {}, requestContext);
 
     expect((outcome as { error?: unknown }).error).toBe(true);
     expect(readStepBlocked(requestContext)).toBe('invalid_call');

@@ -9,5 +9,7 @@ export interface NotificationRepository {
 
   claimForDispatch(id: string, strandedBefore?: Date): Promise<boolean>;
 
+  cancelIfPending(id: string, recipientId: string): Promise<boolean>;
+
   releaseClaim(id: string): Promise<void>;
 }

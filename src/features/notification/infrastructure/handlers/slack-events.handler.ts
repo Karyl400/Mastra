@@ -159,6 +159,19 @@ import {
 } from '../../domain/services/rate-limit-policy';
 import { ERASURE_FAILED_REPLY, erasureDoneReply } from '../../../../shared/forget';
 import {
+  NO_REMINDER_TO_CANCEL_REPLY,
+  REMINDER_ALREADY_SENT_REPLY,
+  REMINDER_CANCEL_FAILED_REPLY,
+  REMINDER_CANCEL_NO_RECORD_REPLY,
+  pickReminderToCancel,
+  reminderCancelChoiceReply,
+  reminderCancelledReply,
+  remindersCancelledReply,
+  requestsReminderCancellation,
+} from '../../../../shared/cancel-reminder';
+import type { NotificationRepository } from '../../domain/ports/notification.repository';
+import { DISPATCH_LOOKUP_STATUSES, deliveryLabel } from '../../domain/services/reminder-dispatch';
+import {
   PROFILE_FORM_CHANNEL_REDIRECT,
   PROFILE_FORM_INVITE,
 } from '../../../../shared/profile-request';
@@ -285,6 +298,7 @@ export interface SlackEventsHandlerOptions {
   sendEmail?: (to: string, subject: string, body: EmailBody) => Promise<unknown>;
   knowledgeIngestion?: KnowledgeIngestionPort | null;
   knowledgeErasure?: KnowledgeErasurePort | null;
+  notificationRepository?: NotificationRepository | null;
   now?: () => Date;
 }
 
@@ -383,16 +397,22 @@ export function buildChannelRedirectNotice(text: string, agentId: string, answer
   );
 }
 
+export const REMINDER_UNDO_HINT = ' Dis-moi « annule le rappel » si tu changes d’avis.';
+
 export function buildReminderNotice(requestContext: unknown, answer: string): string {
   const label = readReminderDelivery(requestContext);
   if (!label) return '';
 
-  if (answer.includes(label) || /au matin\b/i.test(answer)) return '';
+  if (answer.includes(label) || /au matin\b/i.test(answer)) {
+    return `\n\n_(${REMINDER_UNDO_HINT.trim()})_`;
+  }
 
   const day = label.replace(/^le /i, '').replace(/ au matin$/i, '');
-  if (answer.includes(day)) return "\n\n_(Au matin — je ne passe qu'une fois par jour.)_";
+  if (answer.includes(day)) {
+    return `\n\n_(Au matin — je ne passe qu'une fois par jour.${REMINDER_UNDO_HINT})_`;
+  }
 
-  return `\n\n_(Je te le remettrai ${label} — je ne passe qu'une fois par jour.)_`;
+  return `\n\n_(Je te le remettrai ${label} — je ne passe qu'une fois par jour.${REMINDER_UNDO_HINT})_`;
 }
 
 function describeAgentRun(run: {
@@ -464,6 +484,7 @@ export class SlackEventsHandler {
   private readonly now: () => Date;
   private readonly knowledgeIngestion: KnowledgeIngestionPort | null | undefined;
   private readonly knowledgeErasure: KnowledgeErasurePort | null | undefined;
+  private readonly notificationRepo: NotificationRepository | null | undefined;
   private readonly sendEmail:
     ((to: string, subject: string, body: EmailBody) => Promise<unknown>) | undefined;
 
@@ -484,6 +505,7 @@ export class SlackEventsHandler {
     this.sendEmail = options.sendEmail;
     this.knowledgeIngestion = options.knowledgeIngestion;
     this.knowledgeErasure = options.knowledgeErasure;
+    this.notificationRepo = options.notificationRepository;
     this.dedupRepo = options.dedupRepository;
     this.conversationTokenBudget = options.conversationTokenBudget ?? CONVERSATION_TOKEN_BUDGET;
     this.conversationTtlMs = options.conversationTtlMs ?? CONVERSATION_TTL_MS;
@@ -1302,6 +1324,97 @@ export class SlackEventsHandler {
     }
   }
 
+  private async runCancelReminder(ctx: {
+    text: string;
+    channel: string;
+    threadTs?: string;
+    conversationId: string;
+    user?: string;
+    employeeId?: string | null;
+  }): Promise<void> {
+    const { text, channel, threadTs, conversationId, user, employeeId } = ctx;
+    const say = (reply: string) =>
+      this.sayAndRemember({ channel, threadTs, conversationId, user, text }, reply);
+
+    const scope = requestsReminderCancellation(text);
+    if (!scope) return;
+
+    const repo = this.notificationRepo;
+    if (!repo) {
+      logger.error('Cancel reminder requested but no notification repository is wired');
+      return say(REMINDER_CANCEL_FAILED_REPLY);
+    }
+
+    if (!employeeId) {
+      logger.info('Cancel reminder requested by someone with no employee record', { channel });
+      return say(REMINDER_CANCEL_NO_RECORD_REPLY);
+    }
+
+    let pending;
+    try {
+      const all = await repo.findByRecipient(employeeId);
+      pending = all.filter((one) => DISPATCH_LOOKUP_STATUSES.includes(one.status));
+    } catch (error) {
+      logger.error('Cancel reminder — pending reminders could not be read', { error, channel });
+      return say(REMINDER_CANCEL_FAILED_REPLY);
+    }
+
+    if (pending.length === 0) {
+      logger.info('Cancel reminder requested with nothing pending — no LLM call', { channel });
+      return say(NO_REMINDER_TO_CANCEL_REPLY);
+    }
+
+    const now = this.now();
+    const candidates = pending.map((one) => ({
+      id: one.id,
+      subject: one.subject,
+      deliveredOn: one.scheduledAt ? deliveryLabel(one.scheduledAt, now) : null,
+    }));
+
+    try {
+      if (scope === 'all') {
+        const taken = await Promise.all(
+          candidates.map((one) => repo.cancelIfPending(one.id, employeeId)),
+        );
+        const count = taken.filter(Boolean).length;
+        logger.info('Reminders cancelled — answered without any LLM call', {
+          channel,
+          asked: candidates.length,
+          cancelled: count,
+        });
+        return say(
+          count === 0
+            ? REMINDER_ALREADY_SENT_REPLY
+            : remindersCancelledReply(count, candidates.length),
+        );
+      }
+
+      const pick = pickReminderToCancel(candidates, text);
+      if ('ambiguous' in pick) {
+        logger.info('Cancel reminder — several candidates, none designated', {
+          channel,
+          candidates: pick.ambiguous.length,
+        });
+        return say(reminderCancelChoiceReply(pick.ambiguous));
+      }
+
+      const cancelled = await repo.cancelIfPending(pick.chosen.id, employeeId);
+      logger.info('Reminder cancellation attempted — answered without any LLM call', {
+        channel,
+        id: pick.chosen.id,
+        cancelled,
+      });
+      return say(
+        cancelled
+          ? reminderCancelledReply(pick.chosen.subject, pick.chosen.deliveredOn)
+          : REMINDER_ALREADY_SENT_REPLY,
+      );
+    } catch (error) {
+      logger.error('Cancel reminder failed', { error, channel });
+      return say(REMINDER_CANCEL_FAILED_REPLY);
+    }
+  }
+
   private async runProfileForm(ctx: {
     channel: string;
     threadTs?: string;
@@ -1897,6 +2010,15 @@ export class SlackEventsHandler {
             isDirectMessage,
             conversationId,
             user,
+          });
+        case 'cancel_reminder':
+          return this.runCancelReminder({
+            text,
+            channel,
+            threadTs,
+            conversationId,
+            user,
+            employeeId: (await requesterIdentity).employeeId,
           });
       }
     }

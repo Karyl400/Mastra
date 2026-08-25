@@ -171,3 +171,96 @@ describe.each(IMPLEMENTATIONS)('claimForDispatch — %s', (_name, make) => {
     expect(pending.map((n) => n.id).sort()).toEqual(['n1', 'n2', 'n4']);
   });
 });
+
+/**
+ * ════════════════════════════════════════════════════════════════════════════
+ * ANNULER EST UNE PRISE, PAS UNE ÉCRITURE
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠️ **MÊME FORME QUE `claimForDispatch`, ET POUR LA MÊME RAISON.** Le cron tourne à 6 h et
+ * peut être en train de remettre le rappel à l'instant où la personne demande de l'annuler. Un
+ * `findById` puis un `update` inconditionnel — la forme « naturelle » — écraserait le statut
+ * d'un rappel DÉJÀ PARTI, et Marcel répondrait « c'est annulé » d'un message que la personne a
+ * dans sa boîte. L'annulation est donc un `UPDATE … WHERE status IN ('scheduled','pending')`
+ * qui rend un COMPTE, et c'est ce compte qui décide de la phrase.
+ *
+ * ⚠️ **LE `recipientId` EST DANS LA CLAUSE, PAS SEULEMENT DANS L'APPELANT.** La portée est
+ * ainsi STRUCTURELLE : il n'existe aucun chemin, présent ou futur, par lequel l'annulation
+ * touche le rappel de quelqu'un d'autre. Un filtre côté appelant est un filtre qu'on peut
+ * oublier de rappeler.
+ */
+describe.each(IMPLEMENTATIONS)('cancelIfPending — %s', (_name, make) => {
+  const OWNER = '11111111-1111-4111-8111-111111111111';
+  const SOMEONE_ELSE = '22222222-2222-4222-8222-222222222222';
+
+  it('annule un rappel enregistré et rend `true`', async () => {
+    const repo = await make();
+    await repo.save(reminder());
+
+    expect(await repo.cancelIfPending('n1', OWNER)).toBe(true);
+    expect((await repo.findById('n1'))?.status).toBe(NotificationStatus.Cancelled);
+  });
+
+  it('annule aussi un rappel au statut `pending`', async () => {
+    const repo = await make();
+    await repo.save(reminder({ status: NotificationStatus.Pending }));
+
+    expect(await repo.cancelIfPending('n1', OWNER)).toBe(true);
+  });
+
+  it('REFUSE un rappel en cours de remise — on ne peut plus l’arrêter', async () => {
+    const repo = await make();
+    await repo.save(reminder({ status: NotificationStatus.Sending }));
+
+    expect(await repo.cancelIfPending('n1', OWNER)).toBe(false);
+    expect((await repo.findById('n1'))?.status).toBe(NotificationStatus.Sending);
+  });
+
+  it('REFUSE un rappel déjà envoyé — il est dans la boîte de la personne', async () => {
+    const repo = await make();
+    await repo.save(reminder({ status: NotificationStatus.Sent }));
+
+    expect(await repo.cancelIfPending('n1', OWNER)).toBe(false);
+    expect((await repo.findById('n1'))?.status).toBe(NotificationStatus.Sent);
+  });
+
+  it('REFUSE le rappel de quelqu’un d’autre, et ne le touche pas', async () => {
+    const repo = await make();
+    await repo.save(reminder({ recipientId: SOMEONE_ELSE }));
+
+    expect(await repo.cancelIfPending('n1', OWNER)).toBe(false);
+    expect((await repo.findById('n1'))?.status).toBe(NotificationStatus.Scheduled);
+  });
+
+  it('la SECONDE annulation rend `false` — le compte est la vérité', async () => {
+    const repo = await make();
+    await repo.save(reminder());
+
+    expect(await repo.cancelIfPending('n1', OWNER)).toBe(true);
+    expect(await repo.cancelIfPending('n1', OWNER)).toBe(false);
+  });
+
+  it('un identifiant inconnu rend `false`', async () => {
+    const repo = await make();
+    expect(await repo.cancelIfPending('jamais-vu', OWNER)).toBe(false);
+  });
+
+  it('un rappel annulé sort de findPending — le cron ne le verra plus', async () => {
+    const repo = await make();
+    await repo.save(reminder());
+
+    await repo.cancelIfPending('n1', OWNER);
+
+    expect(await repo.findPending()).toHaveLength(0);
+  });
+
+  it('un rappel annulé ne se reprend PAS pour remise', async () => {
+    // La garantie qui compte vraiment : annuler doit fermer la porte du répartiteur.
+    const repo = await make();
+    await repo.save(reminder());
+
+    await repo.cancelIfPending('n1', OWNER);
+
+    expect(await repo.claimForDispatch('n1')).toBe(false);
+  });
+});

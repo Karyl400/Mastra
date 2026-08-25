@@ -1,22 +1,9 @@
 import { normalizeIntentText } from './intent-text';
 import { isNegatedNear } from './negation';
+import { isAnOrder } from './imperative';
 import { ESCALATION_CONTACT } from './escalation';
 
 const ERASURE_STEMS: readonly string[] = ['oubli', 'supprim', 'efface', 'delete', 'forget'];
-
-const REQUEST_MARKERS: readonly string[] = [
-  'peux tu',
-  'tu peux',
-  'pourrais tu',
-  'tu pourrais',
-  'merci de',
-  'veux que',
-  'aimerais que',
-  'faut que',
-  'please',
-];
-
-const REQUEST_LOOKBACK_WORDS = 3;
 
 const MEMORY_OBJECTS: readonly string[] = [
   'ce que je t ai dit',
@@ -56,13 +43,6 @@ const NEGATIONS: ReadonlySet<string> = new Set([
 ]);
 
 const MAX_ERASURE_LENGTH = 200;
-
-function isAnOrder(words: readonly string[], verbIndex: number): boolean {
-  if (verbIndex === 0) return true;
-
-  const before = words.slice(Math.max(0, verbIndex - REQUEST_LOOKBACK_WORDS), verbIndex).join(' ');
-  return REQUEST_MARKERS.some((marker) => before.includes(marker));
-}
 
 function isErasureVerb(word: string): boolean {
   return ERASURE_STEMS.some((stem) => word.startsWith(stem));

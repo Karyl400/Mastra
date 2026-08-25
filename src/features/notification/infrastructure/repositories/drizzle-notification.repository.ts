@@ -71,6 +71,23 @@ export class DrizzleNotificationRepository implements NotificationRepository {
     return readAffectedRows(result) === 1;
   }
 
+  async cancelIfPending(id: string, recipientId: string): Promise<boolean> {
+    const db = this.resolveDb();
+
+    const result = await db
+      .update(notifications)
+      .set({ status: NotificationStatus.Cancelled, updatedAt: new Date().toISOString() })
+      .where(
+        and(
+          eq(notifications.id, id),
+          eq(notifications.recipientId, recipientId),
+          inArray(notifications.status, [...DISPATCHABLE_STATUSES]),
+        ),
+      );
+
+    return readAffectedRows(result) === 1;
+  }
+
   async releaseClaim(id: string): Promise<void> {
     const db = this.resolveDb();
     await db
