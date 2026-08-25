@@ -9,8 +9,10 @@ import { NotificationChannel, NotificationStatus, RecipientType } from '../../..
 import { NotFoundError, ValidationError } from '../../../../shared/errors';
 import {
   canPerformSideEffects,
+  readSlackContext,
   writeReminderDelivery,
 } from '../../../../shared/slack-request-context';
+import { buildRunKey, makeRunGuard, textFingerprint } from '../../../../shared/tool-idempotency';
 import { safeOutboundText } from '../services/outbound-text';
 import { deliveryLabel } from '../../domain/services/reminder-dispatch';
 
@@ -21,6 +23,8 @@ export function makeScheduleReminder(
   repo: NotificationRepository,
   employeeRepo?: EmployeeRepository,
 ) {
+  const runGuard = makeRunGuard();
+
   return createTool({
     id: 'scheduleReminder',
     description:
@@ -47,6 +51,25 @@ export function makeScheduleReminder(
 
       const channel = data.channel ?? 'email';
       const recipientType = (data.recipientType ?? 'employee') as RecipientType;
+
+      const runKey = buildRunKey(
+        readSlackContext(_ctx?.requestContext)?.eventTs,
+        'scheduleReminder',
+        [
+          data.recipientId,
+          channel,
+          data.scheduledAt,
+          textFingerprint(`${data.subject}\u0000${data.body}`),
+        ],
+      );
+      const already = runKey ? runGuard.get<Record<string, unknown>>(runKey) : undefined;
+      if (already) {
+        logger.warn('Rappel déjà enregistré dans ce run — second appel ignoré', {
+          recipientId: data.recipientId,
+          scheduledAt: data.scheduledAt,
+        });
+        return already;
+      }
 
       logger.info('Enregistrement rappel', {
         recipientId: data.recipientId,
@@ -105,7 +128,7 @@ export function makeScheduleReminder(
       const delivery = deliveryLabel(scheduled.scheduledAt, new Date());
       if (delivery) writeReminderDelivery(_ctx?.requestContext, delivery);
 
-      return {
+      const result = {
         id: scheduled.id,
         recipientId: scheduled.recipientId,
         channel: scheduled.channel,
@@ -113,6 +136,10 @@ export function makeScheduleReminder(
         stored: true,
         willBeSentAutomatically: true,
       };
+
+      if (runKey) runGuard.remember(runKey, result);
+
+      return result;
     },
   });
 }

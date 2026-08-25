@@ -238,32 +238,53 @@ const CATALOGUE: readonly MetricSpec[] = [
     label: 'Réponses requalifiées (FAIT / NARRATION)',
     unit: 'count',
     source: {
-      derived: false,
-      gap: 'not_persisted',
-      because:
-        'La réconciliation FAIT/NARRATION détecte réellement une réponse qui annonce un accompli ' +
-        'sans qu’aucun outil ait tourné, accole un démenti et passe le verdict en `error`. Ce ' +
-        'verdict part dans les logs Vercel, qui repartent à zéro à chaque redéploiement. Le seul ' +
-        'détecteur d’incohérence du produit est donc INCOMPTABLE au-delà de quelques jours.',
-      wouldTake:
-        'Un `writeAuditLog` sur le verdict — la table `audit_logs` et le point d’écriture ' +
-        'existent déjà. C’est la dette n° 1 de `docs/tool-design-audit.md`.',
+      derived: true,
+      from: ["audit_logs (action='AGENT_RUN')"],
+      caveat:
+        'Comptable depuis le 2026-08-25. Le verdict partait auparavant dans les logs Vercel, ' +
+        'remis à zéro à chaque redéploiement : le seul détecteur d’incohérence du produit était ' +
+        'INCOMPTABLE. Un compte non nul n’est pas une panne — c’est le garde-fou qui travaille.',
+    },
+  },
+  {
+    key: 'ai.runFailures',
+    family: 'ai',
+    label: 'Runs en échec (24 h)',
+    unit: 'count',
+    source: {
+      derived: true,
+      from: ["audit_logs (action='AGENT_RUN')"],
+      caveat:
+        'Réunit trois cas : le run qui a levé, celui dont l’agent n’a pas pu être résolu, et ' +
+        'celui dont la réponse a été requalifiée. Le troisième n’est pas une panne technique.',
+    },
+  },
+  {
+    key: 'ai.toolCalls',
+    family: 'ai',
+    label: 'Appels d’outils (24 h)',
+    unit: 'count',
+    source: {
+      derived: true,
+      from: ["audit_logs (action='AGENT_RUN')"],
+      caveat:
+        'Le détail par outil est affiché sous la carte. C’était la dette n° 1 de ' +
+        '`docs/tool-design-audit.md` : un dépôt qui décide sur mesure ne mesurait pas ses ' +
+        'propres outils.',
     },
   },
   {
     key: 'ai.latency',
     family: 'ai',
-    label: 'Temps de réponse moyen de l’IA',
+    label: 'Temps de réponse médian de l’IA',
     unit: 'ms',
     source: {
-      derived: false,
-      gap: 'not_persisted',
-      because:
-        'Le handler MESURE `durationMs` sur chaque run et le journalise. Il ne l’écrit dans ' +
-        'aucune table. La donnée est produite, puis jetée à chaque redéploiement.',
-      wouldTake:
-        'Une ligne de plus dans l’audit existant : `durationMs` et le maillon LLM réellement ' +
-        'utilisé. Coût nul en tokens, une écriture par message traité.',
+      derived: true,
+      from: ["audit_logs (action='AGENT_RUN')"],
+      caveat:
+        'Médiane et non moyenne : un seul run tombé sur le repli Mistral (11,7 s mesurées) ' +
+        'déplace une moyenne de plusieurs secondes. Au-delà d’une dizaine de secondes, la ' +
+        'lenteur devient une mauvaise impression — c’est ce seuil qu’on surveille.',
     },
   },
 

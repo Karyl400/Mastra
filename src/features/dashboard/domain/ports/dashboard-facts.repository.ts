@@ -23,6 +23,11 @@ export interface DashboardFacts {
   readonly humanReplyDelaysMs: readonly number[];
 
   readonly modelHandledMessages: number;
+  readonly agentRuns: number;
+  readonly agentRunsFailed: number;
+  readonly requalifiedResponses: number;
+  readonly latenciesMs: readonly number[];
+  readonly toolCallCounts: Readonly<Record<string, number>>;
 
   readonly notificationsTotal: number;
   readonly notificationsFailed: number;

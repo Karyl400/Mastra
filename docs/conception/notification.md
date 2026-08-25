@@ -554,7 +554,7 @@ le message à la mauvaise personne. Si un manager (ou un destinataire `hr`, `adm
 n'a pas d'enregistrement d'annuaire, on échoue — jamais de repli sur une valeur
 
 proposée par le modèle.
-**Avant `const member = await slackWorkspace.findUserByEmail(recipient.email);`**
+**Avant `const member = await slackWorkspace.findUserByEmail(target.email);`**
 
 Le compte Slack se déduit de l'email d'annuaire : le LLM ne choisit ni le canal
 
@@ -841,7 +841,7 @@ complété.
 
 ## `features/notification/domain/services/agent-routing.ts`
 
-**Avant `import { agentHasTool } from '../../../../shared/agent-capabilities';`**
+**Avant `import { AGENT_TOOLS, agentHasTool } from '../../../../shared/agent-capabilities';`**
 
 Routage message → agent : les quatre paliers, et les listes qui les gouvernent.
 
@@ -1320,7 +1320,7 @@ Le verbe `mis à jour` n'est PAS ajouté à `DONE_VERBS` : il y entrerait dans l
 passive (« a été mis à jour ») mais raterait « est maintenant à jour », qui est la
 
 forme réellement relevée — un ADJECTIF, pas un participe.
-**Avant `export const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([`**
+**Avant `export const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set(toolsWithEffect('read'));`**
 
 Outils qui ne font que LIRE. Une annonce d'accompli qu'ils seraient seuls à étayer est
 fausse par construction : lire ne produit rien.
@@ -1359,15 +1359,27 @@ la réconciliation pour tout le tour. Le garde-fou était éteint sur le chemin 
 fréquent du produit, et une phrase de vingt lignes expliquant pourquoi il ne pouvait pas
 l'être tenait lieu de preuve.
 
-**Avant `export const ACTING_TOOL_NAMES: ReadonlySet<string> = new Set([`**
+**Avant `export const ACTING_TOOL_NAMES: ReadonlySet<string> = new Set(toolsWithEffect('write'));`**
 
 Les ACTEURS, déclarés explicitement.
 
 ⚠️ Cette liste ne sert PAS à décider : `hasActingToolCall` reste construit sur la seule
-liste des lecteurs, pour que le défaut sûr demeure le silence. Elle sert à rendre la
+liste des lecteurs, pour que le défaut sûr demeure le silence — un outil inconnu vaut
+ACTEUR, donc la réconciliation se tait au lieu de démentir à tort. Elle sert à rendre la
 classification EXHAUSTIVE et donc vérifiable — sans elle, le test ne pourrait pas
 distinguer « acteur assumé » de « nouvel outil que personne n'a classé », et il ne
 détecterait rien. C'est le prix d'un invariant qui se calcule au lieu de se relire.
+
+⚠️ **LES DEUX LISTES SONT DÉRIVÉES DEPUIS LE 2026-08-25, ELLES NE SONT PLUS RECOPIÉES.**
+C'était la dette n° 5 de `docs/tool-design-audit.md`, et elle avait déjà coûté : la liste
+gardait `getTaskList` après son retrait et ignorait `findPersonByName` et `findExpertise`,
+ajoutés le MÊME jour. Le symptôme n'était pas une erreur mais un SILENCE.
+
+La source unique est `TOOL_EFFECTS` (`shared/agent-capabilities.ts`), qui déclare l'effet
+de chaque outil à côté du câblage. `tests/unit/quality/tool-contracts.test.ts` interdit à
+`TOOL_EFFECTS` de diverger dans les deux sens : ses clés doivent être exactement les outils
+câblés, et le câblage ne peut nommer que des outils dont un fichier de `src/` porte l'`id`.
+Un outil ajouté sans effet déclaré fait rougir le test avant d'atteindre la production.
 
 **Avant `export function hasActingToolCall(toolCalls: readonly string[]): boolean {`**
 

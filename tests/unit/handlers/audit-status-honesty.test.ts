@@ -27,8 +27,16 @@ import { makeSlackHandler } from '../../helpers/slack-handler';
  *
  * ⚠️ ON NE MET PAS LA LIGNE À JOUR APRÈS COUP — on dit la vérité du moment où on écrit. Ce
  * qu'on observe à cet instant, c'est que le message a été ACCEPTÉ pour traitement ; c'est tout,
- * et c'est exact. Une seconde écriture pour « conclure » chaque message coûterait une E/S de
- * plus sur le chemin des 3 secondes, pour un journal que personne ne lit encore.
+ * et c'est exact.
+ *
+ * ⚠️ **La suite de cette phrase a changé le 2026-08-25, et il faut le dire.** Elle affirmait
+ * qu'une seconde écriture « coûterait une E/S de plus sur le chemin des 3 secondes, pour un
+ * journal que personne ne lit encore ». Les deux moitiés sont tombées : `AGENT_RUN` est écrit
+ * dans le travail de FOND, bien après l'ACK, et `void`é ; et le journal est lu — `/dashboard`
+ * en dérive la latence, les réponses requalifiées et l'usage des outils.
+ *
+ * Ce qui reste vrai, et que ce test garde : `AGENT_RUN` est une SECONDE LIGNE, jamais une mise
+ * à jour de celle-ci. Voir `agent-run-audit.test.ts`.
  */
 
 const HUMAN = 'U0BJBDGTJUD';

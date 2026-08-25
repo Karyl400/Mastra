@@ -12,7 +12,7 @@ describe('Entity: Employee', () => {
       department: 'Engineering',
       position: 'Senior Developer',
       startDate: '2026-08-01',
-      managerId: 'mgr-456'
+      managerId: 'mgr-456',
     };
 
     const employee = createEmployee(data);
@@ -21,11 +21,11 @@ describe('Entity: Employee', () => {
     expect(employee.firstName).toBe(data.firstName);
     expect(employee.email).toBe(data.email);
     expect(employee.status).toBe(EmployeeStatus.Pending); // Business rule validation
-    
+
     // Timestamps should be auto-generated
     expect(employee.createdAt).toBeDefined();
     expect(employee.updatedAt).toBeDefined();
-    
+
     // createdAt and updatedAt should be valid ISO strings
     expect(new Date(employee.createdAt).toISOString()).toBe(employee.createdAt);
   });
@@ -38,7 +38,7 @@ describe('Entity: Employee', () => {
       email: 'bob@kisso.com',
       department: 'HR',
       position: 'HR Manager',
-      startDate: '2026-08-01'
+      startDate: '2026-08-01',
     };
 
     const employee = createEmployee(data);
@@ -54,7 +54,7 @@ describe('Entity: Employee', () => {
       email: 'bob@kisso.com',
       department: 'HR',
       position: 'HR Manager',
-      startDate: '2026-08-01'
+      startDate: '2026-08-01',
     };
 
     const employee = createEmployee(data);

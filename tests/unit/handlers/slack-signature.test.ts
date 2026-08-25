@@ -75,7 +75,9 @@ describe('Slack signature verification', () => {
 
   it('rejects a timestamp older than 5 minutes (replay protection)', () => {
     const nowMs = 1_700_000_000_000;
-    const staleTimestamp = String(Math.floor(nowMs / 1000) - (SLACK_MAX_TIMESTAMP_SKEW_SECONDS + 1));
+    const staleTimestamp = String(
+      Math.floor(nowMs / 1000) - (SLACK_MAX_TIMESTAMP_SKEW_SECONDS + 1),
+    );
     const signature = computeSlackSignature(SECRET, staleTimestamp, RAW_BODY);
 
     const result = verifySlackSignature({
@@ -139,7 +141,7 @@ describe('Slack signature verification', () => {
         timestamp: undefined,
         signature: `v0=${'0'.repeat(64)}`,
         rawBody: RAW_BODY,
-      })
+      }),
     ).toEqual({ valid: false, reason: 'missing_signature_headers' });
 
     expect(
@@ -148,7 +150,7 @@ describe('Slack signature verification', () => {
         timestamp: '1700000000',
         signature: undefined,
         rawBody: RAW_BODY,
-      })
+      }),
     ).toEqual({ valid: false, reason: 'missing_signature_headers' });
   });
 

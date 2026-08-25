@@ -55,18 +55,30 @@ describe('catalogue de métriques — chaque entrée déclare sa source', () => 
   });
 
   /**
-   * ⚠️ Ces quatre-là sont les demandes explicites du cahier des charges qui n'ont AUCUNE source
+   * ⚠️ Ces trois-là sont les demandes explicites du cahier des charges qui n'ont AUCUNE source
    * dans ce produit. Les inscrire comme dérivables serait le défaut que ce fichier existe pour
    * empêcher — et l'inverse compte aussi : si un mécanisme de feedback est un jour livré, ce
-   * test rougira et forcera la mise à jour du catalogue. Un manque nommé doit pouvoir cesser
+   * test rougit et force la mise à jour du catalogue. Un manque nommé doit pouvoir cesser
    * d'être un manque.
+   *
+   * ⚠️ **ET IL A CESSÉ D'EN ÊTRE UN, DÈS LE LENDEMAIN.** `ai.latency` figurait dans cette liste
+   * le 2026-08-25 au matin ; l'écriture d'`AGENT_RUN` l'en a sortie l'après-midi, et c'est CE
+   * TEST qui a rougi pour l'exiger. C'est exactement le service qu'on lui demandait : sans lui,
+   * une lacune corrigée serait restée affichée comme une lacune — la dérive de
+   * `READ_ONLY_TOOL_NAMES` gardant `getTaskList`, en sens inverse.
    */
-  it('nomme comme ABSENTES les quatre demandes que rien ne peut servir aujourd’hui', () => {
+  it('nomme comme ABSENTES les demandes que rien ne peut servir aujourd’hui', () => {
     const absent = missingMetrics().map((m) => m.key);
     expect(absent).toContain('satisfaction.score');
     expect(absent).toContain('satisfaction.sentiment');
-    expect(absent).toContain('ai.latency');
     expect(absent).toContain('health.uptime');
+  });
+
+  it('ce que `AGENT_RUN` a rendu mesurable N’EST PLUS déclaré absent', () => {
+    const absent = missingMetrics().map((m) => m.key);
+    for (const key of ['ai.latency', 'ai.unsupportedClaims', 'ai.toolCalls']) {
+      expect(absent, `${key} devrait être dérivé depuis le 2026-08-25`).not.toContain(key);
+    }
   });
 
   it('une métrique absente ne porte jamais de valeur par défaut', () => {

@@ -13,7 +13,7 @@ import {
 } from '../../../knowledge/domain/ports/message-archive.repository';
 import type { KnowledgeIngestionPort } from '../../../knowledge/application/services/knowledge-ingestion.service';
 import type { KnowledgeErasurePort } from '../../../knowledge/application/services/knowledge-erasure.service';
-import { AGENT_GENERATE_TIMEOUT_MS } from '../../../../shared/llm/model-fallback';
+import { AGENT_GENERATE_TIMEOUT_MS, AGENT_MAX_STEPS } from '../../../../shared/llm/model-fallback';
 import {
   describeModelResponse,
   MODEL_TRUNCATED_NOTICE,
@@ -170,7 +170,9 @@ import type { PinnedFactRepository } from '../../../conversation/domain/ports/pi
 import { DrizzlePinnedFactRepository } from '../../../conversation/infrastructure/repositories/drizzle-pinned-fact.repository';
 import { DrizzleRateLimitRepository } from '../repositories/drizzle-rate-limit.repository';
 import { writeAuditLog } from '../../../../infrastructure/audit/audit-log';
-import { agentHasTool } from '../../../../shared/agent-capabilities';
+import { agentHasTool, isActingTool } from '../../../../shared/agent-capabilities';
+import { AUDIT_ACTIONS } from '../../../../shared/audit-actions';
+import { errorMessage } from '../../../../shared/errors';
 
 export interface SlackMessageEvent {
   type?: string;
@@ -687,7 +689,7 @@ export class SlackEventsHandler {
       });
 
       void this.audit({
-        action: 'RATE_LIMITED',
+        action: AUDIT_ACTIONS.rateLimited,
         actorId: subject,
         status: 'denied',
         details: { rule: decision.rule, degraded: decision.degraded },
@@ -1340,6 +1342,7 @@ export class SlackEventsHandler {
 
     let phase: 'route' | 'resolve-agent' | 'wrap' | 'generate' | 'sanitize' | 'post' = 'route';
     let agentId = 'unknown';
+    const startedAt = Date.now();
 
     try {
       const stickyAgentId = history.at(-1)?.agentId;
@@ -1359,6 +1362,15 @@ export class SlackEventsHandler {
             'si ça recommence, remonte-le.',
         );
         logger.error('Agent introuvable dans le registre Mastra', { agentId });
+        void this.audit({
+          action: AUDIT_ACTIONS.agentRun,
+          actorId: user ?? 'unknown',
+          status: 'failure',
+          resourceType: 'Agent',
+          resourceId: agentId,
+          errorMessage: 'agent_unresolved',
+          details: { phase, durationMs: Date.now() - startedAt },
+        });
         return;
       }
 
@@ -1374,7 +1386,6 @@ export class SlackEventsHandler {
       });
 
       phase = 'generate';
-      const startedAt = Date.now();
       const identity = await requesterIdentity;
 
       const pinnedFacts = await this.loadPinnedFacts(user);
@@ -1397,6 +1408,7 @@ export class SlackEventsHandler {
         }),
         {
           requestContext,
+          maxSteps: AGENT_MAX_STEPS,
           abortSignal: AbortSignal.timeout(AGENT_GENERATE_TIMEOUT_MS),
         },
       );
@@ -1492,6 +1504,25 @@ export class SlackEventsHandler {
         deliveryPromise,
       });
 
+      void this.audit({
+        action: AUDIT_ACTIONS.agentRun,
+        actorId: user ?? 'unknown',
+        status: unsupportedClaim || deliveryPromise ? 'failure' : 'success',
+        resourceType: 'Agent',
+        resourceId: agentId,
+        details: {
+          toolCalls: toolCalls ?? null,
+          actedOn: toolCalls?.filter((name) => isActingTool(name)) ?? null,
+          durationMs,
+          steps: this.readSteps(response),
+          inputTokens,
+          unsupportedClaim,
+          deliveryPromise,
+          truncated: shape.truncated,
+          redacted: safeOutput.redacted.length,
+        },
+      });
+
       void this.getRateLimiter()?.consumeTokens(inputTokens);
 
       this.schedulePruneIfDue();
@@ -1507,6 +1538,16 @@ export class SlackEventsHandler {
         channel,
         textLength: text.length,
         user,
+      });
+
+      void this.audit({
+        action: AUDIT_ACTIONS.agentRun,
+        actorId: user ?? 'unknown',
+        status: 'failure',
+        resourceType: 'Agent',
+        resourceId: agentId,
+        errorMessage: errorMessage(error),
+        details: { phase, durationMs: Date.now() - startedAt },
       });
 
       await progress.fail(userFacingFailure(error));
@@ -1526,7 +1567,7 @@ export class SlackEventsHandler {
 
     logger.warn('Slack message refused by the authorization policy', { user, channel });
     void this.audit({
-      action: 'AUTHZ_DENIED',
+      action: AUDIT_ACTIONS.authzDenied,
       actorId: user ?? 'unknown',
       status: 'denied',
       details: { channel, isDirectMessage },
@@ -1817,7 +1858,7 @@ export class SlackEventsHandler {
     logger.info('Processing Slack message', { user, channel, textLength: text.length });
 
     void this.audit({
-      action: 'SLACK_MESSAGE',
+      action: AUDIT_ACTIONS.slackMessage,
       actorId: user ?? 'unknown',
       status: 'accepted',
       resourceType: 'SlackChannel',

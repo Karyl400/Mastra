@@ -249,6 +249,7 @@ retrait de commentaire.
 | [Notions agentiques](docs/notions-agentiques.html) | Les notions, délibérément hors du temps |
 | [Le projet](docs/PROJET.md) | **Le produit** — son but, ce qu'il sait faire, et toutes ses spécificités |
 | [Audit Tool Design](docs/tool-design-audit.md) | **Les 13 outils, module par module** — ce qui est inclus, ce qui manque, et pourquoi |
+| [Audit Harness Engineering](docs/harness-audit.md) | **Le harness, module par module** — les douze modules confrontés au code, et les dix dettes classées |
 | [Feature `dashboard`](docs/conception/dashboard.md) | **Le tableau de bord `/dashboard`** — pourquoi une mesure sans source n'affiche pas zéro |
 | [Audit — 100 points](docs/audit-2026-08-20-100-points.html) | Un verdict par point de contrôle |
 | `AUDIT_REPORT.md` §8 | **La liste des points ouverts**, par priorité |

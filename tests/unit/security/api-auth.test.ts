@@ -37,7 +37,7 @@ describe('API auth — vérification du bearer token des routes /api/*', () => {
     it('4. rejette un token trop court (secret faible traité comme absent)', () => {
       expect(readConfiguredApiToken(envWith('x'.repeat(MIN_API_TOKEN_LENGTH - 1)))).toBeNull();
       expect(readConfiguredApiToken(envWith('x'.repeat(MIN_API_TOKEN_LENGTH)))).toBe(
-        'x'.repeat(MIN_API_TOKEN_LENGTH)
+        'x'.repeat(MIN_API_TOKEN_LENGTH),
       );
     });
 
@@ -72,16 +72,16 @@ describe('API auth — vérification du bearer token des routes /api/*', () => {
   describe('verifyApiToken', () => {
     it('10. accepte le bon token', () => {
       expect(verifyApiToken({ expectedToken: VALID_TOKEN, presentedToken: VALID_TOKEN })).toBe(
-        true
+        true,
       );
     });
 
     it('11. accepte le bon token préfixé par « Bearer »', () => {
       expect(
-        verifyApiToken({ expectedToken: VALID_TOKEN, presentedToken: `Bearer ${VALID_TOKEN}` })
+        verifyApiToken({ expectedToken: VALID_TOKEN, presentedToken: `Bearer ${VALID_TOKEN}` }),
       ).toBe(true);
       expect(
-        verifyApiToken({ expectedToken: VALID_TOKEN, presentedToken: `bearer ${VALID_TOKEN}` })
+        verifyApiToken({ expectedToken: VALID_TOKEN, presentedToken: `bearer ${VALID_TOKEN}` }),
       ).toBe(true);
     });
 
@@ -94,13 +94,13 @@ describe('API auth — vérification du bearer token des routes /api/*', () => {
 
     it('13. refuse un mauvais token', () => {
       expect(verifyApiToken({ expectedToken: VALID_TOKEN, presentedToken: OTHER_TOKEN })).toBe(
-        false
+        false,
       );
       expect(
-        verifyApiToken({ expectedToken: VALID_TOKEN, presentedToken: VALID_TOKEN.slice(0, 63) })
+        verifyApiToken({ expectedToken: VALID_TOKEN, presentedToken: VALID_TOKEN.slice(0, 63) }),
       ).toBe(false);
       expect(
-        verifyApiToken({ expectedToken: VALID_TOKEN, presentedToken: VALID_TOKEN + 'x' })
+        verifyApiToken({ expectedToken: VALID_TOKEN, presentedToken: VALID_TOKEN + 'x' }),
       ).toBe(false);
     });
 
@@ -128,7 +128,7 @@ describe('API auth — vérification du bearer token des routes /api/*', () => {
     it('17. renvoie l’utilisateur de service pour un token valide', async () => {
       const config = createApiAuthConfig({ env: envWith(VALID_TOKEN) });
       await expect(config.authenticateToken!(VALID_TOKEN, fakeRequest)).resolves.toEqual(
-        API_SERVICE_USER
+        API_SERVICE_USER,
       );
     });
 
@@ -172,14 +172,14 @@ describe('API auth — vérification du bearer token des routes /api/*', () => {
       const config = createApiAuthConfig({ env });
 
       await expect(config.authenticateToken!(VALID_TOKEN, fakeRequest)).resolves.toEqual(
-        API_SERVICE_USER
+        API_SERVICE_USER,
       );
 
       env[API_TOKEN_ENV_VAR] = OTHER_TOKEN;
 
       await expect(config.authenticateToken!(VALID_TOKEN, fakeRequest)).resolves.toBeNull();
       await expect(config.authenticateToken!(OTHER_TOKEN, fakeRequest)).resolves.toEqual(
-        API_SERVICE_USER
+        API_SERVICE_USER,
       );
     });
   });

@@ -20,7 +20,7 @@ describe('Live Integration Tests - Mastra deployment', () => {
     expect(
       API_TOKEN,
       'MASTRA_API_TOKEN manquant : les appels /api/* renverront 401. ' +
-        'Renseigner la variable dans .env avec le token du déploiement visé.'
+        'Renseigner la variable dans .env avec le token du déploiement visé.',
     ).not.toBe('');
   });
 

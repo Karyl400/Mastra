@@ -122,6 +122,25 @@ function readingFor(spec: MetricSpec, f: DashboardFacts): MetricReading {
     }
     case 'ai.modelHandled':
       return count(f.modelHandledMessages);
+    case 'ai.unsupportedClaims':
+      return count(f.requalifiedResponses, `sur ${f.agentRuns} runs`);
+    case 'ai.runFailures':
+      return count(f.agentRunsFailed, `sur ${f.agentRuns} runs`);
+    case 'ai.toolCalls': {
+      const entries = Object.entries(f.toolCallCounts).sort((a, b) => b[1] - a[1]);
+      const total = entries.reduce((sum, [, n]) => sum + n, 0);
+      return entries.length === 0
+        ? NO_DATA_YET
+        : count(total, entries.map(([name, n]) => `${name} ${n}`).join(' · '));
+    }
+    case 'ai.latency':
+      return f.latenciesMs.length === 0
+        ? NO_DATA_YET
+        : {
+            available: true,
+            value: Math.round(median(f.latenciesMs) ?? 0),
+            detail: `${f.latenciesMs.length} runs`,
+          };
 
     case 'health.notificationFailure':
       return ratio(

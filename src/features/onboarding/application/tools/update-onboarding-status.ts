@@ -4,7 +4,8 @@ import type { OnboardingRepository } from '../../domain/ports/onboarding.reposit
 import { uuidSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { OnboardingStatus } from '../../../../shared/types';
-import { canPerformSideEffects } from '../../../../shared/slack-request-context';
+import { canPerformSideEffects, readSlackContext } from '../../../../shared/slack-request-context';
+import { buildRunKey, makeRunGuard } from '../../../../shared/tool-idempotency';
 import { ESCALATION_CONTACT } from '../../../../shared/escalation';
 import { clampToPlan } from '../../domain/services/onboarding-plan';
 
@@ -14,6 +15,8 @@ const NO_PROGRESS_HINT =
   `n'est pas initialisé et que ${ESCALATION_CONTACT} doit le lancer.`;
 
 export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
+  const runGuard = makeRunGuard();
+
   return createTool({
     id: 'updateOnboardingStatus',
     description:
@@ -34,6 +37,20 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
           reason: 'not_authorized' as const,
           hint: 'Tu ne peux agir que sur ton propre dossier — celui de quelqu’un d’autre est réservé au manager. Dis-le simplement, ne réessaie pas.',
         };
+      }
+
+      const runKey = buildRunKey(
+        readSlackContext(_ctx?.requestContext)?.eventTs,
+        'updateOnboardingStatus',
+        [data.employeeId, data.status, String(data.currentStep ?? '')],
+      );
+      const already = runKey ? runGuard.get<Record<string, unknown>>(runKey) : undefined;
+      if (already) {
+        logger.warn('Statut déjà mis à jour dans ce run — second appel ignoré', {
+          employeeId: data.employeeId,
+          status: data.status,
+        });
+        return already;
       }
 
       logger.info('Mise à jour statut onboarding', {
@@ -78,12 +95,16 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
         };
       }
 
-      return {
+      const result = {
         updated: true as const,
         status: updated.status,
         currentStep: updated.currentStep,
         totalSteps: updated.totalSteps,
       };
+
+      if (runKey) runGuard.remember(runKey, result);
+
+      return result;
     },
   });
 }

@@ -18,6 +18,11 @@ const FACTS: DashboardFacts = {
   distinctUsers: 4,
   humanReplyDelaysMs: [60_000, 120_000, 900_000],
   modelHandledMessages: 24,
+  agentRuns: 24,
+  agentRunsFailed: 3,
+  requalifiedResponses: 1,
+  latenciesMs: [2_000, 4_000, 12_000],
+  toolCallCounts: { findPersonByName: 5, generateDocument: 2 },
   notificationsTotal: 10,
   notificationsFailed: 2,
   documentsTotal: 8,
@@ -174,5 +179,52 @@ describe('buildSnapshot — une table illisible ne tue que ses propres métrique
     // entonnoir amputé de son dernier étage se lit comme un entonnoir complet où personne
     // n'arrive au bout — exactement le contresens que ce fichier existe pour empêcher.
     expect(readingOf('onboarding.funnel')).toEqual({ available: false, gap: 'read_failed' });
+  });
+});
+
+/**
+ * ⚠️ TROIS MÉTRIQUES ONT CESSÉ D'ÊTRE DES LACUNES LE 2026-08-25, et c'est le sens du garde-fou
+ * posé dans `metric-catalogue.test.ts` : « un manque nommé doit pouvoir cesser d'être un
+ * manque ». La latence, les réponses requalifiées et l'usage des outils étaient mesurés à
+ * l'exécution puis JETÉS dans des logs Vercel remis à zéro à chaque redéploiement. Une seule
+ * écriture — `AGENT_RUN` — les rend comptables.
+ */
+describe('ce que `AGENT_RUN` a rendu mesurable', () => {
+  const read = (key: string) => buildSnapshot(FACTS).find((m) => m.key === key)?.reading;
+
+  it('rend la MÉDIANE de latence, jamais la moyenne', () => {
+    // 2 s, 4 s, 12 s → médiane 4 s. La moyenne vaudrait 6 s, tirée par le run tombé sur le
+    // repli Mistral (11,7 s mesurées en production). C'est le seuil des ~10 s qu'on surveille,
+    // et une moyenne le franchirait pour un seul run lent sur vingt rapides.
+    expect(read('ai.latency')).toEqual({ available: true, value: 4000, detail: '3 runs' });
+  });
+
+  it('compte les réponses requalifiées, rapportées au nombre de runs', () => {
+    expect(read('ai.unsupportedClaims')).toEqual({
+      available: true,
+      value: 1,
+      detail: 'sur 24 runs',
+    });
+  });
+
+  it('détaille les appels par outil, du plus fréquent au moins fréquent', () => {
+    const reading = read('ai.toolCalls');
+    expect(reading?.available).toBe(true);
+    if (reading?.available) {
+      expect(reading.value).toBe(7);
+      expect(reading.detail).toBe('findPersonByName 5 · generateDocument 2');
+    }
+  });
+
+  it('dit « pas encore » plutôt que zéro quand aucun run n’a été enregistré', () => {
+    const empty = buildSnapshot({ ...FACTS, latenciesMs: [], toolCallCounts: {} });
+    expect(empty.find((m) => m.key === 'ai.latency')?.reading).toEqual({
+      available: false,
+      gap: 'no_data_yet',
+    });
+    expect(empty.find((m) => m.key === 'ai.toolCalls')?.reading).toEqual({
+      available: false,
+      gap: 'no_data_yet',
+    });
   });
 });

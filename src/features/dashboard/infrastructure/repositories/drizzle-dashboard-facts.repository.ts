@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 
 import { getDb, type DatabaseInstance } from '../../../../infrastructure/database/connection';
 import { logger } from '../../../../shared/logger';
+import { AUDIT_ACTIONS } from '../../../../shared/audit-actions';
 import {
   FEED_SIZE,
   LIVE_WINDOW_MS,
@@ -42,6 +43,64 @@ function fingerprint(conversationId: string): string {
   return hash.toString(36).padStart(7, '0').slice(0, 7);
 }
 
+function parseDetails(raw: string | null): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function readToolNames(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((name): name is string => typeof name === 'string')
+    : [];
+}
+
+interface RunRow {
+  status: string;
+  error_message: string | null;
+  details: string | null;
+}
+
+function summariseRuns(rows: readonly RunRow[]): {
+  agentRuns: number;
+  agentRunsFailed: number;
+  requalifiedResponses: number;
+  latenciesMs: readonly number[];
+  toolCallCounts: Record<string, number>;
+} {
+  const latenciesMs: number[] = [];
+  const toolCallCounts: Record<string, number> = {};
+  let agentRunsFailed = 0;
+  let requalifiedResponses = 0;
+
+  for (const row of rows) {
+    if (row.status === 'failure') agentRunsFailed += 1;
+
+    const details = parseDetails(row.details);
+    if (!details) continue;
+
+    if (details.unsupportedClaim || details.deliveryPromise) requalifiedResponses += 1;
+
+    const duration = Number(details.durationMs);
+    if (Number.isFinite(duration) && duration >= 0) latenciesMs.push(duration);
+
+    for (const name of readToolNames(details.toolCalls)) {
+      toolCallCounts[name] = (toolCallCounts[name] ?? 0) + 1;
+    }
+  }
+
+  return {
+    agentRuns: rows.length,
+    agentRunsFailed,
+    requalifiedResponses,
+    latenciesMs,
+    toolCallCounts,
+  };
+}
+
 export class DrizzleDashboardFactsRepository implements DashboardFactsRepository {
   constructor(private readonly resolveDb: () => DatabaseInstance = getDb) {}
 
@@ -60,6 +119,7 @@ export class DrizzleDashboardFactsRepository implements DashboardFactsRepository
       turns,
       pairs,
       audit,
+      runs,
       notif,
       docs,
       feed,
@@ -133,11 +193,20 @@ export class DrizzleDashboardFactsRepository implements DashboardFactsRepository
       readOrMark(['audit_logs'], unreadable, () =>
         db.all<{ model_handled: number; failures: number; rate_limited: number }>(sql`
             SELECT
-              SUM(CASE WHEN action = 'SLACK_MESSAGE' THEN 1 ELSE 0 END) AS model_handled,
+              SUM(CASE WHEN action = ${AUDIT_ACTIONS.slackMessage} THEN 1 ELSE 0 END) AS model_handled,
               SUM(CASE WHEN status IN ('failure', 'denied') THEN 1 ELSE 0 END) AS failures,
-              SUM(CASE WHEN action = 'RATE_LIMITED' THEN 1 ELSE 0 END) AS rate_limited
+              SUM(CASE WHEN action = ${AUDIT_ACTIONS.rateLimited} THEN 1 ELSE 0 END) AS rate_limited
             FROM audit_logs
             WHERE julianday(created_at) >= julianday('now', ${WINDOW})
+          `),
+      ),
+      readOrMark(['audit_logs'], unreadable, () =>
+        db.all<{ status: string; error_message: string | null; details: string | null }>(sql`
+            SELECT status, error_message, details
+            FROM audit_logs
+            WHERE action = ${AUDIT_ACTIONS.agentRun}
+              AND julianday(created_at) >= julianday('now', ${WINDOW})
+            LIMIT ${SAMPLE_CAP}
           `),
       ),
       readOrMark(['notifications'], unreadable, () =>
@@ -191,6 +260,7 @@ export class DrizzleDashboardFactsRepository implements DashboardFactsRepository
         .filter((ms): ms is number => typeof ms === 'number' && ms >= 0),
 
       modelHandledMessages: num(audit[0]?.model_handled),
+      ...summariseRuns(runs),
 
       notificationsTotal: num(notif[0]?.total),
       notificationsFailed: num(notif[0]?.failed),

@@ -1,3 +1,5 @@
+import { isActingTool, toolsWithEffect } from '../../../../shared/agent-capabilities';
+
 const DONE_VERBS =
   '(?:envoye|cree|genere|enregistre|programme|planifie|transmis|transmise|ajoute|publie|telecharge' +
   '|mis|mise|glisse|glissee|depose|deposee|joint|jointe|poste|postee|partage|partagee' +
@@ -80,27 +82,12 @@ export const ACCOMPLISHMENT_CLAIM_LABELS: readonly string[] = ACCOMPLISHMENT_CLA
   (claim) => claim.label,
 );
 
-export const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'findEmployeeByEmail',
-  'findPersonByName',
-  'findExpertise',
-  'getEmployeeProfile',
-  'getNotificationHistory',
-  'getUserConversations',
-  'getChannelHistory',
-  'searchKnowledge',
-]);
+export const READ_ONLY_TOOL_NAMES: ReadonlySet<string> = new Set(toolsWithEffect('read'));
 
-export const ACTING_TOOL_NAMES: ReadonlySet<string> = new Set([
-  'generateDocument',
-  'sendNotification',
-  'scheduleReminder',
-  'updateOnboardingStatus',
-  'scheduleCandidateInterview',
-]);
+export const ACTING_TOOL_NAMES: ReadonlySet<string> = new Set(toolsWithEffect('write'));
 
 export function hasActingToolCall(toolCalls: readonly string[]): boolean {
-  return toolCalls.some((name) => !READ_ONLY_TOOL_NAMES.has(name));
+  return toolCalls.some((name) => isActingTool(name));
 }
 
 export const UNSUPPORTED_CLAIM_NOTICE =

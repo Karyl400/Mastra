@@ -146,3 +146,5 @@ export function makeModelChain(deps: ModelChainDeps = {}): ModelWithRetries[] {
 }
 
 export const AGENT_GENERATE_TIMEOUT_MS = 40_000;
+
+export const AGENT_MAX_STEPS = 6;
