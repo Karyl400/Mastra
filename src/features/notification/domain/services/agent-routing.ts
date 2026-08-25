@@ -127,9 +127,15 @@ export function routeToAgent(text: string, stickyAgentId?: string): string {
     if (matchesAny(keywords)) return agentId;
   }
 
-  const topic = TOPIC_BANDS.find(
-    (band) => matchesAny(band.keywords) || (band.pattern?.test(lowerText) ?? false),
-  );
+  const structural = CHANNEL_TOKEN_PATTERN.test(lowerText)
+    ? TOPIC_BANDS.find((band) => band.pattern === CHANNEL_TOKEN_PATTERN)
+    : undefined;
+
+  const topic =
+    structural ??
+    TOPIC_BANDS.find(
+      (band) => matchesAny(band.keywords) || (band.pattern?.test(lowerText) ?? false),
+    );
 
   if (stickyAgentId && KNOWN_AGENT_IDS.has(stickyAgentId)) {
     const stickyCannotServe =

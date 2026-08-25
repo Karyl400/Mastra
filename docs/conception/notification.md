@@ -1242,9 +1242,38 @@ d'`AGENT_TOOLS` : déplacer un outil d'un agent à l'autre change le routage tou
 d'une conversation collée sur le mauvais agent, sinon le fil est un piège sans issue.
 
 L'ordre du tableau EST la priorité entre agents.
-**Avant `const topic = TOPIC_BANDS.find(`**
+**Avant `const structural = CHANNEL_TOKEN_PATTERN.test(lowerText)`**
 
 3. THÉMATIQUE, calculée d'abord — voir l'en-tête.
+
+⚠️ **LE JETON DE CANAL PREND LE PAS SUR TOUTE BANDE DE MOTS-CLÉS — 2026-08-25.**
+
+Symptôme relevé en production, mot pour mot : *« Je n'ai pas accès au fil de discussion du
+canal #kisso-hq. Peux-tu me copier le texte que tu souhaites que je résume ? Ainsi je
+pourrai créer le PDF et te l'envoyer par mail. »* La réponse est cohérente — elle vient de
+`onboardingOrchestrator`, qui porte `generateDocument` et **pas** `getChannelHistory`. Le
+défaut n'était pas dans l'agent mais dans l'ordre des bandes.
+
+`TOPIC_BANDS.find` rend la PREMIÈRE bande qui matche, et celle de l'orchestrateur est en
+tête avec `pdf`, `document`, `guide`. Une phrase mêlant un canal et un format partait donc
+chez l'agent incapable de lire le canal. **Même famille que le défaut du 2026-08-12** : une
+bande qui ne sait pas servir la demande l'emporte parce qu'elle a matché la première.
+
+⚠️ **Le critère n'est PAS « la connaissance d'abord », c'est « le signal STRUCTUREL
+d'abord ».** Un `<#C…>` est produit par le client Slack, jamais tapé, et il survit à
+`cleanText` : c'est un FAIT. `pdf` est un mot que quelqu'un a écrit. La précédence n'est donc
+accordée qu'à ce seul motif — la généraliser ferait partir « génère un document pour la
+personne qui gère le backend » chez un agent sans `generateDocument`, **c'est-à-dire le
+défaut d'aujourd'hui retourné**.
+
+⚠️ **CE QUE CE CORRECTIF NE FAIT PAS.** « Résume ce canal et envoie-le-moi en PDF » atteint
+désormais `knowledgeAgent`, qui résumera et dira qu'il ne sait pas produire de document.
+C'est la BONNE réponse : lire un canal puis en livrer le contenu sous forme de fichier est
+exactement la conjonction qu'`outbound-tool-quarantine.ts` interdit (§4.2). **Aucun agent ne
+sert cette phrase entièrement, par construction** — et le produit doit le dire plutôt que de
+proposer un contournement qui reporte le travail sur l'humain.
+
+Verrouillé par `tests/unit/handlers/channel-summary-routing.test.ts`.
 
 **Avant `if (stickyAgentId && KNOWN_AGENT_IDS.has(stickyAgentId)) {`**
 
