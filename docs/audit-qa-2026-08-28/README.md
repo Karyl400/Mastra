@@ -8,6 +8,29 @@
 > `CLAUDE.md`, `TODO.md`, `CHANGELOG.md` et `AUDIT_REPORT.md`. C'est l'un des constats de cet
 > audit (§ 4.1), et le placer à la racine l'aurait rendu invisible à la première revue.
 
+> ## ✅ ÉTAT AU 2026-08-28, APRÈS REMÉDIATION PARTIELLE
+>
+> **Trois des sept constats critiques sont CORRIGÉS, déployés et vérifiés en production** —
+> les trois qui se déclenchent tout seuls, sur le chemin normal, sans qu'aucune condition
+> extérieure ne soit réunie : **§ 1.4** (patronymes ouest-africains), **§ 1.5** (détresse et sa
+> borne), **§ 1.3** (le message de quota). Détail : `CHANGELOG.md` du 2026-08-28.
+>
+> **Vérification en production, zéro token de modèle consommé** : la détresse à la fin d'un
+> message de 9 400 caractères et la détresse accompagnée d'une pièce jointe reçoivent désormais
+> la bonne réponse — **et les deux contrôles passent**, un message long sans détresse et une
+> pièce jointe sans détresse gardant leur court-circuit. **4/4**, plus **5/5** sur la sonde
+> déterministe existante, plus six frontières de sécurité en 401 après déploiement.
+>
+> ⚠️ **Ce qui n'a PAS pu être vérifié en production, et pourquoi** : le prédicat des patronymes
+> exige une question de profil en attente — le seul chemin est `probe-arrival.mts`, qui **écrit
+> une vraie ligne employé**. Le message de quota exige d'épuiser le quota. Les deux sont prouvés
+> à l'exécution en unitaire et vivent dans **le même bundle** que la détresse, dont le
+> comportement est vérifié ci-dessus.
+>
+> **Restent ouverts, par gravité** : § 1.1 (frontière d'autorisation, ⚠️ un test la verrouille),
+> § 1.2 (perte de données, ⚠️ deux gestes), § 1.7 (panne de base → `full`), § 1.6, § 4.3,
+> § 9bis.1. Voir § 9 pour l'ordre et les dépendances.
+
 ## Résumé exécutif
 
 **976 points vérifiés** sur 8 dimensions, par huit auditeurs indépendants puis un Conseil de six
