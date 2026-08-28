@@ -57,6 +57,7 @@ function mountableGuards(): string[] {
 describe('les gardes de sécurité', () => {
   const guards = mountableGuards();
   const wiring = readFileSync(WIRING, 'utf-8');
+  const middlewareBlock = wiring.slice(wiring.indexOf('middleware: ['), wiring.indexOf('cors:'));
 
   it('sont trouvables — sinon ce test serait vert et vide de sens', () => {
     // Le contrôle anti-faux-négatif. Si la convention de nommage change, ce test cesserait
@@ -65,8 +66,6 @@ describe('les gardes de sécurité', () => {
   });
 
   it('sont TOUS montés dans le tableau `middleware` de src/mastra/index.ts', () => {
-    const middlewareBlock = wiring.slice(wiring.indexOf('middleware: ['), wiring.indexOf('cors:'));
-
     const orphans = guards.filter((name) => !middlewareBlock.includes(`${name}(`));
 
     expect(
@@ -76,6 +75,44 @@ describe('les gardes de sécurité', () => {
             `Un fichier de src/shared/security/ n'est pas câblé automatiquement — ` +
             `c'était la cause du bot muet, et celle de createCallerErrorMiddleware mort ` +
             `pendant des semaines avec ses tests au vert.`
+        : undefined,
+    ).toEqual([]);
+  });
+
+  it('les monte sur un joker ASSEZ LARGE — jamais sur un préfixe plus étroit', () => {
+    // ⚠️ Ce test ne vérifiait que le NOM. Changer `path: '/api/*'` en `'/api/agents/*'` sur
+    // `createAgentApiGuard` laissait la suite VERTE — et `GET /api/agents` rendait de nouveau
+    // les instructions des quatre agents en clair. `CLAUDE.md` documente pourtant la raison :
+    // « un joker Hono ne couvre pas `/api/agents` SANS segment suivant, or c'est la pire des
+    // quatre surfaces ». La décision fine que la doc explique était exactement celle que le
+    // test ne gardait pas (audit du 2026-08-28, § 2.2).
+    //
+    // La règle est DÉRIVÉE, pas recopiée : on n'écrit pas le chemin attendu de chaque garde —
+    // une telle table se périmerait au premier ajout. On interdit qu'un garde soit monté sur un
+    // chemin PLUS ÉTROIT que `/api/*`, ce qui est la propriété qui compte et qui vaut d'avance
+    // pour le garde qui n'est pas encore écrit.
+    const ALLOWED = new Set(["'*'", "'/api/*'"]);
+
+    const mounted = [
+      ...middlewareBlock.matchAll(
+        /path:\s*('[^']*')\s*,\s*handler:\s*(create\w*(?:Guard|Middleware))\(/g,
+      ),
+    ].map((m) => ({ path: m[1]!, guard: m[2]! }));
+
+    expect(mounted.length, 'aucun montage reconnu — le motif a cessé de voir le câblage').toBe(
+      guards.length,
+    );
+
+    const tooNarrow = mounted
+      .filter((entry) => !ALLOWED.has(entry.path))
+      .map((entry) => `${entry.guard} monté sur ${entry.path}`);
+
+    expect(
+      tooNarrow,
+      tooNarrow.length
+        ? `Garde monté sur un chemin trop étroit : ${tooNarrow.join(', ')}. Un joker Hono ne ` +
+            `couvre pas le segment PARENT : '/api/agents/*' laisse '/api/agents' à découvert, ` +
+            `et c'est la surface qui rendait les instructions des agents en clair.`
         : undefined,
     ).toEqual([]);
   });

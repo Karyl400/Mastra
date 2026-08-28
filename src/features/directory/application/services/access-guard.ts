@@ -22,6 +22,8 @@ export interface SlackAccessGuardOptions {
 
 const MANAGER_RECHECK_MS = 60_000;
 
+type ManagerProbe = 'present' | 'absent' | 'unknown';
+
 export function readAuthzEnforce(raw: string | undefined): boolean {
   const value = (raw ?? '').trim().toLowerCase();
   return value === 'true' || value === '1' || value === 'yes';
@@ -94,16 +96,14 @@ export class SlackAccessGuard {
 
     const now = Date.now();
     if (now - this.lastManagerCheck < MANAGER_RECHECK_MS) return false;
+
+    const probe = await this.probeManager();
+
+    if (probe === 'unknown') return true;
+
     this.lastManagerCheck = now;
 
-    const found = await this.hasManager().catch((error) => {
-      logger.warn('Could not check whether a manager exists — staying in observation mode', {
-        error,
-      });
-      return false;
-    });
-
-    if (!found) {
+    if (probe === 'absent') {
       this.warnOnce(
         'AUTHZ_ENFORCE is on but NO employee carries the manager role — refusing to enforce, ' +
           'which would downgrade the entire organization. Designate one with `npm run role:set`.',
@@ -113,6 +113,19 @@ export class SlackAccessGuard {
 
     this.managerSeen = true;
     return true;
+  }
+
+  private async probeManager(): Promise<ManagerProbe> {
+    try {
+      return (await this.hasManager!()) ? 'present' : 'absent';
+    } catch (error) {
+      logger.error(
+        'Could not READ whether a manager exists — the directory is unreachable. Keeping the ' +
+          'requested posture: AUTHZ_ENFORCE stays ON. This is NOT a configuration problem.',
+        { error },
+      );
+      return 'unknown';
+    }
   }
 
   private warnOnce(message: string): void {

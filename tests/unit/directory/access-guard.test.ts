@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   SlackAccessGuard,
   readAuthzEnforce,
 } from '../../../src/features/directory/application/services/access-guard';
 import type { AccessSubject } from '../../../src/features/directory/domain/services/access-policy';
+import { logger } from '../../../src/shared/logger';
 
 /** Il y a un manager quelque part : le cas nominal, celui où l'application est permise. */
 const MANAGER_EXISTS = async () => true;
@@ -175,7 +176,27 @@ describe('SlackAccessGuard — garde-fou de configuration', () => {
     expect(calls).toBe(1);
   });
 
-  it('n’applique pas quand le contrôle LÈVE — une panne n’est pas une preuve d’absence', async () => {
+  it('APPLIQUE quand le contrôle LÈVE — ce test disait l’inverse jusqu’au 2026-08-28', async () => {
+    // ⚠️ CE TEST VERROUILLAIT UN FAIL-OPEN. Son titre — « une panne n'est pas une preuve
+    // d'absence » — était JUSTE, et sa conclusion était la mauvaise moitié de ce constat : ne
+    // pas appliquer n'est pas neutre, c'est accorder `full` à tout le monde. Une panne n'est
+    // pas davantage une preuve de PRÉSENCE d'un droit.
+    //
+    // ⚠️ Sa préoccupation, elle, reste entière et il faut la nommer : le message d'origine
+    // était `no such column: role`, c'est-à-dire une migration non appliquée — une panne
+    // STRUCTURELLE, que rien ne répare tout seul. Appliquer dans ce cas rétrograde
+    // l'organisation entière, et le symptôme (« le bot ne sait plus rien faire ») ne désigne
+    // pas sa cause. C'est exactement le raisonnement qui avait fait écrire ce test.
+    //
+    // Ce qui a changé, c'est que ce symptôme DÉSIGNE désormais sa cause : le diagnostic dit
+    // « the directory is unreachable […] This is NOT a configuration problem », et il est
+    // réémis à chaque tentative. L'argument qui soutenait le fail-open portait sur un silence
+    // qui n'existe plus.
+    //
+    // Reste l'asymétrie des coûts, et elle tranche. Appliquer à tort retire à chacun l'accès au
+    // dossier d'AUTRUI — chacun garde le sien et le droit d'agir dessus, et la base est de
+    // toute façon en panne. Ne pas appliquer à tort ouvre le dossier RH de tout le monde à tout
+    // le monde, pendant que tout a l'air normal. Mesuré en production le 2026-08-28 (§ 1.7).
     const guard = new SlackAccessGuard({
       resolveSubject: async () => guest(),
       enforce: true,
@@ -185,8 +206,8 @@ describe('SlackAccessGuard — garde-fou de configuration', () => {
     });
 
     const result = await guard.evaluate('U1');
-    expect(result.enforced).toBe(false);
-    expect(result.effective).toBe('full');
+    expect(result.enforced).toBe(true);
+    expect(result.effective).not.toBe('full');
   });
 });
 
@@ -213,5 +234,99 @@ describe('SlackAccessGuard — robustesse', () => {
     });
 
     expect((await guard.evaluate('U1')).effective).toBe('readonly');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// UNE PANNE DE BASE ACCORDAIT `full` À TOUT LE MONDE — audit du 2026-08-28, § 1.7
+// ════════════════════════════════════════════════════════════════════════════
+//
+// `hasManager()` lit `slack_directory`, donc Turso. Son échec était rattrapé par un
+// `.catch(() => false)`, donc `canEnforce()` rendait `false`, donc `effective` valait `'full'`
+// POUR CHAQUE ACTEUR — alors qu'`AUTHZ_ENFORCE=true` est posé en production.
+//
+// ⚠️ La faute de conception est de confondre deux états que le `.catch` rendait identiques :
+//   — « AUCUN manager n'est désigné » : une CONFIGURATION. La colonne naît vide, c'est l'état de
+//     DÉPART. Appliquer rétrograderait l'organisation entière, donc on s'abstient — fail-open,
+//     et c'est juste.
+//   — « je n'ai PAS PU le savoir » : une PANNE. Elle ne dit rien de la configuration, donc elle
+//     ne doit rien changer à la posture que l'exploitant a demandée.
+//
+// ⚠️ Le coût des deux erreurs n'est pas le même. Appliquer à tort retire à chacun l'accès au
+// dossier d'AUTRUI — chacun garde le sien et le droit d'agir dessus. Ne pas appliquer à tort
+// ouvre le dossier RH de tout le monde à tout le monde. Face à une panne, on garde la posture.
+
+describe('une panne de base ne doit pas ouvrir la frontière', () => {
+  const subject = { slackUserId: 'U0AUTRE', employeeId: null, role: null, isBot: false };
+
+  function guardWith(hasManager: () => Promise<boolean>) {
+    return new SlackAccessGuard({
+      resolveSubject: async () => subject as never,
+      enforce: true,
+      hasManager,
+    });
+  }
+
+  it('une lecture IMPOSSIBLE n’accorde pas `full` — la posture demandée est conservée', async () => {
+    const guard = guardWith(async () => {
+      throw new Error('UND_ERR_CONNECT_TIMEOUT');
+    });
+
+    const verdict = await guard.evaluate('U0AUTRE');
+
+    expect(verdict.enforced).toBe(true);
+    expect(verdict.effective).not.toBe('full');
+  });
+
+  it('CONTRÔLE — « aucun manager désigné » reste un fail-open, c’est une CONFIGURATION', async () => {
+    const guard = guardWith(async () => false);
+
+    const verdict = await guard.evaluate('U0AUTRE');
+
+    expect(verdict.enforced).toBe(false);
+    expect(verdict.effective).toBe('full');
+  });
+
+  it('CONTRÔLE — un manager désigné fait appliquer la frontière', async () => {
+    const guard = guardWith(async () => true);
+
+    const verdict = await guard.evaluate('U0AUTRE');
+
+    expect(verdict.enforced).toBe(true);
+    expect(verdict.effective).not.toBe('full');
+  });
+
+  it('la fenêtre de 60 s ne s’arme PAS sur un échec — on retente', async () => {
+    // La garde posait `lastManagerCheck` AVANT l'appel : après un échec, tous les appels de la
+    // minute suivante rendaient `false` sans même retenter. Une panne d'une seconde ouvrait donc
+    // la frontière pour une minute pleine.
+    let appels = 0;
+    const guard = guardWith(async () => {
+      appels += 1;
+      if (appels === 1) throw new Error('base injoignable');
+      return true;
+    });
+
+    await guard.evaluate('U0AUTRE');
+    await guard.evaluate('U0AUTRE');
+
+    expect(appels).toBe(2);
+  });
+
+  it('le diagnostic NOMME la panne, il n’accuse pas la configuration', async () => {
+    // ⚠️ Le message affirmait « NO employee carries the manager role — designate one with
+    // `npm run role:set` » alors que la cause était une base indisponible. Un message d'erreur
+    // qui affirme une cause qu'il n'a pas constatée envoie chercher au mauvais endroit.
+    const messages: string[] = [];
+    const spy = vi.spyOn(logger, 'error').mockImplementation((m: string | Error) => {
+      messages.push(String(m));
+    });
+
+    await guardWith(async () => {
+      throw new Error('base injoignable');
+    }).evaluate('U0AUTRE');
+
+    spy.mockRestore();
+    expect(messages.join(' ')).not.toMatch(/role:set/);
   });
 });

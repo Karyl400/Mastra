@@ -127,11 +127,46 @@ en tête de fichier.
 Ni `Date.now()` en boucle serrée ni une lecture par message : l'intervalle borne le coût
 
 du seul état où ce contrôle échoue, c'est-à-dire un état transitoire de configuration.
-**Avant `const found = await this.hasManager().catch((error) => {`**
+**Avant `private async probeManager(): Promise<ManagerProbe> {`**
 
-NE LÈVE PAS : une panne de lecture n'est pas une preuve d'absence, et refuser
+⚠️ **TROIS ÉTATS, ET LE `.catch(() => false)` EN CONFONDAIT DEUX — corrigé le 2026-08-28.**
 
-d'appliquer est le sens le moins coûteux — c'est l'état d'avant l'activation.
+Le texte qui figurait ici disait : *« une panne de lecture n'est pas une preuve d'absence, et
+refuser d'appliquer est le sens le moins coûteux — c'est l'état d'avant l'activation. »* La
+première moitié était juste ; la seconde était la mauvaise conclusion. **Refuser d'appliquer
+n'est pas neutre : c'est accorder `full` à tout le monde.** Une panne n'est pas davantage une
+preuve de PRÉSENCE d'un droit.
+
+Mesuré (audit du 2026-08-28, § 1.7) : `hasManager()` lit Turso ; son échec rendait `false`, donc
+`canEnforce()` rendait `false`, donc `effective` valait `'full'` **pour chaque acteur** — alors
+qu'`AUTHZ_ENFORCE=true` est posé en production. Une indisponibilité de base ouvrait le dossier RH
+de tout le monde à tout le monde, **sans aucun symptôme**.
+
+Les deux états que le `.catch` rendait identiques :
+
+| | Ce que c'est | Posture |
+| --- | --- | --- |
+| `absent` | une **CONFIGURATION** — la colonne naît vide, c'est l'état de DÉPART | on s'abstient : appliquer rétrograderait l'organisation entière |
+| `unknown` | une **PANNE** — elle ne dit rien de la configuration | on garde la posture demandée : `AUTHZ_ENFORCE` reste ON |
+
+⚠️ **L'objection qui soutenait l'ancien choix était réelle**, et elle portait sur un cas précis :
+`no such column: role`, c'est-à-dire une migration non appliquée — une panne STRUCTURELLE que
+rien ne répare tout seul. Appliquer alors rétrograde tout le monde, et le symptôme (« le bot ne
+sait plus rien faire ») ne désigne pas sa cause. **Ce silence n'existe plus** : le diagnostic dit
+maintenant *« the directory is unreachable […] This is NOT a configuration problem »*, et il est
+réémis à chaque tentative. L'argument portait sur une absence de signal qui a été comblée.
+
+Reste l'asymétrie des coûts, et c'est elle qui tranche. Appliquer à tort retire l'accès au
+dossier d'AUTRUI — chacun garde le sien et le droit d'agir dessus, et la base est de toute façon
+en panne. Ne pas appliquer à tort ouvre tous les dossiers RH, **pendant que tout a l'air normal**.
+
+⚠️ **`lastManagerCheck` n'est plus posé qu'après une réponse CONSTATÉE.** Il l'était avant
+l'appel : après un échec, tous les appels de la minute suivante rendaient `false` sans même
+retenter. Une panne d'une seconde ouvrait la frontière pour une minute pleine.
+
+⚠️ Troisième occurrence de la famille « un message d'erreur qui affirme une cause qu'il n'a pas
+constatée » : le texte accusait la configuration (« designate one with `npm run role:set` »)
+quand la base était injoignable. Il envoyait chercher au mauvais endroit.
 **Avant `private warnOnce(message: string): void {`**
 
  Un avertissement de configuration pour la vie de l'instance, pas un par message.
