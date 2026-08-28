@@ -2839,6 +2839,8 @@ ATTENTION : ce cache est EN MÉMOIRE, donc par instance. En multi-instance
 
 ### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
 
+### `src/features/notification/infrastructure/handlers/handler-core.ts`
+
 **Avant `teamIdWarningEmitted = false;`**
 
  Évite d'inonder les logs : l'absence de `SLACK_TEAM_ID` est signalée une fois.
@@ -3010,6 +3012,8 @@ La fonction refuse déjà `0` et les négatifs et retombe sur le défaut — une
 
 frappe dans une variable Vercel ne peut pas éteindre le bot en silence.
 ### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
+### `src/features/notification/infrastructure/handlers/handler-core.ts`
 
 **Avant `this.botUserIdPromise = undefined;`**
 
@@ -4482,6 +4486,8 @@ Ni oui ni non : la personne parle d'autre chose. On ne l'interrompt pas.
 
 ### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
 
+### `src/features/notification/infrastructure/handlers/handle-message.ts`
+
 **Avant `const shortCircuitInput = {`**
 
 SALUTATION NUE — réponse déterministe, aucun appel LLM
@@ -4529,7 +4535,7 @@ différentes d'un message à l'autre, et un message rejoué donne exactement la 
 réponse. Voir `shared/reply-variants.ts` — la répétition littérale est ce qui fait
 
 « machine », et la corriger ici coûte zéro token.
-**Avant `const pendingEmail = await resolvePendingEmail(this, {`**
+**Avant `const pendingEmail = await resolvePendingEmail(self, {`**
 
 L'EMAIL D'ENTRETIEN EN ATTENTE — « oui » / « non », et rien d'autre
 
@@ -4627,7 +4633,7 @@ sur retenir, et les trois passent AVANT la frontière d'autorisation — effacer
 données, corriger ce que le bot sait de soi et remplir son propre dossier sont des
 
 droits, pas des privilèges de niveau `full`.
-**Avant `const accessLevel = await enforceAuthorization(this, {`**
+**Avant `const accessLevel = await enforceAuthorization(self, {`**
 
 FRONTIÈRE D'AUTORISATION — l'identité franchit enfin la frontière
 
@@ -4709,7 +4715,7 @@ Placé AVANT `startProgress` à dessein : le marqueur est le premier écrit Slac
 poster « Je regarde ça… » pour le remplacer aussitôt par un refus de quota serait la
 
 pire des séquences.
-**Avant `const progress = await startProgress(this.slack, { channel, threadTs });`**
+**Avant `const progress = await startProgress(self.slack, { channel, threadTs });`**
 
 Marqueur de progression posté IMMÉDIATEMENT, avant tout appel LLM. Un run prend 2 à
 
@@ -4754,6 +4760,8 @@ Verrouillé par `tests/unit/notification/intent-chain.test.ts` (le plan) et
 l'exécution).
 
 ### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
+### `src/features/notification/infrastructure/handlers/handle-message.ts`
 
 **Avant `pendingEmailReminder: pendingEmail.reminder,`**
 
@@ -5366,6 +5374,8 @@ réponse déjà produite. Un champ absent vaut `null`, jamais une exception.
 
 ### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
 
+### `src/features/notification/infrastructure/handlers/handler-core.ts`
+
 **Avant `noAccessGuardLogged = false;`**
 
 Décide ce que le demandeur a le droit de déclencher.
@@ -5395,6 +5405,8 @@ Dans les deux sens, un tel état doit se voir : il ne se déduit d'aucun symptô
 
 « le bot ne sait plus rien faire » ne désignerait pas sa cause.
 ### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
+### `src/features/notification/infrastructure/handlers/public-api.ts`
 
 **Avant `export { FILE_ATTACHMENT_REPLY } from '../../domain/services/deterministic-replies';`**
 

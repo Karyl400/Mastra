@@ -442,19 +442,19 @@ const CROSS_FEATURE_INFRASTRUCTURE_DEBT: ReadonlyArray<{ from: string; to: strin
   // `new` du handler est un changement de comportement en production (plus aucun repli), pas
   // un déplacement d'import : il se décide seul, pas en marge d'un lot d'architecture.
   {
-    from: 'src/features/notification/infrastructure/handlers/slack-events.handler.ts',
+    from: 'src/features/notification/infrastructure/handlers/handler-core.ts',
     to: 'src/features/conversation/infrastructure/repositories/drizzle-conversation.repository',
   },
   {
-    from: 'src/features/notification/infrastructure/handlers/slack-events.handler.ts',
+    from: 'src/features/notification/infrastructure/handlers/handler-core.ts',
     to: 'src/features/conversation/infrastructure/repositories/drizzle-pinned-fact.repository',
   },
   {
-    from: 'src/features/notification/infrastructure/handlers/slack-events.handler.ts',
+    from: 'src/features/notification/infrastructure/handlers/handler-core.ts',
     to: 'src/features/directory/infrastructure/repositories/drizzle-directory.repository',
   },
   {
-    from: 'src/features/notification/infrastructure/handlers/slack-events.handler.ts',
+    from: 'src/features/notification/infrastructure/handlers/handler-core.ts',
     to: 'src/features/directory/infrastructure/providers/slack-member-source.adapter',
   },
 ];

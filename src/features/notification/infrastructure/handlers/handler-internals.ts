@@ -23,6 +23,7 @@ import type { NotificationRepository } from '../../domain/ports/notification.rep
 import type { writeAuditLog } from '../../../../infrastructure/audit/audit-log';
 import type { startProgress } from '../providers/slack-progress';
 import type { SlackMessageEvent } from './slack-event.types';
+import type { InterviewStepInput } from './interview-journey';
 
 export type ProfileRepositoryPort = {
   findByEmail(email: string): Promise<ProfileSnapshot | null>;
@@ -139,4 +140,5 @@ export interface SlackHandlerInternals {
   getBotUserId(): Promise<string | undefined>;
   routeToAgent(text: string, stickyAgentId?: string): string;
   runAgentPipeline(ctx: AgentPipelineContext): Promise<StepOutcome>;
+  maybeAdvanceOnboarding(input: InterviewStepInput): Promise<boolean>;
 }
