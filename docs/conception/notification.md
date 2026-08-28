@@ -2015,6 +2015,37 @@ celle de `wrapUserInput` reste la garantie des appelants qui ne passent pas par 
 copier-coller de documents internes.
 **Avant `name: 'distress',`**
 
+⚠️ PREMIER DE LA TABLE DEPUIS LE 2026-08-28, ET L'ORDRE EST LA DÉCISION.
+
+Il était CINQUIÈME, derrière `file_attachment` et `over_length`. Mesuré : une détresse de
+
+9 400 caractères recevait « Ton message est trop long » ; une détresse accompagnée d'une
+
+capture d'écran recevait « Je ne sais pas lire les pièces jointes ». C'est le pire cas
+
+possible de ce produit, et le dépôt avait énormément investi sur ce chemin — numéros béninois
+
+vérifiés un par un, TROIS numéros écartés parce qu'ils étaient d'un autre pays, corpus à deux
+
+colonnes, aucune variante autorisée. La position d'une ligne annulait une partie de cet
+
+investissement.
+
+⚠️ LE DÉPLACEMENT SEUL NE CORRIGEAIT RIEN, et c'est le piège de ce correctif : le détecteur
+
+portait sa PROPRE borne (`MAX_DISTRESS_LENGTH`) et refusait de regarder au-delà de 2 000
+
+caractères. Deux gestes, non interchangeables — voir `probeWindow` dans `shared.md`. Un
+
+correctif qui rassure sans agir coûte plus cher que le défaut.
+
+⚠️ RIEN N'EST AFFAIBLI : un message trop long SANS détresse garde `over_length`, une pièce
+
+jointe SANS détresse garde `file_attachment`. Deux tests l'exigent, faute de quoi on aurait
+
+échangé un défaut contre un autre.
+
+
 Avant la frontière d'autorisation : quelqu'un qui va mal ne doit pas se heurter à une
 
 politique d'accès. C'est le seul endroit de ce dépôt où un défaut peut nuire à une

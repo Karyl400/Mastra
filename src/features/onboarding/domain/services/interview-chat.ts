@@ -54,7 +54,7 @@ export function skipsInterview(text: string | undefined): boolean {
     .normalize('NFD')
     .replace(/\p{M}+/gu, '')
     .trim();
-  return /^(passe|plus tard|pas maintenant|skip|non merci|non)\b/.test(normalized);
+  return /^(?:passe|plus tard|pas maintenant|skip|non merci|non)[\s.!…]*$/.test(normalized);
 }
 
 export const INTERVIEW_SKIPPED_REPLY =
@@ -64,7 +64,7 @@ export const INTERVIEW_SKIPPED_REPLY =
 const FIRST_PERSON = /(?<!\p{L})(?:je|j[’']|mon|ma|mes|moi)(?!\p{L})/u;
 
 const INTERROGATIVE_OPENERS =
-  /^(?:qui|quel(?:le)?s?|quoi|comment|pourquoi|quand|ou|où|combien|est-ce|a qui|à qui|quelqu)/u;
+  /^(?:qui|quel(?:le)?s?|quoi|comment|pourquoi|quand|ou|combien|est-ce|a qui|quelqu)(?![\p{L}\p{N}])/u;
 
 export function isQuestionToBot(text: string): boolean {
   const trimmed = text.trim();

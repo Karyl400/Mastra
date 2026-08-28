@@ -743,6 +743,27 @@ est FERMÉE et minuscule — la garde qui compte reste la relance, pas l'exhaust
 
 **Avant `export function skipsInterview(text: string | undefined): boolean {`**
 
+⚠️ UN REFUS EST TOUT LE MESSAGE, PAS SON PREMIER MOT — 2026-08-28.
+
+Le motif était `^(passe|…|non)\b`, donc il mordait sur le PREMIER MOT. Mesuré : « passe mes
+
+journees sur les tickets », « passe le plus clair de mon temps en réunion » et « non stop du
+
+support » étaient classés REFUS. La personne a pris la peine d'écrire ce qu'elle fait ; on lui
+
+répond « Pas de souci, on laisse ça de côté », et rien n'est enregistré. Son guide d'accueil
+
+sortira sans « Ton quotidien ».
+
+⚠️ L'ASYMÉTRIE DÉCIDE DE LA FORME, et elle est inverse de celle d'un filtre de sécurité : un
+
+faux NÉGATIF repose la question et coûte un message ; un faux POSITIF JETTE une réponse
+
+écrite. On resserre donc jusqu'à exiger que le refus soit le message entier, ponctuation
+
+comprise.
+
+
  La personne renonce. Reconnu tôt : insister sur un questionnaire d'accueil est le meilleur
 moyen de le faire abandonner pour de bon.
 
@@ -793,6 +814,35 @@ seul ne suffit donc pas — « je préfère l'écrit, ça te va ? » reste une r
 raisonnant en ASCII et ne matchant jamais une frontière après un caractère accentué.
 
 **Avant `const INTERROGATIVE_OPENERS =`**
+
+⚠️ UNE FRONTIÈRE DE MOT, ET C'EST LE CAS NOMINAL AU BÉNIN — 2026-08-28.
+
+Le motif était ancré `^` et n'avait AUCUNE borne de fin : toute chaîne commençant par `ou`,
+
+`quand`, `qui`… était classée QUESTION. Mesuré sur la vraie fonction : `OUATTARA`, `Ouattara`,
+
+`Ouedraogo`, `Ouédraogo`, `Oumar`, `Ousmane`, `Ouorou`, `Quandt` — et `oumar@kisso.com`.
+
+Kisso Industries est au Bénin ; `Ou-` est l'un des digrammes initiaux de patronyme les plus
+
+fréquents d'Afrique de l'Ouest. CE N'EST PAS UN CAS LIMITE.
+
+⚠️ ET LE DÉFAUT FRAPPE DEUX FOIS sur un parcours de quatre questions : le nom, puis l'adresse.
+
+Ce que la personne en conclut n'est pas « il y a un bug » mais « leur système ne reconnaît pas
+
+mon nom » — au premier contact avec l'entreprise.
+
+⚠️ `où` ET `à qui` ONT ÉTÉ RETIRÉS DU MOTIF, et ce n'est pas une simplification cosmétique :
+
+le sujet est PLIÉ (`normalize('NFD')` + retrait des diacritiques) avant le test, donc ces deux
+
+alternatives étaient INATTEIGNABLES. `ou` et `a qui` les couvrent déjà. Les laisser aurait
+
+entretenu l'illusion qu'un accent est géré là où c'est le pliage qui fait le travail — la
+
+cinquième occurrence de ce piège dans ce dépôt.
+
 
  Mots par lesquels s'ouvre une question portant sur quelqu'un ou quelque chose d'AUTRE.
 

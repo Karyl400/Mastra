@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 
-import { isQuestionToBot } from '../../../src/features/onboarding/domain/services/interview-chat';
+import {
+  isQuestionToBot,
+  skipsInterview,
+} from '../../../src/features/onboarding/domain/services/interview-chat';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -62,5 +65,75 @@ describe('une question adressée au bot n’est pas une réponse d’entretien',
   it('ne se laisse pas piéger par un simple point d’interrogation', () => {
     // Le point d'interrogation seul ne suffit pas : c'est la PREMIÈRE PERSONNE qui décide.
     expect(isQuestionToBot('je préfère l’écrit aux réunions, ça te va ?')).toBe(false);
+  });
+});
+
+describe('un nom de famille n’est pas une question — corpus à deux colonnes', () => {
+  const PATRONYMES = [
+    'OUATTARA',
+    'Ouattara',
+    'Ouedraogo',
+    'Ouédraogo',
+    'Oumar',
+    'Ousmane',
+    'Ouorou',
+    'Quandt',
+    'Quenum',
+    'Comlan',
+    'Quashie',
+    'oumar@kisso.com',
+    'ousmane.traore@kisso.com',
+  ];
+
+  const VRAIES_QUESTIONS = [
+    'Qui gère le support ?',
+    'Où est mon dossier ?',
+    'Quand ça commence ?',
+    'Comment je fais ?',
+    'à qui je demande ?',
+    'Quel est le canal des devs ?',
+    'Pourquoi tu me redemandes ça ?',
+    'Combien de temps ça prend ?',
+    'Est-ce que tu peux le refaire ?',
+    'quelqu’un peut m’aider ?',
+  ];
+
+  it.each(PATRONYMES)('« %s » est un NOM, pas une question', (mot) => {
+    expect(isQuestionToBot(mot)).toBe(false);
+  });
+
+  it.each(VRAIES_QUESTIONS)('« %s » reste une question', (phrase) => {
+    expect(isQuestionToBot(phrase)).toBe(true);
+  });
+});
+
+describe('skipsInterview — un refus est TOUT le message, pas son premier mot', () => {
+  const VRAIS_REFUS = [
+    'passe',
+    'Passe',
+    'plus tard',
+    'pas maintenant',
+    'skip',
+    'non merci',
+    'non',
+    'non.',
+    'Passe !',
+  ];
+
+  const VRAIES_REPONSES = [
+    'passe mes journees sur les tickets',
+    'passe le plus clair de mon temps en réunion',
+    'non stop du support',
+    'non je fais surtout du back',
+    'plus tard dans la journée je fais les revues',
+    'skip les réunions autant que possible',
+  ];
+
+  it.each(VRAIS_REFUS)('« %s » reste un refus', (t) => {
+    expect(skipsInterview(t)).toBe(true);
+  });
+
+  it.each(VRAIES_REPONSES)('« %s » est une RÉPONSE, pas un refus', (t) => {
+    expect(skipsInterview(t)).toBe(false);
   });
 });

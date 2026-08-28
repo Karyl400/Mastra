@@ -482,6 +482,38 @@ Harcèlement et violence subis
 « mon responsable me menace », qui est exactement le cas visé. Le complément suffit à
 
 lever l'ambiguïté — c'est la personne qui parle qui est menacée, quel que soit l'auteur.
+**Avant `function probeWindow(raw: string): string {`**
+
+⚠️ UNE BORNE QUI REFUSE EST DEVENUE UNE FENÊTRE QUI TRONQUE — 2026-08-28.
+
+`MAX_DISTRESS_LENGTH` faisait rendre `null` au-delà de 2 000 caractères. L'intention était
+
+juste : un document collé n'est pas une confidence, et ses mots ne doivent pas déclencher le
+
+message de prévention du suicide. Mais le refus frappait aussi la personne qui écrit LONGUEMENT
+
+PARCE QU'ELLE NE VA PAS BIEN — et qui met la phrase qui compte en dernier. Mesuré : un message
+
+de détresse de 9 400 caractères recevait « Ton message est trop long ».
+
+⚠️ LA QUEUE EST INDISPENSABLE, pas décorative. Tronquer par la tête seule aurait raté
+
+exactement le cas qu'on vient de nommer. Ce qui reste ENFOUI au milieu n'est toujours pas lu :
+
+c'est l'intention d'origine, conservée sur ce qu'elle protégeait réellement.
+
+⚠️ LE COÛT NE BOUGE PAS. Le travail reste plafonné à 2 000 caractères, donc l'objection
+
+« avancer la détresse dans la table exposerait ses motifs à un message de 100 Ko » tombe par
+
+construction, et `over_length` reste actif pour tout le reste.
+
+⚠️ UNE SEULE FONCTION, appelée par `distressKind` ET `distressLanguage`. Les deux portaient la
+
+borne à l'identique ; deux copies auraient divergé — ce dépôt a déjà payé trois fois « deux
+
+machines à états qui suivent la même règle sans la partager ».
+
 **Avant `const MAX_DISTRESS_LENGTH = 2000;`**
 
  Borne haute : au-delà, c'est un document collé, pas une confidence.
@@ -5631,6 +5663,38 @@ l'identique ne servira à rien. `NEUTRAL_REFUSAL` reste muet sur la règle touch
 renseigner l'auteur sur la sonde qui a porté est précisément le défaut corrigé sur
 
 `[SECURITY_BLOCK]`.
+**Avant `function walkErrorGraph(root: unknown): readonly unknown[] {`**
+
+⚠️ UN SEUL PARCOURS, DEUX CONSOMMATEURS — 2026-08-28, et c'est la leçon du correctif.
+
+Le parcours ne suivait que `.cause`. Or `RetryError` — l'erreur rendue par le SDK `ai` quand
+
+les reprises sont épuisées, c'est-à-dire EXACTEMENT le cas « les trois fournisseurs ont
+
+échoué » — n'accepte pas de `cause` dans son constructeur et range ses erreurs dans
+
+`.errors[]` et `.lastError`. Le parcours s'arrêtait donc à la profondeur 0 et rendait
+
+`GENERIC_FAILURE` (« remonte-le ») là où il fallait `QUOTA_FAILURE` (« réessaie »).
+
+⚠️ L'AGGRAVANT EST LA RAISON DE LA FORME RETENUE : `describeErrorChain`, l'instrumentation
+
+POSÉE le 2026-08-19 pour trouver cette cause, parcourait elle aussi `.cause` seul. L'instrument
+
+partageait l'angle mort de ce qu'il devait mesurer — c'est pourquoi le log n'a jamais montré le
+
+429. Deux parcours séparés redivergeraient : ils appellent donc la même fonction, et un test
+
+l'exige (`generate-timeout.test.ts`, « l'INSTRUMENT voit ce que le verdict voit »).
+
+⚠️ Parcours en LARGEUR, jamais en profondeur : la racine garde sa priorité, donc un
+
+`TimeoutError` enveloppant un quota reste un délai dépassé. Borné à 12 nœuds et fermé aux
+
+cycles par un `Set` — une chaîne d'erreurs est un GRAPHE, pas une liste, dès qu'on lit
+
+`.errors[]`.
+
 **Avant `if (candidate.name === 'TimeoutError' || candidate.name === 'AbortError') {`**
 
 ⚠️ Reconnu sur le `name`, jamais sur le texte — même arbitrage que pour le quota.
@@ -5642,7 +5706,7 @@ et de Node rendent `AbortError` pour une annulation. Les deux désignent ici la 
 cause : notre propre borne a mordu, puisque rien d'autre dans ce dépôt n'annule un
 
 appel en cours.
-**Avant `if (/rate limit|quota/i.test(String((candidate as { message?: unknown }).message ?? ''))) {`**
+**Avant `if (/rate limit|quota/i.test(String(candidate.message ?? ''))) {`**
 
 Le SDK n'expose pas toujours le code : à ce stade le message est le seul indice,
 

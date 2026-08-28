@@ -26,8 +26,10 @@ import { describe, it, expect } from 'vitest';
 
 import {
   userFacingFailure,
+  describeErrorChain,
   TIMEOUT_FAILURE,
   GENERIC_FAILURE,
+  QUOTA_FAILURE,
 } from '../../../src/shared/user-facing-failure';
 import { AGENT_GENERATE_TIMEOUT_MS } from '../../../src/shared/llm/model-fallback';
 
@@ -77,5 +79,46 @@ describe('userFacingFailure — un délai dépassé se distingue d’une panne',
 
   it('ne confond pas une panne ordinaire avec un délai dépassé', () => {
     expect(userFacingFailure(new Error('boom'))).toBe(GENERIC_FAILURE);
+  });
+});
+
+describe('userFacingFailure — le quota au fond d’un RetryError', () => {
+  function retryErrorAvec429(): unknown {
+    const rate = Object.assign(new Error('Rate limit reached … tokens per minute (TPM)'), {
+      name: 'AI_APICallError',
+      statusCode: 429,
+    });
+    return Object.assign(new Error('Failed after 3 attempts.'), {
+      name: 'AI_RetryError',
+      errors: [new Error('a'), new Error('b'), rate],
+      lastError: rate,
+    });
+  }
+
+  it('la prémisse : un RetryError ne porte AUCUNE cause', () => {
+    expect((retryErrorAvec429() as { cause?: unknown }).cause).toBeUndefined();
+  });
+
+  it('reconnaît le quota là où le SDK le range VRAIMENT', () => {
+    expect(userFacingFailure(retryErrorAvec429())).toBe(QUOTA_FAILURE);
+  });
+
+  it('l’INSTRUMENT voit ce que le verdict voit — sinon il ment sur ce qu’il mesure', () => {
+    expect(JSON.stringify(describeErrorChain(retryErrorAvec429()))).toContain('429');
+  });
+
+  it('un délai dépassé prime toujours sur un quota enfoui', () => {
+    const timeout = Object.assign(new Error('aborted'), { name: 'TimeoutError' });
+    (timeout as { errors?: unknown }).errors = [retryErrorAvec429()];
+    expect(userFacingFailure(timeout)).toBe(TIMEOUT_FAILURE);
+  });
+
+  it('ne boucle pas sur un graphe cyclique', () => {
+    const a = new Error('a') as Error & { cause?: unknown; errors?: unknown[] };
+    const b = new Error('b') as Error & { cause?: unknown };
+    a.cause = b;
+    b.cause = a;
+    a.errors = [b, a];
+    expect(userFacingFailure(a)).toBe(GENERIC_FAILURE);
   });
 });

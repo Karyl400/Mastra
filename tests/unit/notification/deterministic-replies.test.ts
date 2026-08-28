@@ -16,19 +16,23 @@ import {
 } from '../../../src/features/notification/domain/services/deterministic-replies';
 
 describe('court-circuits déterministes — la table est la source unique', () => {
-  it('énumère les onze cas documentés, dans leur ordre contractuel', () => {
-    // ⚠️ `profile_done` est le NEUVIÈME, ajouté le 2026-08-19, et sa place est l'ordre RÉEL
+  it('énumère les douze cas documentés, dans leur ordre contractuel', () => {
+    // ⚠️ `distress` est PREMIER depuis le 2026-08-28, et c'est une décision, pas un rangement :
+    // il était cinquième, derrière `over_length` et `file_attachment`, si bien qu'un long message
+    // de détresse recevait « ton message est trop long » et qu'une détresse accompagnée d'une
+    // capture d'écran recevait « je ne sais pas lire les pièces jointes ».
+    // ⚠️ `profile_done` garde sa place, et elle est l'ordre RÉEL
     // d'exécution : `maybeAdvanceOnboarding` est appelé avant le `switch (acting.action)`.
     // Il coûte zéro token — il lit un dossier et rend un verdict écrit en dur — mais il
-    // n'était pas dans le miroir : « c'est fait » écrit par quelqu'un ayant atteint ses
-    // 12 messages du jour recevait « J'ai atteint mon quota », c'est-à-dire un refus sur le
-    // geste même qui fait avancer son accueil.
+    // n'était pas dans le miroir : « c'est fait » écrit par quelqu'un ayant atteint son quota
+    // journalier recevait « J'ai atteint mon quota », c'est-à-dire un refus sur le geste même
+    // qui fait avancer son accueil.
     expect(DETERMINISTIC_REPLIES.map((entry) => entry.name)).toEqual([
+      'distress',
       'bare_greeting',
       'file_attachment',
       'no_textual_content',
       'over_length',
-      'distress',
       'too_many_intents',
       'chain_refers_back',
       'profile_done',
@@ -139,5 +143,33 @@ describe('court-circuits déterministes — la table est la source unique', () =
     // à chaque tour.
     const remembering = DETERMINISTIC_REPLIES.filter((entry) => entry.remembersTurn);
     expect(remembering.map((entry) => entry.name)).toEqual(['bare_greeting']);
+  });
+});
+
+describe('la détresse passe AVANT tout le reste — l’ordre du tableau EST la décision', () => {
+  const REMPLISSAGE = 'je decris ma situation au travail avec beaucoup de details. '.repeat(180);
+
+  it('la détresse est en TÊTE du tableau', () => {
+    expect(DETERMINISTIC_REPLIES[0]?.name).toBe('distress');
+  });
+
+  it('un long message de détresse n’est pas traité comme « trop long »', () => {
+    const choisi = findStaticReply({ text: `je veux mourir. ${REMPLISSAGE}` });
+    expect(choisi?.name).toBe('distress');
+  });
+
+  it('une détresse accompagnée d’une pièce jointe n’est pas traitée comme une pièce jointe', () => {
+    const choisi = findStaticReply({ text: 'je veux mourir', subtype: FILE_SHARE_SUBTYPE });
+    expect(choisi?.name).toBe('distress');
+  });
+
+  it('un message trop long SANS détresse garde son court-circuit', () => {
+    expect(findStaticReply({ text: REMPLISSAGE })?.name).toBe('over_length');
+  });
+
+  it('une pièce jointe SANS détresse garde son court-circuit', () => {
+    expect(findStaticReply({ text: 'voici le doc', subtype: FILE_SHARE_SUBTYPE })?.name).toBe(
+      'file_attachment',
+    );
   });
 });

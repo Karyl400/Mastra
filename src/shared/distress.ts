@@ -234,6 +234,12 @@ const APOSTROPHES = /['‘’ʼ´`]/g;
 
 const MAX_DISTRESS_LENGTH = 2000;
 
+function probeWindow(raw: string): string {
+  if (raw.length <= MAX_DISTRESS_LENGTH) return raw;
+  const half = Math.floor(MAX_DISTRESS_LENGTH / 2);
+  return `${raw.slice(0, half)} ${raw.slice(-half)}`;
+}
+
 export type DistressLanguage = 'fr' | 'en' | 'both';
 
 function normalizedForms(raw: string): readonly string[] {
@@ -313,9 +319,9 @@ function wantsToEndTheirLife(forms: readonly string[]): boolean {
 
 export function distressKind(text: string | undefined | null): DistressKind | null {
   const raw = (text ?? '').trim();
-  if (raw.length === 0 || raw.length > MAX_DISTRESS_LENGTH) return null;
+  if (raw.length === 0) return null;
 
-  const forms = normalizedForms(raw);
+  const forms = normalizedForms(probeWindow(raw));
 
   if (
     matchesAny(forms, SELF_HARM_PHRASES_FR) ||
@@ -344,9 +350,9 @@ export function distressKind(text: string | undefined | null): DistressKind | nu
 
 export function distressLanguage(text: string | undefined | null): DistressLanguage | null {
   const raw = (text ?? '').trim();
-  if (raw.length === 0 || raw.length > MAX_DISTRESS_LENGTH) return null;
+  if (raw.length === 0) return null;
 
-  const forms = normalizedForms(raw);
+  const forms = normalizedForms(probeWindow(raw));
 
   const french =
     matchesAny(forms, SELF_HARM_PHRASES_FR) ||

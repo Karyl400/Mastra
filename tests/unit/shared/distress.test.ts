@@ -71,8 +71,15 @@ describe('detectsDistress', () => {
     });
   }
 
-  it("ignore un document collé — au-delà de 2000 caractères ce n'est plus une confidence", () => {
-    expect(detectsDistress('a'.repeat(2001) + ' je veux mourir')).toBe(false);
+  it('ignore un document collé — ce qui est ENFOUI au milieu n’est pas une confidence', () => {
+    // ⚠️ Ce test disait « au-delà de 2000 caractères » et asserait l'inverse : une détresse
+    // écrite à la FIN d'un long message n'était pas reconnue. La borne protégeait bien d'un
+    // document collé, mais elle refusait aussi la personne qui écrit longuement PARCE QU'ELLE
+    // ne va pas bien — et qui met la phrase qui compte en dernier. La borne est devenue une
+    // FENÊTRE tête + queue : le coût reste plafonné, l'intention d'origine est conservée sur
+    // ce qui est enfoui, et les deux bords sont lus.
+    const milieu = `${'a'.repeat(1500)} je veux mourir ${'b'.repeat(1500)}`;
+    expect(detectsDistress(milieu)).toBe(false);
   });
 
   it('ignore le vide', () => {
@@ -509,5 +516,40 @@ describe('les NOMS NUS exigent un contexte — corpus à deux colonnes', () => {
 
   it.each(TOURNURE_DE_TRAVAIL)('ne se déclenche PAS sur « %s »', (phrase) => {
     expect(distressKind(phrase)).toBeNull();
+  });
+});
+
+describe('un message LONG reste reconnu — la borne ne doit pas devenir un refus', () => {
+  const REMPLISSAGE = 'je decris ma situation au travail avec beaucoup de details. '.repeat(180);
+
+  it('le remplissage seul ne déclenche rien — contrôle', () => {
+    expect(REMPLISSAGE.length).toBeGreaterThan(9000);
+    expect(detectsDistress(REMPLISSAGE)).toBe(false);
+  });
+
+  it('reconnaît la détresse au DÉBUT d’un message très long', () => {
+    expect(detectsDistress(`je veux mourir. ${REMPLISSAGE}`)).toBe(true);
+  });
+
+  it('reconnaît la détresse à la FIN d’un message très long', () => {
+    expect(detectsDistress(`${REMPLISSAGE} je veux mourir`)).toBe(true);
+  });
+
+  it('reconnaît une AGRESSION à la fin d’un message très long', () => {
+    expect(detectsDistress(`${REMPLISSAGE} mon manager me harcele tous les jours`)).toBe(true);
+  });
+
+  it('rend la bonne LANGUE sur un message long', () => {
+    expect(distressLanguage(`je veux mourir. ${REMPLISSAGE}`)).not.toBeNull();
+  });
+
+  it('ne déclenche TOUJOURS PAS sur un long message de travail', () => {
+    expect(detectsDistress(`${REMPLISSAGE} je veux en finir avec ce ticket`)).toBe(false);
+  });
+
+  it('le travail reste borné — la taille du message ne fait pas exploser le coût', () => {
+    const debut = performance.now();
+    detectsDistress('a'.repeat(400_000));
+    expect(performance.now() - debut).toBeLessThan(50);
   });
 });

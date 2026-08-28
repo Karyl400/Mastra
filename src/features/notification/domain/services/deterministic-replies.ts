@@ -47,6 +47,17 @@ export interface DeterministicReply {
 
 export const DETERMINISTIC_REPLIES: readonly DeterministicReply[] = [
   {
+    name: 'distress',
+    matches: ({ text }) => detectsDistress(text),
+    reply: DISTRESS_REPLY,
+    resolveReply: ({ text }) => distressReplyFor(text),
+    logFields: ({ text, isDirectMessage }) => ({
+      isDirectMessage,
+      textLength: text.length,
+      distressLanguage: distressLanguage(text),
+    }),
+  },
+  {
     name: 'bare_greeting',
     matches: ({ text }) => isBareGreeting(text),
     reply: GREETING_REPLY,
@@ -70,17 +81,6 @@ export const DETERMINISTIC_REPLIES: readonly DeterministicReply[] = [
     reply: TOO_LONG_REPLY,
     variants: TOO_LONG_REPLIES,
     logFields: ({ text }) => ({ textLength: text.length }),
-  },
-  {
-    name: 'distress',
-    matches: ({ text }) => detectsDistress(text),
-    reply: DISTRESS_REPLY,
-    resolveReply: ({ text }) => distressReplyFor(text),
-    logFields: ({ text, isDirectMessage }) => ({
-      isDirectMessage,
-      textLength: text.length,
-      distressLanguage: distressLanguage(text),
-    }),
   },
   {
     name: 'too_many_intents',
