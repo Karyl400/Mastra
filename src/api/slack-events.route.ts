@@ -1,76 +1,31 @@
 import { registerApiRoute } from '@mastra/core/server';
 import type { Mastra } from '@mastra/core';
 
-import { DrizzleNotificationRepository } from '../features/notification/infrastructure/repositories/drizzle-notification.repository';
-import {
-  SlackEventsHandler,
-  type SlackEventEnvelope,
-  type SlackEventsHandlerOptions,
-} from '../features/notification/infrastructure/handlers/slack-events.handler';
+import { type SlackEventEnvelope } from '../features/notification/infrastructure/handlers/slack-events.handler';
 import { verifySlackSignature } from '../shared/security/slack-signature';
 import { logger } from '../shared/logger';
-import { SlackWorkspaceService } from '../features/notification/infrastructure/providers/slack-workspace.service';
-import { makeWelcomeChannels } from '../features/directory/application/services/welcome-channels.service';
-import { SlackWelcomeChannelSource } from '../features/directory/infrastructure/providers/slack-welcome-channel.adapter';
-import { parseWelcomeChannelNames } from '../features/directory/domain/services/welcome-channel-names';
-import { DrizzleOnboardingInterviewRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding-interview.repository';
-import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
-import { DrizzlePendingInterviewEmailRepository } from '../features/recruitment/infrastructure/repositories/drizzle-pending-email.repository';
-import { KnowledgeErasureService } from '../features/knowledge/application/services/knowledge-erasure.service';
-import { KnowledgeIngestionService } from '../features/knowledge/application/services/knowledge-ingestion.service';
-import { ModelFactSummarizer } from '../features/knowledge/infrastructure/services/model-fact-summarizer.service';
-import { DrizzleMessageArchiveRepository } from '../features/knowledge/infrastructure/repositories/drizzle-message-archive.repository';
-import { DrizzleKnowledgeFactRepository } from '../features/knowledge/infrastructure/repositories/drizzle-knowledge-fact.repository';
-import { createEmailProvider } from '../features/notification/infrastructure/providers/email-provider.factory';
+import { scheduleBackgroundWork } from './background-work';
+import { classifyAckLatency, reportAckBudget } from './slack-ack-budget';
+import { getSlackEventsHandler } from './slack-events-handler.factory';
+
+export {
+  type BackgroundMechanism,
+  getVercelWaitUntil,
+  scheduleBackgroundWork,
+} from './background-work';
+export {
+  SLACK_ACK_BUDGET_MS,
+  SLACK_ACK_AT_RISK_MS,
+  type AckBudgetState,
+  classifyAckLatency,
+} from './slack-ack-budget';
+export {
+  getSlackEventsHandler,
+  setSlackEventsHandlerOptionsForTests,
+  resetSlackEventsHandler,
+} from './slack-events-handler.factory';
 
 export const SLACK_EVENTS_PATH = '/slack/events';
-
-const VERCEL_REQUEST_CONTEXT = Symbol.for('@vercel/request-context');
-
-interface VercelRequestContext {
-  waitUntil?: (promise: Promise<unknown>) => void;
-}
-
-type VercelRequestContextHolder = {
-  [VERCEL_REQUEST_CONTEXT]?: { get?: () => VercelRequestContext | undefined };
-};
-
-export type BackgroundMechanism = 'vercel-wait-until' | 'detached';
-
-export function getVercelWaitUntil(): ((promise: Promise<unknown>) => void) | undefined {
-  const holder = globalThis as typeof globalThis & VercelRequestContextHolder;
-  const context = holder[VERCEL_REQUEST_CONTEXT]?.get?.();
-  return typeof context?.waitUntil === 'function' ? context.waitUntil.bind(context) : undefined;
-}
-
-export function scheduleBackgroundWork(work: Promise<unknown>): BackgroundMechanism {
-  const waitUntil = getVercelWaitUntil();
-  if (waitUntil) {
-    waitUntil(work);
-    return 'vercel-wait-until';
-  }
-  return 'detached';
-}
-
-export const SLACK_ACK_BUDGET_MS = 3_000;
-
-export const SLACK_ACK_AT_RISK_MS = 1_500;
-
-export type AckBudgetState = 'ok' | 'at_risk' | 'exceeded';
-
-export function classifyAckLatency(elapsedMs: number): AckBudgetState {
-  if (elapsedMs >= SLACK_ACK_BUDGET_MS) return 'exceeded';
-  if (elapsedMs >= SLACK_ACK_AT_RISK_MS) return 'at_risk';
-  return 'ok';
-}
-
-function reportAckBudget(state: AckBudgetState, details: Record<string, unknown>): void {
-  if (state === 'exceeded') {
-    logger.error('Slack ACK budget exceeded — Slack has already replayed this event', details);
-  } else if (state === 'at_risk') {
-    logger.warn('Slack ACK budget at risk', details);
-  }
-}
 
 export interface SlackRouteContext {
   req: {
@@ -79,67 +34,6 @@ export interface SlackRouteContext {
   };
   get(key: 'mastra'): Mastra;
   json(body: unknown, status?: number): Response;
-}
-
-let cachedHandler: SlackEventsHandler | undefined;
-let cachedMastra: Mastra | undefined;
-
-let handlerOptionsForTests: SlackEventsHandlerOptions | undefined;
-
-let cachedEventsEmailProvider: ReturnType<typeof createEmailProvider> | undefined;
-
-function getEventsEmailProvider() {
-  cachedEventsEmailProvider ??= createEmailProvider();
-  return cachedEventsEmailProvider;
-}
-
-function buildWelcomeChannels(botToken: string) {
-  return makeWelcomeChannels({
-    source: new SlackWelcomeChannelSource(new SlackWorkspaceService(botToken)),
-    channelNames: parseWelcomeChannelNames(process.env.ONBOARDING_WELCOME_CHANNELS),
-  });
-}
-
-export function getSlackEventsHandler(mastra: Mastra): SlackEventsHandler {
-  if (!cachedHandler || cachedMastra !== mastra) {
-    const botToken = process.env.SLACK_BOT_TOKEN ?? '';
-    const knowledgeArchiveRepo = new DrizzleMessageArchiveRepository();
-    const knowledgeFactRepo = new DrizzleKnowledgeFactRepository();
-    cachedHandler = new SlackEventsHandler(botToken, mastra, {
-      welcomeChannels: buildWelcomeChannels(botToken),
-      interviewRepository: new DrizzleOnboardingInterviewRepository(),
-      profileRepository: new DrizzleEmployeeRepository(),
-      pendingEmailRepository: new DrizzlePendingInterviewEmailRepository(),
-      notificationRepository: new DrizzleNotificationRepository(),
-      knowledgeErasure: new KnowledgeErasureService({
-        archive: knowledgeArchiveRepo,
-        facts: knowledgeFactRepo,
-      }),
-      knowledgeIngestion: new KnowledgeIngestionService({
-        archive: knowledgeArchiveRepo,
-        facts: knowledgeFactRepo,
-        summarizer: new ModelFactSummarizer(),
-      }),
-      sendEmail: (to, subject, body) => getEventsEmailProvider().sendEmail(to, subject, body),
-      ...handlerOptionsForTests,
-    });
-    cachedMastra = mastra;
-  }
-  return cachedHandler;
-}
-
-export function setSlackEventsHandlerOptionsForTests(
-  options: SlackEventsHandlerOptions | undefined,
-): void {
-  handlerOptionsForTests = options;
-  cachedHandler = undefined;
-  cachedMastra = undefined;
-}
-
-export function resetSlackEventsHandler(): void {
-  cachedHandler = undefined;
-  cachedMastra = undefined;
-  handlerOptionsForTests = undefined;
 }
 
 export async function handleSlackEventRequest(c: SlackRouteContext): Promise<Response> {

@@ -49,10 +49,19 @@ describe('errorMessage', () => {
 /**
  * Fichiers où la recopie survit à dessein ou par appartenance à un autre lot.
  *
- * `llm-guardrail.ts` porte trois occurrences de `'Unknown error'` ; il est édité en parallèle
- * et n'a pas été touché ici. Cette entrée est une DETTE, pas une exemption de principe.
+ * ⚠️ **LA DETTE EST SOLDÉE DEPUIS LE 2026-08-28 — cette liste est VIDE, et elle ne peut que le
+ * rester.** Elle portait `llm-guardrail.ts`, avec la mention « DETTE, pas une exemption de
+ * principe ». Ses trois occurrences vivaient toutes dans un `span.setStatus({ code: ERROR,
+ * message })` d'OpenTelemetry : rien n'y branche, rien n'en sort vers un humain. Le repli
+ * `'Unknown error'` EFFAÇAIT donc un rejet non-`Error` — `429`, `'rate limited'`, `null` — dans
+ * le seul champ censé dire ce qui a échoué. C'est exactement le défaut que `errorMessage`
+ * existe pour clore.
+ *
+ * ⚠️ Une liste vide ne rend PAS le contrôle creux : les deux contrôles positifs littéraux
+ * ci-dessous vérifient que le motif reconnaît encore ce qu'il interdit. C'est la précaution
+ * qui manquait à `claimed-invariants` (audit du 2026-08-28, § 2.3).
  */
-const KNOWN_INLINE_COPIES: readonly string[] = ['src/shared/security/llm-guardrail.ts'];
+const KNOWN_INLINE_COPIES: readonly string[] = [];
 
 /** La recopie littérale : `x instanceof Error ? x.message : <repli>`. */
 const INLINE_COPY_RE = /instanceof\s+Error\s*\?\s*[\w.]+\.message\s*:/;

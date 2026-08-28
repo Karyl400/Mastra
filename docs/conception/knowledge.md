@@ -324,9 +324,13 @@ pas pu chercher » n'ont RIEN à voir, et que cet outil les confondait. Une abse
 invérifiable pour qui la reçoit : c'est le type de réponse qu'il faut le plus se garder de
 rendre à tort.
 
+### `src/features/knowledge/application/tools/expertise-sources.ts`
+
 **Avant `interface SourceResult {`**
 
  Ce qu'une source rend : son résultat ET si elle a pu répondre.
+
+### `src/features/knowledge/application/tools/find-expertise.ts`
 
 **Avant `readonly interviewRepo?: Pick<OnboardingInterviewRepository, 'findAll'>;`**
 
@@ -357,6 +361,8 @@ l'intitulé officiel, et c'est ce qu'on préfère montrer quand il faut choisir.
 plus bas — `slack_user_id` pour l'annuaire, un UUID pour les dossiers. Arbitraire, mais
 STABLE : toujours les six mêmes, donc une partie de l'entreprise définitivement invisible.
 
+### `src/features/knowledge/application/tools/expertise-sources.ts`
+
 **Avant `readonly source: 'directory' | 'employees';`**
 
 D'où vient cette entrée. La déduplication par NOM est légitime ENTRE sources (une personne
@@ -364,6 +370,8 @@ présente à la fois dans `employees` et dans l'annuaire) et fausse À L'INTÉRI
 source, où deux « Jean Martin » sont deux personnes. Sans cette distinction, le second
 homonyme disparaissait sans trace — alors que `findPersonByName`, sur le même problème,
 refuse de choisir et le dit.
+
+### `src/features/knowledge/application/tools/find-expertise.ts`
 
 **Avant `const experts = dedupe([...fromDirectory.experts, ...fromEmployees.experts]);`**
 
@@ -418,6 +426,8 @@ lecteur ne peut pas contredire. C'est le grief que ce fichier formule lui-même 
 propos de `directory_unavailable`, jamais appliqué au cas `truncated`.
 
 Payée UNIQUEMENT quand tout n'a pas été montré.
+### `src/features/knowledge/application/tools/expertise-sources.ts`
+
 **Avant `async function matchDirectory(deps: FindExpertiseDeps, skill: string): Promise<SourceResult> {`**
 
 ⚠️ Ne LÈVE jamais — discipline commune à tous les résolveurs du dépôt. Une source en panne
@@ -471,6 +481,8 @@ Le faire remonter en `available: false` transformerait « la table des entretien
 indisponible » en « la recherche est incomplète », alors que la source principale a
 parfaitement répondu — on rendrait la réponse moins sûre qu'elle ne l'est.
 
+### `src/features/knowledge/application/tools/find-expertise.ts`
+
 **Avant `function dedupe(experts: readonly Expert[]): Expert[] {`**
 
 Une personne présente dans les DEUX sources est UNE personne. Sans cela, Awa — qui a un
@@ -497,6 +509,8 @@ La phrase de couverture, placée EN TÊTE de la liste que le modèle lit.
 
 ⚠️ Sans tiret cadratin : c'est le séparateur des entrées « nom — indice », et le réutiliser
 ici ferait lire cette ligne comme une personne de plus. Un test le verrouille.
+
+### `src/features/knowledge/application/tools/expertise-sources.ts`
 
 **Avant `function displayNameOf(realName: string, displayName: string): string {`**
 
@@ -591,6 +605,8 @@ JOURNALISATION RGPD — qui a lu quel canal, quand, sur quelle base. Jamais
 le contenu : une trace d'accès qui recopie la donnée devient la fuite
 
 qu'elle est censée documenter.
+### `src/features/knowledge/application/tools/channel-history-excerpts.ts`
+
 **Avant `const humanCoverage = describeCoverageForHuman(excerpts, shown);`**
 
 ── LA COUVERTURE, DITE À L'HUMAIN — quatrième forme, 2026-08-18 ──────
@@ -604,6 +620,8 @@ champ `coverage` ignoré, champ `hint` ignoré, préface lue mais non relayée �
 exactement ce que la préface interdit. Le `RequestContext` est un canal SERVEUR :
 
 le handler accole la note lui-même, le modèle n'est plus sur le chemin. Coût NUL.
+### `src/features/knowledge/application/tools/get-channel-history.ts`
+
 **Avant `...(coverage ? { hint: coverage } : {}),`**
 
 ⚠️ Émise sous le nom `hint`, et ce nom est le fruit d'une MESURE en production.
@@ -659,6 +677,8 @@ lesquels le modèle devrait arbitrer.
 **Avant `const SLACK_USER_ID_RE = /^U[A-Z0-9]{4,}$/i;`**
 
  Un `U…`. Slack les écrit en majuscules ; on tolère la saisie humaine.
+
+### `src/features/knowledge/application/tools/user-conversations-admission.ts`
 
 **Avant `type MemoryVerdict =`**
 
@@ -717,6 +737,8 @@ Le demandeur, tel que l'annuaire le connaît — ou `null`.
 ⚠️ Une panne d'annuaire ne doit pas casser la réponse : le demandeur reste identifié (donc
 il lit ses propres échanges) mais n'obtient AUCUN privilège. Monotone restrictif, même
 doctrine que `SlackAccessGuard` — une indisponibilité ne doit jamais élargir un droit.
+
+### `src/features/knowledge/application/tools/get-user-conversations.ts`
 
 **Avant `const targetsRequester = !asked || designatesRequester(asked, requesterId, requesterPerson);`**
 
@@ -989,6 +1011,8 @@ Nom d'affichage résolu, ou l'identifiant à défaut.
 ⚠️ Contrôlé par son porteur — borné et nettoyé par `excerpt-budget.ts`, puis
 transporté À L'INTÉRIEUR du bloc de données non fiables.
 
+### `src/features/directory/application/services/welcome-channels.service.ts`
+
 **Avant `| 'bot_not_in_channel'`**
 
  Le bot n'est pas membre : `chat`/`history` refusés. Geste humain requis (invitation).
@@ -1000,6 +1024,8 @@ transporté À L'INTÉRIEUR du bloc de données non fiables.
 **Avant `| 'unavailable';`**
 
  Panne, quota, réseau. Réessayer a un sens.
+
+### `src/features/knowledge/domain/ports/channel-history.port.ts`
 
 **Avant `export class ChannelUnavailableError extends Error {`**
 
@@ -1779,9 +1805,13 @@ En pratique : la recherche d'annuaire. Optionnelle à dessein — sans elle les
 extraits portent l'identifiant brut, ce qui reste exploitable. La livraison
 ne doit pas dépendre d'un confort d'affichage.
 
+### `src/shared/slack/slack-error.ts`
+
 **Avant `function slackErrorCode(error: unknown): string | undefined {`**
 
  Lit `data.error` d'une erreur `@slack/web-api` sans dépendre de son typage.
+
+### `src/features/knowledge/infrastructure/providers/slack-channel-errors.ts`
 
 **Avant `const reason: ChannelUnavailableReason = 'bot_not_in_channel';`**
 
@@ -1814,6 +1844,8 @@ Ne lève JAMAIS : toute erreur vaut « non membre ».
 
 Distinguer ici « canal inconnu » de « bot absent » ferait de cette méthode un
 oracle d'existence de canaux privés, interrogeable par n'importe qui en DM.
+
+### `src/features/knowledge/infrastructure/providers/slack-channel-history.adapter.ts`
 
 **Avant `const oldest = ((Date.now() - options.sinceMs) / 1000).toFixed(6);`**
 
@@ -2129,15 +2161,24 @@ de données personnelles n'était vérifié par rien.
 
 ### `src/features/knowledge/application/tools/search-knowledge.ts`
 
+**Avant `if (lines.length === 0) {`**
+
+⚠️ On LIT SLACK avant de dire qu'on ne sait pas. La base peut être vide pour deux
+raisons très différentes — le sujet n'a jamais été évoqué, ou l'archivage n'a rien
+capté — et « je ne sais pas » les confond. En production, les deux niveaux étaient
+vides : cet outil ne pouvait RIEN rendre d'autre, et personne ne le voyait.
+
+### `src/features/knowledge/application/tools/search-knowledge-scan.ts`
+
 **Avant `const LIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;`**
 
 Bornes de la lecture EN DIRECT — elle ne doit jamais devenir un balayage du workspace.
 
-**Avant `async function resolveSpeakers(lines: readonly Line[]): Promise<Map<string, string>> {`**
+**Avant `export async function resolveSpeakers(`**
 
 Une lecture par personne et par canal distincts, jamais une par ligne.
 
-**Avant `async function readableChannels(`**
+**Avant `export async function readableChannels(`**
 
 ⚠️ LA FRONTIÈRE QUI COMPTE. L'archive contient les canaux PRIVÉS où le bot est invité.
 Sans ce filtre, une recherche rendrait le contenu de `#engineer-karyl` à quelqu'un qui
@@ -2161,7 +2202,7 @@ La règle est donc explicite : son propre DM toujours, celui d'autrui au niveau
 `full`. La MÊME règle que `mayTouchRecord`, écrite ici parce que le sujet n'est pas
 un dossier mais un canal.
 
-**Avant `async function sweepLive(query: string, requesterId: string, only?: string): Promise<Line[]> {`**
+**Avant `export async function sweepLive(`**
 
 LE REPLI EN DIRECT — lire Slack AVANT de prétendre ne rien savoir
 
@@ -2184,16 +2225,23 @@ ne doit pas pouvoir devenir un balayage complet du workspace.
 ⚠️ Il ne LÈVE jamais : un canal illisible est sauté. Le pire cas reste « je ne sais pas »,
 qui est exactement la réponse qu'on avait avant.
 
-**Avant `const readable = only ? await readableChannels([only], requesterId, false) : null;`**
+**Avant `const readable = only ? await readableChannels(channels, [only], requesterId, false) : null;`**
 
 Un canal explicitement demandé n'échappe PAS au contrôle d'appartenance : c'est le
 modèle qui l'a écrit, donc une valeur réputée contrôlée par un attaquant.
 
-**Avant `async function sweepOneChannel(channelId: string, query: string): Promise<Line[]> {`**
+**Avant `async function sweepOneChannel(`**
 
 Un canal illisible est SAUTÉ : le pire cas reste « je ne sais pas ».
 
-**Avant `async function admit(`**
+**Avant `const source = COVERAGE_SOURCES[tier] ?? COVERAGE_SOURCES.messages;`**
+
+⚠️ La provenance est DITE, et elle change ce que la personne doit en conclure : une lecture
+en direct ne voit que la fenêtre récente, une archive ne voit que ce qui a été capté.
+
+### `src/features/knowledge/application/tools/search-knowledge-admission.ts`
+
+**Avant `export async function admit(`**
 
 ⚠️ **LE VERDICT TOMBE AVANT TOUTE LECTURE, et c'est ce qui empêche l'ORACLE** : sans cela,
 « personne inconnue » et « tu n'as pas le droit » se distinguent, et l'annuaire s'énumère
@@ -2202,18 +2250,6 @@ une adresse à la fois. Même règle que le chemin email de `getEmployeeProfile`
 Extrait d'`execute` le 2026-08-21 — non pour le chiffre de complexité, mais parce que cette
 séquence EST la frontière : la voir d'un bloc vaut mieux que la lire entre deux lectures de
 base.
-
-**Avant `if (lines.length === 0) {`**
-
-⚠️ On LIT SLACK avant de dire qu'on ne sait pas. La base peut être vide pour deux
-raisons très différentes — le sujet n'a jamais été évoqué, ou l'archivage n'a rien
-capté — et « je ne sais pas » les confond. En production, les deux niveaux étaient
-vides : cet outil ne pouvait RIEN rendre d'autre, et personne ne le voyait.
-
-**Avant `const source = COVERAGE_SOURCES[tier] ?? COVERAGE_SOURCES.messages;`**
-
-⚠️ La provenance est DITE, et elle change ce que la personne doit en conclure : une lecture
-en direct ne voit que la fenêtre récente, une archive ne voit que ce qui a été capté.
 
 **Avant `function classifyPerson(`**
 
@@ -2637,6 +2673,8 @@ qu'un `#random-dev` existe, alors que la personne a nommé le canal sans la moin
 
 ### `src/features/knowledge/application/tools/get-channel-history.ts`
 
+### `src/features/knowledge/application/tools/channel-name-lookup.ts`
+
 **Avant `async function resolveNamedChannel(`**
 
 Le verdict rendu est un OBJET, jamais une chaîne. La première version renvoyait
@@ -2663,6 +2701,8 @@ tard, dans `fetchRecent`, en `bot_not_in_channel`.
 
 ### `src/features/knowledge/application/tools/get-channel-history.ts`
 
+### `src/features/knowledge/application/tools/channel-history-verdicts.ts`
+
 **Avant `const VERDICT_HINTS: Partial<Record<ChannelVerdict, string>> = {`**
 
 ⚠️ **UN `hint` DÉJÀ RÉDIGÉ À LA PREMIÈRE PERSONNE EST UN TEXTE QUI SORT.** `bot_not_in_channel`
@@ -2685,6 +2725,8 @@ CONTRAINTE (« ne demande à personne de faire quoi que ce soit pour y remédier
 reste libre de l'inventer ; la mesure de production dit qu'il recopiait, il n'inventait pas.
 Le second bloc du test vérifie que les motifs reconnaissent ce qu'ils interdisent et épargnent
 « invite la personne à te redemander », dont l'objet n'est pas le bot.
+
+### `src/features/knowledge/application/tools/get-channel-history.ts`
 
 **Avant `export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {`**
 

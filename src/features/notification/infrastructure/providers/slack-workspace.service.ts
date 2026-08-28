@@ -9,65 +9,9 @@ import type {
 } from '../../domain/ports/slack-workspace.port';
 import { SLACK_PAGE_LIMIT, SLACK_MAX_PAGES } from '../../domain/ports/slack-workspace.port';
 import { logger } from '../../../../shared/logger';
-import { errorMessage } from '../../../../shared/errors';
 import { slackErrorMentions } from '../../../../shared/slack/slack-error';
-
-interface SlackApiUser {
-  id?: string;
-  name?: string;
-  real_name?: string | null;
-  is_bot?: boolean;
-  is_admin?: boolean;
-  is_restricted?: boolean;
-  is_ultra_restricted?: boolean;
-  deleted?: boolean;
-  team_id?: string;
-  profile?: {
-    email?: string | null;
-    first_name?: string | null;
-    last_name?: string | null;
-    display_name?: string | null;
-    real_name?: string | null;
-    title?: string | null;
-  };
-}
-
-function splitRealName(realName: string): { firstName: string; lastName: string } {
-  const [first, ...rest] = realName.trim().split(/\s+/).filter(Boolean);
-  return { firstName: first ?? '', lastName: rest.join(' ') };
-}
-
-export function toMember(user: SlackApiUser): SlackMember {
-  const realName = user.real_name || '';
-  const derived = splitRealName(realName);
-
-  return {
-    id: user.id ?? '',
-    name: user.name ?? '',
-    realName,
-    email: user.profile?.email ?? null,
-    firstName: user.profile?.first_name || derived.firstName,
-    lastName: user.profile?.last_name || derived.lastName,
-    displayName:
-      user.profile?.display_name || user.profile?.real_name || realName || user.name || '',
-    title: user.profile?.title || '',
-    isBot: user.is_bot ?? false,
-    isAdmin: user.is_admin ?? false,
-    isRestricted: user.is_restricted ?? false,
-    isUltraRestricted: user.is_ultra_restricted ?? false,
-    isDeleted: user.deleted ?? false,
-    teamId: user.team_id ?? '',
-  };
-}
-
-function logTruncation(method: string, pages: number, collected: number): void {
-  logger.error('Slack pagination cap reached — the result is TRUNCATED', {
-    method,
-    pages,
-    collected,
-    cap: SLACK_MAX_PAGES,
-  });
-}
+import { logTruncation, toMember } from './slack-member-mapping';
+import { mapJoinFailure } from './slack-join-outcome';
 
 export class SlackWorkspaceService implements SlackWorkspaceProvider {
   private client: WebClient;
@@ -176,23 +120,7 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
       logger.info('Joined Slack channel', { channelId });
       return { status: 'joined' };
     } catch (err: unknown) {
-      if (slackErrorMentions(err, 'already_in_channel')) return { status: 'already_member' };
-      if (slackErrorMentions(err, 'method_not_supported_for_channel_type')) {
-        return { status: 'not_public', error: 'method_not_supported_for_channel_type' };
-      }
-      if (slackErrorMentions(err, 'is_archived')) {
-        return { status: 'archived', error: 'is_archived' };
-      }
-      if (slackErrorMentions(err, 'missing_scope')) {
-        return { status: 'missing_scope', error: 'missing_scope' };
-      }
-      if (slackErrorMentions(err, 'channel_not_found')) {
-        return { status: 'not_found', error: 'channel_not_found' };
-      }
-
-      const message = errorMessage(err);
-      logger.warn('Failed to join Slack channel', { channelId, error: message });
-      return { status: 'failed', error: message };
+      return mapJoinFailure(err, channelId);
     }
   }
 
@@ -262,3 +190,6 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
     return memberIds;
   }
 }
+
+export { toMember } from './slack-member-mapping';
+export type { SlackApiUser } from './slack-member-mapping';

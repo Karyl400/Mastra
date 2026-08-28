@@ -2440,6 +2440,8 @@ ne doit pas pouvoir couper 100 % du trafic en silence — c'est la classe de pan
 Extraits le 2026-08-17 vers `infrastructure/ui/welcome-blocks.ts` — voir son en-tête.
 
 Réexportés en fin de fichier : d'autres modules et des tests les importent depuis ici.
+### `src/features/notification/infrastructure/handlers/slack-event.types.ts`
+
 **Avant `export interface SlackMessageEvent {`**
 
 Handler des événements Slack (Events API).
@@ -2500,6 +2502,8 @@ où l'on cherche pourquoi quelqu'un n'a pas eu de réponse.
 **Avant `retryNum?: string | null;`**
 
  En-tête `X-Slack-Retry-Num` (présent uniquement sur les renvois Slack).
+
+### `src/features/notification/infrastructure/handlers/handler-internals.ts`
 
 **Avant `slackClient?: WebClient;`**
 
@@ -2620,7 +2624,7 @@ Probabilité qu'un message déclenche une purge de rétention. Voir
 `DEFAULT_PRUNE_PROBABILITY` : le tirage remplace un compteur d'instance, qui ne survivait
 pas au gel de la fonction serverless. Injectable pour rendre les tests déterministes.
 
-**Avant `auditSink?: (entry: Parameters<typeof writeAuditLog>[0]) => Promise<unknown>;`**
+**Avant `auditSink?: AuditSink;`**
 
 Où part le journal d'AUDIT.
 
@@ -2644,7 +2648,7 @@ Absent, la confirmation conversationnelle n'existe simplement pas : « oui » re
 l'agent. C'est la bonne dégradation — l'inverse ferait dépendre d'un câblage la CAPACITÉ
 à ne pas envoyer un email.
 
-**Avant `sendEmail?: (to: string, subject: string, body: EmailBody) => Promise<unknown>;`**
+**Avant `sendEmail?: SendEmailPort;`**
 
 L'envoi réel, injecté plutôt qu'importé.
 
@@ -2674,11 +2678,15 @@ Aucune E/S : ce n'est pas une neuvième dépendance à neutraliser.
 
  `Date.now()` au moment où le statut courant a été posé.
 
+### `src/features/notification/infrastructure/handlers/event-dedup.ts`
+
 **Avant `const DEFAULT_IN_FLIGHT_GRACE_MS = 60_000;`**
 
 Une invocation ne peut pas dépasser le `maxDuration` de la fonction Vercel
 (60 s, cf. `scripts/fix-vercel-output.js`). Passé ce délai, une entrée encore
 `in-flight` ne peut plus correspondre à un traitement vivant.
+
+### `src/features/notification/infrastructure/handlers/access-guard.factory.ts`
 
 **Avant `const DIRECTORY_STALE_AFTER_MS = 24 * 60 * 60 * 1000;`**
 
@@ -2690,9 +2698,13 @@ désactivation de compte, un passage en invité, un changement d'adresse. Plus c
 payer un `users.info` par personne et par jour sans rien apprendre ; beaucoup plus long
 laisserait un ex-salarié conserver son niveau d'accès pendant des semaines.
 
+### `src/features/notification/infrastructure/handlers/event-gating.ts`
+
 **Avant `const SUPPORTED_EVENT_TYPES = new Set(['app_mention', 'message', 'team_join']);`**
 
  Types d'événements Slack que le bot traite. Tout le reste est ignoré.
+
+### `src/features/notification/infrastructure/handlers/slack-event.types.ts`
 
 **Avant `export const SLACKBOT_USER_ID = 'USLACKBOT';`**
 
@@ -2703,6 +2715,8 @@ aussi. Slack ne le déclare NI `is_bot` NI `deleted` dans `users.list` — véri
 production, la ligne porte `is_bot=0, is_deleted=0` — donc les deux filtres évidents le
 laissent passer. Le dupliquer en littéral dans le script ferait qu'un seul des deux
 appelants serait corrigé le jour où il faudrait le changer.
+
+### `src/features/notification/infrastructure/handlers/conversation-memory.ts`
 
 **Avant `const CONVERSATION_QUERY_LIMIT = 40;`**
 
@@ -2739,6 +2753,8 @@ chemin de réponse (`void`), et le plus souvent sans effet.
 ⚠️ Ce n'est toujours pas une garantie de rétention — seul un cron en serait une, et ce
 projet n'en a aucun. C'est la borne la plus honnête qu'on puisse poser sans en introduire.
 
+### `src/features/notification/infrastructure/handlers/event-gating.ts`
+
 **Avant `const MAX_EVENT_AGE_MS = 10 * 60 * 1000;`**
 
 Âge au-delà duquel un message n'est plus traité. Voir `isStale` pour le relevé de
@@ -2747,6 +2763,8 @@ production qui a motivé cette borne — une réponse arrivée 1 h 40 après la 
 10 minutes : deux ordres de grandeur au-dessus d'un run (2 à 21 s, `maxDuration` 60 s) et
 des rejeux Slack (la minute). Assez haut pour ne jamais écarter un traitement légitimement
 lent, assez bas pour qu'aucune réponse ne tombe dans une conversation qui a tourné.
+
+### `src/features/notification/infrastructure/handlers/message-text.ts`
 
 **Avant `export function unwrapSanitizedInput(wrapped: string, fallback: string): string {`**
 
@@ -2762,6 +2780,8 @@ mémoire — le texte brut y ferait persister un faux délimiteur, rejoué ensui
 Le repli sur `fallback` ne sert qu'au cas où le format changerait ; il est signalé par
 l'appelant, jamais silencieux.
 
+### `src/features/notification/infrastructure/handlers/rate-limit-gate.ts`
+
 **Avant `const RATE_LIMIT_REPLIES: Readonly<Record<string, string>> = {`**
 
 Les trois refus de rationnement, un par règle.
@@ -2769,6 +2789,8 @@ Les trois refus de rationnement, un par règle.
 Une table plutôt que trois ternaires imbriqués : le lecteur vient ici pour savoir ce que le
 bot DIT, et une cascade de conditions rend justement cela illisible. Une règle ajoutée
 demain sans son texte retombe sur `burst`, le moins engageant des trois.
+
+### `src/features/notification/infrastructure/handlers/handler-internals.ts`
 
 **Avant `interface MessageContext {`**
 
@@ -2783,11 +2805,15 @@ signatures — chaque nouvelle étape en rajoutait un.
 ⚠️ Volontairement NON attendue : la résolution de l'identité se recouvre avec la lecture
 de la mémoire au lieu de s'y ajouter. Elle ne rejette jamais.
 
+### `src/features/notification/infrastructure/handlers/pending-email.ts`
+
 **Avant `function cancellationReply(cleared: number): string {`**
 
 Les trois issues d'une annulation, jamais confondues : effacé (> 0), déjà tranché (0),
 échec du dépôt (< 0). Dire « c'est annulé » sur un échec rejouerait exactement la famille
 `emailSent: false` sous `status: 'success'`.
+
+### `src/features/notification/infrastructure/handlers/response-notices.ts`
 
 **Avant `function buildRecipientNotice(requestContext: unknown, answer: string): string {`**
 
@@ -2796,7 +2822,7 @@ La note « produit pour X », ou rien du tout.
 Extraite de `runAgentPipeline` : deux conditions de plus y portaient la complexité cognitive
 au-dessus du seuil, et ce dépôt est à zéro warning depuis le 2026-08-18.
 
-**Avant `private readonly seenEvents: LRUCache<string, DedupEntry>;`**
+**Avant `readonly seenEvents: LRUCache<string, DedupEntry>;`**
 
 Déduplication des renvois Slack (timeout / 5xx → Slack rejoue l'événement).
 
@@ -2811,7 +2837,9 @@ ATTENTION : ce cache est EN MÉMOIRE, donc par instance. En multi-instance
 (Vercel serverless, plusieurs conteneurs) deux répliques peuvent traiter le même
 `event_id`. La correction durable est un store partagé (Redis / LibSQL) ou une file.
 
-**Avant `private teamIdWarningEmitted = false;`**
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
+**Avant `teamIdWarningEmitted = false;`**
 
  Évite d'inonder les logs : l'absence de `SLACK_TEAM_ID` est signalée une fois.
 
@@ -2829,16 +2857,16 @@ Déduplication partagée. `undefined` = pas encore construite, `null` = désacti
 
  `undefined` = pas encore construit, `null` = désactivé. Deux états distincts.
 
-**Avant `private readonly welcomeChannels: WelcomeChannelsService | null;`**
+**Avant `readonly welcomeChannels: WelcomeChannelsService | null;`**
 
  `null` = désactivé. Aucune construction paresseuse : voir l'option du même nom.
 
-**Avant `private readonly pruneProbability: number;`**
+**Avant `readonly pruneProbability: number;`**
 
 Probabilité de purge par message. Injectable UNIQUEMENT pour rendre les tests
 déterministes (0 = jamais, 1 = toujours) — en production c'est le défaut qui vaut.
 
-**Avant `private readonly requesterNames = new LRUCache<string, RequesterIdentity>({`**
+**Avant `readonly requesterNames = new LRUCache<string, RequesterIdentity>({`**
 
 Cache des noms d'affichage Slack, par instance.
 
@@ -2851,15 +2879,15 @@ workspace qui refuse l'annuaire paie l'appel indéfiniment.
 
  Conservé pour construire paresseusement la source d'annuaire (apprentissage au fil de l'eau).
 
-**Avant `private readonly audit: (entry: Parameters<typeof writeAuditLog>[0]) => Promise<unknown>;`**
+**Avant `readonly audit: AuditSink;`**
 
  Voir `auditSink` : injectable pour que les tests ne touchent pas `data/kisso.db`.
 
-**Avant `private readonly pendingEmailRepo: PendingInterviewEmailRepository | null | undefined;`**
+**Avant `readonly pendingEmailRepo: PendingInterviewEmailRepository | null | undefined;`**
 
  `null`/`undefined` = pas de confirmation conversationnelle. Aucune construction paresseuse.
 
-**Avant `private getDedupRepo(): SlackEventDedupRepository | null {`**
+**Avant `getDedupRepo(): SlackEventDedupRepository | null {`**
 
 Dépôt de mémoire, construit paresseusement.
 
@@ -2873,7 +2901,7 @@ Même raison que pour la mémoire : le handler est instancié au chargement du m
 ouvrir une connexion Drizzle à ce moment-là alourdirait le démarrage à froid — or c'est
 précisément ce démarrage à froid (6,1 s mesurées) qui provoque les rejeux Slack que cette
 déduplication existe pour absorber.
-**Avant `private getPinnedFactRepo(): PinnedFactRepository | null {`**
+**Avant `getPinnedFactRepo(): PinnedFactRepository | null {`**
 
  Mémoire longue, construite paresseusement — même raison que les trois autres dépôts.
 
@@ -2886,7 +2914,7 @@ La méthode est conservée parce que les tests du handler appellent
 décide de router. Le CALCUL, lui, n'a jamais lu `this` : c'était une fonction pure
 enfermée dans une classe.
 
-**Avant `private getDirectoryRepo(): DirectoryRepository | null {`**
+**Avant `getDirectoryRepo(): DirectoryRepository | null {`**
 
 Résout (et met en cache) l'identifiant utilisateur du bot via `auth.test()`.
 Attendu sur le workspace Kisso Ind. (`TMLKC4EPP`) : `U0BMBEJTBMJ`.
@@ -2896,6 +2924,8 @@ Annuaire, politique d'accès et compteur de débit — tous construits PARESSEUS
 même raison que la mémoire et la déduplication : le handler est instancié au chargement du
 module, et y ouvrir une connexion Drizzle paierait la latence sur le démarrage à froid,
 c'est-à-dire précisément là où les 3 secondes d'ACK de Slack sont déjà les plus serrées.
+### `src/features/notification/infrastructure/handlers/access-guard.factory.ts`
+
 **Avant `resolveSubject: async (slackUserId) => {`**
 
 APPRENTISSAGE AU FIL DE L'EAU — c'est ce qui rend la frontière opérante SANS
@@ -2964,7 +2994,9 @@ Le contrôle qui autorise l'APPLICATION — voir `access-guard.ts`. `false` en
 dernier recours : une panne de lecture n'est pas une preuve d'absence, et
 suspendre l'application vaut mieux que couper l'équipe sur une erreur SQL.
 
-**Avant `this.limiter = new SlackRateLimiter({`**
+### `src/features/notification/infrastructure/handlers/rate-limiter.factory.ts`
+
+**Avant `return new SlackRateLimiter({`**
 
 ⚠️ Les limites se lisent depuis l'ENVIRONNEMENT, et c'est ce qui rend enfin vraie la
 
@@ -2977,11 +3009,15 @@ la compilation, donc « relever le plafond » exigeait de modifier le code sourc
 La fonction refuse déjà `0` et les négatifs et retombe sur le défaut — une faute de
 
 frappe dans une variable Vercel ne peut pas éteindre le bot en silence.
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
 **Avant `this.botUserIdPromise = undefined;`**
 
 Un échec ne doit pas figer le cache : on réessaiera au prochain événement.
 
-**Avant `private dedupKey(envelope: SlackEventEnvelope): string | undefined {`**
+### `src/features/notification/infrastructure/handlers/event-dedup.ts`
+
+**Avant `export function dedupKey(envelope: SlackEventEnvelope): string | undefined {`**
 
 Clé de déduplication : `event_id` si présent, sinon `channel:ts`.
 
@@ -3006,6 +3042,8 @@ C'est la protection de fond ; la garde `duplicate_mention` ci-dessus
 
 `team_join` n'a ni canal ni `ts` : seul `event_id` le protège du rejeu.
 
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
 **Avant `async accept(`**
 
 Décision SYNCHRONE prise avant l'ACK HTTP.
@@ -3018,12 +3056,14 @@ Règles :
    En n'acceptant `message` que pour les DM, un seul des deux passe.
  - Tout message émis par un bot est ignoré (anti-boucle infinie).
 
-**Avant `if (this.isStale(envelope, event)) {`**
+### `src/features/notification/infrastructure/handlers/accept-event.ts`
+
+**Avant `if (isStale(envelope, event)) {`**
 
 ⚠️ AVANT la prise de clé : un événement périmé ne doit ni être traité, ni consommer
 
 une clé de déduplication qu'il faudrait ensuite refermer.
-**Avant `const limited = await this.checkRateLimit(event);`**
+**Avant `const limited = await checkRateLimit(self, event);`**
 
 ⚠️ APRÈS la déduplication, jamais avant. Un rejeu Slack n'est pas un nouveau message :
 
@@ -3032,7 +3072,9 @@ le compter consommerait le quota de quelqu'un pour un événement qu'il n'a envo
 fois — et c'est précisément sur les démarrages à froid, donc quand le bot va déjà mal,
 
 que Slack rejoue le plus.
-**Avant `private isStale(envelope: SlackEventEnvelope, event: SlackEvent): boolean {`**
+### `src/features/notification/infrastructure/handlers/event-gating.ts`
+
+**Avant `export function isStale(envelope: SlackEventEnvelope, event: SlackEvent): boolean {`**
 
 L'événement est-il trop VIEUX pour qu'on y réponde encore ?
 
@@ -3109,7 +3151,9 @@ penche déjà de ce côté partout où il décide sans preuve (`checkTeamId`, la
 déduplication partagée, le compteur de débit) : une garde qui coupe sur une donnée
 
 manquante reproduit le symptôme le plus coûteux de ce projet, le bot muet.
-**Avant `private isAnsweredWithoutModel(event: SlackEvent): boolean {`**
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
+**Avant `isAnsweredWithoutModel(event: SlackEvent): boolean {`**
 
 Compte le message et dit s'il peut être traité.
 
@@ -3127,6 +3171,8 @@ DÉLÉGATION à `deterministic-replies.ts`, qui déclare les huit cas une seule 
 version précédente les RECOPIAIT ici, en exigeant d'être « le MIROIR EXACT » des
 court-circuits de `handleMessage` : une liste tenue à la main, dont l'oubli faisait
 rationner un message gratuit. Elle ne peut plus diverger.
+### `src/features/notification/infrastructure/handlers/rate-limit-gate.ts`
+
 **Avant `return isAnsweredWithoutModel({`**
 
 Sans `botUserId` : le chemin d'ACK n'a pas les 3 secondes d'un `auth.test()`. La
@@ -3159,7 +3205,7 @@ tâche de fond, une fois l'historique lu — bien après ce point. Débiter ici 
 payer le budget quotidien à des messages qui n'atteindront jamais un modèle. Le
 
 débit réel vit dans `chargeModelBudget`, juste avant `agent.generate()`.
-**Avant `if (decision.rationsModelBudget && (await this.settlesWithoutModel(event))) {`**
+**Avant `if (decision.rationsModelBudget && (await settlesWithoutModel(self, event))) {`**
 
 LE MIROIR EXACT — seule branche autorisée à lire en base sur ce chemin
 
@@ -3226,7 +3272,7 @@ l'historique et résolu l'identité, pour un verdict que l'appelant a déjà obt
 Même doctrine que le fail-open de `checkRateLimit` : un compteur en panne ne doit
 
 jamais priver quelqu'un d'une réponse.
-**Avant `private async settlesWithoutModel(event: SlackEvent): Promise<boolean> {`**
+**Avant `async function settlesWithoutModel(`**
 
 Ce message sera-t-il traité SANS aucun appel de modèle — en tenant compte de l'ÉTAT ?
 
@@ -3250,7 +3296,7 @@ illisible ⇒ `resolvePendingEmail` échouerait de la même façon quelques inst
 et le « oui » partirait chez un agent, donc coûterait des tokens. Laisser passer sur une
 panne de lecture reviendrait à ouvrir le quota sur une panne de base.
 
-**Avant `const text = this.cleanText(event.text);`**
+**Avant `const text = cleanText(event.text);`**
 
 Sans `botUserId` : le chemin d'ACK n'a pas les 3 secondes d'un `auth.test()`, et la
 
@@ -3289,7 +3335,9 @@ avait que deux, et le texte « quota » était doublement faux :
    l'administratrice. La phrase n'est rétablie que maintenant que les limites se
 
    lisent réellement depuis l'environnement.
-**Avant `private async claimEvent(key: string, retryNum?: string | null): Promise<boolean> {`**
+### `src/features/notification/infrastructure/handlers/event-dedup.ts`
+
+**Avant `export async function claimEvent(`**
 
 Prend la clé d'un événement, ou refuse — en DEUX niveaux.
 
@@ -3307,7 +3355,7 @@ vaut mieux qu'un message perdu, car le doublon est visible et corrigeable tandis
 silence ne l'est pas. La ligne est journalisée en `error` : c'est celle à chercher si les
 doubles réponses reviennent.
 
-**Avant `this.seenEvents.delete(key);`**
+**Avant `self.seenEvents.delete(key);`**
 
 Une AUTRE instance mène ou a mené le traitement. On relâche notre prise locale :
 
@@ -3319,14 +3367,16 @@ légitime après la grâce d'abandon.
 Symptôme d'une invocation tuée en vol : le traitement précédent n'a jamais rendu
 
 la main et la grâce a expiré.
-**Avant `private claimLocally(key: string, retryNum?: string | null): boolean {`**
+**Avant `function claimLocally(`**
 
 Volet local de la prise de clé. Conserve à l'identique la sémantique d'origine, qui est
 le fruit d'un bug déjà corrigé : une entrée `in-flight` plus vieille que la durée de vie
 maximale d'une invocation ne peut plus correspondre à un traitement vivant (fonction gelée
 ou tuée), donc l'événement redevient rejouable plutôt que d'être perdu DÉFINITIVEMENT.
 
-**Avant `private checkTeamId(envelope: SlackEventEnvelope): SlackEventDecision | undefined {`**
+### `src/features/notification/infrastructure/handlers/event-gating.ts`
+
+**Avant `export function checkTeamId(`**
 
 Vérifie que l'événement vient bien du workspace attendu.
 
@@ -3340,7 +3390,7 @@ workspace : ce contrôle n'est qu'une défense en profondeur.
 Pour passer en fail-closed : déclarer `SLACK_TEAM_ID` dans Vercel, redéployer,
 confirmer l'absence d'avertissement dans les logs, PUIS durcir ici.
 
-**Avant `private rejectMessage(event: SlackMessageEvent): SlackIgnoreReason | undefined {`**
+**Avant `export function rejectMessage(event: SlackMessageEvent): SlackIgnoreReason | undefined {`**
 
  Motifs de rejet propres aux messages. `undefined` = accepté.
 
@@ -3409,14 +3459,14 @@ parce qu'il ne se distingue pas d'une vraie panne et n'invite à rien.
 On ne lit toujours AUCUN contenu de fichier (c'est un choix de sécurité, pas une
 
 limite technique) : `handleMessage` répond une phrase déterministe, sans appel LLM.
-**Avant `if (event.subtype !== FILE_SHARE_SUBTYPE && !this.cleanText(event.text)) {`**
+**Avant `if (event.subtype !== FILE_SHARE_SUBTYPE && !cleanText(event.text)) {`**
 
 Un partage de fichier porte souvent un texte VIDE : la garde ci-dessous l'écarterait
 
 avant que `handleMessage` ait pu répondre. Elle ne s'applique donc qu'aux vrais
 
 messages.
-**Avant `private rejectTeamJoin(event: SlackTeamJoinEvent): SlackIgnoreReason | undefined {`**
+**Avant `export function rejectTeamJoin(event: SlackTeamJoinEvent): SlackIgnoreReason | undefined {`**
 
 Motifs de rejet propres à `team_join`. `undefined` = accepté.
 
@@ -3435,7 +3485,9 @@ un externe Slack Connect (`is_stranger`) ne sont jamais des embauches
 Kisso. L'invité MULTI-canal (`is_restricted`) passe en revanche — ce sont
 
 les prestataires, qui suivent bien le parcours d'intégration.
-**Avant `private async markDedupDone(key: string | undefined): Promise<void> {`**
+### `src/features/notification/infrastructure/handlers/event-dedup.ts`
+
+**Avant `export async function markDedupDone(`**
 
 Le traitement est allé au bout : tout rejeu ultérieur doit être ignoré.
 
@@ -3443,12 +3495,14 @@ Les deux niveaux sont mis à jour. L'échec du niveau partagé n'est pas fatal �
 la clé en `in-flight`, donc reprenable après la grâce d'abandon, ce qui est le
 comportement le moins dommageable.
 
-**Avant `private async releaseDedup(key: string | undefined): Promise<void> {`**
+**Avant `export async function releaseDedup(`**
 
 Le traitement a échoué de façon inattendue : on libère la clé pour qu'un rejeu Slack
 puisse repartir immédiatement au lieu d'être avalé par la déduplication.
 
-**Avant `private scheduleRateLimitPruneIfDue(): void {`**
+### `src/features/notification/infrastructure/handlers/rate-limit-gate.ts`
+
+**Avant `export function scheduleRateLimitPruneIfDue(self: SlackHandlerInternals): void {`**
 
 Purge de rétention de la déduplication, en tâche de fond. Même cadence et même
 raisonnement que `schedulePruneIfDue()` pour la mémoire : pas de cron dans ce projet, et
@@ -3459,11 +3513,13 @@ Purge des compteurs de débit, en tâche de fond.
 `SlackRateLimiter.prune()` était écrit, testé… et n'avait AUCUN site d'appel :
 `rate_limit_counters` croissait sans fin, seule des quatre tables à TTL du dépôt à ne
 jamais être purgée. Même cadence et même tirage que les deux autres.
-**Avant `void this.getRateLimiter()?.pruneExpired();`**
+**Avant `void self.getRateLimiter()?.pruneExpired();`**
 
 `prune()` avale déjà ses propres erreurs et journalise : rien à rattraper ici.
 
-**Avant `private cleanText(text: string | undefined, botUserId?: string): string {`**
+### `src/features/notification/infrastructure/handlers/message-text.ts`
+
+**Avant `export function cleanText(text: string | undefined, botUserId?: string): string {`**
 
 Retire la mention DU BOT et normalise les espaces.
 
@@ -3487,7 +3543,9 @@ donc du réseau, et elle est interpolée dans une expression régulière.
 `botUserId` est réduit à `[A-Z0-9]` — liste BLANCHE, pas noire — avant interpolation :
 
 rien de métacaractère ne peut survivre.
-**Avant `private async resolveRequesterIdentity(`**
+### `src/features/notification/infrastructure/handlers/requester-identity.ts`
+
+**Avant `export async function resolveRequesterIdentity(`**
 
 IDENTITÉ du demandeur — nom d'affichage, email, fiche employé. Mise en cache.
 **Ne rejette jamais.**
@@ -3522,6 +3580,8 @@ Une panne d'annuaire ne doit pas devenir une panne du bot : on tombe sur Slack.
 `??` et non `||` : une adresse vide rendue par Slack ne doit pas écraser celle que
 
 l'annuaire vient peut-être de fournir.
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
 **Avant `async handleEvent(envelope: SlackEventEnvelope): Promise<void> {`**
 
 Traitement de fond (après l'ACK). Ne jamais `await` depuis la route HTTP.
@@ -3529,7 +3589,7 @@ Traitement de fond (après l'ACK). Ne jamais `await` depuis la route HTTP.
 C'est ICI, et seulement ici, que la clé de déduplication passe de `in-flight` à
 `done` : tant que ce point n'est pas atteint, un rejeu Slack reste recevable.
 
-**Avant `await this.releaseDedup(key);`**
+**Avant `await releaseDedup(this, key);`**
 
 Échec inattendu : la clé est libérée pour que Slack puisse rejouer.
 
@@ -3557,6 +3617,8 @@ N'échoue jamais vers l'appelant — `handleEvent` relance l'exception et
 libère la clé de déduplication, ce qui ferait rejouer Slack et enverrait un
 SECOND DM de bienvenue, visible par la personne.
 
+### `src/features/notification/infrastructure/handlers/team-join.ts`
+
 **Avant `const joinedAt = new Date().toISOString();`**
 
 L'instant de l'événement EST la date d'arrivée. Lu UNE SEULE FOIS, avant toute E/S :
@@ -3564,7 +3626,7 @@ L'instant de l'événement EST la date d'arrivée. Lu UNE SEULE FOIS, avant tout
 deux lectures d'horloge donneraient deux dates pour un seul et même fait, et celle qui
 
 finirait en base ne serait pas celle du journal.
-**Avant `await this.recordNewcomer(user.id, identity, joinedAt);`**
+**Avant `await recordNewcomer(self, user.id, identity, joinedAt);`**
 
 Les deux gestes qui précèdent le DM sont indépendants l'un de l'autre ET du DM. Chacun
 
@@ -3573,7 +3635,7 @@ avale son échec : ni l'annuaire ni les canaux ne valent de priver quelqu'un de 
 message de bienvenue. Un arrivant sans canal mais avec son DM peut demander de l'aide ;
 
 l'inverse ne le peut pas.
-**Avant `private async recordNewcomer(`**
+**Avant `async function recordNewcomer(`**
 
 Rend l'arrivant résolvable dès la seconde zéro.
 
@@ -3591,7 +3653,7 @@ ultérieure le renseignera.
 Le poste DÉCLARÉ dans Slack n'est pas lu au `team_join` : il est vide à la seconde
 
 zéro, et c'est précisément ce qu'on va demander à la personne.
-**Avant `private async inviteToWelcomeChannels(slackUserId: string): Promise<readonly string[]> {`**
+**Avant `async function inviteToWelcomeChannels(`**
 
  Rend les noms des canaux où l'arrivant se trouve. Ne lève JAMAIS.
 
@@ -3600,7 +3662,7 @@ zéro, et c'est précisément ce qu'on va demander à la personne.
 Le service déclare ne jamais lever ; on ne le suppose pas pour autant. Une exception
 
 qui traverserait ce point emporterait le DM de bienvenue avec elle.
-**Avant `private async resolveNewcomer(user: SlackTeamJoinUser): Promise<NewcomerIdentity> {`**
+**Avant `async function resolveNewcomer(`**
 
 Ce que Slack sait déjà de l'arrivant, pour pré-remplir la modale.
 
@@ -3609,7 +3671,9 @@ complété : on ne paie le second aller-retour `users.info` que dans ce cas.
 Son échec ne bloque pas — le DM part sur l'identifiant Slack et la modale
 collectera l'email.
 
-**Avant `private async runErasure(ctx: {`**
+### `src/features/notification/infrastructure/handlers/acting-shortcuts.ts`
+
+**Avant `export async function runErasure(`**
 
 EFFACEMENT DEMANDÉ — un geste RÉEL, jamais une narration
 
@@ -3687,7 +3751,7 @@ tient dans le fait que la réponse dit ce qui s'est réellement passé ; annonce
 effacement qui n'a pas eu lieu serait pire que l'absence de fonctionnalité, parce
 
 que la personne cesserait de le demander.
-**Avant `const repo = user ? this.getPinnedFactRepo() : null;`**
+**Avant `const repo = user ? self.getPinnedFactRepo() : null;`**
 
 Sans auteur identifié, la mémoire longue n'a pas de clé : elle est indexée par
 
@@ -3711,7 +3775,9 @@ vient de confier, elle n'a rien à faire dans un journal.
 ⚠️ Ne JAMAIS retomber sur `pinnedFactReply` ici. Promettre de se souvenir sans
 
 avoir pu écrire serait exactement le défaut qu'on corrige, sous une autre forme.
-**Avant `private async runCancelReminder(ctx: {`**
+### `src/features/notification/infrastructure/handlers/reminder-cancellation.ts`
+
+**Avant `export async function runCancelReminder(`**
 
 Le DOUZIÈME court-circuit, ajouté le 2026-08-25 — et le premier geste RÉVERSIBLE du produit.
 
@@ -3737,7 +3803,9 @@ qui se DÉRIVE de la table : c'est la correction de 2026-08-18 qui paie ici, qua
 que « bonjour », `profile_done` et le « oui » d'un email en attente ont chacun été facturés à
 tort.
 
-**Avant `private async runProfileForm(ctx: {`**
+### `src/features/notification/infrastructure/handlers/profile-form.ts`
+
+**Avant `export async function runProfileForm(`**
 
 DEMANDE DU FORMULAIRE DE PROFIL — réponse déterministe, aucun appel LLM
 
@@ -3804,7 +3872,7 @@ personne. Le conduire en canal les publierait devant témoins. Une restriction d
 garde l'effet sans réénoncer la cause est exactement ce que ce dépôt appelle un
 
 commentaire qui ment — la cause est ci-dessus, elle est neuve, et elle est vérifiable.
-**Avant `await this.chatProvider.sendBlocks(`**
+**Avant `await self.chatProvider.sendBlocks(`**
 
 ⚠️ La lecture d'annuaire qui vivait ici a été SUPPRIMÉE le 2026-08-19. Elle servait au
 
@@ -3824,7 +3892,9 @@ en canal, un témoin qui cliquait ouvrait une modale portant les données d'autr
 Sans bouton, transporter ces champs serait une donnée personnelle qui voyage sans
 
 aucun destinataire.
-**Avant `private async runAgentPipeline(ctx: {`**
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
+**Avant `async runAgentPipeline(ctx: AgentPipelineContext): Promise<StepOutcome> {`**
 
 Le pipeline LLM : router, encadrer, générer, assainir, publier.
 
@@ -3839,7 +3909,9 @@ le premier écrit Slack, et poster « Je regarde ça… » pour le remplacer aus
 refus de quota serait la pire des séquences. Un découpage qui les emporterait rendrait cet
 ordre invisible.
 
-**Avant `let phase: 'route' | 'resolve-agent' | 'wrap' | 'generate' | 'sanitize' | 'post' = 'route';`**
+### `src/features/notification/infrastructure/handlers/handler-internals.ts`
+
+**Avant `export type AgentTurnPhase = 'route' | 'resolve-agent' | 'wrap' | 'generate' | 'sanitize' | 'post';`**
 
 Phase courante du traitement. Le catch générique ci-dessous couvrait cinq points
 
@@ -3850,6 +3922,8 @@ de `wrapAgentInput`, agent introuvable, échec de publication Slack — et les r
 tous sous le même « Désolé, une erreur s'est produite », sans rien pour les
 
 distinguer dans les logs. C'est ce qui a rendu l'incident du 2026-08-11 opaque.
+### `src/features/notification/infrastructure/handlers/agent-pipeline.ts`
+
 **Avant `const stickyAgentId = history.at(-1)?.agentId;`**
 
 La collance lit le DERNIER tour de l'historique BRUT, pas de la fenêtre : un fil
@@ -3875,7 +3949,7 @@ détection d'injection, neutralisation Unicode) avant de le transmettre au LLM.
 Peut lever `SecurityBlockError` — et c'est voulu : un message bloqué ne doit
 
 atteindre ni le modèle, ni la mémoire (décision D4).
-**Avant `await this.rememberTurn({`**
+**Avant `await rememberTurn(self, {`**
 
 Le tour utilisateur est mémorisé AVANT l'appel du modèle, et seulement après que
 
@@ -3921,7 +3995,7 @@ le modèle sait dire) et le `requestContext` (ce sur quoi un tool a le droit de
 décider). Deux `await` sur la même promesse rendraient la même valeur, mais nommer la
 
 valeur dit qu'il s'agit bien de la même identité des deux côtés.
-**Avant `const pinnedFacts = await this.loadPinnedFacts(user);`**
+**Avant `const pinnedFacts = await loadPinnedFacts(self, user);`**
 
 Mémoire LONGUE. Lue ici et non plus haut : ce chemin est le seul qui aille jusqu'au
 
@@ -4033,6 +4107,8 @@ test `length === 0` d'origine ne se déclenchait presque jamais : une lecture
 désarmer la détection pour le tour entier. Lire ne produit rien — une annonce
 
 d'accompli que seules des lectures étayent est fausse par construction.
+### `src/features/notification/infrastructure/handlers/claim-requalification.ts`
+
 **Avant `logger.error('Agent claimed a completed action while no tool ran — response requalified', {`**
 
 Niveau `error`, comme pour les URL fabriquées : c'est le même genre de faute — le
@@ -4093,7 +4169,7 @@ QUE SOIT la formulation, donc il n'y a rien à détecter — seulement à dire.
 Le détecteur SURVIT, et sert désormais à ce pour quoi il est bon : journaliser que le
 
 modèle a promis, ce qui reste le signal à suivre pour juger ses instructions.
-**Avant `await this.rememberTurn({`**
+**Avant `await rememberTurn(self, {`**
 
 Mémorisé APRÈS assainissement : sans cela, l'unique filet anti-marqueurs serait
 
@@ -4106,6 +4182,8 @@ affordance destinée à l'humain, pas un tour de dialogue. La rejouer apprendrai
 modèle à imiter le démenti, et coûterait ses tokens à chaque tour suivant — sur un
 
 budget quotidien de ≈ 19 messages.
+### `src/features/notification/infrastructure/handlers/agent-pipeline.ts`
+
 **Avant `const excerptCoverage = readExcerptCoverage(requestContext);`**
 
 ⚠️ `progress.resolve` directement, et non plus un passe-plat qui recevait un
@@ -4137,7 +4215,9 @@ une consigne est PROBABLE, le code est GARANTI.
 (`describeCoverageForHuman` rend `undefined` sinon) : un avertissement systématique
 
 deviendrait du bruit, et le bruit s'ignore.
-**Avant `const recipientNotice = buildRecipientNotice(requestContext, safeOutput.text);`**
+### `src/features/notification/infrastructure/handlers/response-notices.ts`
+
+**Avant `buildRecipientNotice(requestContext, answer) +`**
 
 ── LE DESTINATAIRE D'UN DOCUMENT, TROISIÈME CONSIGNE MESURÉE EN ÉCHEC ──
 
@@ -4173,7 +4253,9 @@ qualifie ce qui vient d'être dit, les deux rappels parlent d'autre chose. Un
 rappel glissé entre la réponse et sa couverture ferait lire celle-ci comme une
 
 note de bas de page du rappel.
-**Avant `const inputTokens = this.readInputTokens(response);`**
+### `src/features/notification/infrastructure/handlers/agent-pipeline.ts`
+
+**Avant `inputTokens: readInputTokens(response),`**
 
 Ce que le log ne disait pas et qu'il fallait deviner : combien d'étapes le run a
 
@@ -4182,7 +4264,9 @@ coûté, quels outils ont réellement tourné, et combien de tokens d'entrée on
 brûlés. Sans `toolCalls`, « Le PDF a été généré » est indiscernable d'une pure
 
 narration du modèle. Coût : zéro token.
-**Avant `void this.getRateLimiter()?.consumeTokens(inputTokens);`**
+### `src/features/notification/infrastructure/handlers/agent-turn-epilogue.ts`
+
+**Avant `void self.getRateLimiter()?.consumeTokens(run.inputTokens);`**
 
 LE COÛT RÉEL EST ENFIN COMPTÉ — il était lu, journalisé, et jeté
 
@@ -4205,6 +4289,8 @@ grandeur commode.
 `void` : on est après la publication de la réponse. Une erreur de comptabilité ne
 
 doit rien changer pour la personne qui vient d'être servie.
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
 **Avant `logger.error('Error processing Slack message', {`**
 
 `error.constructor.name` est conservé explicitement : `maskPii` remplace la pile
@@ -4227,12 +4313,14 @@ niveau `error`, et `maskPii` ne le rattrapait pas (`text` n'est pas dans
 l'épuisement du quota Groq —, donc le message le plus sensible finissait dans les
 
 logs au moment précis où le bot allait mal.
-**Avant `await progress.fail(userFacingFailure(error));`**
+**Avant `await ctx.progress.fail(userFacingFailure(error));`**
 
 `fail()` ne lève jamais : il est déjà sur le chemin d'erreur, et y remplacer une
 
 exception par une autre effacerait la cause d'origine.
-**Avant `private async enforceAuthorization(ctx: {`**
+### `src/features/notification/infrastructure/handlers/requester-identity.ts`
+
+**Avant `export async function enforceAuthorization(`**
 
 La frontière d'autorisation : évalue, refuse, journalise l'audit.
 
@@ -4244,12 +4332,16 @@ s'arrêter. Sinon rend le niveau, que le pipeline transmet aux tools par le
 effacement, épinglage et demande de formulaire sont des DROITS, pas des privilèges de
 niveau `full`. Quelqu'un qui va mal ne doit pas se heurter à une politique d'accès.
 
+### `src/features/notification/infrastructure/providers/slack.adapter.ts`
+
 **Avant `await this.slack.chat.postMessage({`**
 
 Muet sur la règle touchée, exactement comme `NEUTRAL_REFUSAL` : nommer ce qui a porté
 
 renseignerait un attaquant sur la sonde qui a fonctionné.
-**Avant `private async buildMessageContext(event: SlackMessageEvent): Promise<MessageContext | null> {`**
+### `src/features/notification/infrastructure/handlers/message-context.ts`
+
+**Avant `export async function buildMessageContext(`**
 
 Tout ce qu'il faut savoir sur un message avant de décider quoi en faire.
 
@@ -4265,21 +4357,25 @@ aussitôt laisserait un message orphelin dans le fil.
 
 Garde défensive : `handleMessage` peut être appelé directement.
 
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
 **Avant `const botUserId = await this.getBotUserId();`**
 
 La promesse est déjà résolue sur ce chemin (`processEvent` l'a attendue), donc gratuit.
+
+### `src/features/notification/infrastructure/handlers/message-context.ts`
 
 **Avant `const conversationId = deriveConversationId({ channel, threadTs });`**
 
 Clé du fil. En DM `threadTs` est `undefined` par conception (voir plus haut), donc
 
 la conversation EST le canal ; en canal, c'est le thread.
-**Avant `const requesterIdentity = this.resolveRequesterIdentity(user);`**
+**Avant `const requesterIdentity = resolveRequesterIdentity(self, user);`**
 
 Lancée SANS `await` : la résolution de l'identité se recouvre avec la lecture de la
 
 mémoire au lieu de s'y ajouter. Elle ne rejette jamais (cf. `resolveRequesterIdentity`).
-**Avant `private async runStaticReply(ctx: {`**
+**Avant `export async function runStaticReply(`**
 
 Les cinq court-circuits STATIQUES : un prédicat pur, une réponse écrite en dur, zéro token.
 
@@ -4327,7 +4423,9 @@ un faux négatif enregistre « je ne vais pas bien » comme un nom de famille et
 personne — dangereux. La réponse figée est servie ; c'est la MÉMOIRE qu'on retient,
 
 pour que le fil reste exactement où il était.
-**Avant `private async resolvePendingEmail(input: {`**
+### `src/features/notification/infrastructure/handlers/pending-email.ts`
+
+**Avant `export async function resolvePendingEmail(`**
 
 LE « OUI » CONVERSATIONNEL — ce qui a remplacé le bouton « Envoyer »
 
@@ -4382,6 +4480,8 @@ famille `emailSent: false` sous `status: 'success'`.
 
 Ni oui ni non : la personne parle d'autre chose. On ne l'interrompt pas.
 
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
 **Avant `const shortCircuitInput = {`**
 
 SALUTATION NUE — réponse déterministe, aucun appel LLM
@@ -4429,7 +4529,7 @@ différentes d'un message à l'autre, et un message rejoué donne exactement la 
 réponse. Voir `shared/reply-variants.ts` — la répétition littérale est ce qui fait
 
 « machine », et la corriger ici coûte zéro token.
-**Avant `const pendingEmail = await this.resolvePendingEmail({`**
+**Avant `const pendingEmail = await resolvePendingEmail(this, {`**
 
 L'EMAIL D'ENTRETIEN EN ATTENTE — « oui » / « non », et rien d'autre
 
@@ -4527,7 +4627,7 @@ sur retenir, et les trois passent AVANT la frontière d'autorisation — effacer
 données, corriger ce que le bot sait de soi et remplir son propre dossier sont des
 
 droits, pas des privilèges de niveau `full`.
-**Avant `const accessLevel = await this.enforceAuthorization({`**
+**Avant `const accessLevel = await enforceAuthorization(this, {`**
 
 FRONTIÈRE D'AUTORISATION — l'identité franchit enfin la frontière
 
@@ -4620,6 +4720,8 @@ lesquelles le bot paraissait totalement muet. `startProgress` ne bloque pas : il
 la main sans attendre l'aller-retour Slack, et la réponse finale REMPLACE le marqueur
 
 — un seul message dans le fil, jamais deux.
+### `src/features/notification/infrastructure/handlers/intent-chain-runner.ts`
+
 **Avant `const chain = planIntentChain(ctx.text, ctx.history.at(-1)?.agentId);`**
 
 ⚠️ **DEUX DEMANDES DANS UN MESSAGE, ET LA SECONDE DISPARAISSAIT EN SILENCE — 2026-08-25.**
@@ -4651,6 +4753,8 @@ Verrouillé par `tests/unit/notification/intent-chain.test.ts` (le plan) et
 `tests/unit/handlers/intent-chain-execution.test.ts` (l'indépendance, qui ne se vérifie qu'à
 l'exécution).
 
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
 **Avant `pendingEmailReminder: pendingEmail.reminder,`**
 
 ⚠️ ACCOLÉ à la réponse de l'agent, jamais posté à part : deux messages feraient
@@ -4667,7 +4771,9 @@ parce que la personne a parlé d'autre chose. Répondre EFFACE l'état de la mac
 (il vit dans le dernier tour `assistant`), donc sans ce rappel l'accueil ne peut pas
 
 reprendre — et personne ne sait pourquoi le dossier n'a jamais été terminé.
-**Avant `private logSanitizerVerdicts(`**
+### `src/features/notification/infrastructure/handlers/agent-run-logs.ts`
+
+**Avant `export function logSanitizerVerdicts(`**
 
 Journalise ce que le filtre de sortie a retiré. Aucun effet sur la réponse : elle est
 déjà nettoyée quand on arrive ici.
@@ -4690,7 +4796,9 @@ tomber en minutes le faux `https://kisso.internal/docs/<uuid>/download` du
 2026-08-11. Seuls les HÔTES sont journalisés : le chemin d'un lien inventé embarque
 
 un identifiant réel, inutile à déverser dans les logs.
-**Avant `private shouldAbandonThreadReply(`**
+### `src/features/notification/infrastructure/handlers/message-context.ts`
+
+**Avant `function shouldAbandonThreadReply(`**
 
 Second volet de l'ouverture aux fils de canal — le premier est dans `rejectMessage`.
 
@@ -4756,7 +4864,9 @@ lisait. Un tiers reste libre de s'adresser au bot : il lui suffit de le mentionn
 ce que la garde précédente laisse passer. C'est le mandat explicite, et il est le bon
 
 critère pour quelqu'un dont on n'a jamais eu de message.
-**Avant `private tryGetAgent(agentId: string) {`**
+### `src/features/notification/infrastructure/handlers/agent-pipeline.ts`
+
+**Avant `function tryGetAgent(self: SlackHandlerInternals, agentId: string) {`**
 
 Résout un agent du registre Mastra, ou `undefined`.
 
@@ -4768,7 +4878,9 @@ du catch — un piège de diagnostic actif. On rattrape l'exception ici.
 La garde `!agent` est conservée en aval malgré tout : c'est une double sécurité contre
 un changement de contrat de Mastra, dans les deux sens.
 
-**Avant `private async maybeAdvanceOnboarding(input: {`**
+### `src/features/notification/infrastructure/handlers/onboarding-advance.ts`
+
+**Avant `export async function maybeAdvanceOnboarding(`**
 
  ----------------------------------------------------------------------- *
 Mémoire conversationnelle
@@ -4790,7 +4902,9 @@ parcours, et les voir côte à côte rend leur ORDRE lisible.
 quand le dossier est complet, la réponse à cette annonce CONTIENT la première question
 de l'entretien. Inverser reviendrait à traiter l'annonce comme une réponse à une
 question qui n'a pas encore été posée.
-**Avant `private async maybeRunProfileStep(input: {`**
+### `src/features/notification/infrastructure/handlers/profile-journey.ts`
+
+**Avant `export async function maybeRunProfileStep(`**
 
 La personne est-elle en train de compléter son dossier, et si oui, faire avancer.
 
@@ -4812,7 +4926,7 @@ depuis le 2026-08-20 : DM, court-circuit agissant prioritaire, question posée a
 Elles y sont parce qu'un TROISIÈME lecteur en a besoin — le miroir exact du
 
 rationnement — et qu'une copie de plus est la configuration où ce dépôt a déjà payé.
-**Avant `private async runProfileStep(input: {`**
+**Avant `async function runProfileStep(`**
 
 Un pas de la complétion de dossier. ZÉRO appel de modèle.
 
@@ -4825,7 +4939,9 @@ Trois issues, et une seule écrit en base :
 questions déjà posées avec les réponses données. Le dossier existant sert de socle — donc
 quelqu'un à qui il ne manque que le poste ne se voit demander que le poste.
 
-**Avant `private async knownProfileAnswers(user: string | undefined): Promise<ProfileAnswers> {`**
+### `src/features/notification/infrastructure/handlers/profile-record.ts`
+
+**Avant `export async function knownProfileAnswers(`**
 
 Ce que le dossier existant renseigne déjà — le socle de la conversation.
 
@@ -4837,7 +4953,9 @@ d'une écriture sur une valeur que la personne peut écrire elle-même.
 
 Un socle illisible ne casse rien : on redemande tout, ce qui est plus long mais juste.
 
-**Avant `private async submitProfile(`**
+### `src/features/notification/infrastructure/handlers/profile-journey.ts`
+
+**Avant `export async function submitProfile(`**
 
 Le dossier est complet : on l'enregistre par le MÊME workflow que la modale.
 
@@ -4868,7 +4986,7 @@ envers un tiers, pas une étape du parcours de l'arrivant. La faire attendre —
 ou pire, la laisser échouer — retarderait la question suivante d'un aller-retour
 
 Slack pour un message qui ne le concerne pas.
-**Avant `startDateFromJoin(await this.joinedAtOf(input.user), new Date()),`**
+**Avant `startDateFromJoin(await joinedAtOf(self, input.user), new Date()),`**
 
 ⚠️ LA DATE D'ARRIVÉE VIENT DE L'ANNUAIRE, plus d'un bouton — 2026-08-19.
 
@@ -4887,7 +5005,9 @@ la pose au `team_join`, et c'est plus robuste qu'un aller-retour par un `value`
 Slack — la donnée ne quitte jamais le serveur, donc rien ne peut la falsifier ni la
 
 perdre en route. Absente, on retombe sur aujourd'hui, comme avant.
-**Avant `private async warnManagersOfTopRoleClaim(`**
+### `src/features/notification/infrastructure/handlers/top-role-claim-notice.ts`
+
+**Avant `export async function warnManagersOfTopRoleClaim(`**
 
 Quelqu'un vient de se déclarer au SOMMET — le dire au sommet.
 
@@ -4915,7 +5035,7 @@ ZÉRO token : prédicat pur et texte écrit en dur, aucun modèle sur ce chemin.
 Le nom résolu, jamais celui que la personne vient de taper : c'est l'annuaire qui
 
 dit qui elle est, et le destinataire du message la connaît sous ce nom-là.
-**Avant `await this.slack.chat.postMessage({ channel: manager.slackUserId, text: notice });`**
+**Avant `await self.slack.chat.postMessage({ channel: manager.slackUserId, text: notice });`**
 
 `chat.postMessage` sur un `U…` ouvre le DM : le canal `D…` de l'annuaire n'est
 
@@ -4929,7 +5049,9 @@ AVALÉ : l'arrivant vient d'enregistrer son dossier et attend la question suivan
 Lui montrer l'échec d'un message qui ne lui était pas destiné n'a aucun sens, et
 
 faire échouer son parcours pour cela en aurait encore moins.
-**Avant `private async linkRequesterToRecord(`**
+### `src/features/notification/infrastructure/handlers/profile-journey.ts`
+
+**Avant `export async function linkRequesterToRecord(`**
 
 Rattache la ligne d'annuaire au dossier qui vient d'être créé.
 
@@ -4982,14 +5104,18 @@ Relevé au même moment : `slack_directory` compte 41 lignes dont UNE SEULE port
 `employee_id`. Le cas « pas de ligne » n'est donc pas théorique, c'est le cas courant
 
 pour qui n'est jamais passé ni par `team_join` ni par la synchronisation manuelle.
-**Avant `private async joinedAtOf(slackUserId: string | undefined): Promise<string | undefined> {`**
+### `src/features/notification/infrastructure/handlers/profile-record.ts`
+
+**Avant `export async function joinedAtOf(`**
 
 La date de première apparition dans le workspace, telle que l'annuaire l'a enregistrée.
 
 Rend `undefined` — jamais une date fabriquée — quand on ne sait pas : c'est ce qui permet
 à `buildWelcomeEmail` de faire disparaître sa phrase plutôt que d'annoncer une arrivée.
 
-**Avant `private async sayAndRemember(`**
+### `src/features/notification/infrastructure/handlers/conversation-memory.ts`
+
+**Avant `export async function sayAndRemember(`**
 
 Poste un texte ET l'inscrit dans la mémoire du fil.
 
@@ -4998,7 +5124,9 @@ Poste un texte ET l'inscrit dans la mémoire du fil.
 réponse de la personne part chez un agent — la faute exacte mesurée le 2026-08-19, dont le
 symptôme trompe puisque la question s'affiche parfaitement.
 
-**Avant `private async maybeCheckProfileDone(input: {`**
+### `src/features/notification/infrastructure/handlers/profile-done-check.ts`
+
+**Avant `export async function maybeCheckProfileDone(`**
 
 La personne annonce-t-elle avoir fini, et si oui, vérifier.
 
@@ -5020,7 +5148,7 @@ trois autres court-circuits agissants depuis le 2026-08-18. C'est ce qui garanti
 `isAnsweredWithoutModel` en soit le miroir exact : une seule déclaration, donc aucune
 
 divergence possible entre ce qui est exécuté et ce qui est facturé.
-**Avant `private async runProfileDoneCheck(input: {`**
+**Avant `async function runProfileDoneCheck(`**
 
 Vérifie le dossier de celui qui dit avoir fini, et lui répond.
 
@@ -5032,14 +5160,14 @@ traite comme « aucun dossier » : c'est exact, on n'a effectivement rien pu con
 indisponible est notre défaut, pas le sien, et le lui imputer l'enverrait corriger un
 formulaire qui n'a rien à corriger.
 
-**Avant `const member = user ? await this.getDirectoryRepo()?.findBySlackUserId(user) : null;`**
+**Avant `const member = user ? await self.getDirectoryRepo()?.findBySlackUserId(user) : null;`**
 
 L'email vient de l'ANNUAIRE Slack, jamais du texte du message : c'est la même règle
 
 que pour `slackEmployeeId` dans le `requestContext` — on ne décide pas d'une lecture
 
 de dossier sur une valeur que la personne peut écrire elle-même.
-**Avant `await this.rememberTurn({`**
+**Avant `await rememberTurn(self, {`**
 
 ⚠️ Mémorisés tous les deux, et c'est INDISPENSABLE : quand le dossier est complet, la
 
@@ -5048,7 +5176,9 @@ réponse CONTIENT la première question de l'entretien, et l'état de cette mach
 précisément le dernier tour `assistant`. Ne pas mémoriser ici ferait perdre le fil au
 
 message suivant — la faute exacte corrigée côté route quelques heures plus tôt.
-**Avant `private async maybeRunInterviewStep(input: {`**
+### `src/features/notification/infrastructure/handlers/interview-journey.ts`
+
+**Avant `export async function maybeRunInterviewStep(`**
 
 L'entretien est-il en cours, et si oui, le faire avancer.
 
@@ -5067,7 +5197,7 @@ SÉCURITÉ et non de l'ergonomie.
 Mêmes trois gardes que le pas de dossier, et pour les mêmes raisons — voir
 
 `answersOnboardingQuestion`, qui les porte une seule fois.
-**Avant `private async runInterviewStep(input: {`**
+**Avant `async function runInterviewStep(`**
 
 Un pas de l'entretien conversationnel. ZÉRO appel de modèle, ZÉRO lecture supplémentaire.
 
@@ -5091,7 +5221,7 @@ caractères de moins que le seuil, et le traiter comme une réponse ratée relan
 question à quelqu'un qui vient de dire non. Insister est le meilleur moyen de faire
 
 abandonner un questionnaire d'accueil pour de bon.
-**Avant `private async persistInterviewAnswer(`**
+**Avant `async function persistInterviewAnswer(`**
 
 Persiste la réponse — au mieux, et JAMAIS au prix de la conversation.
 
@@ -5115,7 +5245,9 @@ présentes, dont le dossier a été créé avant que la liaison n'existe. Le pro
 pas le réparer seul — le geste est `npm run directory:sync -- --apply` — mais il doit
 
 le DIRE plutôt que de perdre en silence ce que quelqu'un vient d'écrire sur lui-même.
-**Avant `private async loadPinnedFacts(slackUserId: string | undefined): Promise<readonly string[]> {`**
+### `src/features/notification/infrastructure/handlers/conversation-memory.ts`
+
+**Avant `export async function loadPinnedFacts(`**
 
  Persiste un tour. Même contrat que `loadHistory` : jamais fatal.
 
@@ -5125,7 +5257,7 @@ Même contrat de dégradation que `loadHistory` : la mémoire longue est un CONF
 une condition de fonctionnement. Une table absente ou une base injoignable rend le bot
 oublieux, jamais muet — et c'est cette propriété qui a permis de déployer
 `conversation_turns` sans coordination avec le DDL.
-**Avant `private buildMessages(`**
+**Avant `export function buildMessages(`**
 
 Messages transmis au modèle : l'historique fenêtré, puis le message courant.
 
@@ -5156,7 +5288,7 @@ jamais rendu en gabarit à trous. Les filtrer ici dupliquerait cette décision �
 endroits, et c'est leur ABSENCE de la fenêtre du modèle qui a produit les 38
 
 `findEmployeeByEmail` en échec du 2026-08-12.
-**Avant `now: this.now(),`**
+**Avant `now: self.now(),`**
 
 ⚠️ INJECTÉE ici et non lue dans le domaine : `buildContextPreamble` est du TypeScript
 
@@ -5201,7 +5333,7 @@ Le préambule serveur ouvre la liste. Mastra le route vers `addSystem()` et le p
 avant tous les messages de modèle, à côté des instructions de l'agent — donc HORS du
 
 bloc `<kisso_XXXX_user_input>`, que la DIRECTIVE 3.1 déclare non fiable.
-**Avant `private pruneIsDue(): boolean {`**
+**Avant `export function pruneIsDue(self: SlackHandlerInternals): boolean {`**
 
 Purge de rétention, en tâche de fond. Déclenchée par tirage — voir
 `DEFAULT_PRUNE_PROBABILITY` : un compteur d'instance ne survit pas au gel de la fonction
@@ -5209,7 +5341,7 @@ serverless, et ne se déclenchait donc jamais.
 
 Tirage sans état — c'est la propriété qui compte. Un compteur d'instance repart à zéro
 à chaque démarrage à froid ; une probabilité, non.
-**Avant `return Math.random() < this.pruneProbability;`**
+**Avant `return Math.random() < self.pruneProbability;`**
 
 Échantillonnage d'une purge de maintenance : aucune décision de sécurité n'en dépend.
 
@@ -5218,7 +5350,9 @@ Le tirage SANS ÉTAT remplace un compteur en mémoire PAR INSTANCE, remis à zé
 démarrage à froid et dont le seuil de 100 n'était donc jamais atteint à ≈ 19 messages
 
 par jour : les lignes restaient sur la Turso sans borne réelle.
-**Avant `private readSteps(response: unknown): number | null {`**
+### `src/features/notification/infrastructure/handlers/agent-run-logs.ts`
+
+**Avant `export function readSteps(response: unknown): number | null {`**
 
  ----------------------------------------------------------------------- *
 Lecture défensive du résultat d'agent (observabilité)
@@ -5226,11 +5360,13 @@ Lecture défensive du résultat d'agent (observabilité)
 Ces trois lecteurs sont volontairement tolérants : la forme exacte du résultat varie
 selon la version de Mastra, et l'observabilité ne doit JAMAIS faire échouer une
 réponse déjà produite. Un champ absent vaut `null`, jamais une exception.
-**Avant `private readInputTokens(response: unknown): number | null {`**
+**Avant `export function readInputTokens(response: unknown): number | null {`**
 
  ⚠️ `inputTokens` CUMULE toutes les étapes : ne comparer deux mesures qu'à `steps` égal.
 
-**Avant `private noAccessGuardLogged = false;`**
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
+**Avant `noAccessGuardLogged = false;`**
 
 Décide ce que le demandeur a le droit de déclencher.
 
@@ -5243,7 +5379,9 @@ NE LÈVE JAMAIS : `SlackAccessGuard.evaluate` avale déjà ses propres échecs, 
 indisponible rend `unknown_actor`, donc `readonly` — la réponse monotone restrictive.
 
  Un avertissement de câblage pour la vie de l'instance, jamais un par message.
-**Avant `this.warnNoAccessGuardOnce();`**
+### `src/features/notification/infrastructure/handlers/requester-identity.ts`
+
+**Avant `warnNoAccessGuardOnce(self);`**
 
 ⚠️ ÉTAIT MUET jusqu'au 2026-08-20, et c'était le chemin le PLUS probable des deux :
 
@@ -5256,7 +5394,9 @@ non-décision — c'est désormais l'inverse, plus personne ne lit le dossier d'
 Dans les deux sens, un tel état doit se voir : il ne se déduit d'aucun symptôme, et
 
 « le bot ne sait plus rien faire » ne désignerait pas sa cause.
-**Avant `export { FILE_ATTACHMENT_REPLY };`**
+### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
+
+**Avant `export { FILE_ATTACHMENT_REPLY } from '../../domain/services/deterministic-replies';`**
 
 Réexports de compatibilité : `slack-interactions.route.ts` et trois tests importent
 
@@ -5265,11 +5405,11 @@ ces symboles depuis ce module depuis l'origine. Les faire pointer ailleurs serai
 une modification de plus dans un même commit, sans rien apporter.
 
 Réexport : deux tests importent `FILE_ATTACHMENT_REPLY` depuis ce module.
-**Avant `export { GENERIC_FAILURE, QUOTA_FAILURE, userFacingFailure };`**
+**Avant `export { GENERIC_FAILURE, QUOTA_FAILURE, userFacingFailure } from '../../../../shared/user-facing-failure';`**
 
 Réexports de la politique d'échec — le test du handler les importe depuis ici.
 
-**Avant `export { FOREIGN_TURN_PREFIX, buildContextPreamble, sanitizeDisplayName };`**
+**Avant `export { FOREIGN_TURN_PREFIX, buildContextPreamble, sanitizeDisplayName } from '../../domain/services/context-preamble';`**
 
 Réexports du préambule d'identité — quatre tests les importent depuis ici.
 
@@ -5282,6 +5422,8 @@ Réexports de la réconciliation FAIT/NARRATION — trois tests les importent de
 ⚠️ RÉEXPORTÉE le 2026-08-20 : elle est désormais accolée sur une condition de CÂBLAGE et
 
 non de texte, donc le seul endroit où ce comportement se vérifie est le handler.
+### `src/features/notification/infrastructure/handlers/response-notices.ts`
+
 **Avant `function appendNotes(notes: readonly (string | undefined)[]): string {`**
 
 Texte du dernier tour `assistant` du fil, ou `undefined`.
@@ -5340,6 +5482,8 @@ intervertir deux notes sans que rien ne le signale.
 
 Rend `''` quand tout est vide : accoler une chaîne vide laisserait deux sauts de ligne en
 fin de message, trace visible d'un mécanisme qui ne s'est pas déclenché.
+### `src/features/notification/infrastructure/handlers/onboarding-turn-state.ts`
+
 **Avant `export function interviewReplyFor(step: InterviewStep, text: string, skipped: boolean): string {`**
 
 Ce qu'on répond à un pas d'entretien. PURE, et hors de la classe à dessein : elle ne lit
@@ -5550,6 +5694,8 @@ La livraison finale échoue → l'appelant doit le savoir (cf. en-tête).
 
 ## `features/notification/infrastructure/providers/slack-workspace.service.ts`
 
+### `src/features/notification/infrastructure/providers/slack-member-mapping.ts`
+
 **Avant `interface SlackApiUser {`**
 
  Forme commune aux réponses `users.list`, `users.lookupByEmail` et `users.info`.
@@ -5557,6 +5703,8 @@ La livraison finale échoue → l'appelant doit le savoir (cf. en-tête).
 **Avant `deleted?: boolean;`**
 
  Nom de champ de Slack : `deleted`, et non `is_deleted` comme les autres drapeaux.
+
+### `src/features/notification/domain/ports/slack-workspace.port.ts`
 
 **Avant `export const SLACK_PAGE_LIMIT = 200;`**
 
@@ -5615,6 +5763,8 @@ Issue NOMMÉE d'une tentative d'adhésion. Aucune n'est une exception :
 
  Code d'erreur brut de Slack, conservé pour le journal. Jamais montré à un utilisateur.
 
+### `src/features/notification/infrastructure/providers/slack-member-mapping.ts`
+
 **Avant `function splitRealName(realName: string): { firstName: string; lastName: string } {`**
 
  Découpe « Marie Claire Dupont » en « Marie » / « Claire Dupont ».
@@ -5658,6 +5808,8 @@ LA ligne à chercher quand l'annuaire paraît complet et ne l'est pas.
 En `error` et non en `warn` : une troncature muette est indiscernable d'un workspace petit,
 et la politique d'autorisation qui s'en nourrit rétrograderait des gens légitimes au motif
 qu'ils sont en page 2.
+
+### `src/features/notification/infrastructure/providers/slack-workspace.service.ts`
 
 **Avant `async listMembers(): Promise<SlackMember[]> {`**
 
@@ -6237,6 +6389,8 @@ La grâce ne s'applique QU'À `in-flight` : une entrée `done` est un refus déf
 
 ## `features/notification/infrastructure/services/slack-rate-limiter.ts`
 
+### `src/features/notification/infrastructure/services/rate-limit-decision.ts`
+
 **Avant `export interface RateLimitDecision {`**
 
 LIMITATION DE DÉBIT — assemblage des DEUX niveaux (P3).
@@ -6306,11 +6460,13 @@ phase partagée, pas seulement le sien.
 Budget de tokens de l'ÉQUIPE. `null` le DÉSACTIVE — c'est le comportement d'avant le
 2026-08-13, celui où rien ne mesurait la grandeur qui a réellement cassé la production.
 
+### `src/features/notification/infrastructure/services/slack-rate-limiter.ts`
+
 **Avant `private readonly workspaceRule: RateLimitRule | null;`**
 
  Budget de tokens de l'équipe. `null` = désactivé.
 
-**Avant `private readonly local: LRUCache<string, number>;`**
+**Avant `readonly local: LRUCache<string, number>;`**
 
 Compteurs locaux. La clé porte déjà le numéro de fenêtre, donc une entrée ne se remet
 jamais à zéro : elle cesse simplement d'être consultée. Le TTL est posé par `set()`,
@@ -6574,11 +6730,15 @@ seuil passe toujours, et le dépassement est constaté au suivant.
 NE LÈVE JAMAIS. Elle vit sur le chemin de fond, après que la réponse a été postée : une
 erreur ici ne doit rien changer pour la personne qui vient d'être servie.
 
+### `src/features/notification/infrastructure/services/workspace-token-budget.ts`
+
 **Avant `logger.info('Workspace token budget', { consumed, limit: rule.limit });`**
 
 `info` et non `debug` : c'est la seule trace qui dise où en est le budget de la
 
 journée, et c'est elle qu'on lira avant de lancer une campagne de test.
+### `src/features/notification/infrastructure/services/slack-rate-limiter.ts`
+
 **Avant `private claimNotification(key: string): boolean {`**
 
 Première fois qu'on refuse sur cette fenêtre, pour cette instance ?
@@ -6591,7 +6751,7 @@ Imperfection assumée : deux instances peuvent prévenir deux fois. Prévenir en
 visible et corrigeable ; ne pas prévenir du tout ne l'est pas — c'est l'arbitrage que ce
 fichier applique déjà partout ailleurs.
 
-**Avant `private logDegradation(rule: RateLimitRule, error: unknown): void {`**
+**Avant `logDegradation(rule: RateLimitRule, error: unknown): void {`**
 
  N'inonde pas les logs : un avertissement pour la vie de l'instance, pas un par message.
 
@@ -7300,6 +7460,8 @@ remise reviendrait à envoyer un texte que personne n'a relu.
 
 ### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
 
+### `src/features/notification/infrastructure/handlers/handler-internals.ts`
+
 **Avant `knowledgeErasure?: KnowledgeErasurePort | null;`**
 
 ⚠️ **INJECTÉ, comme l'ingestion, et JAMAIS fabriqué ici.** Ce handler fabrique déjà six
@@ -7308,6 +7470,8 @@ dépôts Drizzle en interne, ce qui est la cause racine documentée du piège de
 n'en ajoute pas un septième.
 
 Absent ou `null` ⇒ l'archive n'est pas touchée et la réponse ne prétend RIEN à son sujet.
+
+### `src/features/notification/infrastructure/handlers/response-notices.ts`
 
 **Avant `function buildAuthorizationNotice(requestContext: unknown, answer: string): string {`**
 
@@ -7392,6 +7556,8 @@ se répète finit par se faire ignorer, y compris quand elle compte.
 produit un quantificateur en tête ou en queue de motif, et ce dépôt tient son lint à zéro
 warning. Le libellé est produit par `deliveryLabel`, sa forme est connue exactement.
 
+### `src/features/notification/infrastructure/handlers/rate-limiter.factory.ts`
+
 **Avant `{ ...BURST_RULE, limit: readRuleLimit(process.env.SLACK_BURST_LIMIT, BURST_RULE.limit) },`**
 
 ⚠️ CES VARIABLES ÉCRASENT LES CONSTANTES, ET LE PIÈGE S'EST REFERMÉ LE 2026-08-21.
@@ -7400,12 +7566,16 @@ depuis une semaine : relever les défauts dans `rate-limit-policy.ts` n'a RIEN
 changé, et le journal continuait d'afficher l'ancien plafond. Avant de conclure
 qu'un plafond n'a pas bougé, lire `npx vercel env ls production`.
 
-**Avant `private checkTeamId(envelope: SlackEventEnvelope): SlackEventDecision | undefined {`**
+### `src/features/notification/infrastructure/handlers/event-gating.ts`
+
+**Avant `export function checkTeamId(`**
 
 ⚠️ **LA RÈGLE VIT DANS `shared/slack-team.ts` DEPUIS LE 2026-08-21, et elle y vit parce
 qu'elle a DEUX consommateurs.** `/slack/interactions` ne la posait pas du tout, alors que
 son payload porte `team.id` — déclaré dans le type, lu nulle part. Recopier la règle ici et
 là était exactement ce qui avait produit la divergence ; on la partage.
+
+### `src/features/notification/infrastructure/handlers/acting-shortcuts.ts`
 
 **Avant `let removedArchive = 0;`**
 
@@ -7429,7 +7599,7 @@ L'effacement GLOBAL existe, et c'est un geste d'administration explicite :
 ⚠️ Sur un effacement PARTIEL, on ne dit jamais « c'est effacé » : le contrat de ce
 court-circuit est qu'il ne prétend jamais avoir effacé quand il a échoué.
 
-**Avant `const known = await this.knownProfileAnswers(user);`**
+**Avant `const known = await knownProfileAnswers(self, user);`**
 
 ⚠️ L'INVITATION EST POSTÉE APRÈS LA VÉRIFICATION, PAS AVANT — corrigé le 2026-08-21,
 sur observation en production.
@@ -7441,13 +7611,17 @@ forme la plus bénigne et la plus visible.
 L'ordre coûte une lecture de plus avant le premier mot posté. C'est le bon échange :
 l'alternative est d'ouvrir la conversation par une phrase fausse.
 
+### `src/features/notification/infrastructure/handlers/claim-requalification.ts`
+
 **Avant `const deliveryPromise =`**
 
 ⚠️ La note s'accole désormais SUR LE VERDICT DU DÉTECTEUR, et non sur la seule
 classification des outils. C'est ce qui produisait le doublon relevé en production le
 2026-08-21 : le modèle disait la vérité, et la note la redisait en moins bien.
 
-**Avant `private async findProfileRecord(`**
+### `src/features/notification/infrastructure/handlers/profile-record.ts`
+
+**Avant `export async function findProfileRecord(`**
 
 ⚠️ **LE LIEN DIRECT D'ABORD, L'ADRESSE ENSUITE — corrigé le 2026-08-21, en production.**
 
@@ -7525,7 +7699,9 @@ de la grâce — sinon le rappel resterait `sending` à jamais, perdu en silence
 
 ### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
 
-**Avant `private async runProfileDoneCheck(input: {`**
+### `src/features/notification/infrastructure/handlers/profile-done-check.ts`
+
+**Avant `async function runProfileDoneCheck(`**
 
 ⚠️ **L'ORDRE DE PRÉCÉDENCE EST CELUI DE `handleProfileAnswer`, et il doit le rester** :
 annuaire, puis dossier, puis historique du fil. L'historique gagne parce que c'est ce que la
@@ -7547,7 +7723,9 @@ jamais par une seconde création.
 ⚠️ Le tour `user` est mémorisé À LA MAIN sur ce chemin : `sayAndRemember` réécrit `input.text`
 à chaque appel, et `submitProfile` en fait plusieurs. On passe donc un `input` SANS `text`.
 
-**Avant `private async warnManagersOfTopRoleClaim(`**
+### `src/features/notification/infrastructure/handlers/top-role-claim-notice.ts`
+
+**Avant `export async function warnManagersOfTopRoleClaim(`**
 
 ⚠️ **ELLE REND LE MESSAGE DU DÉCLARANT AU LIEU DE NE RIEN RENDRE, et l'appel n'est plus
 `void`.** Le détachement se justifiait tant que la fonction n'avait d'effet que sur un tiers ;
@@ -7608,7 +7786,9 @@ non filtré. Une phrase générique dit la même chose sans ouvrir ce canal.
 
 ### `src/features/notification/infrastructure/handlers/slack-events.handler.ts`
 
-**Avant `private async postPlainMessage(`**
+### `src/features/notification/infrastructure/handlers/intent-chain-runner.ts`
+
+**Avant `export async function postPlainMessage(`**
 
 Un échec de publication de la note d'arrêt est journalisé en `warn`, jamais propagé : la réponse
 de l'étape 1 est déjà partie, et perdre le fil entier pour une phrase complémentaire serait un

@@ -8,56 +8,19 @@ import { Mastra } from '@mastra/core';
 import { LibSQLStore } from '@mastra/libsql';
 import { VercelDeployer } from '@mastra/deployer-vercel';
 
-import { DrizzleEmployeeRepository } from '../features/employee/infrastructure/repositories/drizzle-employee.repository';
-import { DrizzleDocumentRepository } from '../features/document/infrastructure/repositories/drizzle-document.repository';
-import { DrizzleNotificationRepository } from '../features/notification/infrastructure/repositories/drizzle-notification.repository';
-import { DrizzleOnboardingRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding.repository';
-import { DrizzleOnboardingInterviewRepository } from '../features/onboarding/infrastructure/repositories/drizzle-onboarding-interview.repository';
-import { DrizzleChannelInventoryRepository } from '../features/directory/infrastructure/repositories/drizzle-channel.repository';
-
 import { healthCheck } from '../infrastructure/database/connection';
-
-import { makeFindEmployeeByEmail } from '../features/employee/application/tools/find-employee-by-email';
-import { makeFindPersonByName } from '../features/employee/application/tools/find-person-by-name';
-import { makeGetEmployeeProfile } from '../features/employee/application/tools/get-employee-profile';
-import { makeUpdateOnboardingStatus } from '../features/onboarding/application/tools/update-onboarding-status';
-import { makeGenerateDocument } from '../features/document/application/tools/generate-document';
-import { makeSendNotification } from '../features/notification/application/tools/send-notification';
-import { makeScheduleReminder } from '../features/notification/application/tools/schedule-reminder';
-import { makeGetNotificationHistory } from '../features/notification/application/tools/get-notification-history';
 
 import { makeOnboardingOrchestrator } from '../features/onboarding/application/agents/onboarding-orchestrator';
 import { makeNotificationAgent } from '../features/notification/application/agents/notification-agent';
 import { makeKnowledgeAgent } from '../features/knowledge/application/agents/knowledge-agent';
 import { makeRecruitmentAgent } from '../features/recruitment/application/agents/recruitment-agent';
-import { makeScheduleCandidateInterview } from '../features/recruitment/application/tools/schedule-candidate-interview';
-import { slackInterviewConfirmationPresenter } from '../features/recruitment/infrastructure/handlers/interview-confirm';
 
-import { DrizzleDirectoryRepository } from '../features/directory/infrastructure/repositories/drizzle-directory.repository';
-import { SlackMemberSource } from '../features/directory/infrastructure/providers/slack-member-source.adapter';
-import { SlackChannelAccess } from '../features/directory/infrastructure/providers/slack-channel-access.adapter';
+import { createEmployeeOnboardingWorkflow } from '../features/onboarding/application/workflows/employee-onboarding';
 import { makeDirectorySync } from '../features/directory/application/services/directory-sync.service';
 import { makeChannelCoverage } from '../features/directory/application/services/channel-coverage.service';
 
-import { DrizzleBotMemoryRepository } from '../features/knowledge/infrastructure/repositories/drizzle-bot-memory.repository';
-import { SlackChannelHistoryAdapter } from '../features/knowledge/infrastructure/providers/slack-channel-history.adapter';
-import { makeGetUserConversations } from '../features/knowledge/application/tools/get-user-conversations';
-import { makeGetChannelHistory } from '../features/knowledge/application/tools/get-channel-history';
-import type { DigestDeliveryPort } from '../features/knowledge/domain/ports/digest-delivery.port';
-import { DocumentType } from '../shared/types';
-import { makeSearchKnowledge } from '../features/knowledge/application/tools/search-knowledge';
-import { DrizzleMessageArchiveRepository } from '../features/knowledge/infrastructure/repositories/drizzle-message-archive.repository';
-import { DrizzleKnowledgeFactRepository } from '../features/knowledge/infrastructure/repositories/drizzle-knowledge-fact.repository';
-import { makeFindExpertise } from '../features/knowledge/application/tools/find-expertise';
-
-import { SmtpAdapter } from '../features/notification/infrastructure/providers/smtp.adapter';
-import { createEmailProvider } from '../features/notification/infrastructure/providers/email-provider.factory';
-import { SlackAdapter } from '../features/notification/infrastructure/providers/slack.adapter';
-import { SlackWorkspaceService } from '../features/notification/infrastructure/providers/slack-workspace.service';
-import { PdfmakeService } from '../features/document/infrastructure/services/pdfmake.service';
-import { DocxService } from '../features/document/infrastructure/services/docx.service';
-
-import { createEmployeeOnboardingWorkflow } from '../features/onboarding/application/workflows/employee-onboarding';
+import { buildRuntimeDependencies } from './runtime-dependencies';
+import { buildAgentTools } from './agent-tools';
 
 import { slackEventsRoute, slackEventsWorkRoute } from '../api/slack-events.route';
 import { dashboardMetricsRoute, dashboardPageRoute } from '../api/dashboard.route';
@@ -74,7 +37,6 @@ import { createSecurityHeadersMiddleware } from '../shared/security/http-headers
 import { createAgentApiGuard } from '../shared/security/agent-api-guard';
 import { logger } from '../shared/logger';
 import { reportMissingCriticalEnv } from '../shared/startup-env-check';
-import { DrizzlePendingInterviewEmailRepository } from '../features/recruitment/infrastructure/repositories/drizzle-pending-email.repository';
 
 void healthCheck().catch((error) => {
   logger.warn('Amorçage de la connexion à la base sans succès — chaque appelant dégradera', {
@@ -82,69 +44,33 @@ void healthCheck().catch((error) => {
   });
 });
 
-const employeeRepo = new DrizzleEmployeeRepository();
-const documentRepo = new DrizzleDocumentRepository();
-const notificationRepo = new DrizzleNotificationRepository();
-const onboardingRepo = new DrizzleOnboardingRepository();
-const interviewRepo = new DrizzleOnboardingInterviewRepository();
-const channelInventoryRepo = new DrizzleChannelInventoryRepository();
-
-const emailProvider = createEmailProvider();
-
-console.log('ENV CHECK', {
-  cwd: process.cwd(),
-  emailProvider: emailProvider instanceof SmtpAdapter ? 'smtp' : 'brevo',
-  hasBrevoKey: Boolean(process.env.BREVO_API_KEY),
-  hasSmtpPass: Boolean(process.env.SMTP_PASS),
-  env: process.env.NODE_ENV,
-});
-const chatProvider = new SlackAdapter(process.env.SLACK_BOT_TOKEN ?? '');
-const slackWorkspace = new SlackWorkspaceService(process.env.SLACK_BOT_TOKEN ?? '');
-const pdfService = new PdfmakeService();
-const docxService = new DocxService();
-
-const directoryRepo = new DrizzleDirectoryRepository();
-const slackMemberSource = new SlackMemberSource(slackWorkspace);
-const slackChannelAccess = new SlackChannelAccess(slackWorkspace);
+const deps = buildRuntimeDependencies();
 
 export const directorySync = makeDirectorySync({
-  source: slackMemberSource,
-  repository: directoryRepo,
-  employees: employeeRepo,
+  source: deps.slackMemberSource,
+  repository: deps.directoryRepo,
+  employees: deps.employeeRepo,
 });
 export const channelCoverage = makeChannelCoverage({
-  source: slackChannelAccess,
-  inventory: channelInventoryRepo,
+  source: deps.slackChannelAccess,
+  inventory: deps.channelInventoryRepo,
 });
 
-const findEmployeeByEmail = makeFindEmployeeByEmail(employeeRepo, directoryRepo);
-const findPersonByName = makeFindPersonByName(employeeRepo, directoryRepo);
-const getEmployeeProfile = makeGetEmployeeProfile(employeeRepo, onboardingRepo);
-const updateOnboardingStatus = makeUpdateOnboardingStatus(onboardingRepo);
-const generateDocument = makeGenerateDocument({
-  documentRepo,
-  employeeRepo,
-  renderers: [pdfService, docxService],
-  fileUpload: chatProvider,
-  emailProvider,
-  interviewRepo,
-  channelRepo: channelInventoryRepo,
-});
-const sendNotification = makeSendNotification(
-  notificationRepo,
-  employeeRepo,
-  emailProvider,
-  chatProvider,
-  slackWorkspace,
-);
-const scheduleReminder = makeScheduleReminder(notificationRepo, employeeRepo);
-const getNotificationHistory = makeGetNotificationHistory(notificationRepo, employeeRepo);
-
-const findExpertise = makeFindExpertise({
-  directoryRepo,
-  employeeRepo,
-  interviewRepo,
-});
+const {
+  findEmployeeByEmail,
+  findPersonByName,
+  getEmployeeProfile,
+  updateOnboardingStatus,
+  generateDocument,
+  sendNotification,
+  scheduleReminder,
+  getNotificationHistory,
+  findExpertise,
+  getUserConversations,
+  getChannelHistory,
+  searchKnowledge,
+  scheduleCandidateInterview,
+} = buildAgentTools(deps);
 
 const onboardingOrchestrator = makeOnboardingOrchestrator({
   findEmployeeByEmail,
@@ -165,59 +91,6 @@ const notificationAgent = makeNotificationAgent({
   findExpertise,
 });
 
-const channelHistory = new SlackChannelHistoryAdapter(process.env.SLACK_BOT_TOKEN ?? '', {
-  resolveDisplayName: async (id) =>
-    (await directoryRepo.findBySlackUserId(id))?.displayName ?? null,
-});
-
-const getUserConversations = makeGetUserConversations({
-  directory: directoryRepo,
-  memory: new DrizzleBotMemoryRepository(),
-});
-const channelDigestDelivery: DigestDeliveryPort = {
-  async deliver(digest, target) {
-    const rendered = await pdfService.render({
-      type: DocumentType.Guide,
-      title: digest.title,
-      content: [digest.coverage, '', ...digest.lines].filter(Boolean).join('\n'),
-    });
-
-    try {
-      await chatProvider.uploadFile({
-        channel: target.channel,
-        ...(target.threadTs ? { threadTs: target.threadTs } : {}),
-        bytes: rendered.bytes,
-        filename: rendered.filename,
-        title: digest.title,
-      });
-    } catch (error) {
-      logger.error('Livraison du résumé de canal en document impossible', {
-        channelId: digest.channelId,
-        error,
-      });
-      return { delivered: false, reason: 'post_failed' };
-    }
-
-    return { delivered: true, filename: rendered.filename };
-  },
-};
-
-const getChannelHistory = makeGetChannelHistory({
-  directory: directoryRepo,
-  channels: channelHistory,
-  digests: channelDigestDelivery,
-});
-
-const messageArchive = new DrizzleMessageArchiveRepository();
-const knowledgeFactRepo = new DrizzleKnowledgeFactRepository();
-
-const searchKnowledge = makeSearchKnowledge({
-  directory: directoryRepo,
-  facts: knowledgeFactRepo,
-  archive: messageArchive,
-  channels: channelHistory,
-});
-
 const knowledgeAgent = makeKnowledgeAgent({
   searchKnowledge,
   getUserConversations,
@@ -226,23 +99,14 @@ const knowledgeAgent = makeKnowledgeAgent({
   findPersonByName,
 });
 
-const pendingInterviewEmailRepo = new DrizzlePendingInterviewEmailRepository();
-
-const scheduleCandidateInterview = makeScheduleCandidateInterview({
-  chat: { sendText: (channelId, text) => chatProvider.sendMessage(channelId, text) },
-  pending: pendingInterviewEmailRepo,
-  presenter: slackInterviewConfirmationPresenter,
-  directoryRepo,
-});
-
 const recruitmentAgent = makeRecruitmentAgent({ scheduleCandidateInterview });
 
 const employeeOnboardingWorkflow = createEmployeeOnboardingWorkflow({
-  employeeRepo,
-  onboardingRepo,
-  notificationRepo,
-  emailProvider,
-  slackProvider: slackWorkspace,
+  employeeRepo: deps.employeeRepo,
+  onboardingRepo: deps.onboardingRepo,
+  notificationRepo: deps.notificationRepo,
+  emailProvider: deps.emailProvider,
+  slackProvider: deps.slackWorkspace,
 });
 
 const databaseUrl = process.env.DATABASE_URL;

@@ -35,6 +35,8 @@ les routes internes Mastra et le playground : rejetée, trop risquée.)
 
  Chemin public de l'endpoint Slack. À reporter tel quel dans l'app Slack.
 
+### `src/api/background-work.ts`
+
 **Avant `const VERCEL_REQUEST_CONTEXT = Symbol.for('@vercel/request-context');`**
 
  ------------------------------------------------------------------------- *
@@ -76,6 +78,8 @@ serveur Node de longue durée — le simple détachement suffit puisque le proce
 La promesse reçue DOIT déjà être « catchée » : `waitUntil` propagerait sinon un rejet
 non géré.
 
+### `src/api/slack-ack-budget.ts`
+
 **Avant `export const SLACK_ACK_BUDGET_MS = 3_000;`**
 
  ------------------------------------------------------------------------- *
@@ -107,10 +111,14 @@ Journalise le coût du chemin pré-ACK, et seulement quand il devient intéressa
 traitement est déjà en vol quelque part. C'est la ligne à chercher quand une double réponse
 réapparaît — avant d'aller soupçonner la déduplication, qui n'est que la victime.
 
+### `src/api/slack-events.route.ts`
+
 **Avant `export interface SlackRouteContext {`**
 
 Sous-ensemble du `Context` Hono réellement utilisé par la route.
 Permet de tester le handler sans démarrer un serveur.
+
+### `src/api/slack-events-handler.factory.ts`
 
 **Avant `let cachedHandler: SlackEventsHandler | undefined;`**
 
@@ -213,6 +221,8 @@ de ses dépôts Drizzle — survivrait à l'injection et la rendrait silencieuse
 **Avant `export function resetSlackEventsHandler(): void {`**
 
  Réinitialise le singleton ET l'injection de test — remise à l'état de production.
+
+### `src/api/slack-events.route.ts`
 
 **Avant `const startedAt = Date.now();`**
 
@@ -347,6 +357,8 @@ lot dédié — le retirer emporte `profile-modal.ts`, `interview-modal.ts` et
 `applyInterview`, c'est-à-dire l'invitation aux canaux, et cela ne se fait pas dans le même
 commit qu'un parcours neuf. Voir `TODO.md`.
 
+### `src/api/slack-interaction-dispatch.ts`
+
 **Avant `const PROFILE_DONE_ACTION_ID = 'profile_done';`**
 
 ⚠️ IDENTIFIANT HÉRITÉ — plus AUCUN émetteur depuis le 2026-08-19.
@@ -361,9 +373,13 @@ obtenir la vérification de son dossier — pas un `block_actions sans action co
 dire un clic sans effet et sans trace. La constante vit ici parce que c'est désormais son
 unique consommateur.
 
+### `src/api/slack-interactions.route.ts`
+
 **Avant `export const SLACK_INTERACTIONS_PATH = '/slack/interactions';`**
 
  Chemin public. À reporter dans *Interactivity & Shortcuts* de l'app Slack.
+
+### `src/api/slack-interaction-payload.ts`
 
 **Avant `interface SlackInteractionUser {`**
 
@@ -399,9 +415,13 @@ ancien peut porter un format antérieur, d'où le repli sur l'identifiant seul.
 
 Format historique : le `value` ne portait que l'identifiant Slack brut.
 
+### `src/api/slack-interactions.route.ts`
+
 **Avant `export interface SlackInteractionsContext {`**
 
  Sous-ensemble du `Context` Hono réellement utilisé.
+
+### `src/api/slack-interaction-replies.ts`
 
 **Avant `function ack(): Response {`**
 
@@ -422,6 +442,8 @@ Adaptateur Slack mémorisé
 **Avant `export function resetSlackInteractionsAdapter(): void {`**
 
  Réinitialise le singleton (tests).
+
+### `src/api/slack-interaction-dispatch.ts`
 
 **Avant `async function handleBlockActions(payload: SlackInteractionPayload): Promise<Response> {`**
 
@@ -534,6 +556,8 @@ Les deux parcours sont désormais CONVERSATIONNELS (`profile-chat.ts`, `intervie
 des boutons qui n'en ont aucun besoin — la faute déjà corrigée pour « Envoyer » et
 
 « Annuler ».
+### `src/api/interview-send.action.ts`
+
 **Avant `let cachedEmailProvider: EmailProvider | undefined;`**
 
  -------------------------------------------------------------------------- *
@@ -548,6 +572,8 @@ ceux de notification par un autre, sans que rien ne le signale.
 **Avant `export function resetRecruitmentDependencies(): void {`**
 
  Réinitialise le singleton (tests).
+
+### `src/api/slack-interaction-replies.ts`
 
 **Avant `function scheduleInteractionWork(label: string, work: Promise<unknown>): void {`**
 
@@ -591,6 +617,8 @@ qu'elle confirme.
 Ne jamais propager : Slack rejouerait l'interaction, donc l'email partirait DEUX FOIS.
 
 Un accusé perdu est bénin ; un second email à un candidat ne l'est pas.
+### `src/api/interview-card.ts`
+
 **Avant `const settledCards = new Set<string>();`**
 
 Cartes déjà tranchées — envoyées, annulées ou refusées.
@@ -638,6 +666,8 @@ Réécrit la carte sans ses boutons, avec le verdict à la place.
 ⚠️ Ne lève jamais et n'est jamais bloquant : une carte non réécrite est une gêne, alors
 qu'une exception ici empêcherait le message de confirmation de partir. La garantie de
 non-répétition est portée par `claimCard`, pas par cet appel réseau.
+
+### `src/api/interview-send.action.ts`
 
 **Avant `async function handleInterviewSend(`**
 
@@ -702,6 +732,8 @@ chemin d'effacement — le trou que `TODO.md` recense déjà pour `notifications
 La carte porte désormais le verdict, à l'endroit exact où l'on a cliqué : c'est ce qui
 
 évite le second clic bien plus sûrement qu'un message posté à côté.
+### `src/api/profile-done.action.ts`
+
 **Avant `let cachedEmployeeRepo: DrizzleEmployeeRepository | undefined;`**
 
 Écrit à la personne qui vient de valider la modale.
@@ -756,6 +788,8 @@ quand le dossier est complet, celle du premier champ manquant sinon. Les deux ma
 
  Poste un texte en DM et l'inscrit dans la mémoire du fil — voir ci-dessus.
 
+### `src/api/slack-interaction-dispatch.ts`
+
 **Avant `const OBSOLETE_FORM_REPLY =`**
 
 IL N'Y A PLUS AUCUN FORMULAIRE — mais ce chemin ne se tait pas pour autant
@@ -791,6 +825,8 @@ en DM, là où la personne pourra répondre.
 Corps BRUT d'abord : le HMAC porte dessus, et le lire autrement
 
 (`c.req.parseBody()`) consommerait le flux.
+### `src/api/slack-interactions.route.ts`
+
 **Avant `if (params.get('ssl_check') === '1') {`**
 
 À l'enregistrement de la Request URL, Slack envoie un POST `ssl_check=1`
@@ -882,6 +918,8 @@ une piste d'observabilité fiable en marche normale. La ligne à chercher quand 
 db/connection.ts - Production-Grade DB Connection Manager (LibSQL/Turso)
 
 Standards 2026: Serverless-safe, Migrations, Graceful Shutdown
+### `src/infrastructure/database/connection-types.ts`
+
 **Avant `type DatabaseInstance = LibSQLDatabase<typeof schema>;`**
 
 1. TYPES
@@ -902,13 +940,19 @@ Standards 2026: Serverless-safe, Migrations, Graceful Shutdown
 
  Dossier des migrations
 
+### `src/infrastructure/database/connection.ts`
+
 **Avant `const DEFAULT_CONFIG: ConnectionConfig = {`**
 
 2. CONFIGURATION PAR DÉFAUT
 
+### `src/infrastructure/database/connection-shutdown.ts`
+
 **Avant `let dbShutdownHandlersRegistered = false;`**
 
 Flag module-scope pour éviter l'enregistrement multiple des handlers OS
+
+### `src/infrastructure/database/connection.ts`
 
 **Avant `class LibSqlConnectionManager implements ConnectionManager {`**
 
@@ -949,9 +993,13 @@ Exécute les migrations Drizzle
 
 Configure le graceful shutdown
 
+### `src/infrastructure/database/connection-errors.ts`
+
 **Avant `export class DatabaseConnectionError extends Error {`**
 
 4. ERREURS PERSONNALISÉES
+
+### `src/infrastructure/database/connection.ts`
 
 **Avant `let connectionManager: ConnectionManager | null = null;`**
 
@@ -964,6 +1012,8 @@ Configure le graceful shutdown
 db/schema.ts - Production-Grade Drizzle Schema
 
 Standards 2026: FKs, Indexes, Soft Delete, Audit Trail
+### `src/infrastructure/database/schema-employee.ts`
+
 **Avant `export const employees = sqliteTable(`**
 
 1. EMPLOYEES
@@ -1051,6 +1101,8 @@ Foreign Keys
 
 Indexes
 
+### `src/infrastructure/database/schema-document.ts`
+
 **Avant `export const documents = sqliteTable(`**
 
 3. DOCUMENTS
@@ -1122,6 +1174,8 @@ Foreign Keys
 
 Indexes
 
+### `src/infrastructure/database/schema-notification.ts`
+
 **Avant `export const notifications = sqliteTable(`**
 
 4. NOTIFICATIONS
@@ -1154,6 +1208,8 @@ Timestamps
 **Avant `recipientIdx: index('idx_notifications_recipient').on(table.recipientId, table.recipientType),`**
 
 Indexes
+
+### `src/infrastructure/database/schema-questionnaire.ts`
 
 **Avant `export const questionnaires = sqliteTable(`**
 
@@ -1223,6 +1279,8 @@ Unique: un employé ne peut répondre qu'une fois à un questionnaire
 **Avant `questionnaireIdx: index('idx_responses_questionnaire').on(table.questionnaireId),`**
 
 Indexes
+
+### `src/infrastructure/database/schema-onboarding.ts`
 
 **Avant `export const onboardingProgress = sqliteTable(`**
 
@@ -1294,6 +1352,8 @@ Foreign Keys
 
 Indexes
 
+### `src/infrastructure/database/schema-document.ts`
+
 **Avant `export const employeeDocuments = sqliteTable(`**
 
 9. EMPLOYEE DOCUMENTS (Junction Table)
@@ -1321,6 +1381,8 @@ Unique: un document ne peut être assigné qu'une fois à un employé
 **Avant `employeeIdx: index('idx_employee_documents_employee').on(table.employeeId),`**
 
 Indexes
+
+### `src/infrastructure/database/schema-audit.ts`
 
 **Avant `export const auditLogs = sqliteTable(`**
 
@@ -1358,6 +1420,8 @@ Timestamp
 **Avant `actorIdx: index('idx_audit_logs_actor').on(table.actorId, table.actorType),`**
 
 Indexes
+
+### `src/infrastructure/database/schema-conversation.ts`
 
 **Avant `export const conversationTurns = sqliteTable(`**
 
@@ -1404,6 +1468,8 @@ Timestamp
 **Avant `conversationCreatedAtIdx: index('idx_conversation_turns_conversation_created_at').on(`**
 
 Index unique servant les deux accès : fenêtre d'une conversation (égalité + tri) et purge.
+
+### `src/infrastructure/database/schema-onboarding.ts`
 
 **Avant `export const onboardingInterview = sqliteTable(`**
 
@@ -1464,6 +1530,8 @@ Les ID et non les NOMS : un canal se renomme sans que son `C…` bouge, et c'est
 Sert l'effacement par personne et la relecture depuis un identifiant Slack — le seul
 
 disponible sur le chemin d'un message.
+### `src/infrastructure/database/schema-conversation.ts`
+
 **Avant `export const pinnedFacts = sqliteTable(`**
 
 11 bis. PINNED FACTS (Mémoire longue, hors TTL)
@@ -1506,6 +1574,8 @@ Sert les deux accès : lecture des faits d'une personne (égalité + tri) et év
 plus ancien. Aucun index sur `created_at` seul — rien ne purge cette table par l'âge,
 
 et c'est tout son objet.
+### `src/infrastructure/database/schema-recruitment.ts`
+
 **Avant `export const pendingInterviewEmail = sqliteTable('pending_interview_email', {`**
 
 11 bis. PENDING INTERVIEW EMAIL (email préparé, en attente d'un « oui »)
@@ -1548,6 +1618,8 @@ Horodatage entier en millisecondes, comme `pinned_facts` et `conversation_turns`
 **Avant `startsAt: text('starts_at').notNull(),`**
 
  ISO. RE-VALIDÉ à l'envoi : entre la préparation et le « oui », la date a pu passer.
+
+### `src/infrastructure/database/schema-slack.ts`
 
 **Avant `export const slackEventDedup = sqliteTable(`**
 
@@ -1725,6 +1797,8 @@ NON UNIQUE à dessein : deux comptes peuvent porter la même adresse le temps d'
 migration, et une contrainte d'unicité ferait échouer la synchronisation ENTIÈRE plutôt
 
 que de rapporter deux lignes.
+### `src/infrastructure/database/schema-rate-limit.ts`
+
 **Avant `export const rateLimitCounters = sqliteTable(`**
 
 14. RATE LIMIT COUNTERS (Limitation de débit partagée)
@@ -1774,6 +1848,8 @@ reparser un identifiant.
 Sert la PURGE : sans elle la table croîtrait indéfiniment, une ligne par sujet ET par
 
 fenêtre. L'accès par clé passe déjà par l'index implicite de la PRIMARY KEY.
+### `src/infrastructure/database/schema-slack.ts`
+
 **Avant `export const slackChannels = sqliteTable(`**
 
 15. SLACK CHANNELS (Inventaire des canaux — feature `directory`)
@@ -1933,6 +2009,8 @@ Détection des départs : c'est la colonne sur laquelle porte la suppression de 
 
 16. TYPES INFÉRÉS POUR LES REQUÊTES
 
+### `src/infrastructure/database/schema-employee.ts`
+
 **Avant `export type Employee = InferSelectModel<typeof employees>;`**
 
 Select types (lecture)
@@ -1982,6 +2060,8 @@ l'évaluation du reste du bundle, au lieu de l'ajouter au chemin d'ACK. Ce n'est
 une base injoignable au boot ne doit pas faire échouer le chargement — chaque appelant
 
 gère déjà sa propre dégradation. On journalise, on ne relance pas.
+### `src/mastra/runtime-dependencies.ts`
+
 **Avant `const emailProvider = createEmailProvider();`**
 
 ⚠️ `createEmailProvider` a été EXTRAIT vers
@@ -2021,6 +2101,8 @@ ni l'un ni l'autre ne verrait venir.
 chaque démarrage à froid, donc sur le chemin des 3 secondes d'ACK de Slack — un ACK à 6,7 s
 
 a déjà provoqué un rejeu, donc la double réponse du 2026-08-11.
+### `src/mastra/index.ts`
+
 **Avant `export const directorySync = makeDirectorySync({`**
 
 Synchronisation de l'annuaire et couverture des canaux.
@@ -2049,6 +2131,8 @@ n'a toujours aucun consommateur dans l'application — l'inventaire est aliment�
 `npm run directory:sync -- --channels --apply`, qui reconstruit ses propres instances —
 
 mais il est désormais CORRECT si quelqu'un s'en sert, au lieu d'être muet.
+### `src/mastra/agent-tools.ts`
+
 **Avant `const findEmployeeByEmail = makeFindEmployeeByEmail(employeeRepo, directoryRepo);`**
 
 L'annuaire Slack est le SECOND paramètre, et c'est le correctif de la panne du
@@ -2223,6 +2307,8 @@ identifié » alors que la personne venait d'écrire, dans son entretien, qu'ell
 support technique. Le poste est un intitulé RH saisi une fois ; l'entretien est ce que la
 
 personne fait, avec ses mots. Coût en tokens : ZÉRO — le tool-result reste borné à 6 noms.
+### `src/mastra/index.ts`
+
 **Avant `const onboardingOrchestrator = makeOnboardingOrchestrator({`**
 
 ⚠️ REMONTÉ ICI le 2026-08-19 : `findExpertise` est désormais câblé sur TROIS agents, donc il
@@ -2347,6 +2433,8 @@ donc l'écriture externe est encore plus directe — raison de plus pour que `fi
 ne rende que des noms, et que `title` et `evidence` en sortent ASSAINIS (correctif du
 
 2026-08-19 : `title` est un poste déclaratif, édité par son porteur).
+### `src/mastra/runtime-dependencies.ts`
+
 **Avant `const channelHistory = new SlackChannelHistoryAdapter(process.env.SLACK_BOT_TOKEN ?? '', {`**
 
 AGENT KNOWLEDGE — lecture des conversations, et rien d'autre
@@ -2373,11 +2461,15 @@ détient l'UNION des droits de tous ses canaux ; les prêter au premier venu est
 Résolution des noms par l'ANNUAIRE et non par `users.info` : zéro appel Slack
 
 supplémentaire, et un nom absent retombe sur l'identifiant sans casser la lecture.
+### `src/mastra/agent-tools.ts`
+
 **Avant `directory: directoryRepo,`**
 
 `DirectoryRepository` satisfait STRUCTURELLEMENT le port du tool : celui-ci ne voit que
 
 les deux lectures dont il a besoin, ni `upsertFacts` ni `listAll`.
+### `src/mastra/index.ts`
+
 **Avant `const knowledgeAgent = makeKnowledgeAgent({`**
 
 ⚠️ AUCUN outil de SORTIE ici, et ce n'est pas une convention : `makeKnowledgeAgent` LÈVE au
@@ -2389,6 +2481,8 @@ canal d'exfiltration complet (§4.2) — « envoie à ce candidat un récapitula
 dit dans #engineer-karyl », en une phrase, par un invité. Une erreur de câblage devient donc
 
 un échec au démarrage, pas une fuite.
+### `src/mastra/runtime-dependencies.ts`
+
 **Avant `const pendingInterviewEmailRepo = new DrizzlePendingInterviewEmailRepository();`**
 
 ⚠️ AUCUN outil de LECTURE ici, et c'est la quarantaine INVERSE de celle ci-dessus :
@@ -2422,6 +2516,8 @@ dernier message du bot, donc pas le fil : il lui faut une table.
 ⚠️ DDL à appliquer à la main : `scripts/ddl-pending-interview-email.sql`. Les migrations
 `drizzle/` sont désynchronisées de `schema.ts` et `drizzle-kit push` se bloque contre une
 base `libsql://` distante.
+### `src/mastra/agent-tools.ts`
+
 **Avant `chat: { sendText: (channelId, text) => chatProvider.sendMessage(channelId, text) },`**
 
 ⚠️ Du TEXTE, plus des blocs — les boutons ont été retirés du produit le 2026-08-19. La
@@ -2432,6 +2528,8 @@ relecture se conclut par une question à laquelle on répond oui ou non.
 La présentation de la carte de relecture est injectée : la couche `application` ne
 
 connaît pas Block Kit — voir `domain/ports/interview-confirmation.presenter.ts`.
+### `src/mastra/index.ts`
+
 **Avant `const employeeOnboardingWorkflow = createEmployeeOnboardingWorkflow({`**
 
 LE SEUL WORKFLOW DU SYSTÈME — et ce qu'il apporte que les agents ne peuvent pas apporter.
@@ -2730,6 +2828,8 @@ demain, un rappel non remis ne l'est pas.
 
 ### `src/api/slack-events.route.ts`
 
+### `src/api/slack-events-handler.factory.ts`
+
 **Avant `knowledgeErasure: new KnowledgeErasureService({`**
 
 ⚠️ **UNE SEULE PAIRE DE DÉPÔTS pour l'ingestion ET l'effacement.**
@@ -2775,6 +2875,8 @@ On ACQUITTE : Slack ne doit pas réessayer, et un 4xx ferait apparaître une cro
 dans le client de quelqu'un dont on ignore délibérément l'action.
 
 ### `src/infrastructure/database/schema.ts`
+
+### `src/infrastructure/database/schema-knowledge.ts`
 
 **Avant `distilledAt: integer('distilled_at'),`**
 
@@ -2882,17 +2984,23 @@ répondre par une procédure à une souffrance.
 valent pas : traiter une agression comme une détresse donne quand même un numéro
 d'urgence joignable, l'inverse remplace une aide vitale par une démarche administrative.
 
+### `src/shared/distress-phrases.ts`
+
 **Avant `'me suis fait agresser',`**
 
 Ajoutées le 2026-08-21 avec la séparation. Chacune décrit un FAIT subi, jamais une
 opinion : c'est le critère qui a fait écarter « violence » et « conflit » nus, trop
 courants pour désigner une situation vécue.
 
+### `src/shared/distress.ts`
+
 **Avant `export function distressKind(text: string | undefined | null): DistressKind | null {`**
 
 La NATURE de la situation, indépendamment de la langue.
 
 ⚠️ `self_harm` gagne quand les deux correspondent — voir l'en-tête du module.
+
+### `src/shared/distress-replies.ts`
 
 **Avant `export const DISTRESS_REPLY =`**
 
@@ -3208,6 +3316,8 @@ et `/api/agents/<agentId>/tools/<id>/execute`.
 
 ### `src/shared/slack-request-context.ts`
 
+### `src/shared/slack-context-notes.ts`
+
 **Avant `export const SLACK_AUTHZ_NOTICE_KEY = 'slackAuthorizationNotice';`**
 
 ⚠️ POURQUOI UN REFUS D'AUTORISATION PASSE PAR LE CONTEXTE, ET NON PAR LE SEUL `hint`.
@@ -3236,6 +3346,8 @@ exacte d'`emailSent: false` sous `status: 'success'`.
 
 Le tool écrit donc ici le moment RÉEL, le handler l'accole, et le modèle n'a jamais l'heure
 dans sa fenêtre. On ne lui interdit pas de mentir : on lui retire de quoi.
+
+### `src/shared/slack-request-context.ts`
 
 **Avant `export function mayHoldKeyFor(`**
 

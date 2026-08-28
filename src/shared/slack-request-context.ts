@@ -1,111 +1,35 @@
 import { RequestContext } from '@mastra/core/request-context';
 
+import { nonEmptyString } from './request-context-values';
+
+export {
+  SLACK_EXCERPT_COVERAGE_KEY,
+  writeExcerptCoverage,
+  readExcerptCoverage,
+  SLACK_LOAN_DELIVERED_KEY,
+  writeLoanDelivered,
+  readLoanDelivered,
+  SLACK_DOCUMENT_RECIPIENT_KEY,
+  writeDocumentRecipient,
+  readDocumentRecipient,
+  SLACK_AUTHZ_NOTICE_KEY,
+  writeAuthorizationNotice,
+  readAuthorizationNotice,
+  SLACK_STEP_BLOCKED_KEY,
+  writeStepBlocked,
+  readStepBlocked,
+  clearStepBlocked,
+  SLACK_REMINDER_DELIVERY_KEY,
+  writeReminderDelivery,
+  readReminderDelivery,
+} from './slack-context-notes';
+
 export const SLACK_CHANNEL_KEY = 'slackChannel';
 export const SLACK_THREAD_TS_KEY = 'slackThreadTs';
 export const SLACK_USER_ID_KEY = 'slackUserId';
 export const SLACK_EVENT_TS_KEY = 'slackEventTs';
 export const SLACK_ACCESS_LEVEL_KEY = 'slackAccessLevel';
 export const SLACK_EMPLOYEE_ID_KEY = 'slackEmployeeId';
-
-export const SLACK_EXCERPT_COVERAGE_KEY = 'slackExcerptCoverage';
-
-export function writeExcerptCoverage(requestContext: unknown, coverage: string): void {
-  writeContextNote(requestContext, SLACK_EXCERPT_COVERAGE_KEY, coverage);
-}
-
-export const SLACK_LOAN_DELIVERED_KEY = 'slackLoanDelivered';
-
-export function writeLoanDelivered(requestContext: unknown, capability: string): void {
-  writeContextNote(requestContext, SLACK_LOAN_DELIVERED_KEY, capability);
-}
-
-export function readLoanDelivered(requestContext: unknown): string | undefined {
-  return readContextNote(requestContext, SLACK_LOAN_DELIVERED_KEY);
-}
-
-export const SLACK_DOCUMENT_RECIPIENT_KEY = 'slackDocumentRecipient';
-
-export function writeDocumentRecipient(requestContext: unknown, recipient: string): void {
-  writeContextNote(requestContext, SLACK_DOCUMENT_RECIPIENT_KEY, recipient);
-}
-
-export function readDocumentRecipient(requestContext: unknown): string | undefined {
-  return readContextNote(requestContext, SLACK_DOCUMENT_RECIPIENT_KEY);
-}
-
-export const SLACK_AUTHZ_NOTICE_KEY = 'slackAuthorizationNotice';
-
-export function writeAuthorizationNotice(requestContext: unknown, notice: string): void {
-  writeContextNote(requestContext, SLACK_AUTHZ_NOTICE_KEY, notice);
-}
-
-export function readAuthorizationNotice(requestContext: unknown): string | undefined {
-  return readContextNote(requestContext, SLACK_AUTHZ_NOTICE_KEY);
-}
-
-export const SLACK_STEP_BLOCKED_KEY = 'slackStepBlocked';
-
-export function writeStepBlocked(requestContext: unknown, reason: string): void {
-  writeContextNote(requestContext, SLACK_STEP_BLOCKED_KEY, reason);
-}
-
-export function readStepBlocked(requestContext: unknown): string | undefined {
-  return readContextNote(requestContext, SLACK_STEP_BLOCKED_KEY);
-}
-
-export function clearStepBlocked(requestContext: unknown): void {
-  eraseContextNote(requestContext, SLACK_STEP_BLOCKED_KEY);
-}
-
-export const SLACK_REMINDER_DELIVERY_KEY = 'slackReminderDelivery';
-
-export function writeReminderDelivery(requestContext: unknown, label: string): void {
-  writeContextNote(requestContext, SLACK_REMINDER_DELIVERY_KEY, label);
-}
-
-export function readReminderDelivery(requestContext: unknown): string | undefined {
-  return readContextNote(requestContext, SLACK_REMINDER_DELIVERY_KEY);
-}
-
-function writeContextNote(requestContext: unknown, key: string, value: string): void {
-  if (!value.trim()) return;
-  if (typeof requestContext !== 'object' || requestContext === null) return;
-
-  const set = (requestContext as { set?: unknown }).set;
-  if (typeof set !== 'function') return;
-
-  try {
-    (set as (this: unknown, k: string, v: unknown) => void).call(requestContext, key, value);
-  } catch {}
-}
-
-function eraseContextNote(requestContext: unknown, key: string): void {
-  if (typeof requestContext !== 'object' || requestContext === null) return;
-
-  const set = (requestContext as { set?: unknown }).set;
-  if (typeof set !== 'function') return;
-
-  try {
-    (set as (this: unknown, k: string, v: unknown) => void).call(requestContext, key, '');
-  } catch {}
-}
-
-function readContextNote(requestContext: unknown, key: string): string | undefined {
-  if (typeof requestContext !== 'object' || requestContext === null) return undefined;
-
-  const get = (requestContext as { get?: unknown }).get;
-  if (typeof get !== 'function') return undefined;
-
-  try {
-    return nonEmptyString((get as (this: unknown, k: string) => unknown).call(requestContext, key));
-  } catch {
-    return undefined;
-  }
-}
-
-export function readExcerptCoverage(requestContext: unknown): string | undefined {
-  return readContextNote(requestContext, SLACK_EXCERPT_COVERAGE_KEY);
-}
 
 export type SlackAccessLevel = 'denied' | 'readonly' | 'full';
 
@@ -118,12 +42,6 @@ export interface SlackToolContext {
   slackUserId?: string;
   employeeId?: string;
   accessLevel?: SlackAccessLevel;
-}
-
-function nonEmptyString(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 export function buildSlackRequestContext(context: SlackToolContext): RequestContext {

@@ -463,6 +463,8 @@ pas apparaître dans une demande d'onboarding ordinaire — c'est le seul critè
 d'admission, et il est plus strict qu'il n'y paraît : « mal » seul, ou « aide », ont été
 écartés pour cette raison exacte.
 
+### `src/shared/distress-phrases.ts`
+
 **Avant `'je veux mourir',`**
 
 Atteinte à soi
@@ -482,6 +484,8 @@ Harcèlement et violence subis
 « mon responsable me menace », qui est exactement le cas visé. Le complément suffit à
 
 lever l'ambiguïté — c'est la personne qui parle qui est menacée, quel que soit l'auteur.
+### `src/shared/distress.ts`
+
 **Avant `function probeWindow(raw: string): string {`**
 
 ⚠️ UNE BORNE QUI REFUSE EST DEVENUE UNE FENÊTRE QUI TRONQUE — 2026-08-28.
@@ -556,6 +560,8 @@ détresse, SAUF s'il est suivi d'un complément en `avec` qui n'est pas la vie. 
 la vie / tout / tout ça / cette vie » reste reconnu ; « en finir avec ce ticket » ne l'est
 plus. L'asymétrie continue de gouverner le reste du module : partout ailleurs, on s'abstient
 vers la détection.
+
+### `src/shared/distress-replies.ts`
 
 **Avant `export const DISTRESS_REPLY =`**
 
@@ -910,9 +916,13 @@ trois mots, donc « je veux que tu » n'y tiendrait jamais : le sujet est déjà
 cadre quand on atteint le verbe. Le risque d'élargissement est nul ici, la négation
 
 étant contrôlée séparément et sur une fenêtre plus large (« je ne veux PAS que tu… »).
+### `src/shared/imperative.ts`
+
 **Avant `const REQUEST_LOOKBACK_WORDS = 3;`**
 
  Nombre de mots examinés avant le verbe pour y chercher une formule de demande.
+
+### `src/shared/negation.ts`
 
 **Avant `const NEGATION_WINDOW_WORDS = 4;`**
 
@@ -924,6 +934,8 @@ la revue adversariale a reproduit une perte de données réelle.
 
 Des DEUX côtés, parce que le français place la négation avant ou après selon la forme :
 « **ne** supprime **pas** » et l'oral « oublie **pas** ce que je t'ai dit ».
+
+### `src/shared/forget.ts`
 
 **Avant `const MEMORY_OBJECTS: readonly string[] = [`**
 
@@ -962,6 +974,8 @@ Borne de longueur. Une demande d'effacement est courte et directe. Au-delà, le 
 contient forcément autre chose, et cet autre chose mérite une vraie réponse — pas une
 suppression déclenchée par une sous-chaîne noyée dans un paragraphe.
 
+### `src/shared/negation.ts`
+
 **Avant `export function isNegatedNear(`**
 
 Ce verbe-ci est-il nié ?
@@ -970,6 +984,8 @@ Regarde une FENÊTRE DE MOTS de part et d'autre, et non les caractères collés 
 C'est le correctif de la revue adversariale : « ne veux surtout **pas** que tu oublies »
 plaçait la négation à deux mots du verbe, donc hors de portée d'une garde d'adjacence —
 et cette phrase, qui demande de GARDER la mémoire, l'effaçait.
+
+### `src/shared/imperative.ts`
 
 **Avant `export function isAnOrder(`**
 
@@ -989,6 +1005,8 @@ Deux formes seulement, et c'est volontairement peu :
 Tout le reste est écarté, et c'est le point : « vas-tu oublier… ? », « pourquoi as-tu
 oublié… ? », « tu risques d'oublier… » contiennent le MÊME VERBE et le MÊME OBJET qu'un
 ordre. Aucune liste de mots ne peut les en distinguer — seule la position le peut.
+
+### `src/shared/forget.ts`
 
 **Avant `function isErasureVerb(word: string): boolean {`**
 
@@ -1555,6 +1573,8 @@ dépôt applique partout ailleurs.
 
 ## `shared/logger.ts`
 
+### `src/shared/log-entry.ts`
+
 **Avant `import { trace, context } from '@opentelemetry/api';`**
 
 logger.ts - Production-Grade Structured Logger
@@ -1593,6 +1613,8 @@ Standards 2026: Pino-compatible, OpenTelemetry, Anti-circular
 `MAX_LOGGED_KEYS`. Une option de configuration sans effet est un mensonge d'API — celui
 
 qui la pose croit avoir réglé quelque chose. La borne reste, seule la fausse manette part.
+### `src/shared/log-pii-keys.ts`
+
 **Avant `const PII_KEYS = new Set([`**
 
 2. CONSTANTES DE MASQUAGE PII
@@ -1667,6 +1689,8 @@ API Keys génériques (sk-, pk-, etc.)
 **Avant `{`**
 
 Numéros de carte bancaire (Luhn-like)
+
+### `src/shared/log-masking.ts`
 
 **Avant `function isPlainObject(value: unknown): value is Record<string, unknown> {`**
 
@@ -1792,6 +1816,8 @@ Vérifie si une valeur correspond à un pattern PII
 
 Masque une valeur selon son pattern
 
+### `src/shared/log-entry.ts`
+
 **Avant `const LOG_LEVELS: Record<LogLevel, number> = {`**
 
 4. LOGGER IMPLÉMENTATION
@@ -1803,6 +1829,8 @@ Récupère le contexte OpenTelemetry actif
 **Avant `}`**
 
 OpenTelemetry non configuré, ignorer silencieusement
+
+### `src/shared/logger.ts`
 
 **Avant `class Logger implements ChildLogger {`**
 
@@ -2543,6 +2571,8 @@ Six, contre trois dans `forget.ts` : les tournures de demande sont ici plus long
 « où est-ce que je remplis mon profil » place le verbe en sixième position, et le
 marqueur (`ou est`) tout au début.
 
+### `src/shared/negation.ts`
+
 **Avant `const NEGATION_WINDOW_WORDS = 4;`**
 
 Nombre de mots examinés DE PART ET D'AUTRE du verbe pour y chercher une négation.
@@ -2550,6 +2580,8 @@ Nombre de mots examinés DE PART ET D'AUTRE du verbe pour y chercher une négati
 Quatre, comme dans `forget.ts`, et pour la même raison : le français sépare volontiers
 la négation du verbe (« je ne veux pas compléter »), et une garde d'adjacence ne la
 verrait pas.
+
+### `src/shared/profile-request.ts`
 
 **Avant `const MOTIVE_MARKERS: readonly string[] = ['pourquoi', 'why'];`**
 
@@ -2852,6 +2884,8 @@ Ce qui n'a PAS bougé, et qui est non négociable :
  • le tutoiement, puisque les quatre agents tutoient.
 
 Ce qui est ajouté : le refus porte sur le MESSAGE, et la suite est actionnable.
+### `src/shared/security/outbound-links.ts`
+
 **Avant `export const ALLOWED_LINK_DOMAINS: readonly string[] = ['kissohq.slack.com', 'slack.com'];`**
 
 Domaines dont un lien peut franchir la frontière vers Slack.
@@ -2874,6 +2908,8 @@ Il ne nomme pas le domaine retiré : l'affichage renseignerait l'utilisateur —
 ou un attaquant — sur ce que le modèle a tenté d'émettre. Le domaine part dans
 `strippedUrls`, donc dans les logs, jamais dans Slack.
 
+### `src/shared/security/internal-markers.ts`
+
 **Avant `export const REDACTED_MARKER_PLACEHOLDER = '[retiré]';`**
 
 Texte substitué à un marqueur interne DANS UN DOCUMENT.
@@ -2895,6 +2931,8 @@ l'appelant, qui journalise en `error` exactement comme le handler Slack.
 
  Étiquettes des marqueurs internes trouvés — à journaliser, jamais à afficher.
 
+### `src/shared/security/agent-output.ts`
+
 **Avant `strippedUrls: string[];`**
 
 NOMS D'HÔTE (pas les URL complètes) des liens retirés, dédupliqués, dans
@@ -2906,6 +2944,8 @@ identifiant réel — celui de l'incident du 2026-08-11 était
 `https://kisso.internal/docs/<uuid>/download`, où l'UUID était le vrai
 `Document.id`. Le recopier dans les logs y déverserait une donnée métier pour
 rien.
+
+### `src/shared/security/internal-markers.ts`
 
 **Avant `const INTERNAL_MARKERS: ReadonlyArray<{ label: string; pattern: RegExp }> = [`**
 
@@ -2969,6 +3009,8 @@ retirés).
 ⚠️ Le garde d'API ne réutilise QUE cette détection, pas `sanitizeAgentOutput` entier : ce
 dernier retire aussi les URL hors liste blanche et convertit en mrkdwn Slack, deux
 comportements justes sur Slack et faux sur une API.
+
+### `src/shared/security/slack-mrkdwn.ts`
 
 **Avant `function convertBold(segment: string): string {`**
 
@@ -3051,6 +3093,8 @@ Le séparateur horizontal n'existe pas en mrkdwn : il s'affiche brut.
 Le retrait ci-dessus laisse la ligne vide qui précédait le séparateur :
 
 sans cette normalisation, le message gagne un blanc à chaque suppression.
+### `src/shared/security/outbound-links.ts`
+
 **Avant `const CODE_BLOCK_SPLIT = /(```[\s\S]*?```)/g;`**
 
 Découpage capturant les blocs ```code```, qui atterrissent donc aux index
@@ -3139,6 +3183,8 @@ inutile, au pire trompeur sur ce que le message prétendait offrir.
 Variante Slack : les blocs de code sont préservés intégralement — un extrait
 de code peut légitimement citer une URL, et il n'est pas cliquable dans Slack.
 
+### `src/shared/security/slack-mrkdwn.ts`
+
 **Avant `function toSlackMrkdwn(text: string): string {`**
 
 Applique les conversions en préservant intégralement les blocs de code.
@@ -3193,6 +3239,8 @@ reste linéaire sur une entrée de modèle non bornée, exigence constante de ce
 ⚠️ On retire le QUALIFICATIF, jamais la phrase. Le contraire du choix fait pour un marqueur
 interne : là, la réponse entière est suspecte ; ici, elle est juste à un mot près, et jeter
 un profil correct pour un adjectif serait sans commune mesure avec le défaut.
+### `src/shared/security/agent-output.ts`
+
 **Avant `const { text: withoutLinks, hostnames } = stripDisallowedLinks(text);`**
 
 Un lien non autorisé ne déclenche PAS `NEUTRAL_REFUSAL`, contrairement à un
@@ -3212,6 +3260,8 @@ URL inventée. Tout jeter transformerait chaque hallucination de lien en
 panne totale du tour, alors que le mal se répare en retirant le lien. Le
 
 signal, lui, ne se perd pas : il part dans `strippedUrls`, donc dans les logs.
+### `src/shared/security/internal-markers.ts`
+
 **Avant `const INTERNAL_MARKERS_GLOBAL = INTERNAL_MARKERS.map(({ label, pattern }) => ({`**
 
 Canal DOCUMENT
@@ -3258,6 +3308,8 @@ pas diverger — le second est dérivé du premier.
 Construction non littérale assumée : la source vient d'une constante du module,
 
 jamais d'une entrée. Réécrire les quatre motifs à la main les ferait diverger.
+### `src/shared/security/agent-output.ts`
+
 **Avant `const MARKDOWN_LINK = /\[([^\]\n]{0,200})\]\(([^)\s]{0,2000})\)/g;`**
 
 Lien markdown `[libellé](url)` aplati en « libellé url ».
@@ -3350,6 +3402,8 @@ et il est porté par le type `EmailBody` (`notification/domain/services/email-bo
 repartageable, et il porte le nom de la personne. Une affirmation sans donnée y survit
 
 bien plus longtemps qu'un message dans un fil.
+### `src/shared/security/slack-mrkdwn.ts`
+
 **Avant `function stripMarkdownMarkup(text: string): string {`**
 
 Balisage markdown résiduel, retiré une fois la structure déjà extraite.
@@ -3384,6 +3438,8 @@ ce qui subsiste ici est un résidu qui s'imprimerait tel quel.
 Un SEUL caractère : la ligne précédente a déjà réduit toute suite de blancs
 
 à un. Un `+` ici serait super-linéaire par retour arrière.
+### `src/shared/security/agent-output.ts`
+
 **Avant `export function sanitizeDocumentText(raw: string | undefined | null): SanitizedDocumentText {`**
 
 Assainissement COMPLET d'un texte feuille de document : sécurité
@@ -3743,6 +3799,8 @@ celles produites par un autre middleware.
 llm-system-prompt.ts - FINAL Production Version
 
 Standards 2026: HKDF, Graceful Degradation, Interfaces
+### `src/shared/security/guardrail-types.ts`
+
 **Avant `interface VaultConfig {`**
 
 1. TYPES ET INTERFACES (pour testability)
@@ -3755,6 +3813,8 @@ Standards 2026: HKDF, Graceful Degradation, Interfaces
 
  Interface abstraite pour le SessionManager (testability)
 
+### `src/shared/security/guardrail-metrics.ts`
+
 **Avant `const meter = metrics.getMeter('llm-system-prompt');`**
 
 2. MÉTRIQUES (Observabilité)
@@ -3762,6 +3822,8 @@ Standards 2026: HKDF, Graceful Degradation, Interfaces
 **Avant `function measureDuration<T>(`**
 
 Décorateur pour mesurer la durée des opérations
+
+### `src/shared/security/key-manager.ts`
 
 **Avant `class KeyManager implements IKeyManager {`**
 
@@ -3816,6 +3878,8 @@ Info
 **Avant `);`**
 
 Longueur désirée
+
+### `src/shared/security/system-prompt-vault.ts`
 
 **Avant `class SystemPromptVault {`**
 
@@ -3896,9 +3960,13 @@ Vérifie l'état de santé du vault
 
 MÉTHODES PRIVÉES
 
+### `src/shared/security/vault-decrypt.ts`
+
 **Avant `const errors: Error[] = [];`**
 
 Essayer la clé principale puis les historiques
+
+### `src/shared/security/session-manager.ts`
 
 **Avant `class SessionManager implements ISessionManager {`**
 
@@ -3917,6 +3985,8 @@ Nettoyage optimisé : utilise les entrées les plus anciennes en premier
 Utiliser un itérateur pour éviter de parcourir toutes les entrées
 
 si beaucoup de sessions sont encore valides
+### `src/shared/security/delimiter-generator.ts`
+
 **Avant `class DelimiterGenerator {`**
 
 6. GÉNÉRATEUR DE DÉLIMITEURS
@@ -4078,6 +4148,8 @@ que le modèle honore, sans qu'aucun filtre ne la voie.
 **Avant `sanitized = sanitized.replace(/<!--[\s\S]*?-->/g, '');`**
 
 Étape 5: Commentaires HTML
+
+### `src/shared/security/homoglyph-folding.ts`
 
 **Avant `export function normalizeForDetection(text: string): string {`**
 
@@ -4271,6 +4343,8 @@ Extraction du prompt système. Le mot « prompt » ou un qualificatif de systèm
 (système / initiales / internes / secrètes) est EXIGÉ : sans lui, « montre-moi les
 
 consignes de sécurité » — question RH parfaitement légitime — serait refusée.
+### `src/shared/security/injection-patterns.ts`
+
 **Avant `regex: /\b(?:prompt|invite|message|configuration)\s+(?:systeme|initiale?|d'origine|interne)\b/i,`**
 
 ⚠️ `message` et `configuration` AJOUTÉS le 2026-08-14, sur trou mesuré.
@@ -4332,6 +4406,8 @@ deux laisserait soit une détection aveugle, soit un texte piégé dans la fenê
 
 Note: normalize('NFKC') est déjà fait dans sanitizeInputAdvanced
 
+### `src/shared/security/input-neutralization.ts`
+
 **Avant `/(?:position\s*:\s*absolute[\s;]*(?:left|top)\s*:\s*-9999px)/gi,`**
 
 ⚠️ `[\s;]*` et non `\s*;?\s*` : deux quantificateurs d'espaces séparés par un
@@ -4345,6 +4421,8 @@ essaie chaque point de coupure. Mesuré à 56 ms sur 8 000 caractères, ~2 s sur
 ce qui n'est pas un relâchement : un filtre de neutralisation a le droit d'en
 
 couvrir plus. Même famille de défaut que l'étape 3 du sanitizer.
+### `src/shared/security/input-wrapping.ts`
+
 **Avant `export const MAX_USER_INPUT_LENGTH = 8000;`**
 
 8. FONCTIONS DE WRAPPING
@@ -4354,6 +4432,8 @@ Longueur maximale d'un message UTILISATEUR (lot 1 de `PLAN-ARCHITECTURE.md`).
 Ne s'applique PAS aux données externes : `wrapExternalData` a sa propre borne, dix fois
 plus haute (50 000) et TRONQUANTE plutôt que refusante — une page web longue n'est pas
 une faute de son lecteur.
+### `src/shared/security/llm-guardrail.ts`
+
 **Avant `export function securityRefusalMessage(error: unknown): string | undefined {`**
 
 Traduit une erreur du garde-fou en texte destiné à l'utilisateur — ou `undefined` si
@@ -4378,6 +4458,8 @@ longueur : un copier-coller trop long ressortait en refus de politique. Le handl
 court-circuite désormais ce cas en amont avec un message qui NOMME la longueur
 (`src/shared/message-shape.ts`), et la borne ci-dessous reste le dernier recours pour les
 appelants hors Slack.
+
+### `src/shared/security/input-wrapping.ts`
 
 **Avant `logger.warn('Input rejected: over the maximum allowed length', {`**
 
@@ -4430,6 +4512,8 @@ est indiagnosticable. C'est une donnée déjà journalisée par le handler Slack
 Le message ne recopie JAMAIS la charge utile : il finit dans les logs et, via
 
 `cause`, peut remonter jusqu'à une réponse. Seuls les TYPES de motif y figurent.
+### `src/shared/security/system-prompt-template.ts`
+
 **Avant `const SYSTEM_PROMPT_TEMPLATE = ``**
 
 9. PROMPT SYSTÈME
@@ -4446,6 +4530,8 @@ chaque DIRECTIVE est inchangé, au caractère près** — leur numérotation por
 regroupement, et trois fichiers de tests assertent `DIRECTIVE 1.1: You are KISSO-AGENT-v3.`
 mot pour mot. Ne pas reformuler une directive pour gagner des tokens : la protection vaut
 plus que le budget, et ce serait invérifiable.
+### `src/shared/security/llm-guardrail.ts`
+
 **Avant `const PROCESS_SESSION_ID = `process-${randomBytes(16).toString('hex')}`;`**
 
 11. INTÉGRATION APPLICATIVE — assemblage réel du prompt système
@@ -4503,6 +4589,8 @@ la population du prompt système (vault + remplacement de `{DELIMITER_PREFIX}`) 
 `instructions` figées d'un côté, et `wrapUserInput()` séparément — par message, côté
 
 handler Slack — de l'autre.
+### `src/shared/security/session-manager.ts`
+
 **Avant `export function createFixedSessionManager(sessionId: string): ISessionManager {`**
 
 Gestionnaire de session à délimiteurs FIGÉS, pour le couple
@@ -4536,6 +4624,8 @@ tests) : c'est là qu'une purge a du sens.
 Ni révocable ni purgeable, et c'est tout l'intérêt : révoquer la session du
 
 processus, c'est changer de délimiteur sans que les instructions figées le sachent.
+### `src/shared/security/llm-guardrail.ts`
+
 **Avant `masterSecret: process.env.SYSTEM_PROMPT_VAULT_SECRET || randomBytes(32).toString('hex'),`**
 
 Pas de secret persistant nécessaire : ce vault chiffre puis déchiffre son propre
@@ -4543,6 +4633,8 @@ Pas de secret persistant nécessaire : ce vault chiffre puis déchiffre son prop
 template dans le même processus (aucune donnée réellement secrète n'y transite). Un
 
 secret aléatoire par démarrage suffit à exercer le mécanisme prévu.
+### `src/shared/security/security-header.ts`
+
 **Avant `const SECURITY_HEADER_SENTINELS = [`**
 
 Marqueurs dont l'absence prouve que l'en-tête assemblé n'est PAS le prompt de sécurité.
@@ -4580,6 +4672,8 @@ Le fail-open reste, lui, en place pour les appelants qui n'ont pas ce cycle de v
 (`assembleSecurePrompt` assemble un tour, à chaud, où la dégradation a un sens) — avec
 un log de niveau `error` explicite. Le contrôle dur est placé au SEUL endroit où
 l'échec est permanent.
+
+### `src/shared/security/llm-guardrail.ts`
 
 **Avant `export function buildAgentInstructions(businessInstructions: string): string {`**
 
@@ -4901,6 +4995,8 @@ défaut la plus fréquente de ce dépôt : deux bords corrects, aucun câblage e
 aussi dans le préambule, mais celle-là sert au modèle à s'exprimer ; on ne décide jamais
 d'un droit sur une valeur qui a traversé la fenêtre du modèle — un attaquant y écrit.
 
+### `src/shared/slack-context-notes.ts`
+
 **Avant `export const SLACK_EXCERPT_COVERAGE_KEY = 'slackExcerptCoverage';`**
 
 COUVERTURE DES EXTRAITS — la seule clé de ce module qui remonte des tools vers le handler.
@@ -4964,6 +5060,8 @@ GARANTI.
 
  Rend `undefined` hors Slack — cas NORMAL du playground, d'un workflow ou d'un test.
 
+### `src/shared/request-context-values.ts`
+
 **Avant `function writeContextNote(requestContext: unknown, key: string, value: string): void {`**
 
 La plomberie commune aux notes qui remontent des tools vers le handler.
@@ -4980,10 +5078,14 @@ NE LÈVE JAMAIS : un tool ne doit pas échouer parce qu'il n'a pas pu poser une 
 
 Silencieux à dessein — voir ci-dessus.
 
+### `src/shared/slack-context-notes.ts`
+
 **Avant `export function readExcerptCoverage(requestContext: unknown): string | undefined {`**
 
 Rend `undefined` hors Slack (playground, route HTTP, workflow, test) : c'est le cas NORMAL
 de ces chemins, exactement comme `readSlackContext`.
+
+### `src/shared/slack-request-context.ts`
 
 **Avant `export type SlackAccessLevel = 'denied' | 'readonly' | 'full';`**
 
@@ -5034,9 +5136,13 @@ c'est le cas des chemins hors Slack (playground, route HTTP, workflow, test), o�
 pas de demandeur à évaluer. Un tool qui exige `full` doit donc traiter l'absence comme le
 chemin historique, sans quoi brancher cette clé casserait tous les autres appelants.
 
+### `src/shared/request-context-values.ts`
+
 **Avant `function nonEmptyString(value: unknown): string | undefined {`**
 
  Chaîne non vide, ou `undefined`. Une valeur d'espaces vaut absence.
+
+### `src/shared/slack-request-context.ts`
 
 **Avant `export function buildSlackRequestContext(context: SlackToolContext): RequestContext {`**
 
@@ -6252,6 +6358,8 @@ revérifiera.**
 
 ### `src/shared/security/agent-output.ts`
 
+### `src/shared/security/outbound-links.ts`
+
 **Avant `function hostnameOf(`**
 
 ⚠️ **LE PARSEUR MAISON ET LE NAVIGATEUR LISAIENT DEUX HÔTES DIFFÉRENTS.** Il cherchait la
@@ -6277,6 +6385,8 @@ Le fichier des entretiens (`interview-email.ts`) faisait déjà ainsi — la bon
 dans le dépôt, elle n'avait pas été portée ici.
 
 ### `src/shared/security/llm-guardrail.ts`
+
+### `src/shared/security/delimiter-generator.ts`
 
 **Avant `const suspiciousTagPattern =`**
 

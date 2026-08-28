@@ -30,6 +30,8 @@ C'est la règle de dépendance, pas une entorse : `application` peut dépendre d
 diverger la borne de taille des pièces jointes et la forme des uploads entre deux
 
 features qui parlent au MÊME adaptateur.
+### `src/features/document/application/tools/document-hints.ts`
+
 **Avant `type DeliveryVerdict = 'slack' | 'email' | 'none' | 'failed';`**
 
 Génération de document — outil exposé au LLM.
@@ -102,6 +104,8 @@ contexte quand la livraison réussit (même arbitrage que `onboardingHint` dans
 `get-employee-profile.ts`). Chacune dit au modèle ce qu'il doit ANNONCER, faute de
 quoi il comble le vide — c'est la mécanique exacte du faux lien de téléchargement.
 
+### `src/features/document/application/tools/document-delivery.ts`
+
 **Avant `function isMissingScope(error: unknown): boolean {`**
 
 Reconnaît le refus `missing_scope` de Slack À TRAVERS l'enrobage de l'adaptateur.
@@ -125,6 +129,8 @@ Un renderer par format. Une LISTE et non une map : c'est le renderer qui déclar
 son format (`DocumentRenderer.format`), donc le câblage ne peut pas se tromper de
 clé — une map laisserait passer `{ pdf: new DocxService() }`.
 
+### `src/features/document/application/tools/generate-document-deps.ts`
+
 **Avant `fileUpload?: FileUploadProvider;`**
 
  Absent en test ou hors Slack : la livraison dégrade au lieu d'échouer.
@@ -141,6 +147,8 @@ rend ce câblage sûr à ajouter — un guide reste produit même sur une base o
 
  Résout un nom lisible depuis un identifiant `C…`. Sans lui, les canaux ne sont pas cités.
 
+### `src/features/document/application/tools/generate-document.schema.ts`
+
 **Avant `const RENDERABLE_FORMATS = [DocumentFormat.Pdf, DocumentFormat.Docx] as const;`**
 
 Formats réellement RENDUS, et donc les seuls exposés au modèle.
@@ -156,6 +164,8 @@ validateur de tool-calls (voir `tests/unit/tools/tool-schema-flatness.test.ts`).
 
 `execute` reste néanmoins tolérant à un format hors liste : l'outil est aussi
 appelable hors Zod (appel direct, workflow, test), et un `throw` y serait un piège.
+
+### `src/features/document/application/tools/document-render.ts`
 
 **Avant `async function readInterview(`**
 
@@ -177,6 +187,8 @@ Les NOMS de canaux sont résolus ici parce que la base stocke des `C…` — qui
 pas — et qu'un canal se renomme sans que son identifiant bouge. Un identifiant non résolu
 est ÉCARTÉ plutôt qu'imprimé brut : « #C0BP3RCLLA1 » dans un document d'accueil est pire
 qu'une ligne en moins.
+
+### `src/features/document/application/tools/document-persistence.ts`
 
 **Avant `function revisionFingerprintOf(revises: boolean | undefined, content: string): string | undefine`**
 
@@ -271,6 +283,8 @@ est assurée par la clé (conversation) et le TTL, jamais par la durée de vie d
 Schéma dépouillé pour le budget de tokens (voir `schedule-reminder.ts`) :
 
 les `.describe()` qui ne faisaient que répéter le nom du champ ont été retirés.
+### `src/features/document/application/tools/generate-document.schema.ts`
+
 **Avant `employeeId: uuidSchema.optional().describe('UUID annuaire — omets-le pour le demandeur'),`**
 
 ⚠️ FACULTATIF depuis le 2026-08-20, et par défaut c'est le DEMANDEUR.
@@ -421,6 +435,8 @@ règle appliquée partout ailleurs ici — le canal, le fil, l'adresse email et
 l'identifiant du demandeur ne traversent jamais la fenêtre du modèle. Un identifiant
 
 qu'on demande au modèle est un identifiant qu'il peut inventer.
+### `src/features/document/application/tools/generate-document.ts`
+
 **Avant `const slackCtx = readSlackContext(ctx?.requestContext);`**
 
 POUR QUI — résolu AVANT tout le reste
@@ -499,6 +515,8 @@ garde rejetterait la correction comme un doublon et le modèle annoncerait avoir
 corrigé alors que rien n'aurait bougé : exactement la famille de mensonge que la
 
 garde elle-même a été écrite pour empêcher, retournée contre son propre but.
+### `src/features/document/application/tools/document-delivery-intent.ts`
+
 **Avant `const sameRun = Boolean(slackCtx?.eventTs) && previous.eventTs === slackCtx?.eventTs;`**
 
 Les deux incidents ne se diagnostiquent pas pareil : un second appel dans le
@@ -515,6 +533,8 @@ refaire. Sans cette mention, le modèle reste devant un résultat identique au
 précédent et peut conclure que son appel n'a pas abouti — c'est précisément
 
 l'absence de « l'effet existe déjà » qui a produit les doublons.
+### `src/features/document/application/tools/generate-document.ts`
+
 **Avant `if (!canReadPersonRecord(ctx?.requestContext, employeeId)) {`**
 
 Résolution de l'employé — le gabarit ET l'adresse en dépendent
@@ -762,6 +782,8 @@ La livraison n'est mémorisée que si elle a ABOUTI : un envoi échoué doit pou
 être retenté, sinon la garde transformerait une panne passagère en refus définitif
 
 pendant dix minutes.
+### `src/features/document/application/tools/document-delivery-intent.ts`
+
 **Avant `function resolveDeliveryIntent(params: {`**
 
 Où le document doit aller, et sous quelle clé de déduplication.
@@ -839,6 +861,8 @@ produit, c'est `canReadPersonRecord` qui en décide. Mais c'est le seul cas où 
 cible fait partir un fichier chez quelqu'un qui n'était pas concerné, et le relevé du
 2026-08-13 montre que ça arrive : les DIX documents de la base portaient le même UUID, dont
 un « Bienvenue Awa » livré à l'adresse de quelqu'un d'autre.
+### `src/features/document/application/tools/document-hints.ts`
+
 **Avant `const NO_SUBJECT_RESULT = {`**
 
 Ni personne désignée, ni demandeur résolvable — on renonce, et on le DIT.
@@ -847,6 +871,8 @@ C'est le cas hors Slack (playground, workflow) et celui d'une personne dont la l
 d'annuaire n'est reliée à aucun dossier. Produire un document au nom de personne serait
 pire qu'un refus : il partirait quand même, avec un gabarit vide là où il devrait y avoir
 un nom.
+
+### `src/features/document/application/tools/document-render.ts`
 
 **Avant `logger.error('Document content carried internal markers — markers removed', {`**
 
@@ -912,6 +938,8 @@ traverserait finirait imprimé tel quel dans un PDF signé de l'entreprise.
 Le format ENREGISTRÉ est celui réellement produit, jamais celui demandé : sinon
 
 la base annoncerait un `csv` là où un PDF a été livré.
+### `src/features/document/application/tools/document-hints.ts`
+
 **Avant `type DeliveryIntent = 'slack' | 'email' | 'none';`**
 
 Où le document doit aller. Volontairement plus étroit que `DeliveryVerdict` : c'est une
@@ -920,6 +948,8 @@ INTENTION, elle ne peut pas valoir `failed`.
 **Avant `interface DeliveryOutcome {`**
 
  Le couple rendu par toutes les étapes de livraison : où c'est parti, et pourquoi sinon.
+
+### `src/features/document/application/tools/document-delivery.ts`
 
 **Avant `function toVerdict(sent: { ok: true } | { ok: false; reason: HintKey }): DeliveryOutcome {`**
 
@@ -1120,6 +1150,8 @@ La valeur de l'enum EST l'extension attendue (`pdf`, `docx`, `txt`…).
 
 ## `features/document/domain/services/document-template.ts`
 
+### `src/features/document/domain/services/document-blocks.ts`
+
 **Avant `export type DocumentBlock =`**
 
 Modèle logique d'un document, indépendant du format de sortie.
@@ -1135,9 +1167,13 @@ Les blocs sont volontairement pauvres (titre, paragraphe, puces, champs) :
 c'est le dénominateur commun que PDF et DOCX savent tous deux rendre sans
 approximation.
 
+### `src/features/document/domain/services/document-titles.ts`
+
 **Avant `export const DEFAULT_TITLES: Record<DocumentType, string> = {`**
 
  Titre de repli par type, quand l'appelant n'en fournit pas (cas de `generate()`).
+
+### `src/features/document/domain/services/document-markdown.ts`
 
 **Avant `const HEADING_LINE = /^[ \t]{0,8}(#{1,6})[ \t]+(.*)/;`**
 
@@ -1225,6 +1261,8 @@ Corps libre → blocs. Analyse ligne à ligne, coût linéaire.
 Les titres du corps sont TOUS de niveau 2, quel que soit le nombre de `#` :
 le niveau 1 est déjà pris par le titre du document, et un `#` produit par le
 modèle au milieu d'un corps ne prétend pas rivaliser avec lui.
+
+### `src/features/document/domain/services/document-sections.ts`
 
 **Avant `function recipientName(input: DocumentRenderInput): string {`**
 
@@ -1409,6 +1447,8 @@ document, tout le contenu est dans `content` et aucun gabarit n'a de sens.
 Même raison que dans `buildGuide` : c'est le gabarit de repli, donc celui qui sert dans
 
 la moitié des cas, et il ne nommait personne du tout.
+### `src/features/document/domain/services/document-template.ts`
+
 **Avant `function clean(text: string): string {`**
 
  Texte feuille assaini. Seule la valeur est retenue ici — voir le commentaire

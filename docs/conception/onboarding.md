@@ -289,6 +289,8 @@ en rien le modèle et sont repayés à chaque aller-retour (plafond Groq
 12 000 tokens/minute). Même règle que `task-summary.mapper.ts`.
 ## `features/onboarding/application/workflows/employee-onboarding.ts`
 
+### `src/features/onboarding/application/workflows/employee-onboarding-schemas.ts`
+
 **Avant `const onboardingInputSchema = z.object({`**
 
 SCHEMAS
@@ -385,9 +387,13 @@ de faux « PASS » dans les rapports de test (cf. `onboarding-outcome.ts`).
 nomment explicitement. Les retirer casserait ces trois lecteurs pour un gain
 cosmétique.
 
+### `src/features/onboarding/application/workflows/employee-onboarding.ts`
+
 **Avant `export function createEmployeeOnboardingWorkflow(deps: {`**
 
 FACTORY
+
+### `src/features/onboarding/application/workflows/create-employee.step.ts`
 
 **Avant `const createEmployeeStep = createStep({`**
 
@@ -400,6 +406,8 @@ RÉUTILISATION, et non conflit — voir `alreadyExisted` dans le schéma de sort
 **Avant `const normalizedInput = {`**
 
 Normaliser les champs optionnels avec null par défaut
+
+### `src/features/onboarding/application/workflows/init-onboarding.step.ts`
 
 **Avant `const initOnboardingStep = createStep({`**
 
@@ -463,6 +471,8 @@ du `try`. Sans `onboarding_progress`, `updateOnboardingStatus` et
 `getEmployeeProfile` dégradent tous les deux — c'est un échec du parcours, pas
 
 une dégradation à noter au passage.
+### `src/features/onboarding/application/workflows/send-welcome-email.step.ts`
+
 **Avant `const sendWelcomeEmailStep = createStep({`**
 
 Step 3 : envoyer l'email de bienvenue
@@ -496,6 +506,8 @@ délibérément du HTML et échappe déjà ses valeurs interpolées avec `esc()`
 Échapper une seconde fois afficherait `<p>` littéralement dans le tout premier
 
 message que l'entreprise envoie à un arrivant.
+### `src/features/onboarding/application/workflows/invite-to-slack.step.ts`
+
 **Avant `const inviteToSlackStep = createStep({`**
 
 Step 4 : inviter sur Slack (best-effort)
@@ -542,6 +554,8 @@ Ici le canal EST configuré : l'invitation était attendue et n'a pas
 eu lieu. C'est un trou réel dans l'accueil (l'arrivant n'atterrit
 
 dans aucun canal), pas une étape hors sujet.
+### `src/features/onboarding/application/workflows/employee-onboarding.ts`
+
 **Avant `const workflow = new Workflow({`**
 
 Assemblage du workflow

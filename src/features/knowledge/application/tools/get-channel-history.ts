@@ -7,13 +7,11 @@ import {
   writeExcerptCoverage,
   writeLoanDelivered,
 } from '../../../../shared/slack-request-context';
-import type { ConversationExcerpt } from '../../domain/entities/conversation-excerpt';
 import {
   ChannelUnavailableError,
   type ChannelHistoryPort,
   type ChannelUnavailableReason,
 } from '../../domain/ports/channel-history.port';
-import { resolveChannelName } from '../../domain/services/channel-name-matching';
 import type {
   DirectoryPerson,
   PersonDirectoryPort,
@@ -23,14 +21,18 @@ import {
   type DisclosureReason,
   type Requester,
 } from '../../domain/services/disclosure-policy';
-import { describeCoverageForHuman, projectExcerpts } from '../../domain/services/excerpt-budget';
 import {
   KNOWLEDGE_LOOKBACK_MS,
   KNOWLEDGE_SCAN_LIMIT,
 } from '../../domain/value-objects/retrieval-window';
 import { wrapRetrievedContent } from '../services/untrusted-excerpt.service';
-import { buildNameLookup } from '../services/directory-names';
 import type { DigestDeliveryPort } from '../../domain/ports/digest-delivery.port';
+import { deliverDigest, type DigestOutcome } from './channel-digest-delivery';
+import { projectChannelHistory } from './channel-history-excerpts';
+import { refuse, type ChannelVerdict } from './channel-history-verdicts';
+import { resolveNamedChannel } from './channel-name-lookup';
+
+export type { DigestOutcome };
 
 export interface GetChannelHistoryDeps {
   readonly directory: PersonDirectoryPort;
@@ -38,120 +40,7 @@ export interface GetChannelHistoryDeps {
   readonly digests?: DigestDeliveryPort;
 }
 
-export type DigestOutcome = 'delivered' | 'failed' | 'unavailable';
-
 const CHANNEL_ID_RE = /^[CGD][A-Z0-9]{4,}$/i;
-
-const CHANNEL_LOOKUP_LIMIT = 200;
-
-type ChannelVerdict =
-  DisclosureReason | ChannelUnavailableReason | 'no_message' | 'ambiguous_channel';
-
-const VERDICT_HINTS: Partial<Record<ChannelVerdict, string>> = {
-  no_requester: "Hors Slack : pas d'identité, donc rien à divulguer. Dis-le, ne réessaie pas.",
-  not_channel_member:
-    "C'est la personne qui demande qui n'est pas membre de ce canal — jamais toi. Dis-le d'elle, " +
-    'pas de toi, et ne dis rien du contenu.',
-  requester_denied: 'Compte non autorisé.',
-  bot_not_in_channel:
-    "Je ne suis pas dans ce canal, donc je n'ai rien lu et je ne peux rien en dire. " +
-    'Dis-le simplement, et ne demande à personne de faire quoi que ce soit pour y remédier.',
-  channel_not_found:
-    "Aucun canal visible sous ce nom ou cet identifiant. Demande lequel, sans supposer qu'il " +
-    "n'existe pas.",
-  unavailable: 'Slack indisponible. Réessayer a un sens.',
-  no_message: 'Aucun message exploitable dans la fenêtre consultée.',
-  ambiguous_channel:
-    'Plusieurs canaux portent ce début de nom. Demande lequel, en citant ceux que je propose.',
-};
-
-function refuse(reason: ChannelVerdict) {
-  const hint = VERDICT_HINTS[reason];
-  return hint ? { found: false as const, reason, hint } : { found: false as const, reason };
-}
-
-async function deliverDigest(
-  digests: DigestDeliveryPort | undefined,
-  request: {
-    channelId: string;
-    requesterId: string;
-    target: { channel?: string; threadTs?: string };
-    title: string;
-    coverage: string;
-    lines: string;
-  },
-): Promise<DigestOutcome> {
-  if (!digests || !request.target.channel) return 'unavailable';
-
-  try {
-    const verdict = await digests.deliver(
-      {
-        channelId: request.channelId,
-        title: request.title,
-        coverage: request.coverage,
-        lines: request.lines.split('\n').filter((line) => line.trim().length > 0),
-      },
-      {
-        channel: request.target.channel,
-        ...(request.target.threadTs ? { threadTs: request.target.threadTs } : {}),
-      },
-    );
-
-    if (verdict.delivered) {
-      logger.info('Knowledge — résumé de canal livré en document', {
-        requesterId: request.requesterId,
-        channelId: request.channelId,
-        filename: verdict.filename,
-      });
-      return 'delivered';
-    }
-
-    logger.error('Knowledge — livraison du résumé en document impossible', {
-      requesterId: request.requesterId,
-      channelId: request.channelId,
-      reason: verdict.reason,
-    });
-    return 'failed';
-  } catch (error) {
-    logger.error('Knowledge — livraison du résumé en document en échec', {
-      requesterId: request.requesterId,
-      channelId: request.channelId,
-      error,
-    });
-    return 'failed';
-  }
-}
-
-async function resolveNamedChannel(
-  deps: GetChannelHistoryDeps,
-  requesterId: string,
-  wanted: string | undefined,
-): Promise<{ id: string } | { refused: ChannelVerdict }> {
-  let visible;
-  try {
-    visible = await deps.channels.listMemberChannels(requesterId, CHANNEL_LOOKUP_LIMIT);
-  } catch (error) {
-    logger.error('Knowledge — liste des canaux du demandeur illisible', { requesterId, error });
-    return { refused: 'unavailable' };
-  }
-
-  const match = resolveChannelName(visible, wanted);
-
-  if (!match) {
-    logger.info('Knowledge — nom de canal non résolu parmi ceux du demandeur', {
-      requesterId,
-      visible: visible.length,
-    });
-    return { refused: 'channel_not_found' };
-  }
-
-  if ('ambiguous' in match) {
-    logger.info('Knowledge — nom de canal ambigu', { requesterId, candidates: match.ambiguous });
-    return { refused: 'ambiguous_channel' };
-  }
-
-  return { id: match.id };
-}
 
 async function authorizeRead(
   deps: GetChannelHistoryDeps,
@@ -241,7 +130,7 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
 
       const target = data.channelId
         ? { id: data.channelId.trim().toUpperCase() }
-        : await resolveNamedChannel(deps, requesterId, data.channelName);
+        : await resolveNamedChannel(deps.channels, requesterId, data.channelName);
       if ('refused' in target) return refuse(target.refused);
       const channelId = target.id;
 
@@ -268,18 +157,10 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
 
       if (messages.length === 0) return refuse('no_message');
 
-      const excerpts: ConversationExcerpt[] = messages.map((message) => ({
-        source: 'channel',
-        speaker: message.authorLabel,
-        text: message.text,
-        at: message.at,
-      }));
-
-      const nameLookup = await buildNameLookup(
+      const { lines, shown, coverage, humanCoverage } = await projectChannelHistory(
         deps.directory,
-        excerpts.map((excerpt) => excerpt.text),
+        messages,
       );
-      const { lines, shown, coverage } = projectExcerpts(excerpts, nameLookup);
 
       logger.info("Knowledge — récupération de l'historique d'un canal", {
         scope: 'channel',
@@ -290,7 +171,6 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
         shown,
       });
 
-      const humanCoverage = describeCoverageForHuman(excerpts, shown);
       if (humanCoverage) writeExcerptCoverage(ctx?.requestContext, humanCoverage);
 
       const document = data.asDocument

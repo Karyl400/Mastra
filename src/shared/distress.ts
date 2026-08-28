@@ -1,234 +1,33 @@
 import { normalizeIntentText } from './intent-text';
-import { ESCALATION_CONTACT, ESCALATION_CONTACT_EN } from './escalation';
-import { EMERGENCY_LINES } from './emergency-lines';
+import {
+  SELF_HARM_PHRASES_FR,
+  AGGRESSION_PHRASES_FR,
+  SELF_HARM_PHRASES_EN,
+  SELF_HARM_NOUNS_EN,
+  AGGRESSION_NOUNS_EN,
+  AGGRESSION_PHRASES_EN,
+  SELF_HARM_PHRASES_SHARED,
+  SELF_HARM_NOUNS_SHARED,
+  AGGRESSION_PHRASES_SHARED,
+  AGGRESSION_NOUNS_SHARED,
+  AGGRESSION_NOUNS_FR,
+} from './distress-phrases';
+import { FRENCH_MARKERS, ENGLISH_MARKERS } from './distress-language-markers';
+import {
+  DISTRESS_REPLY,
+  DISTRESS_REPLY_EN,
+  AGGRESSION_REPLY,
+  AGGRESSION_REPLY_EN,
+} from './distress-replies';
+
+export {
+  DISTRESS_REPLY,
+  DISTRESS_REPLY_EN,
+  AGGRESSION_REPLY,
+  AGGRESSION_REPLY_EN,
+} from './distress-replies';
 
 export type DistressKind = 'self_harm' | 'aggression';
-
-const SELF_HARM_PHRASES_FR: readonly string[] = [
-  'je veux mourir',
-  'je veux meurir',
-  'envie de mourir',
-  'je n en peux plus',
-  'j en peux plus',
-  'me suicider',
-  'me faire du mal',
-  'idees noires',
-  'plus envie de vivre',
-  'a quoi bon vivre',
-
-  'je ne vais pas bien',
-  'je vais tres mal',
-  'je vais pas bien',
-  'je craque',
-  'je suis a bout',
-  'je suis deprime',
-];
-
-const AGGRESSION_PHRASES_FR: readonly string[] = [
-  'je suis agresse',
-  'j ai ete agresse',
-  'ete agressee',
-  'me menace',
-  'me harcele',
-  'je suis discrimine',
-
-  'me suis fait agresser',
-  'on m a agresse',
-  'je suis en danger',
-  'me frappe',
-  'ma frappe',
-  'me touche sans mon consentement',
-];
-
-const SELF_HARM_PHRASES_EN: readonly string[] = [
-  'i want to die',
-  'i wanna die',
-  'want to be dead',
-  'better off dead',
-  'kill myself',
-  'killing myself',
-  'end my life',
-  'take my own life',
-  'want to end it',
-  'end it all',
-  'suicidal',
-  'self harm',
-  'hurting myself',
-  'hurt myself',
-  'harm myself',
-  'no reason to live',
-  'nothing to live for',
-  'dont want to live',
-  'do not want to live',
-  'dont want to be here anymore',
-  'do not want to be here anymore',
-  'want to disappear',
-  'whats the point anymore',
-  'no point in living',
-
-  'im not doing well',
-  'i am not doing well',
-  'i cant go on',
-  'cant go on anymore',
-  'cant go on like this',
-  'cant take it anymore',
-  'cant do this anymore',
-  'cant cope',
-  'having a breakdown',
-  'nervous breakdown',
-  'feel hopeless',
-  'feeling hopeless',
-  'am hopeless',
-  'feel worthless',
-  'feeling worthless',
-  'am worthless',
-  'im depressed',
-  'i am depressed',
-];
-
-const SELF_HARM_NOUNS_EN: readonly string[] = [
-  'breaking point',
-  'falling apart',
-  'burned out',
-  'burnt out',
-  'burning out',
-];
-
-const AGGRESSION_NOUNS_EN: readonly string[] = [
-  'harassment',
-  'death threat',
-  'death threats',
-  'sexual assault',
-];
-
-const AGGRESSION_PHRASES_EN: readonly string[] = [
-  'harassing me',
-  'harasses me',
-  'harass me',
-  'being harassed',
-  'was harassed',
-  'sexually harassed',
-  'sexually assaulted',
-  'bullying me',
-  'being bullied',
-  'was bullied',
-  'threatening me',
-  'threatens me',
-  'threatened me',
-  'assaulted me',
-  'was assaulted',
-  'discriminated against',
-
-  'i am in danger',
-  'im in danger',
-  'he hit me',
-  'she hit me',
-  'they hit me',
-  'touched me without',
-];
-
-const SELF_HARM_PHRASES_SHARED: readonly string[] = [];
-
-const SELF_HARM_NOUNS_SHARED: readonly string[] = ['suicide', 'depression', 'burn out', 'burnout'];
-
-const AGGRESSION_PHRASES_SHARED: readonly string[] = [];
-
-const AGGRESSION_NOUNS_SHARED: readonly string[] = ['discrimination'];
-
-const AGGRESSION_NOUNS_FR: readonly string[] = [
-  'harcele',
-  'harcelement',
-  'harcelement moral',
-  'harcelement sexuel',
-  'agression sexuelle',
-  'intimidation',
-  'menace de mort',
-  'menaces de mort',
-];
-
-const FRENCH_MARKERS: ReadonlySet<string> = new Set([
-  'je',
-  'tu',
-  'ne',
-  'pas',
-  'ni',
-  'suis',
-  'mon',
-  'ma',
-  'mes',
-  'moi',
-  'tres',
-  'avec',
-  'pour',
-  'que',
-  'qui',
-  'des',
-  'les',
-  'une',
-  'ce',
-  'cette',
-  'du',
-  'dans',
-  'depuis',
-  'tout',
-  'rien',
-  'vais',
-  'veux',
-  'peux',
-  'fais',
-  'sais',
-  'crois',
-  'envie',
-  'jamais',
-  'trop',
-  'est',
-  'et',
-  'mais',
-  'parce',
-]);
-
-const ENGLISH_MARKERS: ReadonlySet<string> = new Set([
-  'i',
-  'im',
-  'my',
-  'myself',
-  'the',
-  'to',
-  'and',
-  'is',
-  'am',
-  'are',
-  'be',
-  'been',
-  'do',
-  'dont',
-  'cant',
-  'wont',
-  'anymore',
-  'feel',
-  'feeling',
-  'this',
-  'that',
-  'it',
-  'of',
-  'with',
-  'for',
-  'you',
-  'have',
-  'has',
-  'had',
-  'was',
-  'were',
-  'not',
-  'so',
-  'really',
-  'very',
-  'going',
-  'want',
-  'need',
-  'think',
-  'about',
-]);
 
 const APOSTROPHES = /['‘’ʼ´`]/g;
 
@@ -379,43 +178,6 @@ export function distressLanguage(text: string | undefined | null): DistressLangu
 export function detectsDistress(text: string | undefined | null): boolean {
   return distressLanguage(text) !== null;
 }
-
-const CRISIS = EMERGENCY_LINES.crisis;
-const MEDICAL = EMERGENCY_LINES.medical;
-
-export const DISTRESS_REPLY =
-  "Merci de me l'avoir dit. Je ne suis pas la bonne personne pour t'aider là-dessus, et je ne " +
-  'vais pas te laisser sans réponse.\n\n' +
-  `Si c'est urgent : *${CRISIS.number}* (${CRISIS.label}), ou le *${MEDICAL.number}* ` +
-  `(${MEDICAL.label}) si la vie de quelqu'un est en jeu maintenant.\n` +
-  `Et si tu préfères en parler à quelqu'un d'ici : ${ESCALATION_CONTACT}, ou quelqu'un en qui ` +
-  'tu as confiance dans le workspace.\n\n' +
-  "Je n'ai transmis ce message à personne : il reste entre nous.";
-
-export const DISTRESS_REPLY_EN =
-  "Thank you for telling me. I'm not the right person to help you with this, and I won't leave " +
-  'you without an answer.\n\n' +
-  `If it's urgent: *${CRISIS.number}* (${CRISIS.labelEn}), or *${MEDICAL.number}* ` +
-  `(${MEDICAL.labelEn}) if someone's life is at risk right now.\n` +
-  `And if you'd rather talk to someone here: ${ESCALATION_CONTACT_EN}, or anyone you trust in ` +
-  'the workspace.\n\n' +
-  "I haven't passed this message on to anyone: it stays between us.";
-
-export const AGGRESSION_REPLY =
-  "Ce que tu me décris n'a rien de normal, et tu as bien fait de le dire.\n\n" +
-  `Si tu es en danger tout de suite : *${CRISIS.number}* (${CRISIS.label}). Le ` +
-  `*${MEDICAL.number}* (${MEDICAL.label}) pour une urgence médicale.\n` +
-  `Pour ce qui se passe au travail — harcèlement, menaces, discrimination — parles-en à ` +
-  `${ESCALATION_CONTACT}. C'est lui qui peut agir là-dessus, pas moi.\n\n` +
-  "Je n'ai transmis ce message à personne : il reste entre nous.";
-
-export const AGGRESSION_REPLY_EN =
-  "What you're describing is not normal, and you were right to say it.\n\n" +
-  `If you're in danger right now: *${CRISIS.number}* (${CRISIS.labelEn}). ` +
-  `*${MEDICAL.number}* (${MEDICAL.labelEn}) for a medical emergency.\n` +
-  `For what's happening at work — harassment, threats, discrimination — talk to ` +
-  `${ESCALATION_CONTACT_EN}. He's the one who can act on it, not me.\n\n` +
-  "I haven't passed this message on to anyone: it stays between us.";
 
 export function distressReplyFor(text: string | undefined | null): string {
   const language = distressLanguage(text);

@@ -8,8 +8,8 @@ import {
   type ChannelHistoryReadOptions,
   type ChannelMessage,
   type ChannelRef,
-  type ChannelUnavailableReason,
 } from '../../domain/ports/channel-history.port';
+import { toUnavailable, toUnprovable } from './slack-channel-errors';
 
 const MEMBER_PAGE_SIZE = 1000;
 const MAX_MEMBER_PAGES = 5;
@@ -19,42 +19,6 @@ export type DisplayNameResolver = (slackUserId: string) => Promise<string | null
 export interface SlackChannelHistoryOptions {
   readonly client?: WebClient;
   readonly resolveDisplayName?: DisplayNameResolver;
-}
-
-function toUnprovable(error: unknown, channelId: string): ChannelUnavailableError {
-  const code = slackErrorCode(error);
-
-  if (code === 'channel_not_found') {
-    return new ChannelUnavailableError(
-      'channel_not_found',
-      `Aucun canal visible sous ${channelId} (${code})`,
-      { cause: error },
-    );
-  }
-
-  const detail = code ? ` (${code})` : '';
-  return new ChannelUnavailableError(
-    'unavailable',
-    `Appartenance non vérifiable sur ${channelId}${detail}`,
-    { cause: error },
-  );
-}
-
-function toUnavailable(error: unknown, channelId: string): ChannelUnavailableError {
-  const code = slackErrorCode(error);
-
-  if (code === 'not_in_channel' || code === 'missing_scope' || code === 'channel_not_found') {
-    const reason: ChannelUnavailableReason = 'bot_not_in_channel';
-    return new ChannelUnavailableError(
-      reason,
-      `Slack a refusé la lecture de ${channelId} (${code})`,
-      { cause: error },
-    );
-  }
-
-  return new ChannelUnavailableError('unavailable', `Slack indisponible pour ${channelId}`, {
-    cause: error,
-  });
 }
 
 export class SlackChannelHistoryAdapter implements ChannelHistoryPort {

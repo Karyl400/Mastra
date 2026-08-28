@@ -138,6 +138,8 @@ d'appliquer est le sens le moins coûteux — c'est l'état d'avant l'activation
 
 ## `features/directory/application/services/channel-coverage.service.ts`
 
+### `src/features/directory/application/services/channel-coverage.types.ts`
+
 **Avant `export interface ChannelSnapshot {`**
 
 COUVERTURE DE CANAUX — le bot rejoint automatiquement les canaux publics.
@@ -258,6 +260,8 @@ câblé au boot d'une fonction Vercel sans lui coûter une E/S.
 
  Injectable pour les tests. Une seule horloge lue par passe : voir `run()`.
 
+### `src/features/directory/application/services/channel-coverage.service.ts`
+
 **Avant `if (channel.isArchived) {`**
 
 ARCHIVÉ D'ABORD, avant `isMember` : `chat.postMessage` échoue en `is_archived` quel
@@ -306,6 +310,8 @@ illisible — la lire ne doit pas coûter plus que la comprendre.
 
 `missing_scope` d'abord : c'est la seule issue qui appelle un geste HUMAIN, et la noyer dans
 le message générique de dégradation ferait manquer la seule chose à faire.
+
+### `src/features/directory/application/services/channel-inventory-recorder.ts`
 
 **Avant `async function recordInventory(`**
 

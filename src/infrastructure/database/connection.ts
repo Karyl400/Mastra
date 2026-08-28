@@ -1,34 +1,20 @@
 import { drizzle } from 'drizzle-orm/libsql';
-import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 import { createClient, type Client } from '@libsql/client';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 import * as schema from './schema';
 import { logger } from '../../shared/logger';
 import { errorMessage } from '../../shared/errors';
-import { migrate } from 'drizzle-orm/libsql/migrator';
-import { trace, SpanStatusCode } from '@opentelemetry/api';
-
-type DatabaseInstance = LibSQLDatabase<typeof schema>;
-
-interface ConnectionConfig {
-  dbUrl: string;
-  authToken: string;
-  autoMigrate: boolean;
-  migrationsFolder: string;
-}
-
-interface ConnectionManager {
-  getDb(): DatabaseInstance;
-  close(): Promise<void>;
-  healthCheck(): Promise<boolean>;
-  getStats(): DatabaseStats;
-}
-
-interface DatabaseStats {
-  isConnected: boolean;
-  dbUrl: string;
-  lastConnectedAt: Date | null;
-  connectionCount: number;
-}
+import { DatabaseConnectionError } from './connection-errors';
+import { closeClient } from './connection-close';
+import { pingDatabase } from './connection-health';
+import { runDatabaseMigrations } from './connection-migrations';
+import { registerDbShutdownHandlers } from './connection-shutdown';
+import type {
+  ConnectionConfig,
+  ConnectionManager,
+  DatabaseInstance,
+  DatabaseStats,
+} from './connection-types';
 
 const DEFAULT_CONFIG: ConnectionConfig = {
   dbUrl: process.env.DATABASE_URL || 'file:./data/kisso.db',
@@ -36,8 +22,6 @@ const DEFAULT_CONFIG: ConnectionConfig = {
   autoMigrate: process.env.AUTO_MIGRATE === 'true',
   migrationsFolder: process.env.DB_MIGRATIONS_FOLDER || './drizzle',
 };
-
-let dbShutdownHandlersRegistered = false;
 
 class LibSqlConnectionManager implements ConnectionManager {
   private db: DatabaseInstance | null = null;
@@ -64,62 +48,19 @@ class LibSqlConnectionManager implements ConnectionManager {
   }
 
   async close(): Promise<void> {
-    const tracer = trace.getTracer('db-connection');
-    const span = tracer.startSpan('db.close');
-
     try {
       this.isClosing = true;
-
-      if (this.client) {
-        this.client.close();
-        logger.info('Database connection closed successfully', {
-          dbUrl: this.config.dbUrl,
-          connectionDuration: this.connectedAt ? Date.now() - this.connectedAt.getTime() : 0,
-        });
-      }
-    } catch (error) {
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: errorMessage(error),
-      });
-      logger.error('Error closing database connection', { error });
-      throw error;
+      await closeClient(this.client, this.config.dbUrl, this.connectedAt);
     } finally {
       this.client = null;
       this.db = null;
       this.connectedAt = null;
       this.isClosing = false;
-      span.end();
     }
   }
 
   async healthCheck(): Promise<boolean> {
-    const tracer = trace.getTracer('db-connection');
-    const span = tracer.startSpan('db.health-check');
-
-    try {
-      if (!this.client) {
-        span.setAttribute('health.status', 'disconnected');
-        return false;
-      }
-
-      const result = await this.client.execute('SELECT 1 as alive');
-      const isAlive = result.rows.length > 0 && result.rows[0].alive === 1;
-
-      span.setAttribute('health.status', isAlive ? 'healthy' : 'unhealthy');
-      span.setStatus({ code: isAlive ? SpanStatusCode.OK : SpanStatusCode.ERROR });
-
-      return isAlive;
-    } catch (error) {
-      span.setAttribute('health.status', 'error');
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: errorMessage(error),
-      });
-      return false;
-    } finally {
-      span.end();
-    }
+    return pingDatabase(this.client);
   }
 
   getStats(): DatabaseStats {
@@ -184,81 +125,11 @@ class LibSqlConnectionManager implements ConnectionManager {
   private async runMigrations(): Promise<void> {
     if (!this.db) return;
 
-    const tracer = trace.getTracer('db-connection');
-    const span = tracer.startSpan('db.migrate');
-
-    try {
-      logger.info('Running database migrations...');
-
-      await migrate(this.db, {
-        migrationsFolder: this.config.migrationsFolder,
-      });
-
-      logger.info('Database migrations completed successfully');
-      span.setStatus({ code: SpanStatusCode.OK });
-    } catch (error) {
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: errorMessage(error),
-      });
-
-      logger.error('Database migration failed', { error });
-      throw new DatabaseMigrationError(
-        'Failed to run database migrations',
-        error instanceof Error ? error : undefined,
-      );
-    } finally {
-      span.end();
-    }
+    await runDatabaseMigrations(this.db, this.config.migrationsFolder);
   }
 
   private setupGracefulShutdown(): void {
-    const shutdown = async (signal: string) => {
-      logger.info(`Received ${signal}, closing database connection gracefully...`);
-      try {
-        await this.close();
-        logger.info('Database connection closed during shutdown');
-      } catch (error) {
-        logger.error('Error during database shutdown', { error });
-      }
-    };
-
-    if (!dbShutdownHandlersRegistered) {
-      process.on('SIGTERM', () => {
-        void shutdown('SIGTERM');
-      });
-      process.on('SIGINT', () => {
-        void shutdown('SIGINT');
-      });
-      process.on('SIGQUIT', () => {
-        void shutdown('SIGQUIT');
-      });
-      dbShutdownHandlersRegistered = true;
-    }
-  }
-}
-
-export class DatabaseConnectionError extends Error {
-  public readonly code = 'DB_CONNECTION_ERROR';
-
-  constructor(
-    message: string,
-    public override readonly cause?: Error,
-  ) {
-    super(message);
-    this.name = 'DatabaseConnectionError';
-  }
-}
-
-export class DatabaseMigrationError extends Error {
-  public readonly code = 'DB_MIGRATION_ERROR';
-
-  constructor(
-    message: string,
-    public override readonly cause?: Error,
-  ) {
-    super(message);
-    this.name = 'DatabaseMigrationError';
+    registerDbShutdownHandlers(() => this.close());
   }
 }
 
@@ -303,6 +174,8 @@ export async function resetConnection(): Promise<void> {
   await closeDb();
   connectionManager = null;
 }
+
+export { DatabaseConnectionError, DatabaseMigrationError } from './connection-errors';
 
 export type { ConnectionConfig, ConnectionManager, DatabaseInstance, DatabaseStats };
 

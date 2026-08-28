@@ -11,35 +11,20 @@ import {
   windowBounds,
   type RateLimitRule,
 } from '../../domain/services/rate-limit-policy';
+import {
+  ALLOWED,
+  type PendingCounter,
+  type RateLimitDecision,
+  type SlackRateLimiterOptions,
+} from './rate-limit-decision';
+import { claimModelBudget, type RateLimitCounters } from './model-budget-claim';
+import { consumeWorkspaceTokens } from './workspace-token-budget';
 
-export interface RateLimitDecision {
-  readonly allowed: boolean;
-  readonly rule: string | null;
-  readonly shouldNotify: boolean;
-  readonly degraded: boolean;
-  readonly rationsModelBudget: boolean;
-}
-
-const ALLOWED: RateLimitDecision = {
-  allowed: true,
-  rule: null,
-  shouldNotify: false,
-  degraded: false,
-  rationsModelBudget: false,
-};
-
-export interface SlackRateLimiterOptions {
-  readonly rules?: readonly RateLimitRule[];
-  readonly repository?: RateLimitRepository | null;
-  readonly localMax?: number;
-  readonly workspaceRule?: RateLimitRule | null;
-}
-
-export class SlackRateLimiter {
-  private readonly rules: readonly RateLimitRule[];
-  private readonly repository: RateLimitRepository | null;
+export class SlackRateLimiter implements RateLimitCounters {
+  readonly rules: readonly RateLimitRule[];
+  readonly repository: RateLimitRepository | null;
   private readonly workspaceRule: RateLimitRule | null;
-  private readonly local: LRUCache<string, number>;
+  readonly local: LRUCache<string, number>;
   private degradationLogged = false;
   private readonly notifiedWindows = new Set<string>();
 
@@ -106,11 +91,8 @@ export class SlackRateLimiter {
     subjectId: string,
     now: Date,
     options: { reserveOnly?: boolean },
-  ): {
-    refusal?: RateLimitDecision;
-    pending: { rule: RateLimitRule; key: string; by: number; projected: boolean }[];
-  } {
-    const pending: { rule: RateLimitRule; key: string; by: number; projected: boolean }[] = [];
+  ): { refusal?: RateLimitDecision; pending: PendingCounter[] } {
+    const pending: PendingCounter[] = [];
 
     for (const rule of applicable) {
       const key = buildCounterKey(rule, subjectId, now);
@@ -174,82 +156,11 @@ export class SlackRateLimiter {
     subjectId: string,
     now: Date = new Date(),
   ): Promise<{ allowed: boolean; degraded: boolean }> {
-    const rules = this.rules.filter((rule) => rule.rationsModelBudget);
-    if (rules.length === 0) return { allowed: true, degraded: false };
-
-    const outcomes = await Promise.all(
-      rules.map(async (rule) => this.claimOneRule(rule, subjectId, now)),
-    );
-
-    const refused = outcomes.filter((o) => !o.allowed);
-    const degraded = outcomes.some((o) => o.degraded);
-
-    if (refused.length === 0) return { allowed: true, degraded };
-
-    await Promise.all(
-      outcomes
-        .filter((o) => o.claimed)
-        .map(async (o) => this.releaseOneRule(o.rule, subjectId, now)),
-    );
-
-    return { allowed: false, degraded };
-  }
-
-  private async claimOneRule(
-    rule: RateLimitRule,
-    subjectId: string,
-    now: Date,
-  ): Promise<{ rule: RateLimitRule; allowed: boolean; degraded: boolean; claimed: boolean }> {
-    const key = buildCounterKey(rule, subjectId, now);
-    const localCount = (this.local.get(key) ?? 0) + 1;
-    this.local.set(key, localCount, { ttl: rule.windowMs });
-
-    if (!this.repository) {
-      return {
-        rule,
-        allowed: evaluateCount(rule, localCount).allowed,
-        degraded: false,
-        claimed: false,
-      };
-    }
-
-    const { windowStart, expiresAt } = windowBounds(rule, now);
-    try {
-      const count = await this.repository.increment(key, windowStart, expiresAt, 1);
-      return { rule, allowed: evaluateCount(rule, count).allowed, degraded: false, claimed: true };
-    } catch (error) {
-      this.logDegradation(rule, error);
-      return { rule, allowed: true, degraded: true, claimed: false };
-    }
-  }
-
-  private async releaseOneRule(rule: RateLimitRule, subjectId: string, now: Date): Promise<void> {
-    const key = buildCounterKey(rule, subjectId, now);
-    this.local.set(key, Math.max(0, (this.local.get(key) ?? 1) - 1), { ttl: rule.windowMs });
-
-    if (!this.repository) return;
-    const { windowStart, expiresAt } = windowBounds(rule, now);
-    try {
-      await this.repository.increment(key, windowStart, expiresAt, -1);
-    } catch (error) {
-      this.logDegradation(rule, error);
-    }
+    return await claimModelBudget(this, subjectId, now);
   }
 
   async consumeTokens(tokens: number | null | undefined, now: Date = new Date()): Promise<void> {
-    const rule = this.workspaceRule;
-    if (!rule || !this.repository) return;
-    if (!Number.isFinite(tokens ?? NaN) || (tokens ?? 0) <= 0) return;
-
-    const key = buildCounterKey(rule, WORKSPACE_SUBJECT, now);
-    const { windowStart, expiresAt } = windowBounds(rule, now);
-
-    try {
-      const consumed = await this.repository.increment(key, windowStart, expiresAt, tokens ?? 0);
-      logger.info('Workspace token budget', { consumed, limit: rule.limit });
-    } catch (error) {
-      logger.warn('Could not record token consumption', { error });
-    }
+    await consumeWorkspaceTokens(this.workspaceRule, this.repository, tokens, now);
   }
 
   private claimNotification(key: string): boolean {
@@ -258,7 +169,7 @@ export class SlackRateLimiter {
     return true;
   }
 
-  private logDegradation(rule: RateLimitRule, error: unknown): void {
+  logDegradation(rule: RateLimitRule, error: unknown): void {
     logger.error('Shared rate limit unavailable — falling back to the per-instance counter', {
       error,
       rule: rule.name,
@@ -278,3 +189,5 @@ export class SlackRateLimiter {
     }
   }
 }
+
+export type { RateLimitDecision, SlackRateLimiterOptions } from './rate-limit-decision';

@@ -85,6 +85,8 @@ dossiers pour six personnes réelles.
 
 ## `features/dashboard/infrastructure/repositories/drizzle-dashboard-facts.repository.ts`
 
+### `src/features/dashboard/infrastructure/repositories/dashboard-fact-readers.ts`
+
 **Avant `async function readOrMark<T>(`**
 
 ⚠️ UNE TABLE ABSENTE REND SA MÉTRIQUE INDISPONIBLE, JAMAIS LA PAGE.
@@ -98,6 +100,8 @@ tableau de bord entier tombait **sans désigner sa cause**.
 sort (`source.from`), donc il n'y a aucune liste à tenir à jour en face. Ajouter une métrique sur
 une nouvelle table la protège d'avance.
 
+### `src/features/dashboard/infrastructure/repositories/dashboard-fact-queries.ts`
+
 **Avant `const SAMPLE_CAP = 500;`**
 
 On rend les VALEURS, pas un agrégat calculé en SQL.
@@ -107,6 +111,8 @@ La première version faisait calculer la médiane par SQLite, avec un `LIMIT 2 -
 le domaine « retrouve » cette médiane. C'était une distribution INVENTÉE pour satisfaire une
 signature. Le domaine calcule désormais sur les vraies mesures, et le dépôt garde une seule
 définition de la médiane.
+
+### `src/features/dashboard/infrastructure/repositories/dashboard-fact-readers.ts`
 
 **Avant `function fingerprint(conversationId: string): string {`**
 
