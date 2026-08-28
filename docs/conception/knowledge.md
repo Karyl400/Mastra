@@ -1429,6 +1429,33 @@ avertissement posé même quand tout a été montré deviendrait du bruit, et le
 et ne passe par AUCUN filtre — `sanitizeAgentOutput` n'a qu'un seul site d'appel,
 `response.text`. Un `**gras**` s'afficherait littéralement, constaté le 2026-08-18.
 
+## `features/knowledge/application/services/fact-curtain.service.ts`
+
+**Avant `const refusedByWrite = new Set<string>();`**
+
+⚠️ **UN ÉCHEC D'ÉCRITURE NE VAUT PAS UN EXAMEN — audit du 2026-08-28.**
+
+`markDistilled([...byId.keys()])` s'exécutait **inconditionnellement, hors de la boucle**. Un
+insert qui échouait — la violation de `knowledge_facts.channel_id NOT NULL` que provoquait le
+mapping cassé de l'archive — était donc suivi d'un marquage : le message ne repassait **plus
+jamais**. C'est ce qui a rendu la perte permanente sur 19 des 30 lignes de production, et c'est
+ce qui a fait attribuer le symptôme au modèle pendant sept jours.
+
+⚠️ **La distinction qui compte n'est pas « échec / succès » mais « la donnée a-t-elle été
+EXAMINÉE ? »** Un rang hors lot, un `kind` hors énumération, un résumé vide : le modèle a
+regardé et n'a rien produit d'exploitable. Remontrer ces cinq messages au tour suivant coûterait
+un appel de modèle **par message** — l'inverse exact de ce que le lot de cinq existe pour
+éviter. Ceux-là sont marqués, et doivent l'être.
+
+Une écriture qui échoue, elle, n'a **rien constaté du tout**. Elle est retenue et repassera.
+
+⚠️ Même asymétrie que la prise de rappel (`STRANDED_CLAIM_MS`) : on rend la prise sur un échec
+réparable — transport, base — jamais sur une cause que rien ne fera changer d'ici au prochain
+tour. Ici, la seule cause retenue est le refus du dépôt, qui est par nature réparable.
+
+⚠️ Le compte est journalisé sous `heldForRetry` : sans lui, « 5 examinés, 0 enregistrés » se lit
+comme un lot sans intérêt, alors que c'est une panne d'écriture.
+
 ## `features/knowledge/domain/services/excerpt-salience.ts`
 
 **Avant `const raw = foldDiacritics(text).trim();`**

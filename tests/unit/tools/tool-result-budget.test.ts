@@ -35,6 +35,7 @@ import {
   DocumentFormat,
   DocumentType,
 } from '../../../src/shared/types';
+import { slackCaller } from '../../helpers/slack-caller';
 
 const EMPLOYEE_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -91,7 +92,7 @@ describe('getEmployeeProfile — budget du tool-result', () => {
     // appel sur un budget de ≈ 19 messages par jour.
     const result = (await profileTool().execute!(
       { employeeId: EMPLOYEE_ID } as never,
-      {} as never,
+      slackCaller(),
     )) as ProfileResult & Record<string, unknown>;
 
     expect(result.tasks).toBeUndefined();
@@ -102,7 +103,7 @@ describe('getEmployeeProfile — budget du tool-result', () => {
   it('projette la progression sans ses champs techniques', async () => {
     const result = (await profileTool().execute!(
       { employeeId: EMPLOYEE_ID } as never,
-      {} as never,
+      slackCaller(),
     )) as ProfileResult;
 
     // ⚠️ La FIXTURE porte `currentStep: 3, totalSteps: 8`, et le résultat ne les recopie plus.
@@ -133,7 +134,7 @@ describe('getEmployeeProfile — budget du tool-result', () => {
     const vide = new InMemoryOnboardingRepository();
     const result = (await makeGetEmployeeProfile(employeeRepo, vide).execute!(
       { employeeId: EMPLOYEE_ID } as never,
-      {} as never,
+      slackCaller(),
     )) as ProfileResult;
 
     expect(result.progress).toBeNull();
@@ -141,7 +142,7 @@ describe('getEmployeeProfile — budget du tool-result', () => {
 
   it('tient très largement sous 350 tokens', async () => {
     const serialise = JSON.stringify(
-      await profileTool().execute!({ employeeId: EMPLOYEE_ID } as never, {} as never),
+      await profileTool().execute!({ employeeId: EMPLOYEE_ID } as never, slackCaller()),
     );
     // Ratio 3,5 caractères/token, calibré sur les mesures réelles du projet.
     const tokens = Math.round(serialise.length / 3.5);
@@ -165,7 +166,7 @@ describe('getEmployeeProfile — budget du tool-result', () => {
     } as never);
 
     const serialise = JSON.stringify(
-      await profileTool().execute!({ employeeId: EMPLOYEE_ID } as never, {} as never),
+      await profileTool().execute!({ employeeId: EMPLOYEE_ID } as never, slackCaller()),
     );
 
     expect(serialise).not.toContain('confidentiel');
@@ -222,6 +223,10 @@ describe('generateDocument — budget du tool-result', () => {
         format: DocumentFormat.Pdf,
         deliverTo: 'none',
       } as never,
+      // ⚠️ PAS de `slackCaller()` ici, et c'est le sujet du test : hors Slack, `deliverTo: none`
+      // est honoré et le verdict tient en 39 tokens. Avec un canal, le tool livre dans le fil —
+      // ce qui est le bon comportement — et un échec de livraison ajoute un `hint`, soit 93
+      // tokens. C'est le budget NOMINAL qu'on borne ici ; le dégradé a sa propre assertion.
       {} as never,
     )) as Record<string, unknown>;
   }

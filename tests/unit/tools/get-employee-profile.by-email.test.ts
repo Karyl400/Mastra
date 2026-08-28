@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { ONBOARDING_TOTAL_STEPS } from '../../../src/features/onboarding/domain/services/onboarding-plan';
 import { makeGetEmployeeProfile } from '../../../src/features/employee/application/tools/get-employee-profile';
 import { buildSlackRequestContext } from '../../../src/shared/slack-request-context';
+import { slackCaller } from '../../helpers/slack-caller';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -65,7 +66,7 @@ describe('getEmployeeProfile — résolution par email (une étape en moins)', (
   it('rend le profil depuis le seul email, SANS repasser par findById', async () => {
     const { tool: t, findById, findByEmail } = tool({ byEmail: employeeRow });
 
-    const result = (await t.execute!({ email: 'awa@kissohq.com' } as never, {} as never)) as {
+    const result = (await t.execute!({ email: 'awa@kissohq.com' } as never, slackCaller())) as {
       found: boolean;
       employee?: { email: string };
     };
@@ -84,7 +85,7 @@ describe('getEmployeeProfile — résolution par email (une étape en moins)', (
   it('normalise l’adresse avant la recherche', async () => {
     const { tool: t, findByEmail } = tool({ byEmail: employeeRow });
 
-    await t.execute!({ email: '  AWA@KissoHQ.com ' } as never, {} as never);
+    await t.execute!({ email: '  AWA@KissoHQ.com ' } as never, slackCaller());
 
     expect(findByEmail).toHaveBeenCalledWith('awa@kissohq.com');
   });
@@ -92,7 +93,7 @@ describe('getEmployeeProfile — résolution par email (une étape en moins)', (
   it('INSTRUIT au lieu de lever quand aucun des deux champs n’est fourni', async () => {
     const { tool: t, findById, findByEmail } = tool();
 
-    const result = (await t.execute!({} as never, {} as never)) as {
+    const result = (await t.execute!(slackCaller(), slackCaller())) as {
       found: boolean;
       reason: string;
       hint: string;
@@ -110,7 +111,7 @@ describe('getEmployeeProfile — résolution par email (une étape en moins)', (
   it('dit honnêtement « inconnu » à un demandeur AUTORISÉ', async () => {
     const { tool: t } = tool({ byEmail: null });
 
-    const result = (await t.execute!({ email: 'fantome@kissohq.com' } as never, {} as never)) as {
+    const result = (await t.execute!({ email: 'fantome@kissohq.com' } as never, slackCaller())) as {
       found: boolean;
       reason: string;
     };
@@ -200,7 +201,10 @@ describe('getEmployeeProfile — le compteur d’étapes ne peut plus être pér
       { findByEmployee: vi.fn().mockResolvedValue(stale) } as never,
     );
 
-    const result = (await tool.execute!({ employeeId: employeeRow.id } as never, {} as never)) as {
+    const result = (await tool.execute!(
+      { employeeId: employeeRow.id } as never,
+      slackCaller(),
+    )) as {
       progress: { totalSteps: number; currentStep: number };
     };
 

@@ -27,6 +27,10 @@ import { KNOWLEDGE_FACT_MIN_SCORE } from '../../../src/features/knowledge/domain
  * Poser un `testTimeout` aurait masqué la cause au lieu de la retirer.
  */
 import { ModelFactSummarizer } from '../../../src/features/knowledge/infrastructure/services/model-fact-summarizer.service';
+import type {
+  FactSummarizerPort,
+  SummarizedFact,
+} from '../../../src/features/knowledge/domain/ports/fact-summarizer.port';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -290,5 +294,80 @@ describe('la lecture des lignes rendues par le modèle', () => {
   it('garde le résumé entier même s’il contient une barre verticale', async () => {
     const lines = await parse('1|decision|on garde A | B jusqu’en mars');
     expect(lines[0]?.summary).toBe('on garde A | B jusqu’en mars');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// UN ÉCHEC D'ÉCRITURE NE VAUT PAS UN EXAMEN — audit du 2026-08-28, § 1.2
+// ════════════════════════════════════════════════════════════════════════════
+//
+// `markDistilled([...byId.keys()])` s'exécutait INCONDITIONNELLEMENT, hors de la boucle. Un
+// insert qui échoue — la violation de `channel_id NOT NULL` provoquée par le mapping cassé —
+// était donc suivi d'un marquage : le message ne repassait PLUS JAMAIS. C'est ce qui a rendu la
+// perte permanente sur 19 des 30 lignes de production.
+//
+// ⚠️ La distinction qui compte n'est pas « échec / succès » mais **« la donnée a-t-elle été
+// EXAMINÉE ? »**. Un rang hors lot, un `kind` inconnu, un résumé vide : le modèle a regardé et
+// n'a rien produit d'exploitable — remontrer ces cinq messages à chaque tour serait un appel de
+// modèle PAR MESSAGE, l'inverse exact de ce que le lot de cinq existe pour éviter. Ceux-là sont
+// marqués. Une écriture qui ÉCHOUE, elle, n'a rien constaté du tout.
+
+describe('un échec d’écriture laisse le message revenir', () => {
+  // ⚠️ Le `kind` est typé `string` ici, et non `FactKind` : ce que rend le modèle est de la
+  // DONNÉE, pas une valeur du domaine. Le port promet `FactKind` ; le modèle ne tient pas cette
+  // promesse, et c'est précisément la garde qu'on exerce plus bas avec « ragot ».
+  function summarizerRendant(
+    entries: ReadonlyArray<{ index: number; kind: string; summary: string }>,
+  ): FactSummarizerPort {
+    return { summarize: async () => entries as readonly SummarizedFact[] };
+  }
+
+  it('ne marque PAS ce que le dépôt a refusé d’écrire', async () => {
+    const archive = new InMemoryMessageArchiveRepository();
+    await seed(archive, CURTAIN_BATCH_SIZE);
+
+    const facts = new InMemoryKnowledgeFactRepository();
+    vi.spyOn(facts, 'record').mockRejectedValue(new Error('NOT NULL constraint failed'));
+
+    await runFactCurtain({
+      archive,
+      facts,
+      summarizer: summarizerRendant([{ index: 1, kind: 'decision', summary: 'on part sur pg' }]),
+    });
+
+    const encore = await archive.findPendingDistillation(CURTAIN_WINDOW_MS, CURTAIN_BATCH_SIZE);
+    expect(encore.map((m) => m.id)).toContain('C1:0');
+  });
+
+  it('marque en revanche ce que le modèle a EXAMINÉ sans rien en tirer', async () => {
+    const archive = new InMemoryMessageArchiveRepository();
+    await seed(archive, CURTAIN_BATCH_SIZE);
+
+    await runFactCurtain({
+      archive,
+      facts: new InMemoryKnowledgeFactRepository(),
+      // `kind` hors énumération : la donnée est jetée, jamais corrigée — mais elle a été vue.
+      summarizer: summarizerRendant([{ index: 2, kind: 'ragot', summary: 'un ragot' }]),
+    });
+
+    expect(await archive.findPendingDistillation(CURTAIN_WINDOW_MS, CURTAIN_BATCH_SIZE)).toEqual(
+      [],
+    );
+  });
+
+  it('CONTRÔLE — un enregistrement RÉUSSI est marqué', async () => {
+    const archive = new InMemoryMessageArchiveRepository();
+    await seed(archive, CURTAIN_BATCH_SIZE);
+
+    const report = await runFactCurtain({
+      archive,
+      facts: new InMemoryKnowledgeFactRepository(),
+      summarizer: summarizerRendant([{ index: 1, kind: 'decision', summary: 'on part sur pg' }]),
+    });
+
+    expect(report.recorded).toBe(1);
+    expect(await archive.findPendingDistillation(CURTAIN_WINDOW_MS, CURTAIN_BATCH_SIZE)).toEqual(
+      [],
+    );
   });
 });

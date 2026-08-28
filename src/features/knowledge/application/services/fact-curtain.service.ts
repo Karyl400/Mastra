@@ -61,6 +61,8 @@ export async function runFactCurtain(deps: FactCurtainDeps): Promise<CurtainRepo
   let recorded = 0;
   let rejected = 0;
 
+  const refusedByWrite = new Set<string>();
+
   for (const candidate of summarized) {
     const source = pending[candidate.index - 1];
 
@@ -102,13 +104,23 @@ export async function runFactCurtain(deps: FactCurtainDeps): Promise<CurtainRepo
       recorded += 1;
     } catch (error) {
       rejected += 1;
-      logger.warn('Second rideau — fait non enregistré', { id: source.id, error: String(error) });
+      refusedByWrite.add(source.id);
+      logger.warn('Second rideau — fait non enregistré, le message repassera', {
+        id: source.id,
+        error: String(error),
+      });
     }
   }
 
-  await deps.archive.markDistilled([...byId.keys()], now);
+  const examinedIds = [...byId.keys()].filter((id) => !refusedByWrite.has(id));
+  await deps.archive.markDistilled(examinedIds, now);
 
-  logger.info('Second rideau passé', { examined: pending.length, recorded, rejected });
+  logger.info('Second rideau passé', {
+    examined: pending.length,
+    recorded,
+    rejected,
+    heldForRetry: refusedByWrite.size,
+  });
 
   return { examined: pending.length, recorded, rejected };
 }

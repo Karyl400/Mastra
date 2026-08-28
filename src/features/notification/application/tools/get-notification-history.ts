@@ -4,7 +4,10 @@ import type { NotificationRepository } from '../../domain/ports/notification.rep
 import type { Notification } from '../../domain/entities/notification';
 import { uuidSchema, emailSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
-import { canReadPersonRecord } from '../../../../shared/slack-request-context';
+import {
+  canReadPersonRecord,
+  hasIdentifiedRequester,
+} from '../../../../shared/slack-request-context';
 import { NotificationStatus, type NotificationChannel } from '../../../../shared/types';
 import { isDispatchableStatus } from '../../domain/services/reminder-dispatch';
 
@@ -12,6 +15,9 @@ const NOT_AUTHORIZED_HINT =
   "Tu n'as pas accès aux messages reçus par cette personne. Dis-le simplement, sans détour " +
   'et sans inventer de motif. Ne réessaie pas avec un autre outil et ne reformule pas la ' +
   'demande.';
+
+const NO_REQUESTER_HINT =
+  "Cette demande n'arrive pas d'une conversation Slack : aucun demandeur n'est identifié, donc aucun droit ne peut être vérifié. Dis-le simplement et n'essaie pas un autre outil.";
 
 export const MAX_NOTIFICATIONS_IN_RESULT = 5;
 
@@ -60,6 +66,18 @@ export function makeGetNotificationHistory(
       email: emailSchema.optional().describe('Email pro — alternative à recipientId'),
     }),
     execute: async (data, _ctx) => {
+      if (!hasIdentifiedRequester(_ctx?.requestContext)) {
+        logger.warn('Historique de notifications refusé — aucun demandeur identifié');
+        return {
+          notifications: [],
+          total: 0,
+          shown: 0,
+          found: false as const,
+          reason: 'no_requester' as const,
+          hint: NO_REQUESTER_HINT,
+        };
+      }
+
       const email = data.email ? String(data.email).trim().toLowerCase() : undefined;
 
       if (!data.recipientId && !email) {

@@ -27,6 +27,7 @@ import { InMemoryNotificationRepository } from '../../../src/features/notificati
 import type { Notification } from '../../../src/features/notification/domain/entities/notification';
 import { DISPATCHABLE_STATUSES } from '../../../src/features/notification/domain/services/reminder-dispatch';
 import { NotificationChannel, NotificationStatus, RecipientType } from '../../../src/shared/types';
+import { slackCaller } from '../../helpers/slack-caller';
 
 const RECIPIENT_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -68,7 +69,7 @@ describe('getNotificationHistory — budget et honnêteté du tool-result', () =
   async function run() {
     return (await makeGetNotificationHistory(repo).execute!(
       { recipientId: RECIPIENT_ID } as never,
-      {} as never,
+      slackCaller(),
     )) as { notifications: Array<Record<string, unknown>>; total: number; shown: number };
   }
 
@@ -167,7 +168,7 @@ describe('getNotificationHistory — budget et honnêteté du tool-result', () =
       await repoForStatus.save(makeNotification(1, { status, sentAt: null }));
       const out = (await makeGetNotificationHistory(repoForStatus).execute!(
         { recipientId: RECIPIENT_ID } as never,
-        {} as never,
+        slackCaller(),
       )) as NotificationHistoryPage;
 
       if (/remise automatique/.test(out.notifications[0]!.status)) promising.add(status);

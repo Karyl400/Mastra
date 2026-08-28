@@ -6,7 +6,10 @@ import type { OnboardingRepository } from '../../../onboarding/domain/ports/onbo
 import type { OnboardingProgress } from '../../../onboarding/domain/entities/onboarding-progress';
 import { uuidSchema, emailSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
-import { canReadPersonRecord } from '../../../../shared/slack-request-context';
+import {
+  canReadPersonRecord,
+  hasIdentifiedRequester,
+} from '../../../../shared/slack-request-context';
 import { reconcileProgress } from '../../../onboarding/domain/services/onboarding-plan';
 
 const NOT_FOUND_HINT =
@@ -20,6 +23,9 @@ const NO_PROGRESS_HINT =
 const NOT_AUTHORIZED_HINT =
   "Tu n'as pas accès au dossier de cette personne. Dis-le simplement, sans détour et sans " +
   'inventer de motif. Ne réessaie pas avec un autre outil et ne reformule pas la demande.';
+
+const NO_REQUESTER_HINT =
+  "Cette demande n'arrive pas d'une conversation Slack : aucun demandeur n'est identifié, donc aucun droit ne peut être vérifié. Dis-le simplement et n'essaie pas un autre outil.";
 
 const MISSING_IDENTIFIER_HINT =
   "Précise QUI : soit l'email, soit l'identifiant de l'employé. N'en invente " +
@@ -39,6 +45,15 @@ export function makeGetEmployeeProfile(
         .describe("Email pro — alternative à employeeId, évite de résoudre la personne d'abord"),
     }),
     execute: async (data, _ctx) => {
+      if (!hasIdentifiedRequester(_ctx?.requestContext)) {
+        logger.warn('Lecture de profil refusée — aucun demandeur identifié');
+        return {
+          found: false as const,
+          reason: 'no_requester' as const,
+          hint: NO_REQUESTER_HINT,
+        };
+      }
+
       const email = data.email ? String(data.email).trim().toLowerCase() : undefined;
 
       if (!data.employeeId && !email) {

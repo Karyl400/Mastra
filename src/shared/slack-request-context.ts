@@ -159,6 +159,10 @@ function mayTouchRecord(requestContext: unknown, targetEmployeeId: string | unde
   return context.accessLevel === 'full';
 }
 
+export function hasIdentifiedRequester(requestContext: unknown): boolean {
+  return Boolean(readSlackContext(requestContext)?.slackUserId);
+}
+
 export function mayHoldKeyFor(
   requestContext: unknown,
   targetEmployeeId: string | undefined | null,

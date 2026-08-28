@@ -85,9 +85,23 @@ describe('getEmployeeProfile — frontière d’autorisation', () => {
     expect(findById).toHaveBeenCalledWith(ME);
   });
 
-  it('n’exige rien hors Slack — playground, workflow, test', async () => {
-    // Sans ce comportement, brancher l'autorisation couperait d'un coup tous les appelants
-    // qui n'ont pas de demandeur. L'absence de contexte n'est pas un refus.
+  it('REFUSE hors Slack — ce test disait l’inverse jusqu’au 2026-08-28', async () => {
+    // ⚠️ CE TEST VERROUILLAIT LE DÉFAUT. Il s'appelait « n'exige rien hors Slack — playground,
+    // workflow, test » et affirmait : « L'absence de contexte n'est pas un refus ». Son
+    // commentaire nommait explicitement « route HTTP » : l'auteur avait CONSIDÉRÉ ce chemin et
+    // l'avait jugé nominal. C'est la troisième occurrence dans ce dépôt de la famille qu'il
+    // documente lui-même — « `status = Sent` était posé avant le `try`, et un test verrouillait
+    // ce mensonge ».
+    //
+    // Ce qui a changé n'est pas l'avis, c'est un FAIT : depuis le 2026-08-14,
+    // `createRequestContextGuard` refuse (400) toute clé `slack*` venue d'un appelant HTTP.
+    // « Pas de contexte » a donc cessé d'être la marque du playground pour devenir l'état
+    // GARANTI de tout appel `/api/*` — porteur d'un `MASTRA_API_TOKEN`, mais anonyme. La
+    // prémisse du test d'origine était vraie le jour où il a été écrit ; elle ne l'est plus.
+    //
+    // ⚠️ `mayTouchRecord` n'a PAS bougé, et c'est délibéré : le playground et les workflows en
+    // dépendent réellement. Le second verrou est ici, au bord de l'outil — là où l'on sait que
+    // ce qu'on va lire est un dossier RH.
     const findById = vi.fn().mockResolvedValue(employeeRow);
     const tool = makeGetEmployeeProfile(
       { findById } as never,
@@ -96,9 +110,12 @@ describe('getEmployeeProfile — frontière d’autorisation', () => {
 
     const result = (await tool.execute!({ employeeId: SOMEONE_ELSE } as never, {} as never)) as {
       found: boolean;
+      reason: string;
     };
 
-    expect(result.found).toBe(true);
+    expect(result.found).toBe(false);
+    expect(result.reason).toBe('no_requester');
+    expect(findById).not.toHaveBeenCalled();
   });
 });
 
@@ -180,5 +197,92 @@ describe('getNotificationHistory — frontière d’autorisation', () => {
     await tool.execute!({ recipientId: ME } as never, restrictedRequester as never);
 
     expect(findByRecipient).toHaveBeenCalledWith(ME);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// LA FRONTIÈRE S'OUVRAIT PAR L'ABSENCE — audit du 2026-08-28, § 1.1
+// ════════════════════════════════════════════════════════════════════════════
+//
+// `mayTouchRecord` commence par `if (!context) return true`, AVANT tout contrôle de niveau.
+// `AUTHZ_ENFORCE` est sans effet sur ce chemin. Or depuis le 2026-08-14,
+// `createRequestContextGuard` REFUSE (400) toute clé `slack*` fournie par un appelant HTTP :
+// **tout appel `/api/*` a donc nécessairement un contexte vide.** Un bon correctif a creusé le
+// trou. Mesuré en production sur `POST /api/agents/onboardingOrchestrator/generate` avec une
+// adresse fictive : `getEmployeeProfile` s'est EXÉCUTÉ, sans aucun refus.
+//
+// ⚠️ Le correctif ne touche PAS `mayTouchRecord` : `readSlackContext` rend `undefined` sur le
+// playground, les workflows et tous les tests, où c'est le cas NOMINAL. Le refermer là couperait
+// le produit de lui-même. Le second verrou appartient **au bord de l'outil** — la forme existe
+// déjà dans ce dépôt, appliquée à quatre outils (`get-channel-history`, `get-user-conversations`,
+// `search-knowledge`, `schedule-candidate-interview`).
+//
+// ⚠️ Et il tombe AVANT `findByEmail`. Le chemin par email doit lire pour résoudre ; s'il lisait
+// avant de refuser, un appelant non authentifié énumérerait l'annuaire une adresse à la fois.
+
+const noRequester = { requestContext: undefined };
+
+describe('une lecture de dossier RH exige un DEMANDEUR', () => {
+  it('getEmployeeProfile refuse sans contexte, sans interroger la base (par identifiant)', async () => {
+    const findById = vi.fn().mockResolvedValue(employeeRow);
+    const tool = makeGetEmployeeProfile(
+      { findById } as never,
+      { findByEmployee: vi.fn().mockResolvedValue(null) } as never,
+    );
+
+    const result = (await tool.execute!(
+      { employeeId: SOMEONE_ELSE } as never,
+      noRequester as never,
+    )) as { found: boolean; reason: string };
+
+    expect(result.found).toBe(false);
+    expect(result.reason).toBe('no_requester');
+    expect(findById).not.toHaveBeenCalled();
+  });
+
+  it('… et par EMAIL, sans jamais résoudre l’adresse — sinon c’est un oracle', async () => {
+    const findByEmail = vi.fn().mockResolvedValue(employeeRow);
+    const tool = makeGetEmployeeProfile(
+      { findByEmail } as never,
+      { findByEmployee: vi.fn().mockResolvedValue(null) } as never,
+    );
+
+    const result = (await tool.execute!(
+      { email: 'awa@kissohq.com' } as never,
+      noRequester as never,
+    )) as { found: boolean; reason: string };
+
+    expect(result.reason).toBe('no_requester');
+    expect(findByEmail).not.toHaveBeenCalled();
+  });
+
+  it('getNotificationHistory refuse sans contexte, sans interroger la base', async () => {
+    const findByRecipient = vi.fn().mockResolvedValue([]);
+    const tool = makeGetNotificationHistory({ findByRecipient } as never);
+
+    const result = (await tool.execute!(
+      { recipientId: SOMEONE_ELSE } as never,
+      noRequester as never,
+    )) as { found: boolean; reason: string };
+
+    expect(result.found).toBe(false);
+    expect(result.reason).toBe('no_requester');
+    expect(findByRecipient).not.toHaveBeenCalled();
+  });
+
+  it('CONTRÔLE — un demandeur identifié garde son PROPRE dossier', async () => {
+    const findById = vi.fn().mockResolvedValue({ ...employeeRow, id: ME });
+    const tool = makeGetEmployeeProfile(
+      { findById } as never,
+      { findByEmployee: vi.fn().mockResolvedValue(null) } as never,
+    );
+
+    const result = (await tool.execute!(
+      { employeeId: ME } as never,
+      restrictedRequester as never,
+    )) as { found: boolean };
+
+    expect(result.found).toBe(true);
+    expect(findById).toHaveBeenCalled();
   });
 });

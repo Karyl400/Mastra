@@ -1,6 +1,6 @@
 import { and, asc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 
-import { getDb } from '../../../../infrastructure/database/connection';
+import { getDb, type DatabaseInstance } from '../../../../infrastructure/database/connection';
 import { channelMessages } from '../../../../infrastructure/database/schema';
 import type {
   ArchivedMessage,
@@ -14,7 +14,7 @@ const DEFAULT_LIMIT = 20;
 
 const MAX_LIMIT = 50;
 
-interface Row {
+interface RawSqlRow {
   id: string;
   channel_id: string;
   slack_user_id: string | null;
@@ -23,7 +23,7 @@ interface Row {
   posted_at: number;
 }
 
-function toDomain(row: Row): ArchivedMessage {
+function fromRawSqlRow(row: RawSqlRow): ArchivedMessage {
   return {
     id: row.id,
     channelId: row.channel_id,
@@ -34,9 +34,24 @@ function toDomain(row: Row): ArchivedMessage {
   };
 }
 
+type QueryBuilderRow = typeof channelMessages.$inferSelect;
+
+function fromQueryBuilderRow(row: QueryBuilderRow): ArchivedMessage {
+  return {
+    id: row.id,
+    channelId: row.channelId,
+    slackUserId: row.slackUserId,
+    text: row.text,
+    threadTs: row.threadTs,
+    postedAt: Number(row.postedAt),
+  };
+}
+
 export class DrizzleMessageArchiveRepository implements MessageArchiveRepository {
+  constructor(private readonly resolveDb: () => DatabaseInstance = getDb) {}
+
   async archive(message: ArchivedMessage): Promise<boolean> {
-    const db = getDb();
+    const db = this.resolveDb();
 
     const result = await db
       .insert(channelMessages)
@@ -60,9 +75,9 @@ export class DrizzleMessageArchiveRepository implements MessageArchiveRepository
     if (!match) return [];
 
     const limit = Math.min(options.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
-    const db = getDb();
+    const db = this.resolveDb();
 
-    const rows = await db.all<Row>(sql`
+    const rows = await db.all<RawSqlRow>(sql`
       SELECT m.id, m.channel_id, m.slack_user_id, m.text, m.thread_ts, m.posted_at
       FROM channel_messages_fts f
       JOIN channel_messages m ON m.rowid = f.rowid
@@ -73,11 +88,11 @@ export class DrizzleMessageArchiveRepository implements MessageArchiveRepository
       LIMIT ${limit}
     `);
 
-    return rows.map(toDomain);
+    return rows.map(fromRawSqlRow);
   }
 
   async forget(scope: KnowledgeForgetScope): Promise<number> {
-    const db = getDb();
+    const db = this.resolveDb();
     const where =
       scope.channelId === undefined
         ? eq(channelMessages.slackUserId, scope.slackUserId)
@@ -91,7 +106,7 @@ export class DrizzleMessageArchiveRepository implements MessageArchiveRepository
   }
 
   async pruneOlderThan(cutoffMs: number): Promise<number> {
-    const db = getDb();
+    const db = this.resolveDb();
     const result = await db
       .delete(channelMessages)
       .where(lt(channelMessages.postedAt, cutoffMs))
@@ -104,7 +119,7 @@ export class DrizzleMessageArchiveRepository implements MessageArchiveRepository
     sinceMs: number,
     limit: number,
   ): Promise<readonly ArchivedMessage[]> {
-    const db = getDb();
+    const db = this.resolveDb();
     const rows = await db
       .select()
       .from(channelMessages)
@@ -117,13 +132,13 @@ export class DrizzleMessageArchiveRepository implements MessageArchiveRepository
       .orderBy(asc(channelMessages.postedAt))
       .limit(limit);
 
-    return (rows as unknown as Row[]).map(toDomain);
+    return rows.map(fromQueryBuilderRow);
   }
 
   async markDistilled(ids: readonly string[], at: number): Promise<number> {
     if (ids.length === 0) return 0;
 
-    const db = getDb();
+    const db = this.resolveDb();
     const result = await db
       .update(channelMessages)
       .set({ distilledAt: at })

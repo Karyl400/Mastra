@@ -12,6 +12,7 @@ export const TOOL_REASONS = [
   'no_email',
   'no_match',
   'no_onboarding_progress',
+  'no_requester',
   'no_slack_context',
   'not_authorized',
   'not_persisted',

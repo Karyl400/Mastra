@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { makeGetEmployeeProfile } from '../../../src/features/employee/application/tools/get-employee-profile';
+import { slackCaller } from '../../helpers/slack-caller';
 
 /**
  * Garde-fou de non-régression sur la fuite de données personnelles.
@@ -57,7 +58,7 @@ describe('getEmployeeProfile — redaction des données sensibles', () => {
   it("n'expose aucune colonne sensible, même si le repository les rend toutes", async () => {
     const result = (await makeTool().execute!(
       { employeeId: ligneComplete.id } as never,
-      {} as never,
+      slackCaller(),
     )) as { employee: Record<string, unknown> };
 
     for (const champ of CHAMPS_INTERDITS) {
@@ -70,7 +71,7 @@ describe('getEmployeeProfile — redaction des données sensibles', () => {
     // dans le contexte du LLM, pas l'objet typé.
     const result = await makeTool().execute!(
       { employeeId: ligneComplete.id } as never,
-      {} as never,
+      slackCaller(),
     );
     const serialise = JSON.stringify(result);
 
@@ -82,7 +83,7 @@ describe('getEmployeeProfile — redaction des données sensibles', () => {
   it('expose bien les champs légitimes du parcours d’onboarding', async () => {
     const result = (await makeTool().execute!(
       { employeeId: ligneComplete.id } as never,
-      {} as never,
+      slackCaller(),
     )) as { employee: Record<string, unknown> };
 
     // ⚠️ CINQ CHAMPS ONT DISPARU le 2026-08-20, sur signalement du propriétaire devant la

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 import { makeGetEmployeeProfile } from '../../../src/features/employee/application/tools/get-employee-profile';
+import { slackCaller } from '../../helpers/slack-caller';
 
 /**
  * Même défaut que `updateOnboardingStatus` : une exception levée par un tool
@@ -41,7 +42,7 @@ describe('getEmployeeProfile — employé inconnu', () => {
   it('ne lève JAMAIS et rend un échec structuré', async () => {
     const result = (await tool(null, null).execute!(
       { employeeId: EMPLOYEE_ID } as never,
-      {} as never,
+      slackCaller(),
     )) as { found: boolean; reason: string; hint: string };
 
     expect(result.found).toBe(false);
@@ -53,7 +54,7 @@ describe('getEmployeeProfile — employé inconnu', () => {
   it('marque explicitement le succès par found=true', async () => {
     const result = (await tool(employeeRow, null).execute!(
       { employeeId: EMPLOYEE_ID } as never,
-      {} as never,
+      slackCaller(),
     )) as { found: boolean };
 
     expect(result.found).toBe(true);
@@ -64,7 +65,7 @@ describe('getEmployeeProfile — suivi d intégration absent', () => {
   it('signale que le suivi n est pas initialisé sans laisser croire à une création possible', async () => {
     const result = (await tool(employeeRow, null).execute!(
       { employeeId: EMPLOYEE_ID } as never,
-      {} as never,
+      slackCaller(),
     )) as { progress: unknown; onboardingHint?: string };
 
     expect(result.progress).toBeNull();
@@ -79,7 +80,7 @@ describe('getEmployeeProfile — suivi d intégration absent', () => {
       status: 'in_progress',
       currentStep: 1,
       totalSteps: 5,
-    }).execute!({ employeeId: EMPLOYEE_ID } as never, {} as never)) as Record<string, unknown>;
+    }).execute!({ employeeId: EMPLOYEE_ID } as never, slackCaller())) as Record<string, unknown>;
 
     expect(result).not.toHaveProperty('onboardingHint');
   });
