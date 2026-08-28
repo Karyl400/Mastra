@@ -7,3 +7,10 @@ export function normalizeIntentText(text: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+export function foldDiacritics(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/\p{M}+/gu, '')
+    .replace(/[’´`]/g, "'");
+}

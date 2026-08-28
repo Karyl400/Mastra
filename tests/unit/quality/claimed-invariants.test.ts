@@ -46,25 +46,24 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** « verrouillé par `chemin` », toutes désinences, dans n'importe quel commentaire. */
-const LOCK_CLAIM = /[Vv]errouill(?:é|ee|é|és|ées|ée)?s?\s+par\s+`([^`]+)`/gu;
+/**
+ * « verrouillé par `chemin` », toutes désinences, dans n'importe quel commentaire.
+ *
+ * ⚠️ La classe est `[eé]{0,2}` et non une alternance de formes accentuées : la version d'origine
+ * répétait `é` deux fois et n'avait AUCUNE branche `e` nue, si bien que « verrouille par `X` »
+ * passait au travers. Quatrième occurrence du piège de l'accent dans ce dépôt — et cette fois
+ * elle était DANS le garde-fou écrit pour attraper les affirmations qui dérivent.
+ */
+const LOCK_CLAIM = /[Vv]errouill[eé]{0,2}s?\s+par\s+`([^`]+)`/gu;
 
 describe('les invariants ANNONCÉS dans les commentaires citent un fichier réel', () => {
-  it('chaque « verrouillé par `X` » de src/ désigne un fichier qui existe', () => {
-    const broken: string[] = [];
-
-    for (const file of walk(join(ROOT, 'src'))) {
-      const content = readFileSync(file, 'utf8');
-      for (const match of content.matchAll(LOCK_CLAIM)) {
-        const cited = match[1]!;
-        // On ne vérifie que ce qui RESSEMBLE à un chemin de fichier du dépôt. « verrouillé par
-        // `un test` » ou « verrouillé par `AGENT_TOOLS` » ne désigne pas un fichier.
-        if (!cited.includes('/') || !/\.(ts|mts|mjs|js|sql)$/.test(cited)) continue;
-        if (!existsSync(join(ROOT, cited))) {
-          broken.push(`${file.slice(ROOT.length + 1)} cite « ${cited} », qui n’existe pas`);
-        }
-      }
-    }
+  it('chaque « verrouillé par `X` » désigne un fichier qui existe', () => {
+    const broken = collectLockClaims()
+      // On ne vérifie que ce qui RESSEMBLE à un chemin de fichier du dépôt. « verrouillé par
+      // `un test` » ou « verrouillé par `AGENT_TOOLS` » ne désigne pas un fichier.
+      .filter(({ cited }) => cited.includes('/') && /\.(ts|mts|mjs|js|sql)$/.test(cited))
+      .filter(({ cited }) => !existsSync(join(ROOT, cited)))
+      .map(({ file, cited }) => `${file} cite « ${cited} », qui n’existe pas`);
 
     expect(broken).toEqual([]);
   });
@@ -111,6 +110,21 @@ describe('les invariants ANNONCÉS dans les commentaires citent un fichier réel
 
 const DOC_ROOTS = ['docs', '.claude'] as const;
 
+/**
+ * ⚠️ Les documents de la RACINE entrent dans le corpus depuis le 2026-08-28.
+ *
+ * `CLAUDE.md`, `TODO.md` et `CHANGELOG.md` gouvernent le travail de ce dépôt et n'étaient lus
+ * par AUCUN test de citation — l'audit y a compté deux chemins cités au présent pour des
+ * fichiers absents. Le balayage est délibérément NON RÉCURSIF : `docs/` a déjà le sien, et
+ * descendre depuis la racine ramasserait `node_modules` et le clone `agent-marcel/`.
+ */
+function rootDocs(): string[] {
+  return readdirSync(ROOT)
+    .filter((entry) => entry.endsWith('.md'))
+    .map((entry) => join(ROOT, entry))
+    .filter((full) => statSync(full).isFile());
+}
+
 const EXCLUDED_DOCS = [/\/audit-/, /\/plans\//];
 
 /** Un chemin du dépôt, cité entre accents graves. */
@@ -123,7 +137,7 @@ const CITED_PATH = /`((?:src|tests|scripts|drizzle)\/[\w./-]+\.(?:ts|mts|mjs|js|
  * de suppression et le chemin ne sont presque jamais sur la même ligne.
  */
 const REMOVAL_MARKER =
-  /supprim|retir|périm|perim|n'existe plus|n’existe plus|disparu|jamais existé|n'a jamais|n’a jamais|caduque|avant sa suppression|remplacé|fantôme|inexistant/i;
+  /removed|n'existe pas|n’existe pas|supprim|retir|périm|perim|n'existe plus|n’existe plus|disparu|jamais existé|n'a jamais|n’a jamais|caduque|avant sa suppression|remplacé|fantôme|inexistant/i;
 
 /**
  * Un document qui se DÉCLARE périmé dans son en-tête est exempté en entier.
@@ -137,7 +151,8 @@ const REMOVAL_MARKER =
  * La marque doit être dans les 20 premières lignes : un avertissement enterré au milieu d'un
  * document ne prévient personne.
  */
-const OBSOLETE_BANNER = /DOCUMENT\s+PÉRIMÉ|DOCUMENT\s+OBSOLÈTE|⚠️\s*PÉRIMÉ/i;
+const OBSOLETE_BANNER =
+  /DOCUMENT\s+PÉRIMÉ|DOCUMENT\s+OBSOLÈTE|⚠️\s*PÉRIMÉ|INSTANTANÉ\s+HISTORIQUE/i;
 
 function declaresItselfObsolete(file: string): boolean {
   return OBSOLETE_BANNER.test(readFileSync(file, 'utf8').split('\n').slice(0, 20).join('\n'));
@@ -153,10 +168,39 @@ function walkDocs(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-describe('la documentation VERSIONNÉE ne cite aucun fichier disparu', () => {
-  const files = DOC_ROOTS.flatMap((root) => walkDocs(join(ROOT, root)))
+function docCorpus(): string[] {
+  return [...DOC_ROOTS.flatMap((root) => walkDocs(join(ROOT, root))), ...rootDocs()]
     .filter((file) => !EXCLUDED_DOCS.some((pattern) => pattern.test(file)))
     .filter((file) => !declaresItselfObsolete(file));
+}
+
+/**
+ * Toutes les affirmations « verrouillé par `X` » du dépôt, code ET documentation.
+ *
+ * ⚠️ Le premier bloc de ce fichier ne balayait que `src/`, et l'extraction des commentaires du
+ * 2026-08-21 y a laissé ZÉRO affirmation à attraper. Une garde dont l'objet a déménagé est une
+ * garde vide, et elle se lit comme une protection. Le corpus suit désormais son objet.
+ */
+function collectLockClaims(): Array<{ file: string; cited: string }> {
+  const claims: Array<{ file: string; cited: string }> = [];
+  for (const file of [...walk(join(ROOT, 'src')), ...docCorpus()]) {
+    for (const match of readFileSync(file, 'utf8').matchAll(LOCK_CLAIM)) {
+      claims.push({ file: file.slice(ROOT.length + 1), cited: match[1]! });
+    }
+  }
+  return claims;
+}
+
+/** Le titre de section le plus proche AU-DESSUS d'une ligne — '' s'il n'y en a aucun. */
+function nearestHeading(lines: readonly string[], index: number): string {
+  for (let i = index; i >= 0; i -= 1) {
+    if (/^#{1,6}\s/.test(lines[i] ?? '')) return lines[i]!;
+  }
+  return '';
+}
+
+describe('la documentation VERSIONNÉE ne cite aucun fichier disparu', () => {
+  const files = docCorpus();
 
   it('scanne effectivement le corpus — anti faux-négatif', () => {
     // C'est exactement l'assertion qui manquait : la garde d'origine est devenue vide sans que
@@ -181,6 +225,11 @@ describe('la documentation VERSIONNÉE ne cite aucun fichier disparu', () => {
 
           const context = lines.slice(Math.max(0, index - 3), index + 4).join(' ');
           if (REMOVAL_MARKER.test(context)) continue;
+          // ⚠️ Un TITRE annonce sa section entière, pas trois lignes. Sous « ### Removed », toute
+          // citation est déjà annoncée comme disparue — exiger le mot une seconde fois dans
+          // chaque puce pousserait à réécrire des entrées DATÉES de `CHANGELOG.md`, c'est-à-dire
+          // à falsifier le registre. Même arbitrage que « ne jamais modifier un ADR ».
+          if (REMOVAL_MARKER.test(nearestHeading(lines, index))) continue;
 
           broken.push(`${file.slice(ROOT.length + 1)}:${index + 1} cite « ${cited} », absent`);
         }
@@ -196,5 +245,32 @@ describe('la documentation VERSIONNÉE ne cite aucun fichier disparu', () => {
             `fichier absent est la forme exacte du défaut que ce fichier existe pour empêcher.`
         : undefined,
     ).toEqual([]);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// LE GARDE-FOU SE VÉRIFIE LUI-MÊME — audit du 2026-08-28, § 2.3
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('le garde-fou est ARMÉ — il reconnaît ce qu’il prétend attraper', () => {
+  it('attrape la forme SANS accent', () => {
+    const found = [...'Verrouille par `a.ts` et verrouillee par `b.ts`'.matchAll(LOCK_CLAIM)].map(
+      (m) => m[1],
+    );
+    expect(found).toEqual(['a.ts', 'b.ts']);
+  });
+
+  it('a réellement TROUVÉ des affirmations — anti-corpus-vide', () => {
+    expect(collectLockClaims().length).toBeGreaterThan(0);
+  });
+
+  it('reconnaît la bannière que le dépôt emploie réellement', () => {
+    expect(
+      OBSOLETE_BANNER.test('> ⚠️ **INSTANTANÉ HISTORIQUE DU 2026-08-10 — NE PAS LIRE…**'),
+    ).toBe(true);
+  });
+
+  it('scanne les documents de la RACINE', () => {
+    expect(docCorpus().some((f) => /\/CLAUDE\.md$/.test(f))).toBe(true);
   });
 });

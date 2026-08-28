@@ -7,9 +7,10 @@ import * as schema from '../../../src/infrastructure/database/schema';
 import { pendingInterviewEmail } from '../../../src/infrastructure/database/schema';
 import { DrizzlePendingInterviewEmailRepository } from '../../../src/features/recruitment/infrastructure/repositories/drizzle-pending-email.repository';
 import { InMemoryPendingInterviewEmailRepository } from '../../../src/features/recruitment/infrastructure/repositories/in-memory-pending-email.repository';
-import type {
-  PendingInterviewEmail,
-  PendingInterviewEmailRepository,
+import {
+  PENDING_EMAIL_TTL_MS,
+  type PendingInterviewEmail,
+  type PendingInterviewEmailRepository,
 } from '../../../src/features/recruitment/domain/ports/pending-email.repository';
 
 /**
@@ -131,5 +132,46 @@ describe.each(implementations)('$nom — contrat PendingInterviewEmailRepository
 
     expect(await repo.clear(CONV)).toBe(1);
     expect(await repo.find('C0HQ:1700000000.000100')).not.toBeNull();
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // LA RÉTENTION — audit du 2026-08-28, § 3.4
+  // ══════════════════════════════════════════════════════════════════════════
+  //
+  // ⚠️ `CLAUDE.md` a affirmé jusqu'au 2026-08-28 : « AUCUNE écriture en base, et c'est un
+  // choix […] stocker l'adresse d'un NON-SALARIÉ créerait des données personnelles sans chemin
+  // d'effacement ». Cette table écrit `to`, `candidateName`, `position` et `location` — le trou
+  // que la phrase déclarait FERMÉ était ouvert, et `forget()` ne touche pas cette table.
+  //
+  // Le chemin d'effacement ne pouvait pas être `forget` : le sujet de la donnée est le
+  // CANDIDAT, qui n'a aucun compte Slack et ne peut rien demander. C'est donc une EXPIRATION,
+  // et la borne existait déjà — `PENDING_EMAIL_TTL_MS`. Au-delà, `confirm-pending-email` refuse
+  // déjà d'agir sur la ligne : la garder ne conserve plus qu'une adresse personnelle inerte.
+
+  // La borne est DÉRIVÉE de `PENDING_EMAIL_TTL_MS`, jamais recopiée : c'est la même constante
+  // que `confirm-pending-email` consulte pour REFUSER d'agir sur une ligne expirée. Les deux
+  // doivent bouger ensemble, sinon la purge emporterait une préparation encore honorable.
+  const POSE = new Date('2026-08-19T10:00:00.000Z');
+  const cutoffAt = (nowIso: string): Date =>
+    new Date(new Date(nowIso).getTime() - PENDING_EMAIL_TTL_MS);
+
+  it('`pruneOlderThan` emporte ce qui a dépassé le TTL, et rend son compte', async () => {
+    await repo.save(preparation({ createdAt: POSE }));
+
+    // Un jour et une seconde plus tard : au-delà du TTL, `confirm` refuserait déjà d'agir.
+    expect(await repo.pruneOlderThan(cutoffAt('2026-08-20T10:00:01.000Z'))).toBe(1);
+    expect(await repo.find(CONV)).toBeNull();
+  });
+
+  it('épargne ce qui est ENCORE dans sa fenêtre — une préparation vivante ne disparaît pas', async () => {
+    await repo.save(preparation({ createdAt: POSE }));
+
+    // Deux heures plus tard : la personne peut toujours répondre « oui ».
+    expect(await repo.pruneOlderThan(cutoffAt('2026-08-19T12:00:00.000Z'))).toBe(0);
+    expect(await repo.find(CONV)).not.toBeNull();
+  });
+
+  it('rend 0 sur une table vide, sans lever', async () => {
+    expect(await repo.pruneOlderThan(cutoffAt('2026-08-20T10:00:00.000Z'))).toBe(0);
   });
 });

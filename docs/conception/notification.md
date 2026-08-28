@@ -1857,7 +1857,7 @@ commentaire d'origine — « le MIROIR EXACT ». Le second gouverne le rationnem
 court-circuit ajouté d'un côté et pas de l'autre fait payer un message qui ne coûte rien.
 
 Ce n'est pas théorique. Le défaut d'origine, trouvé en production, est exactement de cette
-famille : quelqu'un ayant atteint ses 12 messages du jour recevait « J'ai atteint mon
+famille : quelqu'un ayant atteint son plafond quotidien de messages (`DAILY_RULE.limit`) recevait « J'ai atteint mon
 quota » pour un simple « bonjour » — et l'aurait reçu pour « je ne vais pas bien ». La
 correction a consisté à énumérer les cas dans `isAnsweredWithoutModel`… c'est-à-dire à
 créer la seconde liste qu'il fallait ensuite maintenir à la main.
@@ -1876,7 +1876,7 @@ prédicat n'est pas textuel. « oui » ne veut rien dire tant qu'on n'a pas lu
 message seul — `isAnsweredWithoutModel` tourne à l'ACK, où l'on n'a pas le droit de lire en
 base (3 secondes, et la prise de clé de déduplication y est déjà).
 
-Conséquence assumée, à connaître : une personne ayant atteint ses 12 messages du jour ne
+Conséquence assumée, à connaître : une personne ayant atteint son plafond quotidien de messages (`DAILY_RULE.limit`) ne
 peut pas ANNULER un email en attente ce jour-là. Rien n'est envoyé pour autant — « oui » est
 refusé de la même façon — et la préparation expire d'elle-même en 24 h
 (`PENDING_EMAIL_TTL_MS`). L'exempter au vu du seul texte rouvrirait un contournement du
@@ -2072,7 +2072,7 @@ Pourquoi il devait ENTRER dans la table : il coûte ZÉRO token — il lit un do
 
 rend un verdict écrit en dur — mais il n'était pas dans le miroir
 
-`isAnsweredWithoutModel`. Une personne ayant atteint ses 12 messages du jour recevait
+`isAnsweredWithoutModel`. Une personne ayant atteint son plafond quotidien de messages (`DAILY_RULE.limit`) recevait
 
 donc « J'ai atteint mon quota » en réponse à « c'est fait », c'est-à-dire au geste
 
@@ -2311,7 +2311,7 @@ détresse, pièce jointe) ne consomme pas un token — le rationner ne protège 
 coûte une réponse à quelqu'un.
 
 ⚠️ Le cas qui a rendu cette distinction nécessaire, observé en production le 2026-08-13 :
-une personne ayant déjà atteint ses 12 messages du jour écrit « bonjour » et reçoit
+une personne ayant déjà atteint son plafond quotidien de messages (`DAILY_RULE.limit`) écrit « bonjour » et reçoit
 « J'ai atteint mon quota de messages pour aujourd'hui ». Pour un mot qui ne coûte rien.
 Et la même chose serait arrivée à « je ne vais pas bien » — soit exactement le message
 que `distress.ts` existe pour ne jamais laisser sans réponse.
@@ -6353,7 +6353,7 @@ Tout paralléliser reviendrait à incrémenter le compteur JOURNALIER d'un messa
 règle de RAFALE vient de refuser. Or un message refusé ne déclenche aucun appel LLM : il
 ne consomme pas un token du budget Groq que la règle journalière existe pour protéger.
 Le compter serait doublement nuisible — quelqu'un qui martèle le bot par accident (double
-clic, boucle de script) brûlerait ses ≈12 messages du jour sans jamais obtenir une seule
+clic, boucle de script) brûlerait ses son plafond quotidien de messages sans jamais obtenir une seule
 réponse, et le seul garde-fou qui devait le protéger serait devenu l'instrument de sa
 punition. La phase locale, qui est gratuite, tranche donc AVANT que quoi que ce soit ne
 parte vers le store : elle est le filtre le plus fréquent (instance chaude) et le seul qui

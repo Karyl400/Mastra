@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, lt } from 'drizzle-orm';
 
 import { getDb, type DatabaseInstance } from '../../../../infrastructure/database/connection';
 import {
@@ -49,6 +49,15 @@ export class DrizzlePendingInterviewEmailRepository implements PendingInterviewE
     const result = await db
       .delete(pendingInterviewEmail)
       .where(eq(pendingInterviewEmail.conversationId, conversationId));
+
+    return Number((result as { rowsAffected?: number }).rowsAffected ?? 0);
+  }
+
+  async pruneOlderThan(cutoff: Date): Promise<number> {
+    const db = this.resolveDb();
+    const result = await db
+      .delete(pendingInterviewEmail)
+      .where(lt(pendingInterviewEmail.createdAt, cutoff));
 
     return Number((result as { rowsAffected?: number }).rowsAffected ?? 0);
   }

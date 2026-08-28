@@ -1,3 +1,5 @@
+import { foldDiacritics } from '../../../../shared/intent-text';
+
 import { signalScore } from './excerpt-salience';
 
 export type FactKind = 'decision' | 'engagement' | 'blocage' | 'echeance' | 'question';
@@ -11,13 +13,6 @@ export interface DistilledFact {
 export const KNOWLEDGE_FACT_MIN_SCORE = 3;
 
 export const FACT_SUMMARY_MAX_CHARS = 180;
-
-function foldForMatch(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/\p{M}+/gu, '')
-    .replace(/[’´`]/g, "'");
-}
 
 const KIND_TESTS: ReadonlyArray<{ readonly kind: FactKind; readonly test: RegExp }> = [
   {
@@ -68,7 +63,7 @@ function truncateOnBoundary(value: string, maxChars: number): string {
 }
 
 export function classifyFact(text: string): FactKind | null {
-  const folded = foldForMatch(flatten(text));
+  const folded = foldDiacritics(flatten(text));
   for (const candidate of KIND_TESTS) {
     if (candidate.test.test(folded)) return candidate.kind;
   }

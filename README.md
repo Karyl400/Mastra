@@ -252,7 +252,7 @@ retrait de commentaire.
 | [Audit Harness Engineering](docs/harness-audit.md) | **Le harness, module par module** — les douze modules confrontés au code, et les dix dettes classées |
 | [Feature `dashboard`](docs/conception/dashboard.md) | **Le tableau de bord `/dashboard`** — pourquoi une mesure sans source n'affiche pas zéro |
 | [Audit — 100 points](docs/audit-2026-08-20-100-points.html) | Un verdict par point de contrôle |
-| `AUDIT_REPORT.md` §8 | **La liste des points ouverts**, par priorité |
+| `docs/audit-qa-2026-08-28/README.md` §9 | **La liste des points ouverts**, par priorité |
 
 ---
 

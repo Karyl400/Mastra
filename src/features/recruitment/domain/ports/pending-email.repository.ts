@@ -18,4 +18,6 @@ export interface PendingInterviewEmailRepository {
   find(conversationId: string): Promise<PendingInterviewEmail | null>;
 
   clear(conversationId: string): Promise<number>;
+
+  pruneOlderThan(cutoff: Date): Promise<number>;
 }

@@ -1,3 +1,5 @@
+import { foldDiacritics } from '../../../../shared/intent-text';
+
 import type { ConversationExcerpt } from '../entities/conversation-excerpt';
 
 const word = (alternatives: string): RegExp =>
@@ -8,21 +10,17 @@ const SIGNALS: ReadonlyArray<{ readonly weight: number; readonly test: RegExp }>
   {
     weight: 5,
     test: word(
-      "on part sur|on a décidé|on décide|c'est acté|c’est acté|c'est validé|c’est validé|validé|go pour|on retient|décision",
+      "on part sur|on a decide|on decide|c'est acte|c'est valide|valide|go pour|on retient|decision",
     ),
   },
   {
     weight: 4,
-    test: word(
-      "je m'en occupe|je m’en occupe|je prends|je m'en charge|je m’en charge|je fais|je gère|c'est moi qui|c’est moi qui",
-    ),
+    test: word("je m'en occupe|je prends|je m'en charge|je fais|je gere|c'est moi qui"),
   },
-  { weight: 4, test: word('bloqué|bloquant|problème|panne|urgent|cassé|down|incident|erreur') },
+  { weight: 4, test: word('bloque|bloquant|probleme|panne|urgent|casse|down|incident|erreur') },
   {
     weight: 3,
-    test: word(
-      "avant le|d'ici|d’ici|deadline|échéance|au plus tard|lundi|mardi|mercredi|jeudi|vendredi",
-    ),
+    test: word("avant le|d'ici|deadline|echeance|au plus tard|lundi|mardi|mercredi|jeudi|vendredi"),
   },
   { weight: 2, test: /\?\s*$/ },
   { weight: 2, test: /<@[UW][A-Z0-9]{2,}>/i },
@@ -32,7 +30,7 @@ const SIGNALS: ReadonlyArray<{ readonly weight: number; readonly test: RegExp }>
 const MAX_SIGNAL_SCORE = 12;
 
 const ACKNOWLEDGEMENT =
-  /^(?:ok|okay|d'accord|daccord|merci|parfait|top|noté|note|oui|non|nickel|super|👍|👌|✅|\p{Emoji_Presentation})[\s!.…]*$/iu;
+  /^(?:ok|okay|d'accord|daccord|merci|parfait|top|note|oui|non|nickel|super|👍|👌|✅|\p{Emoji_Presentation})[\s!.…]*$/iu;
 
 const ACKNOWLEDGEMENT_PENALTY = 6;
 
@@ -42,7 +40,7 @@ const SHORT_MESSAGE_PENALTY = 2;
 const RECENCY_WEIGHT = 4;
 
 export function signalScore(text: string): number {
-  const raw = text.trim();
+  const raw = foldDiacritics(text).trim();
   if (raw.length === 0) return 0;
 
   let score = 0;

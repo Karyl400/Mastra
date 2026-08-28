@@ -188,3 +188,44 @@ describe('wrapRetrievedContent — la couverture est COLLÉE au contenu', () => 
     expect(sans).not.toContain('extraits retenus');
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// SIXIÈME OCCURRENCE DU PIÈGE DE L'ACCENT — audit du 2026-08-28, § 4.4
+// ════════════════════════════════════════════════════════════════════════════
+//
+// `SIGNALS` écrivait ses motifs AVEC accents et les testait sur du texte NON plié, alors que
+// `classifyFact` — le classifieur qui suit — plie le sien. Le portier aveugle annulait donc le
+// classifieur tolérant : `distillFact` appelait `signalScore(raw)` AVANT lui, le score tombait
+// sous `KNOWLEDGE_FACT_MIN_SCORE`, et la fonction rendait `null` sans jamais l'atteindre.
+//
+// ⚠️ C'est le bug que `CLAUDE.md` déclare CORRIGÉ depuis le 2026-08-21. Il ne l'était qu'à
+// moitié — la moitié visible.
+
+describe('la saillance plie les accents, comme le classifieur qui la suit', () => {
+  const PAIRES: ReadonlyArray<readonly [string, string]> = [
+    ['on a décidé de partir sur postgres', 'on a decide de partir sur postgres'],
+    ["c'est validé pour jeudi", "c'est valide pour jeudi"],
+    ['je suis bloqué sur le déploiement', 'je suis bloque sur le deploiement'],
+    ["l'échéance est avant le 12", "l'echeance est avant le 12"],
+    ['on a un problème de migration', 'on a un probleme de migration'],
+  ];
+
+  it.each(PAIRES)('« %s » et « %s » valent le MÊME score', (accentue, nu) => {
+    expect(signalScore(nu)).toBe(signalScore(accentue));
+  });
+
+  it.each(PAIRES)('… et ce score reste au-dessus du seuil (« %s »)', (_accentue, nu) => {
+    expect(signalScore(nu)).toBeGreaterThanOrEqual(3);
+  });
+
+  it('CONTRÔLE — un accusé de réception reste pénalisé, avec ou sans accent', () => {
+    expect(signalScore('noté')).toBeLessThan(0);
+    expect(signalScore('note')).toBeLessThan(0);
+  });
+
+  it('CONTRÔLE — les signaux NON textuels survivent au pliage', () => {
+    expect(signalScore('on se voit quand ?')).toBeGreaterThan(0);
+    expect(signalScore('regarde <@U0BMBEJTBMJ> stp')).toBeGreaterThan(0);
+    expect(signalScore('la doc est sur https://exemple.test/guide')).toBeGreaterThan(0);
+  });
+});

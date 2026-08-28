@@ -12,6 +12,8 @@ import { pruneKnowledge } from '../features/knowledge/application/services/prune
 import { DrizzleMessageArchiveRepository } from '../features/knowledge/infrastructure/repositories/drizzle-message-archive.repository';
 import { DrizzleKnowledgeFactRepository } from '../features/knowledge/infrastructure/repositories/drizzle-knowledge-fact.repository';
 import { constantTimeEquals } from '../shared/security/api-auth';
+import { DrizzlePendingInterviewEmailRepository } from '../features/recruitment/infrastructure/repositories/drizzle-pending-email.repository';
+import { PENDING_EMAIL_TTL_MS } from '../features/recruitment/domain/ports/pending-email.repository';
 
 export function authorizeCron(
   header: string | undefined,
@@ -73,7 +75,16 @@ export const remindersDispatchRoute = registerApiRoute(REMINDER_DISPATCH_PATH, {
         retentionDays: process.env.KNOWLEDGE_RETENTION_DAYS,
       });
 
-      return c.json({ ok: true, ...report, retention });
+      const candidates = await new DrizzlePendingInterviewEmailRepository()
+        .pruneOlderThan(new Date(Date.now() - PENDING_EMAIL_TTL_MS))
+        .catch((error: unknown) => {
+          logger.warn('Purge des préparations de candidature impossible', {
+            error: String(error),
+          });
+          return null;
+        });
+
+      return c.json({ ok: true, ...report, retention, candidates });
     } catch (error) {
       logger.error('Remise des rappels interrompue', { error: String(error) });
       return c.json({ ok: false, reason: 'dispatch_failed' }, 500);

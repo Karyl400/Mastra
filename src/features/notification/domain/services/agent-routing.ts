@@ -80,8 +80,8 @@ const EXPERTISE_QUESTION_PATTERN = new RegExp(
 
 const RECALL_QUESTION_PATTERN = new RegExp(
   `${LB}(?:qu${APOS}?est-ce\\s+qu|qu${APOS}?a-t-on|qu${APOS}?avons-nous|de\\s+quoi)${APOS}?\\s*` +
-    `(?:\\S+\\s+){0,3}(?:d[ié]cid|convenu|dit|parl|discut)` +
-    `|${LB}(?:ce\\s+)?qui\\s+(?:a|ont)\\s+[ée]t[ée]\\s+(?:d[ié]cid|convenu|dit|[ée]voqu)`,
+    `(?:\\S+\\s+){0,3}(?:d[eié]cid|convenu|dit|parl|discut)` +
+    `|${LB}(?:ce\\s+)?qui\\s+(?:a|ont)\\s+[ée]t[ée]\\s+(?:d[eié]cid|convenu|dit|[ée]voqu)`,
   'u',
 );
 

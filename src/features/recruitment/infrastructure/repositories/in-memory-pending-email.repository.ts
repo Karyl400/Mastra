@@ -17,4 +17,15 @@ export class InMemoryPendingInterviewEmailRepository implements PendingInterview
   async clear(conversationId: string): Promise<number> {
     return this.rows.delete(conversationId) ? 1 : 0;
   }
+
+  async pruneOlderThan(cutoff: Date): Promise<number> {
+    let removed = 0;
+    for (const [id, row] of this.rows) {
+      if (row.createdAt.getTime() < cutoff.getTime()) {
+        this.rows.delete(id);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
 }

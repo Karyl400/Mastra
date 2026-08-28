@@ -38,11 +38,26 @@ duplique rien, sans qu'aucun code n'ait à s'en occuper.
 
 ### Ce qui n'y entre JAMAIS
 
-⚠️ **Les conversations personnelles.** La garde porte sur `channel_type` fourni par Slack —
-`channel` et `group` entrent, `im` et `mpim` non — jamais sur une heuristique de contenu. Une
-heuristique se trompe, et elle se trompe en silence : ici le silence signifierait qu'un DM est
-devenu interrogeable par le manager. Un canal PRIVÉ (`group`) entre parce que le bot y a été
-invité, et l'appartenance du DEMANDEUR est vérifiée à la lecture, pas à l'écriture.
+⚠️ **CETTE SECTION AFFIRMAIT LE CONTRAIRE DU CODE JUSQU'AU 2026-08-28.** Elle portait, sous ce
+titre, *« `channel` et `group` entrent, `im` et `mpim` non »* — écrit le 2026-08-20, resté en
+place après la décision du **2026-08-21** d'archiver les DM. Or c'est la page qu'on lit **avant**
+de toucher la garde d'ingestion, et elle niait la décision produit la plus lourde du dépôt : le
+dépôt se contredisait avec lui-même sur une frontière de VIE PRIVÉE, `CLAUDE.md` disant vrai.
+
+**Réel, dérivé de `ARCHIVED_CHANNEL_TYPES`** : `['channel', 'group', 'im']`. **Le DM est
+DEDANS.** La garde porte sur `channel_type` fourni par Slack, jamais sur une heuristique de
+contenu — une heuristique se trompe, et elle se trompe en silence. Un canal PRIVÉ (`group`) entre
+parce que le bot y a été invité, et l'appartenance du DEMANDEUR est vérifiée à la lecture, pas à
+l'écriture.
+
+**Seul `mpim` reste dehors**, et pour une raison qui lui est propre : ni appartenance vérifiable,
+ni propriétaire unique. Un DM, lui, se tranche par une RÈGLE explicite — le sien toujours, celui
+d'autrui au niveau `full` — et non par l'appartenance, qui rendrait « non-membre » pour le
+manager et filtrerait juste après qu'une frontière l'ait autorisé.
+
+⚠️ **Conséquence assumée, décidée par le propriétaire le 2026-08-21** : le General Manager peut
+relire les DM de chacun. Un DM cesse d'être privé. Toute lecture de cette page qui conclurait
+l'inverse prendrait une décision de sécurité sur une phrase fausse.
 
 Sont également écartés : les messages du bot et des autres bots, et les messages sans texte.
 
@@ -1416,6 +1431,23 @@ et ne passe par AUCUN filtre — `sanitizeAgentOutput` n'a qu'un seul site d'app
 
 ## `features/knowledge/domain/services/excerpt-salience.ts`
 
+**Avant `const raw = foldDiacritics(text).trim();`**
+
+⚠️ **LE PORTIER AVEUGLE ANNULAIT LE CLASSIFIEUR TOLÉRANT — sixième occurrence de l'accent,
+trouvée le 2026-08-28.** `SIGNALS` écrivait ses motifs AVEC accents et les testait sur du texte
+NON plié, alors que `classifyFact`, juste après, plie le sien. Or `distillFact` appelle
+`signalScore` **en premier** : le score de « on a decide de partir sur postgres » tombait sous
+`KNOWLEDGE_FACT_MIN_SCORE`, la fonction rendait `null`, et le classifieur tolérant n'était
+**jamais atteint**.
+
+⚠️ **C'est le bug que `CLAUDE.md` déclarait CORRIGÉ depuis le 2026-08-21.** Il ne l'était qu'à
+moitié — la moitié visible. Un correctif posé sur le second maillon d'une chaîne dont le premier
+porte le même défaut ne corrige rien, et il coûte plus cher que le défaut : on cesse de chercher.
+
+Les motifs sont désormais écrits SANS accent, comme ceux de `classifyFact`, et l'entrée est
+pliée une fois en tête de fonction. Les trois signaux non textuels — `?` final, mention, lien —
+traversent le pliage intacts, ce qu'un contrôle positif vérifie.
+
 **Avant `const word = (alternatives: string): RegExp =>`**
 
 LA SAILLANCE — quels extraits méritent d'être montrés, et non simplement lesquels sont les
@@ -1482,7 +1514,7 @@ Une DÉCISION est ce qu'on cherche en premier dans un historique : c'est le seul
 message dont l'absence rend tous les autres incompréhensibles.
 
 Un ENGAGEMENT nomme un responsable — l'information la plus recherchée après une décision.
-**Avant `{ weight: 4, test: word('bloqué|bloquant|problème|panne|urgent|cassé|down|incident|erreur') },`**
+**Avant `{ weight: 4, test: word('bloque|bloquant|probleme|panne|urgent|casse|down|incident|erreur') },`**
 
 Un BLOCAGE appelle une action et périme vite : le rater coûte plus cher que de le montrer.
 
@@ -2305,9 +2337,9 @@ dernière chose que traverse un extrait avant de devenir du texte.
 Optionnel à dessein : sans annuaire, on rend exactement ce qu'on rendait avant, jetons bruts
 compris. Une dégradation lisible, jamais une invention.
 
-### `src/features/knowledge/domain/services/fact-distillation.ts`
+### `src/shared/intent-text.ts`
 
-**Avant `function foldForMatch(value: string): string {`**
+**Avant `export function foldDiacritics(text: string): string {`**
 
 ⚠️ **LES MOTIFS SONT ÉCRITS SANS ACCENT, ET LE TEXTE EST PLIÉ AVANT D'ÊTRE TESTÉ.**
 
@@ -2327,7 +2359,21 @@ plie (`NFD` + retrait des marques) des DEUX côtés, une fois pour toutes.
 ⚠️ L'apostrophe typographique est pliée par la même passe (`’` → `'`) — c'est le cas le plus
 fréquent sur mobile, et il a déjà coûté un refus non reconnu dans `shared/confirmation.ts`.
 
-**Avant `const folded = foldForMatch(flatten(text));`**
+⚠️ **CETTE FONCTION VIVAIT DANS `fact-distillation.ts` JUSQU'AU 2026-08-28 — elle a été
+PROMUE dans `shared/`, et c'est le vrai correctif.** L'audit du 2026-08-28 a compté **douze
+pliages NFD écrits à la main** dans ce dépôt, coexistant avec `normalizeIntentText`. Chacun est
+juste ; ce qui est faux, c'est qu'ils soient douze — le treizième site oublie une des trois
+passes, et l'oubli est silencieux. *Ce que ce dépôt DÉRIVE tient, ce qu'il RECOPIE dérive.*
+
+⚠️ **Elle n'est PAS `normalizeIntentText`, et les confondre casserait deux mesures.** Celle-ci
+ne retire que les marques diacritiques et redresse l'apostrophe : elle **conserve** la
+ponctuation, `?`, `<@U…>` et `https://`. `normalizeIntentText`, elle, écrase tout ce qui n'est
+pas alphanumérique — l'y faire passer supprimerait les trois signaux non textuels de
+`signalScore`, qui vaudrait alors zéro sur une question, une mention et un lien.
+
+### `src/features/knowledge/domain/services/fact-distillation.ts`
+
+**Avant `const folded = foldDiacritics(flatten(text));`**
 
 ⚠️ On teste le texte PLIÉ, on rend le texte d'origine ailleurs : le résumé stocké garde ses
 accents, seule la comparaison les ignore.
