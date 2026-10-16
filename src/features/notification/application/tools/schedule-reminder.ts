@@ -9,6 +9,8 @@ import { NotificationChannel, NotificationStatus, RecipientType } from '../../..
 import { NotFoundError, ValidationError } from '../../../../shared/errors';
 import {
   canPerformSideEffects,
+  hasIdentifiedRequester,
+  NO_REQUESTER_HINT,
   readSlackContext,
   writeReminderDelivery,
 } from '../../../../shared/slack-request-context';
@@ -38,6 +40,10 @@ export function makeScheduleReminder(
       recipientType: z.enum(RECIPIENT_TYPES).default('employee'),
     }),
     execute: async (data, _ctx) => {
+      if (!hasIdentifiedRequester(_ctx?.requestContext)) {
+        logger.warn('scheduleReminder refusé — aucun demandeur identifié');
+        return { stored: false as const, reason: 'no_requester' as const, hint: NO_REQUESTER_HINT };
+      }
       if (!canPerformSideEffects(_ctx?.requestContext, data.recipientId)) {
         logger.warn('scheduleReminder refusé : le demandeur n’a pas le niveau requis', {
           recipientId: data.recipientId,

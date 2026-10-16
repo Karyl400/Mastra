@@ -4,6 +4,7 @@ import { makeUpdateOnboardingStatus } from '../../../src/features/onboarding/app
 import { InMemoryOnboardingRepository } from '../../../src/features/onboarding/infrastructure/repositories/in-memory-onboarding.repository';
 import { OnboardingStatus } from '../../../src/shared/types';
 import { ONBOARDING_TOTAL_STEPS } from '../../../src/features/onboarding/domain/services/onboarding-plan';
+import { slackCaller } from '../../helpers/slack-caller';
 
 /**
  * `updateOnboardingStatus` levait `NotFoundError` dès que l'employé n'avait pas
@@ -48,7 +49,7 @@ describe('updateOnboardingStatus — suivi existant', () => {
 
     const result = (await makeUpdateOnboardingStatus(repo).execute!(
       { employeeId: EMPLOYEE_ID, status: OnboardingStatus.InProgress, currentStep: 2 } as never,
-      {} as never,
+      slackCaller(),
     )) as { updated: boolean; status: string; currentStep: number; totalSteps: number };
 
     expect(result.updated).toBe(true);
@@ -76,7 +77,7 @@ describe('updateOnboardingStatus — suivi existant', () => {
 
     const result = (await makeUpdateOnboardingStatus(repo).execute!(
       { employeeId: EMPLOYEE_ID, status: OnboardingStatus.Completed } as never,
-      {} as never,
+      slackCaller(),
     )) as Record<string, unknown>;
 
     for (const champ of ['id', 'employeeId', 'createdAt', 'updatedAt']) {
@@ -93,7 +94,7 @@ describe('updateOnboardingStatus — suivi absent', () => {
 
     const result = (await makeUpdateOnboardingStatus(repo).execute!(
       { employeeId: EMPLOYEE_ID, status: OnboardingStatus.InProgress } as never,
-      {} as never,
+      slackCaller(),
     )) as { updated: boolean; reason: string; hint: string };
 
     expect(result.updated).toBe(false);
@@ -107,7 +108,7 @@ describe('updateOnboardingStatus — suivi absent', () => {
 
     const result = (await makeUpdateOnboardingStatus(repo).execute!(
       { employeeId: EMPLOYEE_ID, status: OnboardingStatus.InProgress } as never,
-      {} as never,
+      slackCaller(),
     )) as { hint: string };
 
     expect(result.hint).toMatch(/aucun outil/i);
@@ -119,7 +120,7 @@ describe('updateOnboardingStatus — suivi absent', () => {
 
     await makeUpdateOnboardingStatus(repo).execute!(
       { employeeId: EMPLOYEE_ID, status: OnboardingStatus.InProgress } as never,
-      {} as never,
+      slackCaller(),
     );
 
     expect(await repo.findByEmployee(EMPLOYEE_ID)).toBeNull();

@@ -14,6 +14,7 @@ import { InMemoryNotificationRepository } from '../../../src/features/notificati
 import { InMemoryEmployeeRepository } from '../../../src/features/employee/infrastructure/repositories/in-memory-employee.repository';
 import { createEmployee } from '../../../src/features/employee/domain/entities/employee';
 import { NotificationChannel, RecipientType, NotificationStatus } from '../../../src/shared/types';
+import { slackCaller } from '../../helpers/slack-caller';
 
 // ---------------------------------------------------------------------------
 // Doublures
@@ -129,7 +130,7 @@ describe('SendNotification Tool', () => {
           subject: 'Bienvenue',
           body: 'Voici vos accès.',
         } as any,
-        {} as any,
+        slackCaller() as any,
       )) as any;
 
       expect(result).toBeDefined();
@@ -158,7 +159,7 @@ describe('SendNotification Tool', () => {
           subject: 'Bienvenue',
           body: 'Voici vos accès.',
         } as any,
-        {} as any,
+        slackCaller() as any,
       )) as any;
 
       expect(result.status).toBe(NotificationStatus.Failed);
@@ -192,7 +193,7 @@ describe('SendNotification Tool', () => {
             subject: 'Rappel',
             body: 'Pense à signer ton contrat.',
           } as any,
-          {} as any,
+          slackCaller() as any,
         )) as any;
 
         const calls =
@@ -283,7 +284,7 @@ describe('SendNotification Tool', () => {
           subject: 'Réinitialisation de votre compte Kisso',
           body: '<a href="http://evil.example">cliquez ici</a>',
         } as any,
-        {} as any,
+        slackCaller() as any,
       );
 
       expect(deps.emailProvider.sendEmail).toHaveBeenCalledTimes(1);
@@ -314,7 +315,7 @@ describe('SendNotification Tool', () => {
           subject: 'Urgent',
           body: 'Message',
         } as any,
-        {} as any,
+        slackCaller() as any,
       );
 
       expect(deps.slackWorkspace.findUserByEmail).toHaveBeenCalledWith(EMPLOYEE_EMAIL);
@@ -335,7 +336,7 @@ describe('SendNotification Tool', () => {
             subject: 'Bienvenue',
             body: 'Corps',
           } as any,
-          {} as any,
+          slackCaller() as any,
         ),
       ).rejects.toThrow(/introuvable|not found/i);
 
@@ -356,7 +357,7 @@ describe('SendNotification Tool', () => {
             subject: 'Bienvenue',
             body: 'Corps',
           } as any,
-          {} as any,
+          slackCaller() as any,
         ),
       ).rejects.toThrow(/introuvable|not found/i);
 
@@ -377,7 +378,7 @@ describe('SendNotification Tool', () => {
             subject: 'Urgent',
             body: 'Message',
           } as any,
-          {} as any,
+          slackCaller() as any,
         ),
       ).rejects.toThrow();
 
@@ -400,7 +401,7 @@ describe('SendNotification Tool', () => {
           subject: 'Rapport onboarding',
           body: 'Votre nouvelle recrue a terminé son parcours.',
         } as any,
-        {} as any,
+        slackCaller() as any,
       )) as any;
 
       expect(result.status).toBe(NotificationStatus.Sent);
@@ -424,7 +425,7 @@ describe('SendNotification Tool', () => {
             subject: 'Rapport',
             body: 'Corps',
           } as any,
-          {} as any,
+          slackCaller() as any,
         ),
       ).rejects.toThrow(/introuvable|not found/i);
 

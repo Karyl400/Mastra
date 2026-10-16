@@ -98,10 +98,11 @@ describe('updateOnboardingStatus — frontière d’autorisation', () => {
     expect(result.reason).not.toBe('not_authorized');
   });
 
-  it('laisse passer un appel HORS Slack — workflow, playground, test', async () => {
-    // L'absence de niveau vaut autorisation, comme pour `sendNotification` : hors Slack il
-    // n'y a pas de demandeur à évaluer, et refuser casserait le parcours d'onboarding.
-    const findByEmployee = vi.fn().mockResolvedValue(null);
+  it('REFUSE un appel HORS Slack — aucun demandeur, aucune lecture (lot 10, 2026-10-16)', async () => {
+    // ⚠️ Ce test verrouillait l'INVERSE jusqu'au 2026-10-16 : « l'absence de niveau vaut
+    // autorisation ». Hors Slack il n'y a pas de demandeur à évaluer — c'est précisément pourquoi
+    // il n'y a rien à AUTORISER. Aucun chemin de production n'appelle cet outil hors d'un agent.
+    const findByEmployee = vi.fn();
     const tool = makeUpdateOnboardingStatus({ findByEmployee, update: vi.fn() } as never);
 
     const result = (await tool.execute!(
@@ -109,8 +110,8 @@ describe('updateOnboardingStatus — frontière d’autorisation', () => {
       {} as never,
     )) as { updated: boolean; reason?: string };
 
-    expect(findByEmployee).toHaveBeenCalled();
-    expect(result.reason).toBe('no_onboarding_progress');
+    expect(findByEmployee).not.toHaveBeenCalled();
+    expect(result.reason).toBe('no_requester');
   });
 });
 
@@ -154,14 +155,19 @@ describe('scheduleReminder — frontière d’autorisation', () => {
     expect(save).toHaveBeenCalled();
   });
 
-  it('laisse passer un appel HORS Slack', async () => {
-    const save = vi.fn().mockResolvedValue(undefined);
-    const findById = vi.fn().mockResolvedValue({ id: SOMEONE_ELSE, email: 'awa@kissohq.com' });
+  it('REFUSE un appel HORS Slack — rien n’est enregistré (lot 10, 2026-10-16)', async () => {
+    const save = vi.fn();
+    const findById = vi.fn();
     const tool = makeScheduleReminder({ save } as never, { findById } as never);
 
-    const result = (await tool.execute!(reminder as never, {} as never)) as { stored: boolean };
+    const result = (await tool.execute!(reminder as never, {} as never)) as {
+      stored: boolean;
+      reason?: string;
+    };
 
-    expect(result.stored).toBe(true);
-    expect(save).toHaveBeenCalled();
+    expect(result.stored).toBe(false);
+    expect(result.reason).toBe('no_requester');
+    expect(save).not.toHaveBeenCalled();
+    expect(findById).not.toHaveBeenCalled();
   });
 });

@@ -25,6 +25,7 @@ import { makeScheduleReminder } from '../../../src/features/notification/applica
 import { InMemoryNotificationRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-notification.repository';
 import { InMemoryEmployeeRepository } from '../../../src/features/employee/infrastructure/repositories/in-memory-employee.repository';
 import { createEmployee } from '../../../src/features/employee/domain/entities/employee';
+import { slackCaller } from '../../helpers/slack-caller';
 
 const EMPLOYEE_ID = '123e4567-e89b-12d3-a456-426614174000';
 const UNKNOWN_ID = '999e4567-e89b-12d3-a456-4266141749ff';
@@ -66,7 +67,7 @@ describe('scheduleReminder', () => {
 
   describe('honnêteté du verdict', () => {
     it("dit qu'il a ENREGISTRÉ le rappel, et que la remise aura bien lieu", async () => {
-      const result = (await tool().execute!(validInput as never, {} as never)) as Record<
+      const result = (await tool().execute!(validInput as never, slackCaller())) as Record<
         string,
         unknown
       >;
@@ -81,7 +82,7 @@ describe('scheduleReminder', () => {
       // ⚠️ C'est le cœur du garde-fou. Le tool rendait `scheduledAt` brut et un
       // `scheduledLabel` portant l'heure : deux occasions, pour le modèle, d'annoncer une
       // précision que le cron quotidien ne tient pas.
-      const result = (await tool().execute!(validInput as never, {} as never)) as Record<
+      const result = (await tool().execute!(validInput as never, slackCaller())) as Record<
         string,
         unknown
       >;
@@ -101,7 +102,7 @@ describe('scheduleReminder', () => {
     });
 
     it('persiste bien le rappel', async () => {
-      await tool().execute!(validInput as never, {} as never);
+      await tool().execute!(validInput as never, slackCaller());
       expect(await notificationRepo.findByRecipient(EMPLOYEE_ID)).toHaveLength(1);
     });
   });
@@ -109,7 +110,7 @@ describe('scheduleReminder', () => {
   describe('refus bruyants', () => {
     it('REFUSE une date déjà passée, et n enregistre rien', async () => {
       await expect(
-        tool().execute!({ ...validInput, scheduledAt: PAST } as never, {} as never),
+        tool().execute!({ ...validInput, scheduledAt: PAST } as never, slackCaller()),
       ).rejects.toThrow(/futur|future/i);
 
       expect(await notificationRepo.findByRecipient(EMPLOYEE_ID)).toHaveLength(0);
@@ -117,7 +118,7 @@ describe('scheduleReminder', () => {
 
     it('REFUSE une date illisible', async () => {
       await expect(
-        tool().execute!({ ...validInput, scheduledAt: 'demain matin' } as never, {} as never),
+        tool().execute!({ ...validInput, scheduledAt: 'demain matin' } as never, slackCaller()),
       ).rejects.toThrow();
 
       expect(await notificationRepo.findByRecipient(EMPLOYEE_ID)).toHaveLength(0);
@@ -125,7 +126,7 @@ describe('scheduleReminder', () => {
 
     it('REFUSE un destinataire absent de l annuaire, comme sendNotification', async () => {
       await expect(
-        tool().execute!({ ...validInput, recipientId: UNKNOWN_ID } as never, {} as never),
+        tool().execute!({ ...validInput, recipientId: UNKNOWN_ID } as never, slackCaller()),
       ).rejects.toThrow(/introuvable|not found/i);
 
       expect(await notificationRepo.findByRecipient(UNKNOWN_ID)).toHaveLength(0);
@@ -192,7 +193,7 @@ describe('scheduleReminder — le libellé de date vient du CODE', () => {
         body: 'Merci de relire le guide.',
         scheduledAt: '2026-08-22T09:00:00.000Z',
       } as never,
-      {} as never,
+      slackCaller(),
     )) as { deliveredOn: string; willBeSentAutomatically: boolean };
 
     // ⚠️ Le jour reste le contrôle qui compte : c'est LUI que le modèle avait faux
@@ -219,7 +220,7 @@ describe('scheduleReminder — le libellé de date vient du CODE', () => {
         body: 'y',
         scheduledAt: FUTURE,
       } as never,
-      {} as never,
+      slackCaller(),
     )) as { willBeSentAutomatically: boolean };
 
     expect(out.willBeSentAutomatically).toBe(true);

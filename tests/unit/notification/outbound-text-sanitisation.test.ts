@@ -46,6 +46,7 @@ import { NotificationChannel, NotificationStatus, RecipientType } from '../../..
 import { InMemoryNotificationRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-notification.repository';
 import { InMemoryEmployeeRepository } from '../../../src/features/employee/infrastructure/repositories/in-memory-employee.repository';
 import { createEmployee } from '../../../src/features/employee/domain/entities/employee';
+import { slackCaller } from '../../helpers/slack-caller';
 
 const EMPLOYEE_ID = '123e4567-e89b-12d3-a456-426614174000';
 const FUTURE = new Date(Date.now() + 86_400_000).toISOString();
@@ -121,7 +122,7 @@ describe('scheduleReminder — ce qui est ENREGISTRÉ est déjà propre', () => 
   async function schedule(subject: string, body: string) {
     await makeScheduleReminder(notificationRepo, employeeRepo).execute!(
       { recipientId: EMPLOYEE_ID, subject, body, scheduledAt: FUTURE } as never,
-      {} as never,
+      slackCaller(),
     );
     const [stored] = await notificationRepo.findByRecipient(EMPLOYEE_ID);
     return stored!;

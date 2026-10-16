@@ -11,7 +11,12 @@ import { uuidSchema } from '../../../../shared/validation';
 import { logger } from '../../../../shared/logger';
 import { NotificationChannel, NotificationStatus, RecipientType } from '../../../../shared/types';
 import { NotFoundError, errorMessage } from '../../../../shared/errors';
-import { canPerformSideEffects, readSlackContext } from '../../../../shared/slack-request-context';
+import {
+  canPerformSideEffects,
+  hasIdentifiedRequester,
+  NO_REQUESTER_HINT,
+  readSlackContext,
+} from '../../../../shared/slack-request-context';
 import { buildRunKey, makeRunGuard, textFingerprint } from '../../../../shared/tool-idempotency';
 
 const TRANSPORTED_CHANNELS = ['email', 'slack'] as const;
@@ -73,6 +78,10 @@ export function makeSendNotification(
       recipientType: z.enum(RECIPIENT_TYPES).default('employee'),
     }),
     execute: async (data, _ctx) => {
+      if (!hasIdentifiedRequester(_ctx?.requestContext)) {
+        logger.warn('sendNotification refusé — aucun demandeur identifié');
+        return { sent: false as const, reason: 'no_requester' as const, hint: NO_REQUESTER_HINT };
+      }
       if (!canPerformSideEffects(_ctx?.requestContext, data.recipientId)) {
         logger.warn('sendNotification refusé : le demandeur n’a pas le niveau requis', {
           recipientId: data.recipientId,

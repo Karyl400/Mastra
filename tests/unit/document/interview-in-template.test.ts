@@ -5,6 +5,7 @@ import { makeGenerateDocument } from '../../../src/features/document/application
 import { InMemoryDocumentRepository } from '../../../src/features/document/infrastructure/repositories/in-memory-document.repository';
 import { InMemoryOnboardingInterviewRepository } from '../../../src/features/onboarding/infrastructure/repositories/in-memory-onboarding-interview.repository';
 import { DocumentFormat, DocumentType } from '../../../src/shared/types';
+import { slackCaller } from '../../helpers/slack-caller';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -155,7 +156,7 @@ describe('generateDocument — résolution de l entretien côté serveur', () =>
       },
     } as never);
 
-    await tool.execute!(input as never, {} as never);
+    await tool.execute!(input as never, slackCaller());
 
     expect(calls[0]!.interview).toEqual({
       dailyWork: 'je développe les API paiement',
@@ -179,7 +180,7 @@ describe('generateDocument — résolution de l entretien côté serveur', () =>
       },
     } as never);
 
-    const result = (await tool.execute!(input as never, {} as never)) as { saved: boolean };
+    const result = (await tool.execute!(input as never, slackCaller())) as { saved: boolean };
 
     expect(result.saved).toBe(true);
     expect(calls[0]!.interview).toBeUndefined();
@@ -194,7 +195,7 @@ describe('generateDocument — résolution de l entretien côté serveur', () =>
       renderers: [pdf],
     } as never);
 
-    const result = (await tool.execute!(input as never, {} as never)) as { saved: boolean };
+    const result = (await tool.execute!(input as never, slackCaller())) as { saved: boolean };
 
     expect(result.saved).toBe(true);
     expect(calls[0]!.interview).toBeUndefined();

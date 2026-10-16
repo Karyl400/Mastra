@@ -212,6 +212,7 @@ describe('generateDocument — budget du tool-result', () => {
       documentRepo,
       employeeRepo: directory,
       renderers: [renderer],
+      fileUpload: { uploadFile: async () => ({ permalink: 'https://kissohq.slack.com/files/F1' }) },
     });
 
     return (await tool.execute!(
@@ -223,11 +224,10 @@ describe('generateDocument — budget du tool-result', () => {
         format: DocumentFormat.Pdf,
         deliverTo: 'none',
       } as never,
-      // ⚠️ PAS de `slackCaller()` ici, et c'est le sujet du test : hors Slack, `deliverTo: none`
-      // est honoré et le verdict tient en 39 tokens. Avec un canal, le tool livre dans le fil —
-      // ce qui est le bon comportement — et un échec de livraison ajoute un `hint`, soit 93
-      // tokens. C'est le budget NOMINAL qu'on borne ici ; le dégradé a sa propre assertion.
-      {} as never,
+      // ⚠️ Jusqu'au 2026-10-16 ce test bornait le chemin HORS Slack, qui n'écrit plus rien
+      // depuis le lot 10 (`no_requester`). Le budget NOMINAL est désormais celui d'une
+      // livraison réussie dans le fil ; le dégradé a sa propre assertion.
+      slackCaller(),
     )) as Record<string, unknown>;
   }
 

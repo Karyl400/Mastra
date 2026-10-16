@@ -77,6 +77,9 @@ function mayTouchRecord(requestContext: unknown, targetEmployeeId: string | unde
   return context.accessLevel === 'full';
 }
 
+export const NO_REQUESTER_HINT =
+  "Cette demande n'arrive pas d'une conversation Slack : aucun demandeur n'est identifié, donc aucun droit ne peut être vérifié. Dis-le simplement et n'essaie pas un autre outil.";
+
 export function hasIdentifiedRequester(requestContext: unknown): boolean {
   return Boolean(readSlackContext(requestContext)?.slackUserId);
 }

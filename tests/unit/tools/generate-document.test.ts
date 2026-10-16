@@ -195,7 +195,7 @@ function slackCtx(threadTs?: string) {
   };
 }
 
-async function run(overrides: Overrides, data: Record<string, unknown>, ctx: unknown = {}) {
+async function run(overrides: Overrides, data: Record<string, unknown>, ctx: unknown = slackCtx()) {
   return (await tool(overrides).execute!(data as never, ctx as never)) as Result;
 }
 
@@ -332,20 +332,19 @@ describe('generateDocument — livraison Slack', () => {
     expect(saved!.status).toBe(DocumentStatus.Sent);
   });
 
-  it('sans contexte Slack : aucun upload, aucune erreur, verdict honnête', async () => {
-    // Cas NORMAL du playground Mastra, d'un appel HTTP ou d'un test — pas une panne.
+  it('sans demandeur identifié : REFUSE, sans rien rendre, enregistrer ni livrer', async () => {
+    // ⚠️ Jusqu'au 2026-10-16 ce cas — playground, appel HTTP, `/api/agents/*` — produisait et
+    // ENREGISTRAIT le document : `mayTouchRecord` laissait passer l'absence de contexte. Avec le
+    // jeton de service, c'était un document au nom de l'entreprise pour n'importe quel salarié.
     const upload = new FakeFileUpload();
 
-    const result = await run({ fileUpload: upload }, input(), {});
+    const result = await run({ fileUpload: upload }, input({ deliverTo: 'email' }), {});
 
     expect(upload.calls).toHaveLength(0);
-    expect(result.saved).toBe(true);
-    expect(result.delivery).toBe('none');
-    expect(result.reason).toBe('no_slack_context');
-    expect(result.hint).toMatch(/ne promets aucun envoi/i);
-
-    const [saved] = await documentRepo.findByEmployee(EMPLOYEE_ID);
-    expect(saved!.status).toBe(DocumentStatus.Generated);
+    expect(pdf.calls).toHaveLength(0);
+    expect(result.saved).toBe(false);
+    expect(result.reason).toBe('no_requester');
+    expect(await documentRepo.findByEmployee(EMPLOYEE_ID)).toHaveLength(0);
   });
 
   it('dégrade lisiblement quand aucun fournisseur de fichiers n est câblé', async () => {
@@ -489,22 +488,6 @@ describe('generateDocument — garde-fous', () => {
     expect(pdf.calls).toHaveLength(0);
     expect(upload.calls).toHaveLength(0);
     expect(await documentRepo.findByEmployee(UNKNOWN_ID)).toHaveLength(0);
-  });
-
-  it('deliverTo=none HORS Slack : rien n est envoyé, et ce n est pas un échec', async () => {
-    const upload = new FakeFileUpload();
-    const email = new FakeEmail();
-
-    // Sans contexte Slack — workflow, playground, appel direct — il n'y a personne à qui
-    // livrer. `none` garde donc tout son sens et reste respecté.
-    const result = await run(
-      { fileUpload: upload, emailProvider: email },
-      input({ deliverTo: 'none' }),
-    );
-
-    expect(upload.calls).toHaveLength(0);
-    expect(email.calls).toHaveLength(0);
-    expect(result.delivery).toBe('none');
   });
 
   it('deliverTo=none DANS une conversation Slack est ignoré — on livre dans le fil', async () => {
@@ -670,7 +653,10 @@ describe('generateDocument — assainissement du contenu', () => {
     const { logger } = await import('../../../src/shared/logger');
     const spy = vi.spyOn(logger, 'error').mockImplementation(() => undefined as never);
 
-    await run({}, input({ content: 'Bienvenue chez Kisso Industries.', deliverTo: 'none' }));
+    await run(
+      { fileUpload: new FakeFileUpload() },
+      input({ content: 'Bienvenue chez Kisso Industries.', deliverTo: 'none' }),
+    );
 
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();

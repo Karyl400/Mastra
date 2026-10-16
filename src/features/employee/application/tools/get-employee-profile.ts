@@ -9,6 +9,7 @@ import { logger } from '../../../../shared/logger';
 import {
   canReadPersonRecord,
   hasIdentifiedRequester,
+  NO_REQUESTER_HINT,
 } from '../../../../shared/slack-request-context';
 import { reconcileProgress } from '../../../onboarding/domain/services/onboarding-plan';
 
@@ -23,9 +24,6 @@ const NO_PROGRESS_HINT =
 const NOT_AUTHORIZED_HINT =
   "Tu n'as pas accès au dossier de cette personne. Dis-le simplement, sans détour et sans " +
   'inventer de motif. Ne réessaie pas avec un autre outil et ne reformule pas la demande.';
-
-const NO_REQUESTER_HINT =
-  "Cette demande n'arrive pas d'une conversation Slack : aucun demandeur n'est identifié, donc aucun droit ne peut être vérifié. Dis-le simplement et n'essaie pas un autre outil.";
 
 const MISSING_IDENTIFIER_HINT =
   "Précise QUI : soit l'email, soit l'identifiant de l'employé. N'en invente " +

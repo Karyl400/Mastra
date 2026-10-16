@@ -63,6 +63,7 @@ function slackRun(eventTs: string) {
     requestContext: buildSlackRequestContext({
       channel: 'D0BM9MK9QJV',
       eventTs,
+      slackUserId: 'U0BM9MK9QJV',
       accessLevel: 'full',
     }),
   };
@@ -150,6 +151,7 @@ describe('generateDocument — garde d’idempotence par run', () => {
       {
         requestContext: buildSlackRequestContext({
           channel: 'D0AAA',
+          slackUserId: 'U0SAME',
           eventTs: '1.1',
           accessLevel: 'full',
         }),
@@ -160,6 +162,7 @@ describe('generateDocument — garde d’idempotence par run', () => {
       {
         requestContext: buildSlackRequestContext({
           channel: 'D0BBB',
+          slackUserId: 'U0SAME',
           eventTs: '2.2',
           accessLevel: 'full',
         }),
@@ -225,6 +228,7 @@ describe("la frontière d'autorisation passe avant le cache d'idempotence", () =
         channel: 'C_HQ',
         threadTs: '111.000',
         eventTs,
+        slackUserId: 'U0INTHREAD',
         accessLevel,
       }),
     });

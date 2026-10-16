@@ -44,6 +44,7 @@ const ctx = (eventTs?: string) => ({
     get: (key: string) =>
       ({
         slackChannel: 'D0MOCK',
+        slackUserId: 'U0MOCK',
         slackEventTs: eventTs,
         slackEmployeeId: EMPLOYEE,
         slackAccessLevel: 'full',

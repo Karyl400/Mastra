@@ -5167,6 +5167,22 @@ Corollaire assumé : la protection ne vaut que sur le chemin Slack. C'est le seu
 atteignable par un invité externe, donc le seul où le risque existe ; les routes `/api/*`
 sont déjà derrière un jeton (`createApiAuthConfig`).
 
+⚠️ **CE COROLLAIRE ÉTAIT LE TROU — fermé le 2026-10-16 (lot 10 de l'audit QA du 2026-08-28,
+§1.1).** « Derrière un jeton » ne veut pas dire « un demandeur » : le porteur du
+`MASTRA_API_TOKEN` appelait `/api/agents/:id/generate` SANS contexte, donc ce `true`, et un
+agent envoyait un email, un document, un rappel ou un changement de parcours **au nom de
+l'entreprise, pour n'importe quel salarié**. Le fail-open n'a PAS été retiré d'ici — le rendre
+`false` couperait le playground et les tests de lecture pure. Le second verrou est posé **au
+bord de chaque outil agissant** : `hasIdentifiedRequester` avant toute E/S, refus
+`no_requester`. La règle est DÉRIVÉE : `acting-tools-require-requester.test.ts` exige une
+entrée pour chaque outil `write` de `TOOL_EFFECTS`, donc le prochain outil agissant est couvert
+d'avance.
+
+**Avant `export const NO_REQUESTER_HINT =`**
+
+Une seule phrase pour les six outils qui refusent sans demandeur (deux lectures RH, quatre
+écritures). Elle était recopiée dans les deux lecteurs ; quatre copies de plus auraient dérivé.
+
 LA RÈGLE, écrite UNE FOIS : son propre dossier toujours, celui d'autrui au niveau `full`.
 
 ⚠️ Les deux fonctions publiques ci-dessous délèguent ici, et elles restent DEUX — c'est

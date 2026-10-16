@@ -6,6 +6,8 @@ import {
   readSlackContext,
   canReadPersonRecord,
   writeDocumentRecipient,
+  hasIdentifiedRequester,
+  NO_REQUESTER_HINT,
 } from '../../../../shared/slack-request-context';
 import { makeRunGuard } from '../../../../shared/tool-idempotency';
 import type { GenerateDocumentDeps } from './generate-document-deps';
@@ -46,6 +48,16 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
     description: 'Génère un document (guide, contrat, lettre…) et le livre dans Slack ou par email',
     inputSchema: generateDocumentInputSchema,
     execute: async (data, ctx) => {
+      if (!hasIdentifiedRequester(ctx?.requestContext)) {
+        logger.warn('generateDocument refusé — aucun demandeur identifié');
+        return {
+          saved: false as const,
+          delivery: 'none' as DeliveryVerdict,
+          reason: 'no_requester' as const,
+          hint: NO_REQUESTER_HINT,
+        };
+      }
+
       const slackCtx = readSlackContext(ctx?.requestContext);
       const employeeId = resolveSubjectId(data.employeeId, slackCtx);
 
