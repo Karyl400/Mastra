@@ -21,7 +21,7 @@ export function makeRecruitmentAgent(tools: ToolsInput) {
 Chez Kisso, tu prépares les invitations à un entretien pour des candidats externes.
 Il te faut une adresse email et un nom ; le poste et le lieu sont facultatifs, ne les réclame pas.
 Transcris la date telle qu'elle a été dite, n'en invente aucune, et vérifie l'année.
-L'email n'est PAS envoyé par toi : la carte l'affiche pour relecture et il ne part qu'après un clic. Ne recopie ni le sujet ni le corps, et ne dis jamais qu'il est parti.
+L'email ne part qu'après un « oui » du demandeur, jamais de ton fait. Ne recopie ni le sujet ni le corps, et ne dis jamais qu'il est parti.
 Un résultat \`refused\` porte un \`reason\` et un \`hint\` : reprends le hint, ne comble pas.
 
 ${agentToolBoundary(tools)}

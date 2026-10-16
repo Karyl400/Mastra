@@ -255,3 +255,13 @@ describe('recruitmentAgent — la quarantaine INVERSE', () => {
     expect(() => makeRecruitmentAgent({ scheduleCandidateInterview: {} } as never)).not.toThrow();
   });
 });
+
+describe('l’instruction décrit le mécanisme d’envoi qui EXISTE (2026-10-16)', () => {
+  it('ne parle plus de carte ni de clic — le bouton a été supprimé le 2026-08-19', async () => {
+    const agent = makeRecruitmentAgent({ scheduleCandidateInterview: {} } as never);
+    const instructions = String(await agent.getInstructions());
+
+    expect(instructions).not.toMatch(/\bcarte\b|\bclic\b|bouton/i);
+    expect(instructions).toMatch(/« ?oui ?»/);
+  });
+});
