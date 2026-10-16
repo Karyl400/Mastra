@@ -6,8 +6,7 @@ import { logger } from '../../../../shared/logger';
 import { OnboardingStatus } from '../../../../shared/types';
 import {
   canPerformSideEffects,
-  hasIdentifiedRequester,
-  NO_REQUESTER_HINT,
+  noRequesterRefusal,
   readSlackContext,
 } from '../../../../shared/slack-request-context';
 import { buildRunKey, makeRunGuard } from '../../../../shared/tool-idempotency';
@@ -33,14 +32,10 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
       currentStep: z.number().int().min(0).optional().describe('Étape actuelle'),
     }),
     execute: async (data, _ctx) => {
-      if (!hasIdentifiedRequester(_ctx?.requestContext)) {
-        logger.warn('updateOnboardingStatus refusé — aucun demandeur identifié');
-        return {
-          updated: false as const,
-          reason: 'no_requester' as const,
-          hint: NO_REQUESTER_HINT,
-        };
-      }
+      const refused = noRequesterRefusal(_ctx?.requestContext, 'updateOnboardingStatus', {
+        updated: false as const,
+      });
+      if (refused) return refused;
       if (!canPerformSideEffects(_ctx?.requestContext, data.employeeId)) {
         logger.warn('updateOnboardingStatus refusé : le demandeur n’a pas le niveau requis', {
           employeeId: data.employeeId,

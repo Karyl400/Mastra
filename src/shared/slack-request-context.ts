@@ -1,3 +1,4 @@
+import { logger } from './logger';
 import { RequestContext } from '@mastra/core/request-context';
 
 import { nonEmptyString } from './request-context-values';
@@ -79,6 +80,16 @@ function mayTouchRecord(requestContext: unknown, targetEmployeeId: string | unde
 
 export const NO_REQUESTER_HINT =
   "Cette demande n'arrive pas d'une conversation Slack : aucun demandeur n'est identifié, donc aucun droit ne peut être vérifié. Dis-le simplement et n'essaie pas un autre outil.";
+
+export function noRequesterRefusal<T extends object>(
+  requestContext: unknown,
+  toolName: string,
+  shape: T,
+): (T & { readonly reason: 'no_requester'; readonly hint: string }) | null {
+  if (hasIdentifiedRequester(requestContext)) return null;
+  logger.warn(`${toolName} refusé — aucun demandeur identifié`);
+  return { ...shape, reason: 'no_requester' as const, hint: NO_REQUESTER_HINT };
+}
 
 export function hasIdentifiedRequester(requestContext: unknown): boolean {
   return Boolean(readSlackContext(requestContext)?.slackUserId);

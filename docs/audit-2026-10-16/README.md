@@ -74,7 +74,7 @@ traite 4 (`allSettled`), une partie de 14 et l'effacement de §9bis.1.
 |---|---|---|---|
 | F1 | ✅ **FERMÉ le 2026-10-16.** ~~Lot 10 ouvert.~~ `mayTouchRecord` (`shared/slack-request-context.ts:72`) renvoie `true` quand **aucun contexte** n'est fourni. Les écritures `sendNotification`, `generateDocument`, `scheduleReminder` et `updateOnboardingStatus` passent donc par `/api/agents/:id/generate` sans identité de demandeur. Les deux lectures RH ont reçu leur second verrou, pas les écritures. | Avec le jeton de service, un appelant envoie un email ou un document au nom de Marcel, à n'importe quel salarié | **Critique** |
 | F2 | ✅ **FERMÉ le 2026-10-16.** ~~§9bis.1 à moitié traité.~~ Le `forget` utilise désormais `affectedRowsOrThrow` (WIP). **8 sites** gardent `rowsAffected ?? 0` : dedup, rate-limit, pinned-fact, pending-email (×2), directory, onboarding, conversation `pruneOlderThan`. | La prise de dédup ou de préparation d'email peut « échouer » sans bruit : un doublon, ou un envoi bloqué | Majeur |
-| F3 | **Lot 8b ouvert.** `shouldRememberTurn` n'existe pas. Les deux machines à états (profil et entretien) suivent toujours la même règle sans la partager. | C'est la famille qui a déjà produit **3 pertes de données silencieuses** | Majeur |
+| F3 | ✅ **FERMÉ le 2026-10-16.** ~~Lot 8b ouvert.~~ `shouldRememberTurn` n'existe pas. Les deux machines à états (profil et entretien) suivent toujours la même règle sans la partager. | C'est la famille qui a déjà produit **3 pertes de données silencieuses** | Majeur |
 | F4 | **Idempotence par instance.** `shared/tool-idempotency.ts:16` utilise une `Map` en mémoire. À environ 19 messages par jour, chaque demande tombe sur une instance neuve. | Une personne qui redemande parce qu'elle n'a pas vu la réponse reçoit un second document ou email : c'est l'incident « 7 documents, 3 emails en 8 min » | Majeur |
 | F5 | **Lot 13 ouvert.** Aucune échéance partagée dans la boucle : l'`ingest` reste sur le chemin critique et le budget de 60 s est dépassable. | Un message tué en vol ne reçoit aucune réponse | Moyen |
 | F6 | **Quota du modèle principal.** Gemini en palier gratuit : **20 requêtes par jour**, partagées entre Marcel et le second rideau de connaissance. Le passage à un palier payant (≈ 1–2 €/mois, décision du Conseil du 2026-08-15) n'est pas acté. | Vers le 20ᵉ message, tout le monde bascule sur Groq puis Mistral (4 req/min) | Majeur (décision humaine) |
@@ -162,7 +162,7 @@ Dans cet ordre, chacun avec un test rouge d'abord :
       `mayTouchRecord` (voir « Ce qu'il ne faut PAS faire », QA §9).
 - [x] **F-B (F2) — finir §9bis.1** : `affectedRowsOrThrow` sur les 8 sites, puis un test
       quality qui interdit `rowsAffected ?? 0` dans `src/`.
-- [ ] **F-C (F3) — `shouldRememberTurn` partagé** entre les parcours profil et entretien.
+- [x] **F-C (F3) — `shouldRememberTurn` partagé** entre les parcours profil et entretien.
 - [ ] **F-D (F4) — idempotence en base**, sur le modèle de `slack_event_dedup`, avec une
       grâce de prise abandonnée (leçon `STRANDED_CLAIM_MS`). Lot dédié avec ses mesures.
 - [ ] **F-E (F5) — échéance partagée** dans la boucle, `ingest` hors du chemin critique.

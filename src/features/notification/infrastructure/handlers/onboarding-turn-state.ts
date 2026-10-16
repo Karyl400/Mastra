@@ -40,6 +40,10 @@ export function answersOnboardingQuestion(input: {
   return !isQuestionToBot(input.text);
 }
 
+export function shouldRememberTurn(history: readonly ConversationTurn[]): boolean {
+  return !hasPendingOnboardingQuestion(history);
+}
+
 export function hasPendingOnboardingQuestion(history: readonly ConversationTurn[]): boolean {
   const last = lastAssistantText(history);
   return pendingProfileStep(last) !== null || pendingInterviewStep(last) !== null;

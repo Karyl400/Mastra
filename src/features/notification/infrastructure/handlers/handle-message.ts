@@ -7,7 +7,7 @@ import type { SlackHandlerInternals } from './handler-internals';
 import type { SlackMessageEvent } from './slack-event.types';
 import { buildMessageContext, runStaticReply } from './message-context';
 import { resolvePendingEmail } from './pending-email';
-import { pendingOnboardingStep } from './onboarding-turn-state';
+import { pendingOnboardingStep, shouldRememberTurn } from './onboarding-turn-state';
 import { runErasure, runPinFact } from './acting-shortcuts';
 import { runCancelReminder } from './reminder-cancellation';
 import { runProfileForm } from './profile-form';
@@ -110,6 +110,7 @@ export async function handleMessage(
           conversationId,
           user,
           employeeId: (await requesterIdentity).employeeId,
+          remember: shouldRememberTurn(history),
         });
     }
   }

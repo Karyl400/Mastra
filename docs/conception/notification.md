@@ -4390,7 +4390,7 @@ de la fonction au-dessus du seuil, et que le lint de ce dépôt est à zéro war
 
 Rend `true` quand la réponse a été servie et que `handleMessage` doit s'arrêter là.
 
-**Avant `if (staticReply.remembersTurn && !hasPendingOnboardingQuestion(history)) {`**
+**Avant `if (staticReply.remembersTurn && shouldRememberTurn(history)) {`**
 
 Seule la salutation entre en mémoire : sans elle, un fil ouvert par « bonjour » ne
 
@@ -5495,6 +5495,26 @@ intervertir deux notes sans que rien ne le signale.
 Rend `''` quand tout est vide : accoler une chaîne vide laisserait deux sauts de ligne en
 fin de message, trace visible d'un mécanisme qui ne s'est pas déclenché.
 ### `src/features/notification/infrastructure/handlers/onboarding-turn-state.ts`
+
+**Avant `export function shouldRememberTurn(history: readonly ConversationTurn[]): boolean {`**
+
+LA règle qui décide si un échange entre en mémoire, et elle n'est écrite qu'ici (2026-10-16,
+lot 8b de l'audit QA du 2026-08-28, §1.4 défaut n° 2). Quand une question d'accueil attend,
+on ne mémorise RIEN : l'état du parcours est reconstitué du DERNIER tour de l'assistant, et y
+écrire autre chose que la question la fait disparaître — la personne n'est plus jamais
+relancée, et le tour mémorisé peut être apparié plus tard à cette question puis écrit en base
+comme son nom de famille.
+
+⚠️ Le chemin statique l'appliquait depuis le 2026-08-19 ; le chemin AGENT
+(`agent-pipeline.ts`) et le raccourci d'annulation de rappel ne l'appliquaient pas. Trois
+écrivains, une règle, aucune mise en commun : la forme exacte des trois pertes de données
+déjà mesurées. Les écrivains des PARCOURS eux-mêmes (`profile-journey`, `interview-journey`,
+`profile-form`) ne la consultent pas, et c'est voulu : ce sont eux qui posent la question
+suivante. Verrou : `tests/unit/handlers/onboarding-state-survives-agent-turn.test.ts`.
+
+Prix assumé : l'échange servi par un agent pendant le parcours n'est pas mémorisé, donc pas
+rejoué au tour suivant. C'est la même amnésie ponctuelle que le chemin statique paie depuis
+le 2026-08-19 ; la perdre vaut mieux que perdre le parcours.
 
 **Avant `export function interviewReplyFor(step: InterviewStep, text: string, skipped: boolean): string {`**
 

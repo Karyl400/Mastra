@@ -9,6 +9,7 @@ import {
 } from '../../domain/services/context-preamble';
 import { MAX_PINNED_FACTS } from '../../../../shared/pin-fact';
 import type { SlackHandlerInternals } from './handler-internals';
+import { shouldRememberTurn } from './onboarding-turn-state';
 
 export const CONVERSATION_QUERY_LIMIT = 40;
 
@@ -77,6 +78,10 @@ export async function rememberTurn(
   }
 }
 
+export function turnRecorder(history: readonly ConversationTurn[]): typeof rememberTurn {
+  return shouldRememberTurn(history) ? rememberTurn : async () => undefined;
+}
+
 export async function sayAndRemember(
   self: SlackHandlerInternals,
   input: {
@@ -85,6 +90,7 @@ export async function sayAndRemember(
     conversationId: string;
     user: string | undefined;
     text?: string;
+    remember?: boolean;
   },
   reply: string,
 ): Promise<void> {
@@ -93,6 +99,8 @@ export async function sayAndRemember(
     text: reply,
     ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
   });
+
+  if (input.remember === false) return;
 
   if (input.text !== undefined) {
     await rememberTurn(self, {

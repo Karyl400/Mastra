@@ -8,7 +8,7 @@ import { resolveThreadTarget, type SlackMessageEvent } from './slack-event.types
 import { cleanText } from './message-text';
 import { loadHistory, rememberTurn } from './conversation-memory';
 import { resolveRequesterIdentity } from './requester-identity';
-import { hasPendingOnboardingQuestion } from './onboarding-turn-state';
+import { shouldRememberTurn } from './onboarding-turn-state';
 
 export async function buildMessageContext(
   self: SlackHandlerInternals,
@@ -101,7 +101,7 @@ export async function runStaticReply(
       ...(threadTs ? { thread_ts: threadTs } : {}),
     });
 
-    if (staticReply.remembersTurn && !hasPendingOnboardingQuestion(history)) {
+    if (staticReply.remembersTurn && shouldRememberTurn(history)) {
       await rememberTurn(self, {
         conversationId,
         role: 'user',

@@ -20,7 +20,7 @@ import type {
   StepOutcome,
 } from './handler-internals';
 import { unwrapSanitizedInput } from './message-text';
-import { buildMessages, loadPinnedFacts, rememberTurn } from './conversation-memory';
+import { buildMessages, loadPinnedFacts, turnRecorder } from './conversation-memory';
 import { auditAgentRun } from './agent-run-audit';
 import {
   logResponseShape,
@@ -92,7 +92,9 @@ export async function runAgentTurn(
   state.phase = 'wrap';
   const safeInput = wrapAgentInput(text);
 
-  await rememberTurn(self, {
+  const remember = turnRecorder(history);
+
+  await remember(self, {
     conversationId,
     role: 'user',
     content: unwrapSanitizedInput(safeInput, text),
@@ -151,7 +153,7 @@ export async function runAgentTurn(
     { agentId, channel, conversationId },
   );
 
-  await rememberTurn(self, {
+  await remember(self, {
     conversationId,
     role: 'assistant',
     content: safeOutput.text,

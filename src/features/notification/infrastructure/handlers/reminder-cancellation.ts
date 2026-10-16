@@ -25,11 +25,12 @@ export async function runCancelReminder(
     conversationId: string;
     user?: string;
     employeeId?: string | null;
+    remember: boolean;
   },
 ): Promise<void> {
-  const { text, channel, threadTs, conversationId, user, employeeId } = ctx;
+  const { text, channel, threadTs, conversationId, user, employeeId, remember } = ctx;
   const say = (reply: string) =>
-    sayAndRemember(self, { channel, threadTs, conversationId, user, text }, reply);
+    sayAndRemember(self, { channel, threadTs, conversationId, user, text, remember }, reply);
 
   const scope = requestsReminderCancellation(text);
   if (!scope) return;
