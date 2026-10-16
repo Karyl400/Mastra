@@ -60,12 +60,13 @@ export class SlackEventsHandler extends SlackHandlerCore implements SlackHandler
   async handleEvent(envelope: SlackEventEnvelope): Promise<void> {
     const key = dedupKey(envelope);
     try {
-      await this.ingest(envelope);
       await this.processEvent(envelope);
       await markDedupDone(this, key);
     } catch (error) {
       await releaseDedup(this, key);
       throw error;
+    } finally {
+      await this.ingest(envelope);
     }
   }
 

@@ -104,6 +104,7 @@ export interface AgentPipelineContext {
   requesterIdentity: Promise<RequesterIdentity>;
   accessLevel: SlackAccessLevel | undefined;
   progress: Awaited<ReturnType<typeof startProgress>>;
+  deadline: number;
   pendingEmailReminder?: string;
   onboardingReminder?: string;
 }

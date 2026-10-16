@@ -1375,6 +1375,27 @@ Les CHIFFRES sont conservés : « 123 » est une sonde de vie au même titre que
 « ping », et un filtre `[^a-z ]` l'aurait réduit à la chaîne vide, donc jamais
 
 reconnu. Ils ne créent aucun faux positif — les détecteurs comparent sur des mots.
+## `shared/llm/run-deadline.ts`
+
+**Avant `export const FUNCTION_MAX_DURATION_MS = 60_000;`**
+
+Le plafond de la fonction Vercel, en millisecondes. Il est posé par `scripts/fix-vercel-output.js`
+(`FUNCTION_MAX_DURATION_SECONDS`), qui est du JavaScript et ne peut pas importer ce module : la
+dérivation est donc faite par un test (`tests/unit/shared/run-deadline.test.ts`), qui lit le
+script et exige que les deux valeurs soient la même. Changer l'une sans l'autre fait rougir.
+
+**Avant `export function runDeadline(startedAt: number): number {`**
+
+UNE échéance par message, et non une borne par appel (lot 13 de l'audit QA du 2026-08-28,
+§4.2). Les bornes par appel ne s'additionnaient pas : 20 + 40 + 40 = 100 s pour 60 s de
+plafond, et la mort d'une fonction n'est pas une erreur mais un SILENCE. `REPLY_MARGIN_MS`
+réserve de quoi poster la réponse ou l'échec et marquer la déduplication.
+
+**Avant `export function agentCallBounds(`**
+
+Les deux bornes d'un appel de modèle, côte à côte : le COÛT (`maxSteps`, sur un quota qui se
+compte à la journée) et la DURÉE (le temps restant, jamais au-delà de 40 s).
+
 ## `shared/llm/model-fallback.ts`
 
 > ⚠️ **SECTION PÉRIMÉE SUR UN POINT, corrigé en tête le 2026-08-21 par l'audit.** Tout ce qui

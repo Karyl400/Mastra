@@ -76,7 +76,7 @@ traite 4 (`allSettled`), une partie de 14 et l'effacement de §9bis.1.
 | F2 | ✅ **FERMÉ le 2026-10-16.** ~~§9bis.1 à moitié traité.~~ Le `forget` utilise désormais `affectedRowsOrThrow` (WIP). **8 sites** gardent `rowsAffected ?? 0` : dedup, rate-limit, pinned-fact, pending-email (×2), directory, onboarding, conversation `pruneOlderThan`. | La prise de dédup ou de préparation d'email peut « échouer » sans bruit : un doublon, ou un envoi bloqué | Majeur |
 | F3 | ✅ **FERMÉ le 2026-10-16.** ~~Lot 8b ouvert.~~ `shouldRememberTurn` n'existe pas. Les deux machines à états (profil et entretien) suivent toujours la même règle sans la partager. | C'est la famille qui a déjà produit **3 pertes de données silencieuses** | Majeur |
 | F4 | **Idempotence par instance.** `shared/tool-idempotency.ts:16` utilise une `Map` en mémoire. À environ 19 messages par jour, chaque demande tombe sur une instance neuve. | Une personne qui redemande parce qu'elle n'a pas vu la réponse reçoit un second document ou email : c'est l'incident « 7 documents, 3 emails en 8 min » | Majeur |
-| F5 | **Lot 13 ouvert.** Aucune échéance partagée dans la boucle : l'`ingest` reste sur le chemin critique et le budget de 60 s est dépassable. | Un message tué en vol ne reçoit aucune réponse | Moyen |
+| F5 | ✅ **FERMÉ le 2026-10-16.** ~~Lot 13 ouvert.~~ Aucune échéance partagée dans la boucle : l'`ingest` reste sur le chemin critique et le budget de 60 s est dépassable. | Un message tué en vol ne reçoit aucune réponse | Moyen |
 | F6 | **Quota du modèle principal.** Gemini en palier gratuit : **20 requêtes par jour**, partagées entre Marcel et le second rideau de connaissance. Le passage à un palier payant (≈ 1–2 €/mois, décision du Conseil du 2026-08-15) n'est pas acté. | Vers le 20ᵉ message, tout le monde bascule sur Groq puis Mistral (4 req/min) | Majeur (décision humaine) |
 | F7 | ⚠️ **Abonnements posés le 2026-10-16** par le propriétaire — livraison à constater. ~~Base de connaissance inerte.~~ `message.channels`/`message.groups` sont notés « en cours d'ajout » depuis le 2026-08-15 ; aucune preuve d'abonnement. Seuls les DM alimentent l'archive. | `searchKnowledge` ne sait presque rien des canaux | Moyen (geste console) |
 | F7 bis | **Scopes relevés dans la console le 2026-10-16** : les scopes bot `channels:history`/`groups:history`/`im:history` sont accordés. Ils ne prouvent PAS l'abonnement aux événements, qui se règle séparément. Un **jeton utilisateur** reste autorisé (`users:write` pour la présence, `channels:write.invites`, `groups:write.invites`, `users:read.email`) alors que `SLACK_USER_TOKEN` est de la config morte. | Des droits d'invitation et d'annuaire sans aucun usage : moindre privilège violé | Moyen (retirer les User Token Scopes, réinstaller) |
@@ -165,7 +165,7 @@ Dans cet ordre, chacun avec un test rouge d'abord :
 - [x] **F-C (F3) — `shouldRememberTurn` partagé** entre les parcours profil et entretien.
 - [ ] **F-D (F4) — idempotence en base**, sur le modèle de `slack_event_dedup`, avec une
       grâce de prise abandonnée (leçon `STRANDED_CLAIM_MS`). Lot dédié avec ses mesures.
-- [ ] **F-E (F5) — échéance partagée** dans la boucle, `ingest` hors du chemin critique.
+- [x] **F-E (F5) — échéance partagée** dans la boucle, `ingest` hors du chemin critique.
 - [ ] **F-F (F9) — `outputSchema` Zod** sur les 13 outils, en commençant par les 5 agissants.
 - [ ] **Gestes humains (sans code)** : palier Gemini payant (F6) ; abonnement à
       `message.channels`/`message.groups`, vérifié par le manifeste réel (F7) ;

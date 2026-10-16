@@ -4044,7 +4044,17 @@ Coût en tokens : ZÉRO. Le `RequestContext` ne traverse ni le prompt, ni les
 schémas de tools, ni le tool-result — c'est ce qui permet de faire descendre une
 
 décision d'autorisation jusqu'aux tools sans jamais la soumettre au modèle.
-**Avant `abortSignal: AbortSignal.timeout(AGENT_GENERATE_TIMEOUT_MS),`**
+**Avant `...agentCallBounds(ctx.deadline, Date.now()),`**
+
+⚠️ **DEPUIS LE 2026-10-16, LA BORNE EST LE TEMPS RESTANT, PLUS 40 s FIXES** (lot 13 de l'audit
+QA du 2026-08-28, §4.2). Chaque appel avait sa propre borne, mais rien ne les additionnait :
+rideau (20 s) + deux étapes de chaîne (40 + 40 s) = 100 s pour un plafond de 60 s. Le message
+porte désormais UNE échéance (`shared/llm/run-deadline.ts`, dérivée de `maxDuration` moins une
+marge de réponse — un test vérifie que les deux constantes sont la même), posée à l'entrée de
+`handleMessage`. Chaque appel prend `min(40 s, temps restant)` ; une seconde étape de chaîne ne
+démarre que s'il reste `MIN_GENERATE_MS`, sinon `CHAIN_OUT_OF_TIME_NOTICE` le DIT. Et
+l'archivage (avec son rideau de modèle) passe APRÈS la réponse et le marquage de
+déduplication, dans un `finally` : il ne peut plus retarder ni tuer la réponse.
 
 ⚠️ LA SEULE BORNE DE DURÉE DE TOUT LE CHEMIN — posée le 2026-08-20.
 

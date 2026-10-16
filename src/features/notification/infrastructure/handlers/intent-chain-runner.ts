@@ -1,5 +1,10 @@
 import { logger } from '../../../../shared/logger';
-import { CHAIN_STOPPED_NOTICE, planIntentChain } from '../../domain/services/intent-chain';
+import {
+  CHAIN_OUT_OF_TIME_NOTICE,
+  CHAIN_STOPPED_NOTICE,
+  planIntentChain,
+} from '../../domain/services/intent-chain';
+import { hasTimeForAnotherStep } from '../../../../shared/llm/run-deadline';
 import { startProgress } from '../providers/slack-progress';
 import type { AgentPipelineContext, SlackHandlerInternals } from './handler-internals';
 
@@ -36,6 +41,16 @@ export async function runIntentChain(
   }
 
   for (const [index, step] of steps.entries()) {
+    if (index > 0 && !hasTimeForAnotherStep(ctx.deadline, Date.now())) {
+      logger.warn('Enchaînement interrompu — plus assez de temps pour l’étape suivante', {
+        channel: ctx.channel,
+        conversationId: ctx.conversationId,
+        skipped: steps.length - index,
+      });
+      await postPlainMessage(self, ctx.channel, ctx.threadTs, CHAIN_OUT_OF_TIME_NOTICE);
+      return;
+    }
+
     const progress =
       index === 0
         ? ctx.progress

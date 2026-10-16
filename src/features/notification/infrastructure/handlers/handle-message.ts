@@ -14,11 +14,13 @@ import { runProfileForm } from './profile-form';
 import { enforceAuthorization } from './requester-identity';
 import { chargeModelBudget, notifyRateLimited } from './rate-limit-gate';
 import { runIntentChain } from './intent-chain-runner';
+import { runDeadline } from '../../../../shared/llm/run-deadline';
 
 export async function handleMessage(
   self: SlackHandlerInternals,
   event: SlackMessageEvent,
 ): Promise<void> {
+  const deadline = runDeadline(Date.now());
   const context = await buildMessageContext(self, event);
   if (!context) return;
 
@@ -160,6 +162,7 @@ export async function handleMessage(
     requesterIdentity,
     accessLevel,
     progress,
+    deadline,
     pendingEmailReminder: pendingEmail.reminder,
     onboardingReminder: onboardingNudge(pendingStep, event.ts),
   });

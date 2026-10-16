@@ -1,7 +1,7 @@
 import { logger } from '../../../../shared/logger';
 import { wrapAgentInput } from '../../../../shared/security/llm-guardrail';
 import { sanitizeAgentOutput } from '../../../../shared/security/agent-output';
-import { AGENT_GENERATE_TIMEOUT_MS, AGENT_MAX_STEPS } from '../../../../shared/llm/model-fallback';
+import { agentCallBounds } from '../../../../shared/llm/run-deadline';
 import {
   describeModelResponse,
   MODEL_TRUNCATED_NOTICE,
@@ -125,8 +125,7 @@ export async function runAgentTurn(
     }),
     {
       requestContext,
-      maxSteps: AGENT_MAX_STEPS,
-      abortSignal: AbortSignal.timeout(AGENT_GENERATE_TIMEOUT_MS),
+      ...agentCallBounds(ctx.deadline, Date.now()),
     },
   );
   const durationMs = Date.now() - state.startedAt;
