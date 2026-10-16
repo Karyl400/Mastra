@@ -1,4 +1,6 @@
 import { and, desc, eq, gte, lt } from 'drizzle-orm';
+
+import { affectedRowsOrThrow } from '../../../../shared/rows-affected';
 import { getDb } from '../../../../infrastructure/database/connection';
 import { conversationTurns } from '../../../../infrastructure/database/schema';
 import type { ConversationTurnRow } from '../../../../infrastructure/database/schema';
@@ -70,7 +72,7 @@ export class DrizzleConversationRepository implements ConversationRepository {
       : eq(conversationTurns.conversationId, scope.conversationId);
 
     const result = await db.delete(conversationTurns).where(where);
-    return (result as { rowsAffected?: number }).rowsAffected ?? 0;
+    return affectedRowsOrThrow(result, "l'effacement des tours de conversation");
   }
 }
 

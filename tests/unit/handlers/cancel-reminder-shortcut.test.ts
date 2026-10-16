@@ -155,6 +155,32 @@ describe('deux rappels en attente — on ne devine pas', () => {
     expect(said).toContain('2 rappels');
     expect(await repo.findPending()).toHaveLength(0);
   });
+
+  it('une annulation qui ÉCHOUE ne fait pas disparaître celles qui ont RÉUSSI', async () => {
+    // ⚠️ `Promise.all` REJETTE au premier échec : une seule annulation en erreur emportait la
+    // réponse entière vers « je n'ai pas réussi à annuler ce rappel », alors que l'autre venait
+    // d'être annulée pour de bon. La personne croit que rien n'a bougé, et son rappel ne
+    // partira jamais — même famille que `emailSent: false` sous `status: 'success'`, en sens
+    // inverse : ici c'est le SUCCÈS qu'on cache.
+    //
+    // ⚠️ Le cas a cessé d'être théorique le 2026-08-28 : `cancelIfPending` LÈVE désormais quand
+    // le pilote ne rend pas `rowsAffected`, au lieu de rendre 0 en silence.
+    const vrai = repo.cancelIfPending.bind(repo);
+    repo.cancelIfPending = async (id: string, recipientId: string) => {
+      if (id === 'r-lundi') throw new Error('base indisponible');
+      return vrai(id, recipientId);
+    };
+
+    const said = await say('annule tous mes rappels');
+
+    expect((await repo.findById('r-jeudi'))?.status).toBe(NotificationStatus.Cancelled);
+    expect(said).toContain('1 rappel');
+    expect(said).not.toContain('2 rappels');
+    // ⚠️ Et la raison DONNÉE doit être celle qu'on a constatée : « ma base n'a pas répondu »,
+    // jamais « il était déjà en cours de remise », qui est une cause qu'on n'a pas vue.
+    expect(said).toMatch(/base n['’]a pas répondu/);
+    expect(said).not.toMatch(/déjà en cours de remise/);
+  });
 });
 
 describe('les cas où il n’y a rien à annuler', () => {

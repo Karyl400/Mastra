@@ -28,6 +28,8 @@ coverage
 # La documentation versionnée vit dans docs/ ; README.md est la seule exception.
 /*.md
 !README.md
+# Référentiel de règles PERSONNEL, mis à jour à chaque constat : jamais versionné.
+/REGLES.md
 
 # Le gabarit d'environnement EST versionné : il ne contient aucune valeur.
 # Sans cette exception, la règle `.env*` plus haut l'emporte.

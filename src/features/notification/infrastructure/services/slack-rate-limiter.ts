@@ -26,13 +26,17 @@ export class SlackRateLimiter implements RateLimitCounters {
   private readonly workspaceRule: RateLimitRule | null;
   readonly local: LRUCache<string, number>;
   private degradationLogged = false;
-  private readonly notifiedWindows = new Set<string>();
+  private readonly notifiedWindows: LRUCache<string, true>;
 
   constructor(options: SlackRateLimiterOptions = {}) {
     this.rules = options.rules ?? [BURST_RULE, DAILY_RULE];
     this.repository = options.repository ?? null;
     this.workspaceRule =
       options.workspaceRule === undefined ? WORKSPACE_TOKEN_RULE : options.workspaceRule;
+    this.notifiedWindows = new LRUCache<string, true>({
+      max: options.localMax ?? 5000,
+      ttl: DAILY_RULE.windowMs,
+    });
     this.local = new LRUCache<string, number>({
       max: options.localMax ?? 5000,
       ttl: DAILY_RULE.windowMs,
@@ -165,7 +169,7 @@ export class SlackRateLimiter implements RateLimitCounters {
 
   private claimNotification(key: string): boolean {
     if (this.notifiedWindows.has(key)) return false;
-    this.notifiedWindows.add(key);
+    this.notifiedWindows.set(key, true);
     return true;
   }
 

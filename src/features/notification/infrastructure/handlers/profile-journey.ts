@@ -110,7 +110,18 @@ export async function linkRequesterToRecord(
   if (!slackUserId || !employeeId) return;
 
   try {
-    const linked = (await self.getDirectoryRepo()?.linkEmployee(slackUserId, employeeId)) ?? 0;
+    const directory = self.getDirectoryRepo();
+
+    if (!directory) {
+      logger.error('Annuaire NON relié — aucun dépôt d’annuaire n’est câblé', {
+        reason: 'no_directory_repository',
+        slackUserId,
+        employeeId,
+      });
+      return;
+    }
+
+    const linked = await directory.linkEmployee(slackUserId, employeeId);
     self.requesterNames.delete(slackUserId);
 
     if (linked === 0) {

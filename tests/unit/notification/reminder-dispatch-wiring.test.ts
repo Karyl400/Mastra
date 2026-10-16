@@ -80,3 +80,35 @@ describe('le cron déclaré à Vercel EST celui que le code croit', () => {
     expect(script).not.toMatch(/schedule:\s*['"][\d*]/);
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// LA MÉTHODE HTTP N'ÉTAIT VERROUILLÉE PAR AUCUN TEST — audit du 2026-08-28, § 4.4
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Vercel invoque un cron en **GET**. Passer la route à `method: 'POST'` laissait toute la suite
+// verte et tuait le cron EN SILENCE : la plateforme recevrait un 404 chaque matin, et le seul
+// symptôme serait l'absence de rappels — qu'aucune sonde ne distingue d'une journée sans rappel
+// à remettre. C'est la famille de panne que ce dépôt traque : pas une erreur, un silence.
+
+describe('la route du cron est servie par la MÉTHODE que Vercel emploie', () => {
+  const source = readFileSync(
+    resolve(process.cwd(), 'src/api/reminders-dispatch.route.ts'),
+    'utf8',
+  );
+
+  it("déclare `method: 'GET'` — Vercel n'invoque un cron d'aucune autre façon", () => {
+    expect(source).toMatch(/method:\s*'GET'/);
+  });
+
+  it('reconnaît un changement de méthode — anti-faux-négatif', () => {
+    // Sans ce contrôle, un motif devenu faux rendrait le test ci-dessus vert et creux.
+    expect(/method:\s*'GET'/.test("  method: 'POST',")).toBe(false);
+    expect(/method:\s*'GET'/.test("  method: 'GET',")).toBe(true);
+  });
+
+  it('monte la route sur le chemin que `vercel.json` appelle', () => {
+    const cron = vercelJson.crons?.[0];
+    expect(source).toContain('REMINDER_DISPATCH_PATH');
+    expect(cron?.path).toBe(REMINDER_DISPATCH_PATH);
+  });
+});

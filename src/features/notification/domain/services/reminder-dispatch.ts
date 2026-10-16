@@ -101,16 +101,28 @@ export function selectDueReminders(
     .slice(0, limit);
 }
 
-export function nextDeliveryAt(scheduledAt: string, now: Date): Date | null {
-  const at = Date.parse(scheduledAt);
-  if (Number.isNaN(at)) return null;
+export function nextDeliveryAt(
+  scheduledAt: string,
+  now: Date,
+  timeZone: string = DISPLAY_TIMEZONE,
+): Date | null {
+  if (Number.isNaN(Date.parse(scheduledAt))) return null;
 
-  const run = new Date(at);
+  const run = new Date(now);
   run.setUTCHours(REMINDER_DISPATCH_HOUR_UTC, 0, 0, 0);
+  if (run.getTime() < now.getTime()) run.setTime(run.getTime() + DAY_MS);
 
-  while (run.getTime() < now.getTime()) run.setTime(run.getTime() + DAY_MS);
+  for (let day = 0; day <= STALE_AFTER_DAYS + 1; day += 1) {
+    const candidate = {
+      status: NotificationStatus.Scheduled,
+      scheduledAt,
+      updatedAt: new Date(0).toISOString(),
+    };
+    if (isDueForDispatch(candidate, run, timeZone)) return new Date(run);
+    run.setTime(run.getTime() + DAY_MS);
+  }
 
-  return run;
+  return null;
 }
 
 export function deliveryLabel(
@@ -118,7 +130,7 @@ export function deliveryLabel(
   now: Date,
   timeZone: string = DISPLAY_TIMEZONE,
 ): string | null {
-  const at = nextDeliveryAt(scheduledAt, now);
+  const at = nextDeliveryAt(scheduledAt, now, timeZone);
   return at ? `${frenchDayLabel(at, timeZone)} au matin` : null;
 }
 

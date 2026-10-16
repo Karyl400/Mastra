@@ -333,6 +333,8 @@ et le choix serait un tirage déguisé. Un mot commun à deux candidats ne tranc
 plus — on préfère redemander plutôt que désigner au hasard, exactement comme
 `findPersonByName` refuse de rendre un identifiant sur une ambiguïté.
 
+## `shared/cancel-reminder-replies.ts`
+
 **Avant `export const REMINDER_ALREADY_SENT_REPLY =`**
 
 ⚠️ LE CRON TOURNE À 6 H, ET IL PEUT ÊTRE EN TRAIN DE REMETTRE LE RAPPEL. Prétendre l'avoir

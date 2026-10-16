@@ -552,3 +552,80 @@ describe('un rappel exhumé n’est pas un service rendu', () => {
     expect(STALE_AFTER_DAYS).toBeGreaterThanOrEqual(7);
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// LE JOUR ANNONCÉ EST CELUI QUI SERA HONORÉ — audit du 2026-08-28, § 4.4
+// ════════════════════════════════════════════════════════════════════════════
+//
+// `nextDeliveryAt` calculait son jour en UTC (`setUTCHours` sur le jour UTC du rappel), tandis
+// qu'`isDueForDispatch` juge en jour LOCAL. Deux règles pour une seule question.
+//
+// ⚠️ Ce n'était pas théorique, et pas seulement pour les fuseaux lointains. MESURÉ sur les
+// quatre fuseaux, dont celui de PRODUCTION : un rappel programmé à 23:30 UTC était annoncé pour
+// le JEUDI et honoré le VENDREDI. 14 divergences sur 96 cas avant correctif, **0 après**.
+//
+// ⚠️ Le correctif ne réécrit pas la règle de jour : il DEMANDE au répartiteur. `nextDeliveryAt`
+// essaie les exécutions successives du cron et rend la première qu'`isDueForDispatch` reconnaît.
+// Les deux ne peuvent donc plus diverger — c'est la seule forme qui tienne, parce qu'une
+// seconde copie d'une règle de calendrier finit toujours par dire autre chose que la première.
+
+describe('le jour ANNONCÉ est celui que le répartiteur honorera', () => {
+  const FUSEAUX = ['Africa/Lagos', 'UTC', 'America/New_York', 'Asia/Tokyo'];
+  const JOUR_MS = 24 * 60 * 60 * 1000;
+
+  it.each(FUSEAUX)('aucune divergence sur 24 heures — %s', (tz) => {
+    const divergences: string[] = [];
+
+    for (let heure = 0; heure < 24; heure += 1) {
+      const scheduledAt = new Date(Date.UTC(2026, 8, 24, heure, 30, 0)).toISOString();
+      const now = new Date(Date.UTC(2026, 8, 23, 6, 0, 0));
+
+      const annonce = deliveryLabel(scheduledAt, now, tz);
+      if (!annonce) continue;
+
+      let honore: Date | null = null;
+      for (let jour = 0; jour < 8; jour += 1) {
+        const run = new Date(now.getTime() + jour * JOUR_MS);
+        if (
+          isDueForDispatch(
+            {
+              status: NotificationStatus.Scheduled,
+              scheduledAt,
+              updatedAt: new Date(0).toISOString(),
+            },
+            run,
+            tz,
+          )
+        ) {
+          honore = run;
+          break;
+        }
+      }
+
+      if (!honore) {
+        divergences.push(`${scheduledAt} : annoncé « ${annonce} », jamais honoré`);
+        continue;
+      }
+
+      const jourHonore = new Intl.DateTimeFormat('fr-FR', {
+        day: 'numeric',
+        timeZone: tz,
+      }).format(honore);
+
+      if (!annonce.includes(jourHonore)) {
+        divergences.push(`${scheduledAt} : annoncé « ${annonce} », honoré le ${jourHonore}`);
+      }
+    }
+
+    expect(divergences).toEqual([]);
+  });
+
+  it('reconnaît une divergence — anti-faux-négatif', () => {
+    // Sans ce contrôle, un `deliveryLabel` qui rendrait toujours `null` passerait le test
+    // ci-dessus en n'ayant rien comparé.
+    const now = new Date(Date.UTC(2026, 8, 23, 6, 0, 0));
+    expect(
+      deliveryLabel(new Date(Date.UTC(2026, 8, 24, 23, 30, 0)).toISOString(), now, 'Africa/Lagos'),
+    ).toMatch(/25/);
+  });
+});

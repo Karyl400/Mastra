@@ -6488,9 +6488,17 @@ par règle — 1 minute et 24 heures n'ont pas à partager une durée de rétent
 
  N'inonde pas les logs quand la table manque : un avertissement, pas un par message.
 
-**Avant `private readonly notifiedWindows = new Set<string>();`**
+**Avant `private readonly notifiedWindows: LRUCache<string, true>;`**
 
- Fenêtres pour lesquelles cette instance a déjà prévenu. Voir `claimNotification`.
+Fenêtres pour lesquelles cette instance a déjà prévenu. Voir `claimNotification`.
+
+⚠️ **C'ÉTAIT UN `Set` JAMAIS VIDÉ — ni `max`, ni `ttl`, ni purge.** Seul conteneur non borné du
+dépôt, et il vivait ligne 51 à côté d'un `LRUCache` correctement configuré (audit du 2026-08-28,
+§ 4.4). Le `ttl` est celui de `DAILY_RULE` : une fenêtre expirée ne peut plus faire l'objet d'un
+second avertissement, donc la retenir ne sert plus à rien.
+
+⚠️ La borne est DÉRIVÉE de la règle, pas choisie : si la fenêtre quotidienne change, la
+rétention suit. Un nombre écrit ici se serait périmé au premier changement de plafond.
 
 **Avant `this.workspaceRule =`**
 
@@ -7445,16 +7453,34 @@ garde-fou censé éviter d'arriver trop tôt ferait systématiquement arriver un
 Périmé : le jour est passé depuis trop longtemps pour que la remise ait encore un sens.
 Distinct de « pas encore dû » — c'est un état terminal, pas une attente.
 
-**Avant `export function nextDeliveryAt(scheduledAt: string, now: Date): Date | null {`**
+**Avant `export function nextDeliveryAt(`**
 
 Le moment où ce rappel sera RÉELLEMENT remis : la remise quotidienne du jour demandé, ou
 celle du lendemain si celle d'aujourd'hui est déjà passée.
+
+⚠️ **CETTE FONCTION CALCULAIT SON JOUR EN UTC PENDANT QUE LE RÉPARTITEUR JUGEAIT EN LOCAL —
+corrigé le 2026-08-28.** Deux règles pour une seule question, donc deux réponses.
+
+**Mesuré, et pas seulement sur les fuseaux lointains** : sur les quatre fuseaux essayés, dont
+celui de PRODUCTION (`Africa/Lagos`), un rappel programmé à **23:30 UTC était annoncé pour le
+jeudi et honoré le vendredi**. 14 divergences sur 96 cas ; **0 après correctif**. C'est la classe
+de défaut la plus coûteuse d'un rappel : il arrive, mais pas le jour promis, donc la personne a
+compté sur autre chose.
+
+⚠️ **Le correctif ne réécrit PAS la règle de jour : il la DEMANDE.** `nextDeliveryAt` essaie les
+exécutions successives du cron et rend la première qu'`isDueForDispatch` reconnaît. Les deux ne
+peuvent donc plus diverger. Une seconde copie d'une règle de calendrier finit toujours par dire
+autre chose que la première — c'est la leçon que ce dépôt a payée sur les deux machines à états
+du parcours d'accueil, et sur `_measure.mts`.
+
+⚠️ Elle rend `null` quand aucune exécution dans la fenêtre de péremption n'honorerait le rappel.
+Le tool omet alors la phrase plutôt que d'annoncer un jour qui n'arrivera pas.
 
 ⚠️ Rendu au modèle À LA PLACE de la date demandée. Il n'a alors aucune occasion d'annoncer
 une heure — non parce qu'on le lui interdit (une consigne est PROBABLE), mais parce que la
 précision n'est plus dans sa fenêtre.
 
-**Avant `while (run.getTime() < now.getTime()) run.setTime(run.getTime() + DAY_MS);`**
+**Avant `if (run.getTime() < now.getTime()) run.setTime(run.getTime() + DAY_MS);`**
 
 Demandé pour aujourd'hui après la remise du matin, ou pour une heure déjà passée : la
 prochaine horloge est celle de demain. On ne peut pas remonter le temps, on le dit.
@@ -7673,12 +7699,32 @@ vol ne peut donc pas être repris — c'est ce qui interdit le doublon.
 dans cet état pour toujours. Au-delà de la grâce, on reprend — un rappel perdu en silence
 est pire qu'un doublon, qui lui se voit.
 
-**Avant `function readAffectedRows(result: unknown): number {`**
+**Avant `return affectedRowsOrThrow(result, 'la prise du rappel') === 1;`**
 
-⚠️ Drizzle/LibSQL rend le compte sous `rowsAffected`, mais le type public ne le promet pas
-selon le pilote. On lit défensivement, et **l'absence de compte vaut ÉCHEC de prise** : un
-doute qui accorde la prise enverrait deux fois, un doute qui la refuse ne fait que reporter
-le rappel à la remise suivante.
+⚠️ **L'ABSENCE DE COMPTE LÈVE DEPUIS LE 2026-08-28 — elle rendait `0` auparavant.**
+
+Le texte qui figurait ici disait : *« l'absence de compte vaut ÉCHEC de prise : un doute qui
+accorde la prise enverrait deux fois, un doute qui la refuse ne fait que reporter le rappel à la
+remise suivante. »* La première moitié est juste et n'a pas changé — **un doute n'accorde
+toujours pas la prise**, et personne ne reçoit deux fois. C'est la seconde qui était fausse.
+
+« Reporter à la remise suivante » suppose que la cause disparaisse d'ici demain. Or ce champ ne
+manque pas par accident : il manquerait à cause d'un **changement de pilote, d'un enrobage de
+tracing, d'un passage à `better-sqlite3`** — des états permanents. Chaque prise devenant un
+refus, **aucun rappel ne partirait plus jamais**, et le cron rapporterait
+`200 {ok: true, sent: 0}` tous les matins. Un compteur à zéro sur une remise vide est
+indiscernable d'une remise réussie sans rien à remettre.
+
+⚠️ **Lever DOMINE strictement les deux options.** L'exception part AVANT tout envoi, donc la
+sécurité anti-doublon est intacte ; et elle remonte jusqu'à la route du cron, qui rend **500
+`dispatch_failed`** au lieu d'un succès mensonger. On échange un silence contre une panne
+bruyante — le seul échange que ce dépôt fasse systématiquement.
+
+⚠️ **Ce n'est PAS une règle générale, et il ne faut pas la généraliser** : `?? 0` reste JUSTE
+là où `0` signifie « je n'ai pas pris, je n'envoie pas ». Sur `PendingInterviewEmailRepository.
+clear()`, échouer vers zéro évite d'envoyer deux convocations à un candidat — un envoi
+irréversible à quelqu'un d'extérieur à l'entreprise. **La direction d'un repli se décide par
+site, jamais par motif.**
 
 ### `src/features/notification/infrastructure/repositories/in-memory-notification.repository.ts`
 

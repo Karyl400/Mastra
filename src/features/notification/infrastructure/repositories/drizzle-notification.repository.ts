@@ -8,6 +8,7 @@ import {
   DISPATCH_LOOKUP_STATUSES,
 } from '../../domain/services/reminder-dispatch';
 import { NotificationStatus } from '../../../../shared/types';
+import { affectedRowsOrThrow } from '../../../../shared/rows-affected';
 
 export class DrizzleNotificationRepository implements NotificationRepository {
   constructor(private readonly resolveDb: () => DatabaseInstance = getDb) {}
@@ -68,7 +69,7 @@ export class DrizzleNotificationRepository implements NotificationRepository {
       .set({ status: NotificationStatus.Sending, updatedAt: new Date().toISOString() })
       .where(and(eq(notifications.id, id), takeable));
 
-    return readAffectedRows(result) === 1;
+    return affectedRowsOrThrow(result, 'la prise du rappel') === 1;
   }
 
   async cancelIfPending(id: string, recipientId: string): Promise<boolean> {
@@ -85,7 +86,7 @@ export class DrizzleNotificationRepository implements NotificationRepository {
         ),
       );
 
-    return readAffectedRows(result) === 1;
+    return affectedRowsOrThrow(result, "l'annulation du rappel") === 1;
   }
 
   async releaseClaim(id: string): Promise<void> {
@@ -95,11 +96,4 @@ export class DrizzleNotificationRepository implements NotificationRepository {
       .set({ status: NotificationStatus.Scheduled, updatedAt: new Date().toISOString() })
       .where(and(eq(notifications.id, id), eq(notifications.status, NotificationStatus.Sending)));
   }
-}
-
-function readAffectedRows(result: unknown): number {
-  const node = result as { rowsAffected?: unknown; changes?: unknown } | null;
-  if (typeof node?.rowsAffected === 'number') return node.rowsAffected;
-  if (typeof node?.changes === 'number') return node.changes;
-  return 0;
 }
