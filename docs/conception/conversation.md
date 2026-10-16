@@ -349,7 +349,9 @@ Il n'y a PAS de transaction : LibSQL en supporte, mais le pire cas ici est de re
 sous le plafond d'un fait pendant quelques millisecondes — sans conséquence, la borne
 n'existant que pour le budget de tokens.
 
-**Avant `return (result as { rowsAffected?: number }).rowsAffected ?? 0;`**
+**Avant `return affectedRowsOrThrow(result, "l'effacement des faits épinglés");`**
+
+⚠️ **Depuis le 2026-10-16, le compte est lu par `affectedRowsOrThrow`** (`shared/rows-affected.ts`, audit QA §9bis.1) : un pilote qui ne le rend pas fait LEVER, au lieu d'être rapporté comme zéro. `tests/unit/quality/rows-affected-is-never-guessed.test.ts` interdit le retour du `?? 0`.
 
 `rowsAffected` est le champ rendu par le pilote libsql. Le contrat rend un NOMBRE et
 

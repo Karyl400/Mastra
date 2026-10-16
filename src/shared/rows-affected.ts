@@ -1,3 +1,5 @@
+import { errorMessage } from './errors';
+
 export function affectedRowsOrThrow(result: unknown, operation: string): number {
   const node = result as { rowsAffected?: unknown; changes?: unknown } | null;
 
@@ -12,4 +14,18 @@ export function affectedRowsOrThrow(result: unknown, operation: string): number 
     `Le pilote n'a rendu ni \`rowsAffected\` ni \`changes\` pour ${operation} : ` +
       `impossible de savoir combien de lignes ont été touchées.`,
   );
+}
+
+export function affectedRowsOrFallback(
+  result: unknown,
+  operation: string,
+  fallback: number,
+  onUnknown: (message: string) => void,
+): number {
+  try {
+    return affectedRowsOrThrow(result, operation);
+  } catch (error) {
+    onUnknown(`${errorMessage(error)} Repli déclaré : ${fallback}.`);
+    return fallback;
+  }
 }

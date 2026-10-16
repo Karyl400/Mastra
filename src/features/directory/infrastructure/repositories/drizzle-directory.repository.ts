@@ -5,6 +5,7 @@ import type { DirectoryMember, DirectoryMemberFacts } from '../../domain/entitie
 import type { DirectoryRepository } from '../../domain/ports/directory.repository';
 import { matchesName } from '../../../../shared/name-matching';
 import { EmployeeRole, isManagerRole } from '../../../../shared/types';
+import { affectedRowsOrThrow } from '../../../../shared/rows-affected';
 
 export class DrizzleDirectoryRepository implements DirectoryRepository {
   constructor(private readonly resolveDb: () => DatabaseInstance = getDb) {}
@@ -136,7 +137,7 @@ export class DrizzleDirectoryRepository implements DirectoryRepository {
       .set({ employeeId })
       .where(eq(slackDirectory.slackUserId, slackUserId));
 
-    return Number((result as { rowsAffected?: number }).rowsAffected ?? 0);
+    return affectedRowsOrThrow(result, "le rattachement de l'annuaire au dossier");
   }
 
   async findByName(query: string, limit: number): Promise<DirectoryMember[]> {

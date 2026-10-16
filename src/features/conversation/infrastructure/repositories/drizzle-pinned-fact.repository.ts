@@ -2,6 +2,7 @@ import { asc, eq, inArray } from 'drizzle-orm';
 import { getDb } from '../../../../infrastructure/database/connection';
 import { pinnedFacts } from '../../../../infrastructure/database/schema';
 import type { PinnedFact, PinnedFactRepository } from '../../domain/ports/pinned-fact.repository';
+import { affectedRowsOrThrow } from '../../../../shared/rows-affected';
 
 export class DrizzlePinnedFactRepository implements PinnedFactRepository {
   async list(slackUserId: string, limit: number): Promise<PinnedFact[]> {
@@ -46,7 +47,7 @@ export class DrizzlePinnedFactRepository implements PinnedFactRepository {
     const db = getDb();
     const result = await db.delete(pinnedFacts).where(eq(pinnedFacts.slackUserId, slackUserId));
 
-    return (result as { rowsAffected?: number }).rowsAffected ?? 0;
+    return affectedRowsOrThrow(result, "l'effacement des faits épinglés");
   }
 }
 

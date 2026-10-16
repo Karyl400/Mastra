@@ -3,6 +3,7 @@ import { getDb } from '../../../../infrastructure/database/connection';
 import { onboardingProgress } from '../../../../infrastructure/database/schema';
 import type { OnboardingProgress } from '../../domain/entities/onboarding-progress';
 import type { OnboardingRepository } from '../../domain/ports/onboarding.repository';
+import { affectedRowsOrThrow } from '../../../../shared/rows-affected';
 
 export class DrizzleOnboardingRepository implements OnboardingRepository {
   async save(progress: OnboardingProgress): Promise<void> {
@@ -47,7 +48,7 @@ export class DrizzleOnboardingRepository implements OnboardingRepository {
       })
       .where(eq(onboardingProgress.id, progress.id));
 
-    return (result as unknown as { rowsAffected?: number }).rowsAffected ?? 0;
+    return affectedRowsOrThrow(result, 'la mise à jour du suivi d’intégration');
   }
 
   async findByEmployee(employeeId: string): Promise<OnboardingProgress | null> {

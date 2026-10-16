@@ -1,4 +1,6 @@
 import { eq, lt } from 'drizzle-orm';
+import { affectedRowsOrFallback, affectedRowsOrThrow } from '../../../../shared/rows-affected';
+import { logger } from '../../../../shared/logger';
 
 import { getDb, type DatabaseInstance } from '../../../../infrastructure/database/connection';
 import {
@@ -50,7 +52,9 @@ export class DrizzlePendingInterviewEmailRepository implements PendingInterviewE
       .delete(pendingInterviewEmail)
       .where(eq(pendingInterviewEmail.conversationId, conversationId));
 
-    return Number((result as { rowsAffected?: number }).rowsAffected ?? 0);
+    return affectedRowsOrFallback(result, 'la prise d’un email d’entretien', 0, (message) =>
+      logger.error(message),
+    );
   }
 
   async pruneOlderThan(cutoff: Date): Promise<number> {
@@ -59,7 +63,7 @@ export class DrizzlePendingInterviewEmailRepository implements PendingInterviewE
       .delete(pendingInterviewEmail)
       .where(lt(pendingInterviewEmail.createdAt, cutoff));
 
-    return Number((result as { rowsAffected?: number }).rowsAffected ?? 0);
+    return affectedRowsOrThrow(result, 'la purge des préparations de candidature');
   }
 }
 

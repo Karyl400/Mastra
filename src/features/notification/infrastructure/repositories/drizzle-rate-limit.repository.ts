@@ -2,6 +2,7 @@ import { lte, sql } from 'drizzle-orm';
 import { getDb, type DatabaseInstance } from '../../../../infrastructure/database/connection';
 import { rateLimitCounters } from '../../../../infrastructure/database/schema';
 import type { RateLimitRepository } from '../../domain/ports/rate-limit.repository';
+import { affectedRowsOrThrow } from '../../../../shared/rows-affected';
 
 export class DrizzleRateLimitRepository implements RateLimitRepository {
   constructor(private readonly resolveDb: () => DatabaseInstance = getDb) {}
@@ -26,10 +27,6 @@ export class DrizzleRateLimitRepository implements RateLimitRepository {
   async pruneExpired(now: Date): Promise<number> {
     const db = this.resolveDb();
     const result = await db.delete(rateLimitCounters).where(lte(rateLimitCounters.expiresAt, now));
-    return rowsAffected(result);
+    return affectedRowsOrThrow(result, 'la purge des compteurs de débit');
   }
-}
-
-function rowsAffected(result: unknown): number {
-  return (result as { rowsAffected?: number }).rowsAffected ?? 0;
 }

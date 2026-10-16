@@ -58,7 +58,7 @@ export class DrizzleConversationRepository implements ConversationRepository {
     const result = await db
       .delete(conversationTurns)
       .where(lt(conversationTurns.createdAt, cutoff));
-    return (result as { rowsAffected?: number }).rowsAffected ?? 0;
+    return affectedRowsOrThrow(result, 'la purge des tours de conversation');
   }
 
   async forget(scope: ConversationForgetScope): Promise<number> {

@@ -7,6 +7,7 @@ import type {
   SlackEventDedupRepository,
   SlackEventDedupStatus,
 } from '../../domain/ports/slack-event-dedup.repository';
+import { affectedRowsOrThrow } from '../../../../shared/rows-affected';
 
 export class DrizzleSlackEventDedupRepository implements SlackEventDedupRepository {
   async claim(key: string, options: SlackEventClaimOptions): Promise<SlackEventClaim> {
@@ -18,7 +19,8 @@ export class DrizzleSlackEventDedupRepository implements SlackEventDedupReposito
       .values({ key, status: 'in-flight', startedAt: new Date(now) })
       .onConflictDoNothing();
 
-    if (rowsAffected(inserted) > 0) return { granted: true, reclaimed: false };
+    if (affectedRowsOrThrow(inserted, 'la prise de déduplication Slack') > 0)
+      return { granted: true, reclaimed: false };
 
     const cutoff = new Date(now - options.inFlightGraceMs);
     const reclaimed = await db
@@ -32,7 +34,8 @@ export class DrizzleSlackEventDedupRepository implements SlackEventDedupReposito
         ),
       );
 
-    if (rowsAffected(reclaimed) > 0) return { granted: true, reclaimed: true };
+    if (affectedRowsOrThrow(reclaimed, 'la reprise d’un événement Slack abandonné') > 0)
+      return { granted: true, reclaimed: true };
 
     const [row] = await db
       .select()
@@ -70,10 +73,6 @@ export class DrizzleSlackEventDedupRepository implements SlackEventDedupReposito
   async pruneOlderThan(cutoff: Date): Promise<number> {
     const db = getDb();
     const result = await db.delete(slackEventDedup).where(lt(slackEventDedup.startedAt, cutoff));
-    return rowsAffected(result);
+    return affectedRowsOrThrow(result, 'la purge des clés de déduplication');
   }
-}
-
-function rowsAffected(result: unknown): number {
-  return (result as { rowsAffected?: number }).rowsAffected ?? 0;
 }

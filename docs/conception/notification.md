@@ -6250,9 +6250,11 @@ sur une bizarrerie du pilote — même arbitrage que la déduplication partagée
 purge de `rate-limit-policy.ts`). Une ligne dont l'expiration tombe exactement sur `now`
 n'a plus rien à protéger.
 
-**Avant `function rowsAffected(result: unknown): number {`**
+**Avant `return affectedRowsOrThrow(result, 'la purge des compteurs de débit');`**
 
- Le pilote libSQL rend `rowsAffected` ; on ne suppose jamais sa présence.
+Le pilote libSQL rend `rowsAffected` ; on ne suppose jamais sa présence.
+
+⚠️ **Depuis le 2026-10-16, le compte est lu par `affectedRowsOrThrow`** (`shared/rows-affected.ts`, audit QA §9bis.1) : un pilote qui ne le rend pas fait LEVER, au lieu d'être rapporté comme zéro. `tests/unit/quality/rows-affected-is-never-guessed.test.ts` interdit le retour du `?? 0`.
 
 ## `features/notification/infrastructure/repositories/drizzle-slack-event-dedup.repository.ts`
 
@@ -6316,9 +6318,11 @@ contrainte vit dans le domaine.
 Un `UPDATE` ne suffirait pas : la ligne peut avoir été purgée pendant un traitement long.
 L'upsert garantit qu'un `done` posé reste un `done`, purge ou non.
 
-**Avant `function rowsAffected(result: unknown): number {`**
+**Avant `return affectedRowsOrThrow(result, 'la purge des clés de déduplication');`**
 
- Le pilote libSQL rend `rowsAffected` ; on ne suppose jamais sa présence.
+Le pilote libSQL rend `rowsAffected` ; on ne suppose jamais sa présence. Sur la PRISE (`claim`), une levée n'est pas un refus : `claimEvent` la rattrape et retombe sur le cache local, qui ACCEPTE l'événement. L'ancien `?? 0` faisait d'une prise réussie un doublon, donc un bot muet sans une ligne d'erreur.
+
+⚠️ **Depuis le 2026-10-16, le compte est lu par `affectedRowsOrThrow`** (`shared/rows-affected.ts`, audit QA §9bis.1) : un pilote qui ne le rend pas fait LEVER, au lieu d'être rapporté comme zéro. `tests/unit/quality/rows-affected-is-never-guessed.test.ts` interdit le retour du `?? 0`.
 
 ## `features/notification/infrastructure/repositories/in-memory-notification.repository.ts`
 

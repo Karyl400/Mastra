@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
-import { affectedRowsOrThrow } from '../../../src/shared/rows-affected';
+import { affectedRowsOrFallback, affectedRowsOrThrow } from '../../../src/shared/rows-affected';
 
 /**
  * ════════════════════════════════════════════════════════════════════════════
@@ -64,6 +64,22 @@ describe('`affectedRowsOrThrow`', () => {
   it("nomme l'opération — un diagnostic sans sujet envoie chercher partout", () => {
     expect(() => affectedRowsOrThrow({}, "l'effacement des tours de conversation")).toThrow(
       /effacement des tours de conversation/,
+    );
+  });
+});
+
+describe('`affectedRowsOrFallback` — le repli est DÉCLARÉ, jamais muet', () => {
+  it('rend le compte réel quand le pilote le donne, sans rien signaler', () => {
+    const onUnknown = vi.fn();
+    expect(affectedRowsOrFallback({ rowsAffected: 1 }, 'la prise', 0, onUnknown)).toBe(1);
+    expect(onUnknown).not.toHaveBeenCalled();
+  });
+
+  it('rend le repli ET le signale quand le compte est illisible', () => {
+    const onUnknown = vi.fn();
+    expect(affectedRowsOrFallback({}, 'la prise d’un email', 0, onUnknown)).toBe(0);
+    expect(onUnknown).toHaveBeenCalledWith(
+      expect.stringMatching(/prise d’un email.*Repli déclaré : 0/),
     );
   });
 });

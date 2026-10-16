@@ -1789,11 +1789,11 @@ avait eu lieu : `updateOnboardingStatus` retournait `updated: true` en constante
 le modèle annonçait à l'utilisateur une mise à jour qu'il ne pouvait pas vérifier.
 Quatrième occurrence dans ce dépôt de la signature « le champ dit mieux que le fait ».
 
-**Avant `return (result as unknown as { rowsAffected?: number }).rowsAffected ?? 0;`**
+**Avant `return affectedRowsOrThrow(result, 'la mise à jour du suivi d’intégration');`**
 
-libsql expose `rowsAffected` ; le `?? 0` couvre un pilote qui ne le fournirait pas,
+libsql expose `rowsAffected`. Le `?? 0` d'origine faisait répondre « aucun suivi » (`not_persisted`) sur un compte illisible — une affirmation sur la DONNÉE fondée sur une panne du PILOTE.
 
-auquel cas on préfère annoncer « rien de sûr » plutôt qu'un succès supposé.
+⚠️ **Depuis le 2026-10-16, le compte est lu par `affectedRowsOrThrow`** (`shared/rows-affected.ts`, audit QA §9bis.1) : un pilote qui ne le rend pas fait LEVER, au lieu d'être rapporté comme zéro. `tests/unit/quality/rows-affected-is-never-guessed.test.ts` interdit le retour du `?? 0`.
 **Avant `set: {`**
 
 Même défaut que `save()` ci-dessus, même correctif : `updatedAt` était absent du

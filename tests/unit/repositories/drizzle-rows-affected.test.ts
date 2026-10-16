@@ -285,20 +285,9 @@ describe('DrizzleSlackEventDedupRepository — ce que dit exactement `rowsAffect
     ).resolves.toEqual({ granted: false, status: 'unknown', ageMs: null });
   });
 
-  it('⚠️ `rowsAffected` ABSENT ⇒ le `?? 0` transforme une prise RÉUSSIE en refus SILENCIEUX', async () => {
-    // ⚠️ CE TEST NE VALIDE PAS UN COMPORTEMENT SOUHAITABLE — il FIGE un comportement dangereux
-    // pour que sa modification soit un acte délibéré.
-    //
-    // Le champ manque ⇒ `rowsAffected(result)` rend 0 ⇒ le dépôt conclut « quelqu'un d'autre a
-    // la clé » alors que l'INSERT vient de RÉUSSIR. Le handler écarte alors l'événement comme
-    // un doublon. Généralisé, c'est un bot parfaitement muet, sans une seule ligne d'erreur :
-    // même famille que `emailSent: false` sous `status: 'success'`, en pire, car ici c'est
-    // 100 % du trafic qui disparaît.
-    //
-    // Ce n'est pas une hypothèse gratuite : le repli `?? 0` a été écrit parce que le type de
-    // retour de Drizzle est `unknown` au point d'appel. Aujourd'hui `@libsql/client` renseigne
-    // toujours le champ (assertion de l'étage 1) ; un changement de pilote, un enrobage de
-    // tracing, ou un passage à `better-sqlite3` suffiraient à le retirer.
+  it('`rowsAffected` ABSENT ⇒ la prise LÈVE au lieu d’écarter un événement comme doublon (2026-10-16)', async () => {
+    // Le champ manque : l'ancien `?? 0` concluait « quelqu'un d'autre a la clé » alors que
+    // l'INSERT venait de RÉUSSIR — un bot muet, 100 % du trafic écarté sans une ligne d'erreur.
     const { db } = fauxClient({
       insertResult: {},
       updateResult: {},
@@ -306,15 +295,14 @@ describe('DrizzleSlackEventDedupRepository — ce que dit exactement `rowsAffect
     });
     holder.db = db;
 
-    const claim = await new DrizzleSlackEventDedupRepository().claim(KEY, {
-      inFlightGraceMs: GRACE_MS,
-    });
-
-    expect(claim.granted).toBe(false);
-    expect(claim).toMatchObject({ status: 'in-flight' });
+    // ⚠️ Ce test FIGEAIT le refus silencieux jusqu'au 2026-10-16. Il vérifie désormais la levée,
+    // que `claimEvent` rattrape en ACCEPTANT l'événement par le cache local.
+    await expect(
+      new DrizzleSlackEventDedupRepository().claim(KEY, { inFlightGraceMs: GRACE_MS }),
+    ).rejects.toThrow(/déduplication Slack/);
   });
 
-  it('⚠️ `rowsAffected` absent sur `pruneOlderThan` ⇒ 0 purgée annoncée, purge réelle inconnue', async () => {
+  it('`rowsAffected` absent sur `pruneOlderThan` ⇒ LÈVE, jamais « 0 purgée » (2026-10-16)', async () => {
     // Ici la conséquence est bénigne — un chiffre faux dans un journal — mais elle est la même
     // lecture, au même endroit. La figer rend visible que les deux usages partagent un sort.
     const db = {
@@ -326,8 +314,8 @@ describe('DrizzleSlackEventDedupRepository — ce que dit exactement `rowsAffect
     };
     holder.db = db;
 
-    await expect(new DrizzleSlackEventDedupRepository().pruneOlderThan(new Date())).resolves.toBe(
-      0,
+    await expect(new DrizzleSlackEventDedupRepository().pruneOlderThan(new Date())).rejects.toThrow(
+      /purge des clés/,
     );
   });
 });
@@ -384,10 +372,7 @@ describe('DrizzlePendingInterviewEmailRepository — `clear()` rend un COMPTE, e
     await expect(repo.clear('D0KARYL')).resolves.toBe(0);
   });
 
-  it('un `rowsAffected` non numérique est RAMENÉ à un nombre, jamais propagé tel quel', async () => {
-    // `clear()` enveloppe sa lecture dans `Number(...)`. Le port promet `Promise<number>` et
-    // l'appelant compare à 0 : une chaîne `'1'` passerait `> 0` par coercition, mais un
-    // `'abc'` rendrait NaN, et `NaN > 0` est FAUX — donc pas d'envoi. Fail-closed là encore.
+  it('un `rowsAffected` non numérique n’est JAMAIS coercé : repli déclaré à 0, donc pas d’envoi (2026-10-16)', async () => {
     const repo = new DrizzlePendingInterviewEmailRepository(
       () =>
         ({
@@ -397,8 +382,8 @@ describe('DrizzlePendingInterviewEmailRepository — `clear()` rend un COMPTE, e
         }) as unknown as DatabaseInstance,
     );
 
-    const compte = await repo.clear('D0KARYL');
-    expect(compte).toBe(1);
-    expect(Number.isNaN(compte)).toBe(false);
+    // ⚠️ Jusqu'au 2026-10-16, `Number('1')` rendait 1 : une coercition. Le repli est désormais
+    // DÉCLARÉ (`affectedRowsOrFallback`, 0 = ne pas envoyer) et journalisé en `error`.
+    expect(await repo.clear('D0KARYL')).toBe(0);
   });
 });
