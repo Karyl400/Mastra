@@ -41,7 +41,7 @@ import {
   type SlackRouteContext,
 } from '../../../src/api/slack-events.route';
 import { computeSlackSignature } from '../../../src/shared/security/slack-signature';
-import { PROGRESS_MARKER_TEXT } from '../../../src/features/notification/infrastructure/providers/slack-progress';
+import { PROGRESS_MARKER_VARIANTS } from '../../../src/features/notification/domain/services/progress-marker';
 import { InMemorySlackEventDedupRepository } from '../../../src/features/notification/infrastructure/repositories/in-memory-slack-event-dedup.repository';
 
 const SECRET = 'unit-test-signing-secret';
@@ -268,9 +268,8 @@ describe('Route: POST /slack/events', () => {
     // Le marqueur de progression est posté SANS attendre le modèle — c'est tout son
     // intérêt : l'utilisateur voit que sa demande est prise en compte pendant les 2 à 17 s
     // de l'appel LLM. Mais AUCUNE réponse d'agent n'a encore été délivrée.
-    expect(postMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: PROGRESS_MARKER_TEXT }),
-    );
+    const markers = Object.values(PROGRESS_MARKER_VARIANTS).flat();
+    expect(markers).toContain((postMessage.mock.calls[0]![0] as { text: string }).text);
     expect(updateMessage).not.toHaveBeenCalled();
 
     resolveAgent({ text: 'réponse tardive' });

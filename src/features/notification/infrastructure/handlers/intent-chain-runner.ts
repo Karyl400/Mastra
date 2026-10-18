@@ -5,6 +5,7 @@ import {
   planIntentChain,
 } from '../../domain/services/intent-chain';
 import { hasTimeForAnotherStep } from '../../../../shared/llm/run-deadline';
+import { progressMarkerText } from '../../domain/services/progress-marker';
 import { startProgress } from '../providers/slack-progress';
 import type { AgentPipelineContext, SlackHandlerInternals } from './handler-internals';
 
@@ -27,7 +28,7 @@ export async function postPlainMessage(
 
 export async function runIntentChain(
   self: SlackHandlerInternals,
-  ctx: AgentPipelineContext,
+  ctx: Omit<AgentPipelineContext, 'progress'>,
 ): Promise<void> {
   const chain = planIntentChain(ctx.text, ctx.history.at(-1)?.agentId);
   const steps = chain?.steps.length ? chain.steps : [{ text: ctx.text, agentId: '' }];
@@ -51,10 +52,12 @@ export async function runIntentChain(
       return;
     }
 
-    const progress =
-      index === 0
-        ? ctx.progress
-        : await startProgress(self.slack, { channel: ctx.channel, threadTs: ctx.threadTs });
+    const agentId = step.agentId || self.routeToAgent(step.text, ctx.history.at(-1)?.agentId);
+    const progress = await startProgress(self.slack, {
+      channel: ctx.channel,
+      threadTs: ctx.threadTs,
+      text: progressMarkerText(agentId, `${ctx.event.ts}:${index}`),
+    });
 
     const outcome = await self.runAgentPipeline({
       ...ctx,

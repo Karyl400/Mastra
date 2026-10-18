@@ -4725,7 +4725,9 @@ Placé AVANT `startProgress` à dessein : le marqueur est le premier écrit Slac
 poster « Je regarde ça… » pour le remplacer aussitôt par un refus de quota serait la
 
 pire des séquences.
-**Avant `const progress = await startProgress(self.slack, { channel, threadTs });`**
+**Avant `await runIntentChain(self, {`**
+
+⚠️ **Le marqueur n'est plus posté ici depuis le 2026-10-18** : il l'est par `runIntentChain`, une fois PAR ÉTAPE, avec le texte de l'agent qui la sert (voir `progress-marker.ts`). Le constat d'origine tient toujours, et c'est lui qui interdit de déplacer ce poste après l'appel du modèle :
 
 Marqueur de progression posté IMMÉDIATEMENT, avant tout appel LLM. Un run prend 2 à
 
@@ -4737,6 +4739,20 @@ la main sans attendre l'aller-retour Slack, et la réponse finale REMPLACE le ma
 
 — un seul message dans le fil, jamais deux.
 ### `src/features/notification/infrastructure/handlers/intent-chain-runner.ts`
+
+**Avant `const progress = await startProgress(self.slack, {`**
+
+Le marqueur de CHAQUE étape est choisi d'après l'agent de cette étape (2026-10-18). Il était
+une constante — « Je regarde ça, un instant… » — postée avant que l'on sache à quoi la demande
+servait : sur « génère-moi un PDF » elle ne regardait rien, sur une chaîne de deux demandes elle
+se répétait à l'identique, et le propriétaire la jugeait incohérente, redondante et peu humaine.
+Le routage est du code pur : l'agent est connu AVANT l'appel du modèle, donc le texte peut en
+dépendre à coût ZÉRO. Graine = `ts:rang` : le choix est rejouable, et deux messages
+successifs ne reçoivent pas forcément la même phrase.
+
+⚠️ Les variantes décrivent un TRAVAIL (« je cherche », « je m'en occupe »), jamais un résultat
+(« c'est prêt », « envoyé ») : le marqueur est remplacé par la réponse, et un refus ne doit pas
+démentir ce qu'il vient d'annoncer. Un test l'interdit.
 
 **Avant `const chain = planIntentChain(ctx.text, ctx.history.at(-1)?.agentId);`**
 
@@ -5710,7 +5726,7 @@ PAS DE RAFRAÎCHISSEMENT PÉRIODIQUE, décision assumée :
  4. le pire cas mesuré est ~21 s ; l'utilisateur a déjà un signal visible et
     horodaté. Le rafraîchir n'apporte rien qu'une mention « modifié ».
 
-**Avant `const markerTs: Promise<string | undefined> = post(PROGRESS_MARKER_TEXT)`**
+**Avant `const markerTs: Promise<string | undefined> = post(markerText)`**
 
 Lancé sans `await` : voir « BUDGET DE LATENCE » ci-dessus. Le `.catch()`
 

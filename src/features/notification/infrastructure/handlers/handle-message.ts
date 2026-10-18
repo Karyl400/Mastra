@@ -2,7 +2,6 @@ import { logger } from '../../../../shared/logger';
 import { AUDIT_ACTIONS } from '../../../../shared/audit-actions';
 import { findActingReply } from '../../domain/services/deterministic-replies';
 import { onboardingNudge } from '../../../onboarding/domain/services/onboarding-nudge';
-import { startProgress } from '../providers/slack-progress';
 import type { SlackHandlerInternals } from './handler-internals';
 import type { SlackMessageEvent } from './slack-event.types';
 import { buildMessageContext, runStaticReply } from './message-context';
@@ -148,8 +147,6 @@ export async function handleMessage(
     return;
   }
 
-  const progress = await startProgress(self.slack, { channel, threadTs });
-
   await runIntentChain(self, {
     event,
     text,
@@ -161,7 +158,6 @@ export async function handleMessage(
     history,
     requesterIdentity,
     accessLevel,
-    progress,
     deadline,
     pendingEmailReminder: pendingEmail.reminder,
     onboardingReminder: onboardingNudge(pendingStep, event.ts),

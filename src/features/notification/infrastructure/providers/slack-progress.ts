@@ -4,6 +4,7 @@ import { logger } from '../../../../shared/logger';
 export interface ProgressTarget {
   channel: string;
   threadTs?: string;
+  text?: string;
 }
 
 export interface ProgressHandle {
@@ -23,12 +24,12 @@ export async function startProgress(
   client: ProgressClient,
   target: ProgressTarget,
 ): Promise<ProgressHandle> {
-  const { channel, threadTs } = target;
+  const { channel, threadTs, text: markerText = PROGRESS_MARKER_TEXT } = target;
 
   const post = (text: string): Promise<{ ts?: string }> =>
     client.chat.postMessage(threadTs ? { channel, text, thread_ts: threadTs } : { channel, text });
 
-  const markerTs: Promise<string | undefined> = post(PROGRESS_MARKER_TEXT)
+  const markerTs: Promise<string | undefined> = post(markerText)
     .then((response) => {
       const ts = response?.ts;
       if (!ts) {
