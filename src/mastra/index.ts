@@ -69,6 +69,7 @@ const {
   getUserConversations,
   getChannelHistory,
   searchKnowledge,
+  listChannels,
   scheduleCandidateInterview,
 } = buildAgentTools(deps);
 
@@ -95,6 +96,7 @@ const knowledgeAgent = makeKnowledgeAgent({
   searchKnowledge,
   getUserConversations,
   getChannelHistory,
+  listChannels,
   findExpertise,
   findPersonByName,
 });

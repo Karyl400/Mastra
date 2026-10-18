@@ -100,6 +100,7 @@ describe('le tool rend la VRAIE raison, jamais la plus accusatrice', () => {
         isMember,
         fetchRecent: async () => [],
         listMemberChannels: async () => [],
+        listVisibleChannels: async () => ({ mine: [], others: [] }),
       },
     });
 
@@ -150,6 +151,7 @@ describe('le hint dit DE QUI il parle', () => {
         isMember: async () => false,
         fetchRecent: async () => [],
         listMemberChannels: async () => [],
+        listVisibleChannels: async () => ({ mine: [], others: [] }),
       },
     });
 

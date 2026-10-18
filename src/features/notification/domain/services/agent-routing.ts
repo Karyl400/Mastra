@@ -85,6 +85,16 @@ const RECALL_QUESTION_PATTERN = new RegExp(
   'u',
 );
 
+const CHANNEL_PLURAL = '(?:canaux|channels|salons)';
+
+const CHANNEL_LISTING_PATTERN = new RegExp(
+  `${LB}(?:liste|lister|listes|affiche|montre|donne|dis)[\\s-]{1,3}(?:(?:moi|nous)[\\s-]{1,3})?(?:\\S+\\s+){0,3}${CHANNEL_PLURAL}${RB}` +
+    `|${LB}quels?\\s+(?:sont\\s+)?(?:les\\s+|mes\\s+|tous\\s+les\\s+)?${CHANNEL_PLURAL}${RB}` +
+    `|${LB}combien\\s+de\\s+${CHANNEL_PLURAL}${RB}` +
+    `|${LB}${CHANNEL_PLURAL}\\s+(?:auxquel(?:le)?s?|dont|o[uù])\\s+(?:je|j${APOS}|tu|on)`,
+  'u',
+);
+
 const TOPIC_BANDS: ReadonlyArray<{
   readonly agentId: string;
   readonly keywords: readonly string[];
@@ -116,6 +126,13 @@ const TOPIC_BANDS: ReadonlyArray<{
     keywords: ['expert', 'spécialiste', 'specialiste', 'compétence', 'competence'],
     requiredTool: 'findExpertise',
     pattern: EXPERTISE_QUESTION_PATTERN,
+    overridesSticky: true,
+  },
+  {
+    agentId: 'knowledgeAgent',
+    keywords: [],
+    requiredTool: 'listChannels',
+    pattern: CHANNEL_LISTING_PATTERN,
     overridesSticky: true,
   },
   {

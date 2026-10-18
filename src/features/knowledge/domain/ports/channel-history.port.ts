@@ -29,10 +29,25 @@ export interface ChannelHistoryReadOptions {
   readonly limit: number;
 }
 
+export interface VisibleChannelsOptions {
+  readonly limit: number;
+  readonly includePublicOthers: boolean;
+}
+
+export interface VisibleChannels {
+  readonly mine: ChannelRef[];
+  readonly others: ChannelRef[];
+}
+
 export interface ChannelHistoryPort {
   isMember(channelId: string, slackUserId: string): Promise<boolean>;
 
   fetchRecent(channelId: string, options: ChannelHistoryReadOptions): Promise<ChannelMessage[]>;
 
   listMemberChannels(slackUserId: string, limit: number): Promise<ChannelRef[]>;
+
+  listVisibleChannels(
+    slackUserId: string,
+    options: VisibleChannelsOptions,
+  ): Promise<VisibleChannels>;
 }

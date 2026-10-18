@@ -163,6 +163,7 @@ describe('getChannelHistory — autorisation', () => {
       },
       fetchRecent: async () => [message('secret', 1)],
       listMemberChannels: async () => [],
+      listVisibleChannels: async () => ({ mine: [], others: [] }),
     };
 
     const result = (await makeGetChannelHistory({

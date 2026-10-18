@@ -9,6 +9,7 @@ import { makeGetNotificationHistory } from '../features/notification/application
 import { makeGetUserConversations } from '../features/knowledge/application/tools/get-user-conversations';
 import { makeGetChannelHistory } from '../features/knowledge/application/tools/get-channel-history';
 import { makeSearchKnowledge } from '../features/knowledge/application/tools/search-knowledge';
+import { makeListChannels } from '../features/knowledge/application/tools/list-channels';
 import { makeFindExpertise } from '../features/knowledge/application/tools/find-expertise';
 import { makeScheduleCandidateInterview } from '../features/recruitment/application/tools/schedule-candidate-interview';
 import { slackInterviewConfirmationPresenter } from '../features/recruitment/infrastructure/handlers/interview-confirm';
@@ -113,6 +114,11 @@ export function buildAgentTools(deps: RuntimeDependencies) {
     channels: channelHistory,
   });
 
+  const listChannels = makeListChannels({
+    directory: directoryRepo,
+    channels: channelHistory,
+  });
+
   const scheduleCandidateInterview = makeScheduleCandidateInterview({
     chat: { sendText: (channelId, text) => chatProvider.sendMessage(channelId, text) },
     pending: pendingInterviewEmailRepo,
@@ -133,6 +139,7 @@ export function buildAgentTools(deps: RuntimeDependencies) {
     getUserConversations,
     getChannelHistory,
     searchKnowledge,
+    listChannels,
     scheduleCandidateInterview,
   };
 }

@@ -8,6 +8,8 @@ import {
   type ChannelHistoryReadOptions,
   type ChannelMessage,
   type ChannelRef,
+  type VisibleChannels,
+  type VisibleChannelsOptions,
 } from '../../domain/ports/channel-history.port';
 import { toUnavailable, toUnprovable } from './slack-channel-errors';
 
@@ -19,6 +21,18 @@ export type DisplayNameResolver = (slackUserId: string) => Promise<string | null
 export interface SlackChannelHistoryOptions {
   readonly client?: WebClient;
   readonly resolveDisplayName?: DisplayNameResolver;
+}
+
+function toChannelRefs(raw: unknown): ChannelRef[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .map((channel) => channel as { id?: unknown; name?: unknown })
+    .filter((channel): channel is { id: string; name?: unknown } => typeof channel.id === 'string')
+    .map((channel) => ({
+      id: channel.id,
+      name: typeof channel.name === 'string' ? channel.name : '',
+    }));
 }
 
 export class SlackChannelHistoryAdapter implements ChannelHistoryPort {
@@ -93,6 +107,47 @@ export class SlackChannelHistoryAdapter implements ChannelHistoryPort {
         slackError: slackErrorCode(error),
       });
       return [];
+    }
+  }
+
+  async listVisibleChannels(
+    slackUserId: string,
+    options: VisibleChannelsOptions,
+  ): Promise<VisibleChannels> {
+    try {
+      const [member, workspace] = await Promise.all([
+        this.slack.users.conversations({
+          user: slackUserId,
+          types: 'public_channel,private_channel',
+          exclude_archived: true,
+          limit: options.limit,
+        }),
+        options.includePublicOthers
+          ? this.slack.conversations.list({
+              types: 'public_channel',
+              exclude_archived: true,
+              limit: options.limit,
+            })
+          : Promise.resolve(null),
+      ]);
+
+      const mine = toChannelRefs(member.channels);
+      const mineIds = new Set(mine.map((channel) => channel.id));
+      const others = toChannelRefs(workspace?.channels).filter(
+        (channel) => !mineIds.has(channel.id),
+      );
+
+      return { mine, others };
+    } catch (error) {
+      logger.warn('Knowledge — liste des canaux illisible', {
+        slackUserId,
+        slackError: slackErrorCode(error),
+      });
+      throw new ChannelUnavailableError(
+        'unavailable',
+        `Liste des canaux illisible (${slackErrorCode(error) ?? 'inconnu'})`,
+        { cause: error },
+      );
     }
   }
 

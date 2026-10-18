@@ -7206,6 +7206,21 @@ cours » le perdrait pour toujours, alors que la remise du lendemain le rattrape
 
 ### `src/features/notification/domain/services/agent-routing.ts`
 
+**Avant `const CHANNEL_LISTING_PATTERN = new RegExp(`**
+
+Porte d'entrée de `listChannels` (2026-10-18). Sans elle, « liste-moi les canaux » partait chez
+`onboardingOrchestrator`, qui ne porte aucun outil de canal et répondait, exactement, qu'il ne
+pouvait pas — l'outil aurait existé sans être atteignable, le défaut de `knowledgeAgent` avant
+le 2026-08-14.
+
+⚠️ Bande INTERROGATIVE/IMPÉRATIVE, pluriel exigé (`canaux|channels|salons`) : « canal » seul est
+un mot courant, et un verbe d'ACTION sur un canal (« ajoute-moi au canal », « invite Awa dans le
+canal », « crée un canal ») n'est pas une demande de liste. Corpus à deux colonnes dans
+`tests/unit/notification/channel-listing-routing.test.ts`.
+
+⚠️ Séparateurs BORNÉS (`[\s-]{1,3}`) et non `[\s-]+` : le motif s'exécute sur chaque message, et
+la forme non bornée était quadratique sur huit mille tirets (45 ms mesurées, 0 ms après).
+
 **Avant `const RECALL_QUESTION_PATTERN = new RegExp(`**
 
 ⚠️ CETTE BANDE EST UNIQUEMENT INTERROGATIVE — aucun mot-clé nu.

@@ -541,6 +541,37 @@ qui est ce qui rend la réponse lisible. Le séparateur vient de NOTRE code, il 
 assaini ; ce sont `title` et `dailyWork` qui viennent d'ailleurs. Essayé dans l'autre sens
 le 2026-08-19 : « Pamela KONE — je fais du support, niveau 2 (API) » ressortait en
 « Pamela KONE je fais du support niveau 2 API ».
+## `features/knowledge/application/tools/list-channels.ts`
+
+**Avant `export function makeListChannels(deps: ListChannelsDeps) {`**
+
+Quels canaux la personne peut-elle voir ? (2026-10-18.) Mesuré en production : « Liste-moi les
+canaux auxquels j'appartiens » obtenait *« Je ne peux pas lister les canaux »*, et « …auxquels je
+n'appartiens pas » *« Je ne peux pas consulter la liste des canaux Slack »*. Le refus était
+EXACT : aucun outil ne le permettait. Cinquième occurrence de la demande structurellement
+insatisfaisable, et la plus élémentaire — savoir quels canaux existent précède de lire ce qui
+s'y dit.
+
+⚠️ **Même frontière que la résolution d'un nom de canal** (`channel-name-lookup.ts`) : on part
+de ce que le DEMANDEUR peut voir, jamais de l'annuaire du workspace. Les canaux PRIVÉS d'autrui
+n'apparaissent donc nulle part — un canal privé que la personne ne voit pas ne se distingue pas
+d'un canal qui n'existe pas. Seuls s'y ajoutent les canaux PUBLICS non rejoints, que Slack montre
+à n'importe quel membre.
+
+⚠️ **Un invité (compte restreint) ou une personne absente de l'annuaire ne reçoit que SES
+canaux**, et la lecture publique n'est pas même tentée : un invité ne navigue pas dans les
+canaux publics, la lui rendre serait une fuite. L'absence de l'annuaire est traitée comme un
+invité — une panne n'est pas une preuve de droit.
+
+⚠️ **Une panne de Slack n'est PAS une liste vide.** `listMemberChannels` avale ses erreurs et
+rend `[]` (acceptable pour une résolution de nom, qui retombe sur `channel_not_found`) ; ici
+`[]` se lirait « tu n'es dans aucun canal ». `listVisibleChannels` LÈVE, et l'outil rend
+`unavailable`.
+
+Noms seulement, 40 au plus par liste, filtrés sur `[\p{L}\p{N}_.-]` : un nom de canal est du
+texte posé par un humain et entre dans la fenêtre du modèle. Coût : schéma sans champ, résultat
+borné — la taille ne dépend pas du nombre de canaux.
+
 ## `features/knowledge/application/tools/get-channel-history.ts`
 
 **Avant `export interface GetChannelHistoryDeps {`**
@@ -1044,6 +1075,13 @@ Le DEMANDEUR est-il membre de ce canal ?
 Rend `false` — jamais une exception — quand le canal est inconnu ou que le
 bot n'y a pas accès : dans les deux cas le demandeur n'a rien à obtenir, et
 distinguer les motifs ici renseignerait sur l'existence de canaux privés.
+
+**Avant `listVisibleChannels(`**
+
+Les canaux visibles du demandeur : les siens (`mine`) et, si `includePublicOthers`, les canaux
+publics qu'il n'a pas rejoints (`others`). Contrairement à `listMemberChannels`, elle LÈVE
+`ChannelUnavailableError` : une liste vide doit rester « aucun canal », jamais « Slack n'a pas
+répondu ».
 
 **Avant `fetchRecent(channelId: string, options: ChannelHistoryReadOptions): Promise<ChannelMessage[]>;`**
 
