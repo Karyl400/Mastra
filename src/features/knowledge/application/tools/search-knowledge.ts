@@ -14,6 +14,7 @@ import { admit, refuse } from './search-knowledge-admission';
 import {
   SCAN_LIMIT,
   describeSearchCoverage,
+  ownDirectChannels,
   readableChannels,
   resolveSpeakers,
   sweepLive,
@@ -116,7 +117,10 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
         deps.channels,
         lines.map((line) => line.channelId),
         requesterId,
-        authorizeOtherMemoryRead(requester).allowed,
+        {
+          isManager: authorizeOtherMemoryRead(requester).allowed,
+          ownDms: ownDirectChannels(lines, requesterId),
+        },
       );
 
       const visible = lines.filter((line) => allowed.has(line.channelId));

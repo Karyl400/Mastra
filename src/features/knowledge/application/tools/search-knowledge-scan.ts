@@ -41,19 +41,29 @@ export async function resolveSpeakers(
   return new Map(resolved);
 }
 
+export function ownDirectChannels(lines: readonly Line[], requesterId: string): Set<string> {
+  const own = new Set<string>();
+
+  for (const line of lines) {
+    if (isDirectMessageChannel(line.channelId) && line.slackUserId === requesterId) {
+      own.add(line.channelId);
+    }
+  }
+  return own;
+}
+
 export async function readableChannels(
   channels: ChannelHistoryPort,
   channelIds: readonly string[],
   requesterId: string,
-  isManager: boolean,
+  access: { readonly isManager: boolean; readonly ownDms: ReadonlySet<string> },
 ): Promise<Set<string>> {
   const distinct = [...new Set(channelIds)].slice(0, MAX_CHANNELS_CHECKED);
 
   const verdicts = await Promise.all(
     distinct.map(async (channelId) => {
       if (isDirectMessageChannel(channelId)) {
-        const own = await channels.isMember(channelId, requesterId).catch(() => false as boolean);
-        return [channelId, own || isManager] as const;
+        return [channelId, access.isManager || access.ownDms.has(channelId)] as const;
       }
 
       try {
@@ -85,7 +95,9 @@ export async function sweepLive(
 
   if (channelIds.length === 0) return [];
 
-  const readable = only ? await readableChannels(channels, [only], requesterId, false) : null;
+  const readable = only
+    ? await readableChannels(channels, [only], requesterId, { isManager: false, ownDms: new Set() })
+    : null;
   const targets = readable ? channelIds.filter((id) => readable.has(id)) : channelIds;
 
   const perChannel = await Promise.all(

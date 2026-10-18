@@ -1,8 +1,9 @@
 import { logger } from '../../../../shared/logger';
 import { distressKind } from '../../../../shared/distress';
-import type {
-  ArchivedMessage,
-  MessageArchiveRepository,
+import {
+  isDirectMessageChannel,
+  type ArchivedMessage,
+  type MessageArchiveRepository,
 } from '../../domain/ports/message-archive.repository';
 import type { KnowledgeFactRepository } from '../../domain/ports/knowledge-fact.repository';
 import { distillFact } from '../../domain/services/fact-distillation';
@@ -40,6 +41,11 @@ export class KnowledgeIngestionService implements KnowledgeIngestionPort {
 
     const stored = await this.archive.archive(message);
     if (!stored) return;
+
+    if (isDirectMessageChannel(message.channelId)) {
+      await this.archive.markDistilled([message.id], Date.now()).catch(() => 0);
+      return;
+    }
 
     const classified = await this.distil(message);
 
