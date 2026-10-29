@@ -1,4 +1,5 @@
 import { createTool } from '@mastra/core/tools';
+import type { z } from 'zod';
 
 import { fullName } from '../../../../shared/name-matching';
 import { logger } from '../../../../shared/logger';
@@ -29,17 +30,111 @@ import {
 
 export type { GenerateDocumentDeps } from './generate-document-deps';
 
-export function makeGenerateDocument(deps: GenerateDocumentDeps) {
-  const {
-    documentRepo,
-    employeeRepo,
+type DocumentInput = z.infer<typeof generateDocumentInputSchema>;
+type DeliveryIntent = ReturnType<typeof resolveDeliveryIntent>;
+
+async function produceAndDeliver(
+  deps: GenerateDocumentDeps,
+  runGuard: ReturnType<typeof makeRunGuard>,
+  input: {
+    data: DocumentInput;
+    requestContext: unknown;
+    slackCtx: ReturnType<typeof readSlackContext>;
+    employeeId: string;
+    title: string;
+    content: string;
+    effectiveDeliverTo: DeliveryIntent['effectiveDeliverTo'];
+    dedupKey: DeliveryIntent['dedupKey'];
+  },
+) {
+  const { documentRepo, employeeRepo, renderers, fileUpload, emailProvider } = deps;
+  const { interviewRepo, channelRepo } = deps;
+  const { data, requestContext, slackCtx, employeeId, title, content } = input;
+  const { effectiveDeliverTo, dedupKey } = input;
+
+  const employee = await employeeRepo.findById(employeeId);
+  if (!employee) {
+    logger.warn('Document refusé — aucun employé pour cet identifiant', {
+      employeeId,
+    });
+    return {
+      saved: false as const,
+      delivery: 'none' as DeliveryVerdict,
+      reason: 'employee_not_found',
+      hint: HINTS.employee_not_found,
+    };
+  }
+
+  const revision = await resolveRevisionTarget(documentRepo, data.revises, employeeId, data.type);
+  if (revision.refused) {
+    return {
+      saved: false as const,
+      delivery: 'none' as DeliveryVerdict,
+      reason: 'document_not_found',
+      hint: HINTS.document_not_found,
+    };
+  }
+  const revised = revision.target;
+
+  warnIfForeignSubject(slackCtx?.employeeId, employeeId, effectiveDeliverTo);
+
+  const { rendered, producedFormat, failure } = await renderDocument({
     renderers,
+    type: data.type,
+    format: data.format,
+    title,
+    content,
+    employee,
+    interview: await readInterview(interviewRepo, channelRepo, employeeId),
+  });
+
+  const generated = await persistDocument(documentRepo, {
+    revised,
+    employeeId,
+    type: data.type,
+    title,
+    content,
+    format: producedFormat,
+  });
+
+  const delivered = await deliver({
+    intent: effectiveDeliverTo,
+    rendered,
+    slackCtx,
     fileUpload,
     emailProvider,
-    interviewRepo,
-    channelRepo,
-  } = deps;
+    employeeEmail: employee.email,
+    employeeId,
+    title,
+    failure,
+  });
+  const { delivery, reason } = delivered;
 
+  await markDeliveryOutcome(documentRepo, generated, delivery);
+
+  const recipient = fullName(employee.firstName, employee.lastName);
+
+  writeDocumentRecipient(requestContext, recipient);
+
+  const result = {
+    saved: true as const,
+    ...(revised ? { revised: true as const } : {}),
+    documentId: generated.id,
+    format: producedFormat,
+    delivery,
+    recipient,
+    ...(rendered ? { filename: rendered.filename } : {}),
+    ...(reason ? { reason, hint: HINTS[reason] } : {}),
+  };
+
+  if (dedupKey && (delivery === 'slack' || delivery === 'email')) {
+    runGuard.remember(dedupKey, { result, eventTs: slackCtx?.eventTs });
+  }
+
+  return result;
+}
+
+export function makeGenerateDocument(deps: GenerateDocumentDeps) {
   const runGuard = makeRunGuard();
 
   return createTool({
@@ -113,91 +208,16 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         });
       }
 
-      const employee = await employeeRepo.findById(employeeId);
-      if (!employee) {
-        logger.warn('Document refusé — aucun employé pour cet identifiant', {
-          employeeId,
-        });
-        return {
-          saved: false as const,
-          delivery: 'none' as DeliveryVerdict,
-          reason: 'employee_not_found',
-          hint: HINTS.employee_not_found,
-        };
-      }
-
-      const revision = await resolveRevisionTarget(
-        documentRepo,
-        data.revises,
-        employeeId,
-        data.type,
-      );
-      if (revision.refused) {
-        return {
-          saved: false as const,
-          delivery: 'none' as DeliveryVerdict,
-          reason: 'document_not_found',
-          hint: HINTS.document_not_found,
-        };
-      }
-      const revised = revision.target;
-
-      warnIfForeignSubject(slackCtx?.employeeId, employeeId, effectiveDeliverTo);
-
-      const { rendered, producedFormat, failure } = await renderDocument({
-        renderers,
-        type: data.type,
-        format: data.format,
-        title,
-        content,
-        employee,
-        interview: await readInterview(interviewRepo, channelRepo, employeeId),
-      });
-
-      const generated = await persistDocument(documentRepo, {
-        revised,
-        employeeId,
-        type: data.type,
-        title,
-        content,
-        format: producedFormat,
-      });
-
-      const delivered = await deliver({
-        intent: effectiveDeliverTo,
-        rendered,
+      return produceAndDeliver(deps, runGuard, {
+        data,
+        requestContext: ctx?.requestContext,
         slackCtx,
-        fileUpload,
-        emailProvider,
-        employeeEmail: employee.email,
         employeeId,
         title,
-        failure,
+        content,
+        effectiveDeliverTo,
+        dedupKey,
       });
-      const { delivery, reason } = delivered;
-
-      await markDeliveryOutcome(documentRepo, generated, delivery);
-
-      const recipient = fullName(employee.firstName, employee.lastName);
-
-      writeDocumentRecipient(ctx?.requestContext, recipient);
-
-      const result = {
-        saved: true as const,
-        ...(revised ? { revised: true as const } : {}),
-        documentId: generated.id,
-        format: producedFormat,
-        delivery,
-        recipient,
-        ...(rendered ? { filename: rendered.filename } : {}),
-        ...(reason ? { reason, hint: HINTS[reason] } : {}),
-      };
-
-      if (dedupKey && (delivery === 'slack' || delivery === 'email')) {
-        runGuard.remember(dedupKey, { result, eventTs: slackCtx?.eventTs });
-      }
-
-      return result;
     },
   });
 }

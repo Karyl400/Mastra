@@ -739,7 +739,7 @@ Le NOM, jamais l'email — pour la même raison que `findEmployeeByEmail` n'en r
 pas : ce tool est atteignable par n'importe quel membre du workspace. Coût ≈ 12
 
 tokens, payés à chaque document produit.
-**Avant `writeDocumentRecipient(ctx?.requestContext, recipient);`**
+**Avant `writeDocumentRecipient(requestContext, recipient);`**
 
 ⚠️ LE DESTINATAIRE REMONTE PAR LE CONTEXTE SERVEUR, en plus du tool-result.
 
