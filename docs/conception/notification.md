@@ -495,7 +495,7 @@ outil de la campagne qui ait abouti. Un champ obligatoire sans défaut est une
 question posée à l'humain ; il n'en reste que trois, et les trois sont
 
 irremplaçables.
-**Avant `if (!canPerformSideEffects(_ctx?.requestContext, data.recipientId)) {`**
+**Avant `function refuseIfNotAllowed(requestContext: unknown, recipientId: string) {`**
 
 FRONTIÈRE D'AUTORISATION — avant toute résolution, avant toute E/S
 
