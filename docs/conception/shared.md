@@ -6191,6 +6191,10 @@ justifie : rien ne peut fonctionner sans base. Lever sur une clé LLM casserait 
 et les tests, et un service qui refuse de démarrer parce qu'une clé de REPLI manque est moins
 disponible que celui qu'on prétend protéger.
 
+**`GOOGLE_GEMINI_API_KEY` y figure depuis le 2026-10-29.** Elle porte le modèle PRIMAIRE
+depuis le 2026-08-20 et le contrôle l'ignorait : sa perte aurait été silencieuse, le repli
+Groq répondant à sa place. La conséquence de `GROQ_API_KEY` dit désormais « premier repli ».
+
 **La conséquence est journalisée avec le nom.** « SLACK_SIGNING_SECRET manquant » n'apprend
 rien à qui lit les logs ; « toute requête Slack sera rejetée en 401 » nomme le symptôme qu'il
 est en train d'observer. Même règle que `degradedSteps`, qui porte le couple QUOI/POURQUOI

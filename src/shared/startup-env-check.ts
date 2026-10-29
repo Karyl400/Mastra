@@ -18,9 +18,14 @@ export const CRITICAL_ENV_VARS: readonly CriticalEnvVar[] = Object.freeze([
       'aucune publication, aucun DM, aucun envoi de fichier : chaque appel Slack échouera en invalid_auth.',
   },
   {
+    name: 'GOOGLE_GEMINI_API_KEY',
+    consequence:
+      'le modèle primaire est injoignable ; le bot répondra par le repli Groq jusqu’à épuisement de son quota journalier, sans autre symptôme.',
+  },
+  {
     name: 'GROQ_API_KEY',
     consequence:
-      'le modèle primaire est injoignable ; chaque message tombera chez Mistral, plafonné à 4 requêtes par minute.',
+      'le premier repli est injoignable ; chaque échec du primaire tombera chez Mistral, plafonné à 4 requêtes par minute.',
   },
   {
     name: 'MISTRAL_API_KEY',

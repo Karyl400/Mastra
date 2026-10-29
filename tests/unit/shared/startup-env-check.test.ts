@@ -33,6 +33,7 @@ describe('contrôle des variables critiques au démarrage', () => {
   const FULL: NodeJS.ProcessEnv = {
     SLACK_SIGNING_SECRET: 'shhh',
     SLACK_BOT_TOKEN: 'xoxb-test',
+    GOOGLE_GEMINI_API_KEY: 'gem-test',
     GROQ_API_KEY: 'gsk-test',
     MISTRAL_API_KEY: 'mis-test',
     MASTRA_API_TOKEN: 'x'.repeat(MIN_API_TOKEN_LENGTH),
@@ -44,6 +45,10 @@ describe('contrôle des variables critiques au démarrage', () => {
       expect(names).toContain('SLACK_SIGNING_SECRET');
       expect(names).toContain('SLACK_BOT_TOKEN');
       expect(names).toContain('GROQ_API_KEY');
+    });
+
+    it('couvre la clé du modèle PRIMAIRE, dont l’absence est silencieuse', () => {
+      expect(CRITICAL_ENV_VARS.map((v) => v.name)).toContain('GOOGLE_GEMINI_API_KEY');
     });
 
     it('ne contient PAS DATABASE_URL — son absence est fatale, pas signalée', () => {
