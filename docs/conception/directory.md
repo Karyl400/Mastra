@@ -322,7 +322,7 @@ Un canal privé dont on EST membre est parfaitement utilisable : c'est le cas de
 Le scope manque : la tentative suivante échouerait identiquement. On enregistre
 
 l'échec sans consommer un appel de plus.
-**Avant `const result = await deps.source.join(channel.id);`**
+**Avant `recordJoinResult(tally, channel, await deps.source.join(channel.id));`**
 
 SÉQUENTIEL, pas `Promise.all` : `conversations.join` est plafonné par Slack, et une
 
