@@ -41,6 +41,80 @@ const REFUSALS = {
 const ALREADY_PREPARED_HINT =
   'Une invitation a déjà été préparée pour ce message. Dis-le simplement, et invite la personne à te redemander dans un message séparé pour un second candidat.';
 
+const scheduleInterviewInput = z.object({
+  candidateEmail: z.string().email().describe('Adresse du candidat.'),
+  candidateName: z
+    .string()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe(
+      'Nom du candidat, UNIQUEMENT s’il a été donné. Ne le déduis jamais de l’adresse email.',
+    ),
+  startsAt: z
+    .string()
+    .describe(
+      'Date et heure de l’entretien en ISO 8601, ex. 2026-08-20T14:00:00+01:00. Transcris ce qui a été dit, n’invente ni jour ni heure.',
+    ),
+  position: z.string().max(80).optional().describe('Poste concerné, si précisé.'),
+  location: z.string().max(200).optional().describe('Lieu physique ou lien de visio, si précisé.'),
+});
+
+type InterviewInput = z.infer<typeof scheduleInterviewInput>;
+
+async function prepareAndPost(
+  deps: ScheduleCandidateInterviewDeps,
+  input: {
+    data: InterviewInput;
+    slack: { channel: string; threadTs: string | undefined; userId: string };
+    schedule: { at: Date; humanReadable: string };
+    email: { subject: string; body: string };
+    replyTo: string | undefined;
+  },
+): Promise<boolean> {
+  const { data, slack, schedule, email, replyTo } = input;
+
+  try {
+    const conversationId = deriveConversationId({
+      channel: slack.channel,
+      threadTs: slack.threadTs,
+    });
+
+    await deps.pending.save({
+      conversationId,
+      requesterUserId: slack.userId,
+      to: data.candidateEmail,
+      candidateName: data.candidateName ?? null,
+      startsAt: schedule.at.toISOString(),
+      position: data.position ?? null,
+      location: data.location ?? null,
+      replyTo: replyTo ?? null,
+      createdAt: (deps.now ?? (() => new Date()))(),
+    });
+
+    const texte = deps.presenter.buildConfirmationText({
+      payload: {
+        to: data.candidateEmail,
+        candidateName: data.candidateName,
+        startsAt: schedule.at.toISOString(),
+        position: data.position,
+        location: data.location,
+        replyTo,
+        requesterUserId: slack.userId,
+      },
+      humanReadableDate: schedule.humanReadable,
+      subject: email.subject,
+      body: email.body,
+    });
+
+    await deps.chat.sendText(slack.channel, texte);
+    return true;
+  } catch (error) {
+    logger.error('Confirmation d’entretien non affichée', { error: String(error) });
+    return false;
+  }
+}
+
 export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewDeps) {
   const now = deps.now ?? (() => new Date());
   const runGuard = makeRunGuard();
@@ -49,28 +123,7 @@ export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewD
     id: 'scheduleCandidateInterview',
     description:
       "Prépare l'email d'invitation à un entretien pour un candidat externe, et l'affiche pour confirmation. N'envoie rien lui-même.",
-    inputSchema: z.object({
-      candidateEmail: z.string().email().describe('Adresse du candidat.'),
-      candidateName: z
-        .string()
-        .min(1)
-        .max(80)
-        .optional()
-        .describe(
-          'Nom du candidat, UNIQUEMENT s’il a été donné. Ne le déduis jamais de l’adresse email.',
-        ),
-      startsAt: z
-        .string()
-        .describe(
-          'Date et heure de l’entretien en ISO 8601, ex. 2026-08-20T14:00:00+01:00. Transcris ce qui a été dit, n’invente ni jour ni heure.',
-        ),
-      position: z.string().max(80).optional().describe('Poste concerné, si précisé.'),
-      location: z
-        .string()
-        .max(200)
-        .optional()
-        .describe('Lieu physique ou lien de visio, si précisé.'),
-    }),
+    inputSchema: scheduleInterviewInput,
     execute: async (data, ctx) => {
       const requestContext = (ctx as { requestContext?: unknown })?.requestContext;
 
@@ -120,42 +173,14 @@ export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewD
         replyTo,
       });
 
-      try {
-        const conversationId = deriveConversationId({
-          channel: slack.channel,
-          threadTs: slack.threadTs,
-        });
-
-        await deps.pending.save({
-          conversationId,
-          requesterUserId: slack.slackUserId,
-          to: data.candidateEmail,
-          candidateName: data.candidateName ?? null,
-          startsAt: parsed.schedule.at.toISOString(),
-          position: data.position ?? null,
-          location: data.location ?? null,
-          replyTo: replyTo ?? null,
-          createdAt: (deps.now ?? (() => new Date()))(),
-        });
-
-        const texte = deps.presenter.buildConfirmationText({
-          payload: {
-            to: data.candidateEmail,
-            candidateName: data.candidateName,
-            startsAt: parsed.schedule.at.toISOString(),
-            position: data.position,
-            location: data.location,
-            replyTo,
-            requesterUserId: slack.slackUserId,
-          },
-          humanReadableDate: parsed.schedule.humanReadable,
-          subject: email.subject,
-          body: email.body,
-        });
-
-        await deps.chat.sendText(slack.channel, texte);
-      } catch (error) {
-        logger.error('Confirmation d’entretien non affichée', { error: String(error) });
+      const posted = await prepareAndPost(deps, {
+        data,
+        slack: { channel: slack.channel, threadTs: slack.threadTs, userId: slack.slackUserId },
+        schedule: parsed.schedule,
+        email,
+        replyTo,
+      });
+      if (!posted) {
         return { status: 'refused', reason: 'post_failed', hint: REFUSALS.post_failed };
       }
 

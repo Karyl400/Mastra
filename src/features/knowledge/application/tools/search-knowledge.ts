@@ -36,26 +36,75 @@ function stamp(postedAt: number): string {
   return new Date(postedAt).toISOString().slice(0, 10);
 }
 
+const searchKnowledgeInput = z.object({
+  query: z.string().trim().min(2).max(200).describe('Les mots à chercher.'),
+  channelId: z
+    .string()
+    .trim()
+    .regex(CHANNEL_ID_RE)
+    .optional()
+    .describe('Restreint à un canal (C… ou G…).'),
+  person: z
+    .string()
+    .trim()
+    .max(254)
+    .optional()
+    .describe('Email ou identifiant Slack. Réservé au manager pour quelqu’un d’autre.'),
+});
+
+type Tier = 'facts' | 'messages' | 'live';
+
+async function searchStoredTiers(
+  deps: SearchKnowledgeDeps,
+  query: string,
+  scope: { channelId: string | undefined; slackUserId: string | undefined; limit: number },
+  requesterId: string,
+): Promise<{ lines: Line[]; tier: Tier } | null> {
+  try {
+    const facts = await deps.facts.search(query, scope);
+
+    if (facts.length > 0) {
+      const lines = facts.map((fact) => ({
+        channelId: fact.channelId,
+        slackUserId: fact.slackUserId,
+        postedAt: fact.postedAt,
+        kind: fact.kind,
+        text: fact.summary,
+      }));
+      return { lines, tier: 'facts' };
+    }
+
+    const messages = await deps.archive.search(query, scope);
+    const lines = messages.map((message) => ({
+      channelId: message.channelId,
+      slackUserId: message.slackUserId,
+      postedAt: message.postedAt,
+      kind: null,
+      text: message.text,
+    }));
+    return { lines, tier: 'messages' };
+  } catch (error) {
+    logger.error('Knowledge — lecture de la base en échec', { requesterId, error });
+    return null;
+  }
+}
+
+function renderLines(shown: readonly Line[], speakers: ReadonlyMap<string, string>): string {
+  return shown
+    .map((line) => {
+      const who = line.slackUserId ? (speakers.get(line.slackUserId) ?? line.slackUserId) : '?';
+      const label = line.kind ? `${FACT_KIND_LABELS[line.kind]} — ` : '';
+      return `[${stamp(line.postedAt)}] ${who}: ${label}${line.text}`;
+    })
+    .join('\n');
+}
+
 export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
   return createTool({
     id: 'searchKnowledge',
     description:
       'Cherche dans ta base ce qui a été dit dans les canaux : décisions, engagements, blocages, échéances.',
-    inputSchema: z.object({
-      query: z.string().trim().min(2).max(200).describe('Les mots à chercher.'),
-      channelId: z
-        .string()
-        .trim()
-        .regex(CHANNEL_ID_RE)
-        .optional()
-        .describe('Restreint à un canal (C… ou G…).'),
-      person: z
-        .string()
-        .trim()
-        .max(254)
-        .optional()
-        .describe('Email ou identifiant Slack. Réservé au manager pour quelqu’un d’autre.'),
-    }),
+    inputSchema: searchKnowledgeInput,
     execute: async (data, ctx) => {
       const slack = readSlackContext(ctx?.requestContext);
       if (!slack?.slackUserId) {
@@ -79,35 +128,11 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
         limit: SCAN_LIMIT,
       };
 
-      let lines: Line[];
-      let tier: 'facts' | 'messages' | 'live';
-      try {
-        const facts = await deps.facts.search(data.query, scope);
-
-        if (facts.length > 0) {
-          tier = 'facts';
-          lines = facts.map((fact) => ({
-            channelId: fact.channelId,
-            slackUserId: fact.slackUserId,
-            postedAt: fact.postedAt,
-            kind: fact.kind,
-            text: fact.summary,
-          }));
-        } else {
-          tier = 'messages';
-          const messages = await deps.archive.search(data.query, scope);
-          lines = messages.map((message) => ({
-            channelId: message.channelId,
-            slackUserId: message.slackUserId,
-            postedAt: message.postedAt,
-            kind: null,
-            text: message.text,
-          }));
-        }
-      } catch (error) {
-        logger.error('Knowledge — lecture de la base en échec', { requesterId, error });
+      const searched = await searchStoredTiers(deps, data.query, scope, requesterId);
+      if (!searched) {
         return refuse('knowledge_unavailable');
       }
+      let { lines, tier } = searched;
 
       if (lines.length === 0) {
         lines = await sweepLive(deps.channels, data.query, requesterId, scope.channelId);
@@ -135,13 +160,7 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
       const shown = visible.slice(0, MAX_RESULTS);
       const speakers = await resolveSpeakers(deps.directory, shown);
 
-      const rendered = shown
-        .map((line) => {
-          const who = line.slackUserId ? (speakers.get(line.slackUserId) ?? line.slackUserId) : '?';
-          const label = line.kind ? `${FACT_KIND_LABELS[line.kind]} — ` : '';
-          return `[${stamp(line.postedAt)}] ${who}: ${label}${line.text}`;
-        })
-        .join('\n');
+      const rendered = renderLines(shown, speakers);
 
       const coverage = describeSearchCoverage(shown.length, visible.length, tier);
 
