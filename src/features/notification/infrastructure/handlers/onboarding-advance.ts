@@ -7,7 +7,11 @@ export async function maybeAdvanceOnboarding(
   self: SlackHandlerInternals,
   input: InterviewStepInput,
 ): Promise<boolean> {
-  if (await maybeCheckProfileDone(self, input)) return true;
-  if (await maybeRunProfileStep(self, input)) return true;
+  if (await maybeCheckProfileDone(self, input)) {
+    return true;
+  }
+  if (await maybeRunProfileStep(self, input)) {
+    return true;
+  }
   return await maybeRunInterviewStep(self, input);
 }

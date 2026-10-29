@@ -70,8 +70,12 @@ export function makeDirectorySync(deps: DirectorySyncDeps): DirectorySyncService
         }
 
         const outcome = await linkEmployeeIfPossible(facts, knownLinks, deps);
-        if (outcome === 'linked') linked += 1;
-        if (outcome === 'failed') linkFailures += 1;
+        if (outcome === 'linked') {
+          linked += 1;
+        }
+        if (outcome === 'failed') {
+          linkFailures += 1;
+        }
       }
 
       const degraded = failureCount > 0 || linkFailures > 0 || truncated;
@@ -129,18 +133,28 @@ async function linkEmployeeIfPossible(
   deps: DirectorySyncDeps,
 ): Promise<'linked' | 'skipped' | 'failed'> {
   const employees = deps.employees;
-  if (!employees) return 'skipped';
+  if (!employees) {
+    return 'skipped';
+  }
 
-  if (facts.isBot || facts.isDeleted) return 'skipped';
+  if (facts.isBot || facts.isDeleted) {
+    return 'skipped';
+  }
 
   const email = facts.email?.trim();
-  if (!email) return 'skipped';
+  if (!email) {
+    return 'skipped';
+  }
 
-  if (knownLinks.get(facts.slackUserId)) return 'skipped';
+  if (knownLinks.get(facts.slackUserId)) {
+    return 'skipped';
+  }
 
   try {
     const employee = await employees.findByEmail(email);
-    if (!employee) return 'skipped';
+    if (!employee) {
+      return 'skipped';
+    }
 
     await deps.repository.linkEmployee(facts.slackUserId, employee.id);
     knownLinks.set(facts.slackUserId, employee.id);

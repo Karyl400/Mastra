@@ -10,7 +10,9 @@ export function isNegatedNear(
   const to = Math.min(words.length, verbIndex + window + 1);
 
   for (let i = from; i < to; i += 1) {
-    if (i !== verbIndex && negations.has(words[i]!)) return true;
+    if (i !== verbIndex && negations.has(words[i]!)) {
+      return true;
+    }
   }
 
   return false;

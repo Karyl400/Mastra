@@ -20,7 +20,9 @@ function conversationRepo(): DrizzleConversationRepository {
 }
 
 async function rememberAsked(slackUserId: string | undefined, text: string): Promise<void> {
-  if (!slackUserId) return;
+  if (!slackUserId) {
+    return;
+  }
   const { channel } = await getSlackInteractionsAdapter().sendMessage(slackUserId, text);
 
   try {

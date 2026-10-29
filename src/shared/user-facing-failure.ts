@@ -22,14 +22,20 @@ function walkErrorGraph(root: unknown): readonly unknown[] {
 
   while (queue.length > 0 && visited.length < MAX_ERROR_NODES) {
     const current = queue.shift();
-    if (current === null || typeof current !== 'object') continue;
-    if (seen.has(current)) continue;
+    if (current === null || typeof current !== 'object') {
+      continue;
+    }
+    if (seen.has(current)) {
+      continue;
+    }
     seen.add(current);
     visited.push(current);
 
     const node = current as { cause?: unknown; lastError?: unknown; errors?: unknown };
     queue.push(node.cause, node.lastError);
-    if (Array.isArray(node.errors)) queue.push(...node.errors);
+    if (Array.isArray(node.errors)) {
+      queue.push(...node.errors);
+    }
   }
 
   return visited;
@@ -37,7 +43,9 @@ function walkErrorGraph(root: unknown): readonly unknown[] {
 
 export function userFacingFailure(error: unknown): string {
   const refusal = securityRefusalMessage(error);
-  if (refusal) return refusal;
+  if (refusal) {
+    return refusal;
+  }
 
   for (const node of walkErrorGraph(error)) {
     const candidate = node as {
@@ -48,7 +56,9 @@ export function userFacingFailure(error: unknown): string {
     };
 
     const status = candidate.statusCode ?? candidate.status;
-    if (status === 429) return QUOTA_FAILURE;
+    if (status === 429) {
+      return QUOTA_FAILURE;
+    }
 
     if (candidate.name === 'TimeoutError' || candidate.name === 'AbortError') {
       return TIMEOUT_FAILURE;

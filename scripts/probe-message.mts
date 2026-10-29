@@ -26,16 +26,23 @@ const at = (flag: string) => {
 const baseUrl = at('--url') ?? DEFAULT_BASE_URL;
 const channel = at('--channel') ?? DEFAULT_CHANNEL;
 const waitSeconds = Number(at('--wait') ?? 40);
-const text = args.filter((a, i) => !a.startsWith('--') && args[i - 1]?.startsWith('--') !== true)
+const text = args
+  .filter((a, i) => !a.startsWith('--') && args[i - 1]?.startsWith('--') !== true)
   .join(' ')
   .trim();
 
-if (!text) throw new Error('Aucun message à envoyer.');
+if (!text) {
+  throw new Error('Aucun message à envoyer.');
+}
 
 const signingSecret = process.env.SLACK_SIGNING_SECRET;
 const botToken = process.env.SLACK_BOT_TOKEN;
-if (!signingSecret) throw new Error('SLACK_SIGNING_SECRET manquant');
-if (!botToken) throw new Error('SLACK_BOT_TOKEN manquant');
+if (!signingSecret) {
+  throw new Error('SLACK_SIGNING_SECRET manquant');
+}
+if (!botToken) {
+  throw new Error('SLACK_BOT_TOKEN manquant');
+}
 
 const nowSeconds = Math.floor(Date.now() / 1000);
 const body = JSON.stringify({
@@ -83,7 +90,9 @@ const payload = (await history.json()) as {
   error?: string;
   messages?: { text?: string; bot_id?: string; files?: { name?: string }[] }[];
 };
-if (!payload.ok) throw new Error(`conversations.history a échoué : ${payload.error}`);
+if (!payload.ok) {
+  throw new Error(`conversations.history a échoué : ${payload.error}`);
+}
 
 const fromBot = (payload.messages ?? []).filter((m) => m.bot_id).reverse();
 

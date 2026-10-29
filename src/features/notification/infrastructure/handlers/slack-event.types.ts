@@ -87,6 +87,8 @@ export function resolveThreadTarget(
   const isDirectMessage = event.channel_type === 'im' || channel.startsWith('D');
   const isAlreadyThreaded = Boolean(event.thread_ts) && event.thread_ts !== event.ts;
 
-  if (!isDirectMessage) return { isDirectMessage, threadTs: event.thread_ts ?? event.ts };
+  if (!isDirectMessage) {
+    return { isDirectMessage, threadTs: event.thread_ts ?? event.ts };
+  }
   return { isDirectMessage, threadTs: isAlreadyThreaded ? event.thread_ts : undefined };
 }

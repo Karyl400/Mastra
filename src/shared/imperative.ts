@@ -17,7 +17,9 @@ export function isAnOrder(
   verbIndex: number,
   lookback: number = REQUEST_LOOKBACK_WORDS,
 ): boolean {
-  if (verbIndex === 0) return true;
+  if (verbIndex === 0) {
+    return true;
+  }
 
   const before = words.slice(Math.max(0, verbIndex - lookback), verbIndex).join(' ');
   return REQUEST_MARKERS.some((marker) => before.includes(marker));

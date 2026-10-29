@@ -16,7 +16,9 @@ export async function recordInventory(
 ): Promise<ChannelInventoryReport | undefined> {
   const repository = deps.inventory;
   const listMembers = deps.source.listMembers?.bind(deps.source);
-  if (!repository || !listMembers) return undefined;
+  if (!repository || !listMembers) {
+    return undefined;
+  }
 
   const now = (deps.now ?? (() => new Date()))();
 
@@ -38,11 +40,15 @@ export async function recordInventory(
     if (outcome.error !== undefined) {
       failures.push({ channelId: channel.id, name: channel.name, error: outcome.error });
     }
-    if (outcome.channelRecorded) channelsRecorded += 1;
+    if (outcome.channelRecorded) {
+      channelsRecorded += 1;
+    }
     if (outcome.members !== undefined) {
       channelsWithMembers += 1;
       membersRecorded += outcome.members;
-      if (outcome.truncated) truncatedChannels.push(channel.id);
+      if (outcome.truncated) {
+        truncatedChannels.push(channel.id);
+      }
     }
   }
 
@@ -89,7 +95,9 @@ async function recordOneChannel(
     return { channelRecorded: false, error: errorMessage(error) };
   }
 
-  if (!isMember) return { channelRecorded: true };
+  if (!isMember) {
+    return { channelRecorded: true };
+  }
 
   try {
     const scan = await listMembers(channel.id);
@@ -105,6 +113,8 @@ async function recordOneChannel(
 }
 
 export function isInventoryDegraded(inventory: ChannelInventoryReport | undefined): boolean {
-  if (!inventory) return false;
+  if (!inventory) {
+    return false;
+  }
   return inventory.failures.length > 0 || inventory.truncatedChannels.length > 0;
 }

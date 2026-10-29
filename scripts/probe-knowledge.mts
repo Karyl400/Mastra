@@ -36,8 +36,12 @@ const keep = args.includes('--keep');
 
 const signingSecret = process.env.SLACK_SIGNING_SECRET;
 const botToken = process.env.SLACK_BOT_TOKEN;
-if (!signingSecret) throw new Error('SLACK_SIGNING_SECRET manquant');
-if (!botToken) throw new Error('SLACK_BOT_TOKEN manquant');
+if (!signingSecret) {
+  throw new Error('SLACK_SIGNING_SECRET manquant');
+}
+if (!botToken) {
+  throw new Error('SLACK_BOT_TOKEN manquant');
+}
 
 const db = createClient({
   url: process.env.DATABASE_URL!,
@@ -64,15 +68,21 @@ async function targetChannel(): Promise<{ id: string; name: string; requesterIsM
     error?: string;
     channels?: Array<{ id: string; name: string; is_archived: boolean }>;
   };
-  if (!body.ok) throw new Error(`users.conversations: ${body.error}`);
+  if (!body.ok) {
+    throw new Error(`users.conversations: ${body.error}`);
+  }
 
   const alive = (body.channels ?? []).filter((c) => !c.is_archived);
-  if (alive.length === 0) throw new Error("Le bot n'est membre d'aucun canal vivant.");
+  if (alive.length === 0) {
+    throw new Error("Le bot n'est membre d'aucun canal vivant.");
+  }
 
   const forced = at('--channel');
   if (forced) {
     const picked = alive.find((c) => c.id === forced || c.name === forced.replace(/^#/, ''));
-    if (!picked) throw new Error(`Le bot n'est pas membre de ${forced}.`);
+    if (!picked) {
+      throw new Error(`Le bot n'est pas membre de ${forced}.`);
+    }
     return { ...picked, requesterIsMember: await isMember(picked.id) };
   }
 
@@ -235,4 +245,6 @@ if (!keep) {
 }
 
 const failures = results.filter(([, ok]) => !ok).length;
-if (failures > 0) process.exitCode = 1;
+if (failures > 0) {
+  process.exitCode = 1;
+}

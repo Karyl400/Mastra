@@ -4,16 +4,22 @@ const VIDEO_DURATION_LABEL = 'moins d’une minute, tout y est';
 
 function deployedVideoUrl(): string | undefined {
   const host = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
-  if (!host) return undefined;
+  if (!host) {
+    return undefined;
+  }
   return `https://${host}${ONBOARDING_VIDEO_PATH}`;
 }
 
 export function onboardingVideoUrl(): string | undefined {
   const raw = process.env.ONBOARDING_VIDEO_URL?.trim() || deployedVideoUrl();
-  if (!raw) return undefined;
+  if (!raw) {
+    return undefined;
+  }
   try {
     const url = new URL(raw);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      return undefined;
+    }
     return url.toString();
   } catch {
     return undefined;
@@ -22,7 +28,9 @@ export function onboardingVideoUrl(): string | undefined {
 
 export function videoLine(): string {
   const url = onboardingVideoUrl();
-  if (!url) return '';
+  if (!url) {
+    return '';
+  }
   return `\n\n*1.* Regarde d'abord la vidéo d'accueil : <${url}|${VIDEO_DURATION_LABEL}>.`;
 }
 

@@ -3,7 +3,9 @@ export function parseWelcomeChannelNames(raw: string | undefined | null): readon
 
   for (const part of (raw ?? '').split(',')) {
     const name = part.trim().replace(/^#+/, '').trim().toLowerCase();
-    if (name) seen.add(name);
+    if (name) {
+      seen.add(name);
+    }
   }
 
   return Array.from(seen);

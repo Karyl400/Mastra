@@ -20,7 +20,9 @@ export async function claimModelBudget(
   now: Date,
 ): Promise<{ allowed: boolean; degraded: boolean }> {
   const rules = self.rules.filter((rule) => rule.rationsModelBudget);
-  if (rules.length === 0) return { allowed: true, degraded: false };
+  if (rules.length === 0) {
+    return { allowed: true, degraded: false };
+  }
 
   const outcomes = await Promise.all(
     rules.map(async (rule) => claimOneRule(self, rule, subjectId, now)),
@@ -29,7 +31,9 @@ export async function claimModelBudget(
   const refused = outcomes.filter((o) => !o.allowed);
   const degraded = outcomes.some((o) => o.degraded);
 
-  if (refused.length === 0) return { allowed: true, degraded };
+  if (refused.length === 0) {
+    return { allowed: true, degraded };
+  }
 
   await Promise.all(
     outcomes
@@ -78,7 +82,9 @@ async function releaseOneRule(
   const key = buildCounterKey(rule, subjectId, now);
   self.local.set(key, Math.max(0, (self.local.get(key) ?? 1) - 1), { ttl: rule.windowMs });
 
-  if (!self.repository) return;
+  if (!self.repository) {
+    return;
+  }
   const { windowStart, expiresAt } = windowBounds(rule, now);
   try {
     await self.repository.increment(key, windowStart, expiresAt, -1);

@@ -12,16 +12,22 @@ export interface HttpErrorLike {
 }
 
 export function isCallerError(error: HttpErrorLike | undefined | null): boolean {
-  if (!error || error.status !== 500) return false;
+  if (!error || error.status !== 500) {
+    return false;
+  }
 
   const message = typeof error.message === 'string' ? error.message.trimStart() : '';
-  if (!message) return false;
+  if (!message) {
+    return false;
+  }
 
   return CALLER_ERROR_PREFIXES.some((prefix) => message.startsWith(prefix));
 }
 
 export function isCallerErrorBody(status: number, body: string): boolean {
-  if (status !== 500) return false;
+  if (status !== 500) {
+    return false;
+  }
 
   let message: string;
   try {
@@ -44,7 +50,9 @@ export function createCallerErrorMiddleware(options: { onRemap?: (message: strin
       await next();
     } catch (error) {
       const httpError = error as HttpErrorLike & { getResponse?: () => Response };
-      if (!isCallerError(httpError)) throw error;
+      if (!isCallerError(httpError)) {
+        throw error;
+      }
 
       options.onRemap?.(String(httpError.message));
 
@@ -62,10 +70,14 @@ export function createCallerErrorMiddleware(options: { onRemap?: (message: strin
 
     const ctx = c as MiddlewareContext;
     const res = ctx?.res;
-    if (!res || res.status !== 500) return;
+    if (!res || res.status !== 500) {
+      return;
+    }
 
     const body = await res.clone().text();
-    if (!isCallerErrorBody(res.status, body)) return;
+    if (!isCallerErrorBody(res.status, body)) {
+      return;
+    }
 
     options.onRemap?.(body);
 

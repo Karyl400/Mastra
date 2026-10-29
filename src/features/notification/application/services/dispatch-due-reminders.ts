@@ -71,9 +71,13 @@ export async function dispatchDueReminders(deps: DispatchDeps): Promise<Dispatch
 
   for (const reminder of due) {
     const outcome = await deliverOne(deps, reminder, now, reasons);
-    if (outcome === 'sent') sent += 1;
-    else if (outcome === 'failed') failed += 1;
-    else skipped += 1;
+    if (outcome === 'sent') {
+      sent += 1;
+    } else if (outcome === 'failed') {
+      failed += 1;
+    } else {
+      skipped += 1;
+    }
   }
 
   logger.info('Remise quotidienne des rappels terminée', {

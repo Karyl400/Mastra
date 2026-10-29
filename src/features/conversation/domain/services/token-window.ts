@@ -16,7 +16,9 @@ export function selectWindow(
   turns: readonly ConversationTurn[],
   budgetTokens: number = CONVERSATION_TOKEN_BUDGET,
 ): ConversationTurn[] {
-  if (budgetTokens <= 0 || turns.length === 0) return [];
+  if (budgetTokens <= 0 || turns.length === 0) {
+    return [];
+  }
 
   const maxTurnTokens = Math.floor(budgetTokens * MAX_TURN_BUDGET_SHARE);
   const units: ConversationTurn[][] = [];
@@ -27,14 +29,20 @@ export function selectWindow(
     let start = index;
 
     if (turns[start].role === 'assistant') {
-      while (start >= 0 && turns[start].role === 'assistant') start--;
-      if (start < 0 || turns[start].role !== 'user') break;
+      while (start >= 0 && turns[start].role === 'assistant') {
+        start--;
+      }
+      if (start < 0 || turns[start].role !== 'user') {
+        break;
+      }
     }
 
     const unit = turns.slice(start, index + 1).map((turn) => truncateToBudget(turn, maxTurnTokens));
     const unitCost = unit.reduce((sum, turn) => sum + estimateTokens(turn.content), 0);
 
-    if (unitCost > remaining) break;
+    if (unitCost > remaining) {
+      break;
+    }
 
     remaining -= unitCost;
     units.push(unit);
@@ -45,8 +53,12 @@ export function selectWindow(
 }
 
 function truncateToBudget(turn: ConversationTurn, maxTurnTokens: number): ConversationTurn {
-  if (maxTurnTokens <= 0) return { ...turn, content: '' };
-  if (estimateTokens(turn.content) <= maxTurnTokens) return turn;
+  if (maxTurnTokens <= 0) {
+    return { ...turn, content: '' };
+  }
+  if (estimateTokens(turn.content) <= maxTurnTokens) {
+    return turn;
+  }
 
   const maxChars = Math.floor(maxTurnTokens * CHARS_PER_TOKEN);
   const kept = turn.content.slice(0, Math.max(0, maxChars - TRUNCATION_SUFFIX.length));

@@ -3305,11 +3305,11 @@ Un découpage en segments est linéaire par construction, et il se lit mieux : o
 tout ce que le serveur normaliserait SANS que le garde le voie serait un contournement. Les
 segments vides absorbent d'un coup le slash de fin, les slashs doublés et le `?…`.
 
-**Avant `if (segments.length < 4) return false;`**
+**Avant `if (segments.length < 4) { return false; }`**
 
 `…/tools/<toolId>/execute` — au minimum `api`, `tools`, `<id>`, `execute`.
 
-**Avant `if (segments.length === 4) return true;`**
+**Avant `if (segments.length === 4) { return true; }`**
 
 Deux formes exposées par Mastra, et deux seulement : `/api/tools/<id>/execute`
 et `/api/agents/<agentId>/tools/<id>/execute`.
@@ -3400,11 +3400,11 @@ variable est facultative, et un déploiement qui ne l'a pas posée doit continue
 workspace. Le refus silencieux de TOUS les événements serait une panne indiscernable d'un bot
 mort — précisément ce que ce dépôt combat.
 
-**Avant `if (!want) return { accepted: true, checked: false };`**
+**Avant `if (!want) { return { accepted: true, checked: false }; }`**
 
 Non configurée : on ne vérifie pas, et l'appelant journalise UNE fois que le contrôle dort.
 
-**Avant `if (!got) return { accepted: true, checked: true };`**
+**Avant `if (!got) { return { accepted: true, checked: true }; }`**
 
 ⚠️ Un événement SANS `team_id` est accepté : le champ est absent de certaines charges
 Slack, et le refuser transformerait une défense en profondeur en panne intermittente.

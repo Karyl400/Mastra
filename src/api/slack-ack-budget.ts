@@ -7,8 +7,12 @@ export const SLACK_ACK_AT_RISK_MS = 1_500;
 export type AckBudgetState = 'ok' | 'at_risk' | 'exceeded';
 
 export function classifyAckLatency(elapsedMs: number): AckBudgetState {
-  if (elapsedMs >= SLACK_ACK_BUDGET_MS) return 'exceeded';
-  if (elapsedMs >= SLACK_ACK_AT_RISK_MS) return 'at_risk';
+  if (elapsedMs >= SLACK_ACK_BUDGET_MS) {
+    return 'exceeded';
+  }
+  if (elapsedMs >= SLACK_ACK_AT_RISK_MS) {
+    return 'at_risk';
+  }
   return 'ok';
 }
 

@@ -34,10 +34,14 @@ export async function acceptEvent(
   }
 
   const wrongTeam = checkTeamId(self, envelope);
-  if (wrongTeam) return wrongTeam;
+  if (wrongTeam) {
+    return wrongTeam;
+  }
 
   const rejected = isTeamJoinEvent(event) ? rejectTeamJoin(event) : rejectMessage(event);
-  if (rejected) return { action: 'ignore', reason: rejected };
+  if (rejected) {
+    return { action: 'ignore', reason: rejected };
+  }
 
   if (isStale(envelope, event)) {
     return { action: 'ignore', reason: 'stale_event' };
@@ -49,7 +53,9 @@ export async function acceptEvent(
   }
 
   const limited = await checkRateLimit(self, event);
-  if (limited) return limited;
+  if (limited) {
+    return limited;
+  }
 
   return { action: 'process', event };
 }

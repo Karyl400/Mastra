@@ -56,13 +56,18 @@ for (const row of people) {
   // « qui est-ce ? » selon la table qu'on interroge — et `resolveAccess` refuse `is_bot` en
   // toute première règle.
   let nature = '';
-  if (row.is_bot) nature = ' [BOT]';
-  else if (row.is_deleted) nature = ' [COMPTE DÉSACTIVÉ]';
+  if (row.is_bot) {
+    nature = ' [BOT]';
+  } else if (row.is_deleted) {
+    nature = ' [COMPTE DÉSACTIVÉ]';
+  }
   console.log(`  ${show(row.first_name)} ${show(row.last_name)}${nature}`);
   console.log(`    ID     : ${row.slack_user_id}`);
   console.log(`    email  : ${show(row.email)}`);
   console.log(`    poste  : ${show(row.title)}`);
-  if (row.employee_id) console.log(`    employé: ${row.employee_id}`);
+  if (row.employee_id) {
+    console.log(`    employé: ${row.employee_id}`);
+  }
   console.log();
 }
 

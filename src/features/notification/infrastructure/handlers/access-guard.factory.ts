@@ -9,7 +9,9 @@ export function buildAccessGuard(
   repo: DirectoryRepository | null,
   source: MemberSource,
 ): SlackAccessGuard | null {
-  if (!repo) return null;
+  if (!repo) {
+    return null;
+  }
 
   return new SlackAccessGuard({
     resolveSubject: async (slackUserId) => {
@@ -32,7 +34,9 @@ export function buildAccessGuard(
       }
 
       const facts = await source.findById(slackUserId);
-      if (!facts) return null;
+      if (!facts) {
+        return null;
+      }
 
       await repo.upsertFacts(facts, new Date()).catch((error) =>
         logger.warn('Could not persist the directory entry learned on the fly', {

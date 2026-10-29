@@ -48,7 +48,9 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffect>> = {
 };
 
 export function agentHasTool(agentId: string, toolName: string): boolean {
-  if (!Object.hasOwn(AGENT_TOOLS, agentId)) return false;
+  if (!Object.hasOwn(AGENT_TOOLS, agentId)) {
+    return false;
+  }
   return AGENT_TOOLS[agentId].includes(toolName);
 }
 

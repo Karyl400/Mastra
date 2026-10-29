@@ -19,8 +19,9 @@ export class DrizzleSlackEventDedupRepository implements SlackEventDedupReposito
       .values({ key, status: 'in-flight', startedAt: new Date(now) })
       .onConflictDoNothing();
 
-    if (affectedRowsOrThrow(inserted, 'la prise de déduplication Slack') > 0)
+    if (affectedRowsOrThrow(inserted, 'la prise de déduplication Slack') > 0) {
       return { granted: true, reclaimed: false };
+    }
 
     const cutoff = new Date(now - options.inFlightGraceMs);
     const reclaimed = await db
@@ -34,8 +35,9 @@ export class DrizzleSlackEventDedupRepository implements SlackEventDedupReposito
         ),
       );
 
-    if (affectedRowsOrThrow(reclaimed, 'la reprise d’un événement Slack abandonné') > 0)
+    if (affectedRowsOrThrow(reclaimed, 'la reprise d’un événement Slack abandonné') > 0) {
       return { granted: true, reclaimed: true };
+    }
 
     const [row] = await db
       .select()

@@ -8,7 +8,11 @@ export async function readOrMark<T>(
   try {
     return await run();
   } catch (error) {
-    for (const table of tables) if (!unreadable.includes(table)) unreadable.push(table);
+    for (const table of tables) {
+      if (!unreadable.includes(table)) {
+        unreadable.push(table);
+      }
+    }
     logger.warn('Métrique indisponible — lecture impossible', { tables, error });
     return [];
   }
@@ -28,7 +32,9 @@ export function fingerprint(conversationId: string): string {
 }
 
 function parseDetails(raw: string | null): Record<string, unknown> | null {
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   try {
     return JSON.parse(raw) as Record<string, unknown>;
   } catch {
@@ -63,16 +69,26 @@ export function summariseRuns(rows: readonly RunRow[]): {
   let requalifiedResponses = 0;
 
   for (const row of rows) {
-    if (row.status === 'failure') agentRunsFailed += 1;
-    if (row.status === 'denied') injectionsBlocked += 1;
+    if (row.status === 'failure') {
+      agentRunsFailed += 1;
+    }
+    if (row.status === 'denied') {
+      injectionsBlocked += 1;
+    }
 
     const details = parseDetails(row.details);
-    if (!details) continue;
+    if (!details) {
+      continue;
+    }
 
-    if (details.unsupportedClaim || details.deliveryPromise) requalifiedResponses += 1;
+    if (details.unsupportedClaim || details.deliveryPromise) {
+      requalifiedResponses += 1;
+    }
 
     const duration = Number(details.durationMs);
-    if (Number.isFinite(duration) && duration >= 0) latenciesMs.push(duration);
+    if (Number.isFinite(duration) && duration >= 0) {
+      latenciesMs.push(duration);
+    }
 
     for (const name of readToolNames(details.toolCalls)) {
       toolCallCounts[name] = (toolCallCounts[name] ?? 0) + 1;

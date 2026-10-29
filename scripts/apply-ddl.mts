@@ -26,16 +26,24 @@ function split(sql: string): string[] {
 
   for (const line of sql.split('\n')) {
     const bare = line.replace(/--[^\n]*/, '');
-    if (/\bBEGIN\b/i.test(bare)) depth += 1;
-    if (/\bEND\s*;/i.test(bare)) depth -= 1;
+    if (/\bBEGIN\b/i.test(bare)) {
+      depth += 1;
+    }
+    if (/\bEND\s*;/i.test(bare)) {
+      depth -= 1;
+    }
     current += `${line}\n`;
     if (depth === 0 && /;\s*$/.test(bare)) {
-      if (current.replace(/--[^\n]*/g, '').trim()) statements.push(current.trim());
+      if (current.replace(/--[^\n]*/g, '').trim()) {
+        statements.push(current.trim());
+      }
       current = '';
     }
   }
 
-  if (current.replace(/--[^\n]*/g, '').trim()) statements.push(current.trim());
+  if (current.replace(/--[^\n]*/g, '').trim()) {
+    statements.push(current.trim());
+  }
   return statements;
 }
 

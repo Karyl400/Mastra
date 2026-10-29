@@ -26,7 +26,9 @@ const MAX_GREETING_LENGTH = 40;
 
 export function isBareGreeting(text: string | undefined | null): boolean {
   const raw = (text ?? '').trim();
-  if (raw.length === 0 || raw.length > MAX_GREETING_LENGTH) return false;
+  if (raw.length === 0 || raw.length > MAX_GREETING_LENGTH) {
+    return false;
+  }
 
   return BARE_GREETINGS.has(normalizeIntentText(raw));
 }

@@ -100,7 +100,9 @@ export class DrizzleEmployeeRepository implements EmployeeRepository {
   }
 
   async findByName(query: string, limit: number): Promise<Employee[]> {
-    if (limit <= 0) return [];
+    if (limit <= 0) {
+      return [];
+    }
 
     const db = this.resolveDb();
     const rows = await db
@@ -111,7 +113,9 @@ export class DrizzleEmployeeRepository implements EmployeeRepository {
 
     const matches: Employee[] = [];
     for (const row of rows) {
-      if (matches.length >= limit) break;
+      if (matches.length >= limit) {
+        break;
+      }
       if (matchesName(query, [row.firstName, row.lastName, `${row.firstName} ${row.lastName}`])) {
         matches.push(toDomain(row));
       }
@@ -132,7 +136,9 @@ export class DrizzleEmployeeRepository implements EmployeeRepository {
   }
 
   private async explainEmailConflict(email: string, error: unknown): Promise<void> {
-    if (!isUniqueConstraintViolation(error)) return;
+    if (!isUniqueConstraintViolation(error)) {
+      return;
+    }
 
     const db = this.resolveDb();
     const supprime = await db
@@ -141,7 +147,9 @@ export class DrizzleEmployeeRepository implements EmployeeRepository {
       .where(and(eq(employees.email, email), isNotNull(employees.deletedAt)))
       .get();
 
-    if (!supprime) return;
+    if (!supprime) {
+      return;
+    }
 
     throw new ConflictError(
       `L'adresse ${email} est encore occupée par une fiche supprimée le ${supprime.deletedAt}. ` +
@@ -156,7 +164,9 @@ function isUniqueConstraintViolation(error: unknown): boolean {
     const texte = `${(current as { code?: string }).code ?? ''} ${
       (current as { message?: string }).message ?? ''
     }`;
-    if (/SQLITE_CONSTRAINT|UNIQUE constraint failed/i.test(texte)) return true;
+    if (/SQLITE_CONSTRAINT|UNIQUE constraint failed/i.test(texte)) {
+      return true;
+    }
   }
   return false;
 }

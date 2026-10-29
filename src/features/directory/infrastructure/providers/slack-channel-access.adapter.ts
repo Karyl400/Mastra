@@ -55,7 +55,9 @@ export class SlackChannelAccess implements ChannelAccessSource {
       const page = await this.slack.listChannelMembershipsPage(cursor);
 
       for (const channel of page.channels) {
-        if (!channel.id) continue;
+        if (!channel.id) {
+          continue;
+        }
 
         const count = reported.get(channel.id);
 
@@ -109,12 +111,18 @@ export class SlackChannelAccess implements ChannelAccessSource {
 
   private async readReportedMemberCounts(): Promise<Map<string, number>> {
     const counts = new Map<string, number>();
-    if (!this.reportedMemberCounts) return counts;
+    if (!this.reportedMemberCounts) {
+      return counts;
+    }
 
     try {
       for (const channel of await this.slack.listChannels()) {
-        if (!channel.id) continue;
-        if (channel.memberCount > 0) counts.set(channel.id, channel.memberCount);
+        if (!channel.id) {
+          continue;
+        }
+        if (channel.memberCount > 0) {
+          counts.set(channel.id, channel.memberCount);
+        }
       }
     } catch (error) {
       logger.warn('Reported member counts unavailable — the inventory will record null', {

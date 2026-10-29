@@ -52,9 +52,15 @@ const freeOnly = args.includes('--free');
 
 const signingSecret = process.env.SLACK_SIGNING_SECRET;
 const botToken = process.env.SLACK_BOT_TOKEN;
-if (!signingSecret) throw new Error('SLACK_SIGNING_SECRET manquant');
-if (!botToken) throw new Error('SLACK_BOT_TOKEN manquant');
-if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL manquant');
+if (!signingSecret) {
+  throw new Error('SLACK_SIGNING_SECRET manquant');
+}
+if (!botToken) {
+  throw new Error('SLACK_BOT_TOKEN manquant');
+}
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL manquant');
+}
 
 const db = createClient({
   url: process.env.DATABASE_URL,
@@ -135,7 +141,9 @@ async function resilientFetch(url: string, init?: RequestInit, attempts = 4): Pr
       return await fetch(url, init);
     } catch (error) {
       lastError = error;
-      if (attempt < attempts) await new Promise((r) => setTimeout(r, attempt * 3_000));
+      if (attempt < attempts) {
+        await new Promise((r) => setTimeout(r, attempt * 3_000));
+      }
     }
   }
   throw lastError;
@@ -194,7 +202,9 @@ async function retry<T>(operation: () => Promise<T>, attempts = 4): Promise<T> {
       return await operation();
     } catch (error) {
       lastError = error;
-      if (attempt < attempts) await new Promise((r) => setTimeout(r, attempt * 3_000));
+      if (attempt < attempts) {
+        await new Promise((r) => setTimeout(r, attempt * 3_000));
+      }
     }
   }
   throw lastError;
@@ -256,9 +266,13 @@ async function main(): Promise<void> {
     if (!replyOk) {
       console.log(`    réponse INATTENDUE : ${posted.slice(0, 120)}…`);
     }
-    if (!ok) failures += 1;
+    if (!ok) {
+      failures += 1;
+    }
 
-    if (index < selected.length - 1) await sleep(CADENCE_MS);
+    if (index < selected.length - 1) {
+      await sleep(CADENCE_MS);
+    }
   }
 
   console.log(

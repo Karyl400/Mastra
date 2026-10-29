@@ -82,7 +82,9 @@ export class SlackAccessGuard {
   }
 
   private async canEnforce(): Promise<boolean> {
-    if (!this.enforceRequested) return false;
+    if (!this.enforceRequested) {
+      return false;
+    }
 
     if (!this.hasManager) {
       this.warnOnce(
@@ -92,14 +94,20 @@ export class SlackAccessGuard {
       return false;
     }
 
-    if (this.managerSeen) return true;
+    if (this.managerSeen) {
+      return true;
+    }
 
     const now = Date.now();
-    if (now - this.lastManagerCheck < MANAGER_RECHECK_MS) return false;
+    if (now - this.lastManagerCheck < MANAGER_RECHECK_MS) {
+      return false;
+    }
 
     const probe = await this.probeManager();
 
-    if (probe === 'unknown') return true;
+    if (probe === 'unknown') {
+      return true;
+    }
 
     this.lastManagerCheck = now;
 
@@ -129,7 +137,9 @@ export class SlackAccessGuard {
   }
 
   private warnOnce(message: string): void {
-    if (this.misconfigurationLogged) return;
+    if (this.misconfigurationLogged) {
+      return;
+    }
     this.misconfigurationLogged = true;
     logger.error(message);
   }

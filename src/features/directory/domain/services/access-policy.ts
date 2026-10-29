@@ -19,10 +19,16 @@ export interface AccessSubject {
 }
 
 export function resolveAccess(subject: AccessSubject | null): AccessDecision {
-  if (!subject) return { level: 'readonly', reason: 'unknown_actor' };
+  if (!subject) {
+    return { level: 'readonly', reason: 'unknown_actor' };
+  }
 
-  if (subject.isBot) return { level: 'denied', reason: 'bot_actor' };
-  if (subject.isDeleted) return { level: 'denied', reason: 'deactivated_account' };
+  if (subject.isBot) {
+    return { level: 'denied', reason: 'bot_actor' };
+  }
+  if (subject.isDeleted) {
+    return { level: 'denied', reason: 'deactivated_account' };
+  }
 
   if (subject.isRestricted || subject.isUltraRestricted) {
     return { level: 'readonly', reason: 'guest' };

@@ -12,9 +12,15 @@ export type InterviewStep = 'dailyWork' | 'workStyle';
 
 export function pendingInterviewStep(lastAssistantText: string | undefined): InterviewStep | null {
   const text = (lastAssistantText ?? '').trim();
-  if (!text) return null;
-  if (text.includes(INTERVIEW_QUESTION_STYLE.slice(0, 40))) return 'workStyle';
-  if (text.includes(INTERVIEW_QUESTION_DAILY.slice(0, 40))) return 'dailyWork';
+  if (!text) {
+    return null;
+  }
+  if (text.includes(INTERVIEW_QUESTION_STYLE.slice(0, 40))) {
+    return 'workStyle';
+  }
+  if (text.includes(INTERVIEW_QUESTION_DAILY.slice(0, 40))) {
+    return 'dailyWork';
+  }
   return null;
 }
 
@@ -22,8 +28,12 @@ export const MAX_INTERVIEW_ANSWER_CHARS = 280;
 
 export function captureInterviewAnswer(text: string | undefined): string | null {
   const trimmed = unwrapSlackLinks(text).trim().replace(/\s+/g, ' ');
-  if (trimmed.length < 4) return null;
-  if (isCompletionClaim(trimmed)) return null;
+  if (trimmed.length < 4) {
+    return null;
+  }
+  if (isCompletionClaim(trimmed)) {
+    return null;
+  }
   return trimmed.slice(0, MAX_INTERVIEW_ANSWER_CHARS);
 }
 
@@ -68,16 +78,22 @@ const INTERROGATIVE_OPENERS =
 
 export function isQuestionToBot(text: string): boolean {
   const trimmed = text.trim();
-  if (trimmed.length === 0) return false;
+  if (trimmed.length === 0) {
+    return false;
+  }
 
   const normalized = trimmed
     .toLowerCase()
     .normalize('NFD')
     .replace(/\p{M}+/gu, '');
 
-  if (INTERROGATIVE_OPENERS.test(normalized)) return true;
+  if (INTERROGATIVE_OPENERS.test(normalized)) {
+    return true;
+  }
 
-  if (FIRST_PERSON.test(trimmed.toLowerCase())) return false;
+  if (FIRST_PERSON.test(trimmed.toLowerCase())) {
+    return false;
+  }
 
   return trimmed.endsWith('?');
 }

@@ -33,8 +33,12 @@ const channel = at('--channel') ?? DEFAULT_CHANNEL;
 
 const signingSecret = process.env.SLACK_SIGNING_SECRET;
 const botToken = process.env.SLACK_BOT_TOKEN;
-if (!signingSecret) throw new Error('SLACK_SIGNING_SECRET manquant');
-if (!botToken) throw new Error('SLACK_BOT_TOKEN manquant');
+if (!signingSecret) {
+  throw new Error('SLACK_SIGNING_SECRET manquant');
+}
+if (!botToken) {
+  throw new Error('SLACK_BOT_TOKEN manquant');
+}
 
 async function send(text: string, ageMinutes: number, id: string): Promise<number> {
   const nowSeconds = Math.floor(Date.now() / 1000);
@@ -81,7 +85,9 @@ async function botMessagesSince(since: number): Promise<string[]> {
     error?: string;
     messages?: { text?: string; bot_id?: string }[];
   };
-  if (!payload.ok) throw new Error(`conversations.history a échoué : ${payload.error}`);
+  if (!payload.ok) {
+    throw new Error(`conversations.history a échoué : ${payload.error}`);
+  }
   return (payload.messages ?? []).filter((m) => m.bot_id).map((m) => m.text ?? '');
 }
 
@@ -114,7 +120,7 @@ console.log(
 console.log(
   temoinRepondu
     ? '✅ Le témoin frais a bien reçu la sienne — le bot est vivant.'
-    : "❌ Le témoin frais est resté sans réponse : le contrôle ne prouve rien (bot muet ?).",
+    : '❌ Le témoin frais est resté sans réponse : le contrôle ne prouve rien (bot muet ?).',
 );
 
 process.exit(perimeIgnore && temoinRepondu ? 0 : 1);

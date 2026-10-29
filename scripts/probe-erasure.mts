@@ -41,9 +41,15 @@ const signingSecret = process.env.SLACK_SIGNING_SECRET;
 const botToken = process.env.SLACK_BOT_TOKEN;
 const databaseUrl = process.env.DATABASE_URL;
 
-if (!signingSecret) throw new Error('SLACK_SIGNING_SECRET manquant');
-if (!botToken) throw new Error('SLACK_BOT_TOKEN manquant');
-if (!databaseUrl) throw new Error('DATABASE_URL manquant');
+if (!signingSecret) {
+  throw new Error('SLACK_SIGNING_SECRET manquant');
+}
+if (!botToken) {
+  throw new Error('SLACK_BOT_TOKEN manquant');
+}
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL manquant');
+}
 
 const db = createClient({ url: databaseUrl, authToken: process.env.DATABASE_AUTH_TOKEN });
 
@@ -141,7 +147,9 @@ async function lastBotMessage(since: number): Promise<string | undefined> {
     error?: string;
     messages?: { text?: string; bot_id?: string }[];
   };
-  if (!payload.ok) throw new Error(`conversations.history a échoué : ${payload.error}`);
+  if (!payload.ok) {
+    throw new Error(`conversations.history a échoué : ${payload.error}`);
+  }
   return payload.messages?.find((m) => m.bot_id)?.text;
 }
 
@@ -194,7 +202,9 @@ function archiveVerdict(): string {
   if (archiveNonExercee) {
     return "⚠️  Archive : rien n'était archivé avant — le chemin n'a PAS été exercé, ce n'est pas une réussite.";
   }
-  if (archiveEffacee) return `✅ L'archive du DM est partie aussi (${archiveBefore} → 0).`;
+  if (archiveEffacee) {
+    return `✅ L'archive du DM est partie aussi (${archiveBefore} → 0).`;
+  }
   return `❌ L'archive du DM SUBSISTE (${archiveBefore} → ${archiveAfter}).`;
 }
 console.log(archiveVerdict());

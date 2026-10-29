@@ -97,7 +97,9 @@ const STYLES: TDocumentDefinitions['styles'] = {
 let glyphs: GlyphSource | null = null;
 
 function glyphSource(): GlyphSource {
-  if (glyphs) return glyphs;
+  if (glyphs) {
+    return glyphs;
+  }
 
   const known = new Map<number, boolean>();
   let font: { hasGlyphForCodePoint(cp: number): boolean } | null = null;
@@ -106,16 +108,22 @@ function glyphSource(): GlyphSource {
     const fontkit = _require('fontkit') as { create(buffer: Buffer): typeof font };
     const entry = Roboto?.vfs['Roboto-Regular.ttf'];
     const base64 = typeof entry === 'string' ? entry : entry?.data;
-    if (base64) font = fontkit.create(Buffer.from(base64, 'base64'));
+    if (base64) {
+      font = fontkit.create(Buffer.from(base64, 'base64'));
+    }
   } catch (error) {
     logger.warn('Police illisible — filtre de glyphes désactivé pour ce processus', { error });
   }
 
   glyphs = {
     hasGlyph(codePoint: number): boolean {
-      if (!font) return true;
+      if (!font) {
+        return true;
+      }
       const cached = known.get(codePoint);
-      if (cached !== undefined) return cached;
+      if (cached !== undefined) {
+        return cached;
+      }
       const has = font.hasGlyphForCodePoint(codePoint);
       known.set(codePoint, has);
       return has;
@@ -127,7 +135,9 @@ function glyphSource(): GlyphSource {
 
 function printable(text: string, replaced: Set<string>): string {
   const result = toPrintableText(text, glyphSource());
-  for (const cp of result.replaced) replaced.add(cp);
+  for (const cp of result.replaced) {
+    replaced.add(cp);
+  }
   return result.text;
 }
 

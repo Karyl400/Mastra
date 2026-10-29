@@ -7,12 +7,22 @@ export function isToolExecutionPath(rawPath: string): boolean {
     .map((segment) => segment.toLowerCase());
 
   const last = segments.length - 1;
-  if (segments.length < 4) return false;
-  if (segments[0] !== 'api') return false;
-  if (segments[last] !== 'execute') return false;
-  if (segments[last - 2] !== 'tools') return false;
+  if (segments.length < 4) {
+    return false;
+  }
+  if (segments[0] !== 'api') {
+    return false;
+  }
+  if (segments[last] !== 'execute') {
+    return false;
+  }
+  if (segments[last - 2] !== 'tools') {
+    return false;
+  }
 
-  if (segments.length === 4) return true;
+  if (segments.length === 4) {
+    return true;
+  }
   return segments.length === 6 && segments[1] === 'agents';
 }
 
@@ -22,7 +32,9 @@ interface GuardedContext {
 
 function pathOf(c: unknown): string {
   const req = (c as GuardedContext)?.req;
-  if (typeof req?.path === 'string') return req.path;
+  if (typeof req?.path === 'string') {
+    return req.path;
+  }
   const url = req?.raw?.url;
   if (typeof url === 'string') {
     try {

@@ -20,11 +20,15 @@ export async function readInterview(
     { listChannels(): Promise<ReadonlyArray<{ channelId: string; name: string }>> } | undefined,
   employeeId: string,
 ): Promise<DocumentRenderInput['interview']> {
-  if (!interviewRepo) return undefined;
+  if (!interviewRepo) {
+    return undefined;
+  }
 
   try {
     const interview = await interviewRepo.findByEmployee(employeeId);
-    if (!interview) return undefined;
+    if (!interview) {
+      return undefined;
+    }
 
     let channels: string[] = [];
     if (channelRepo && interview.channels.length > 0) {

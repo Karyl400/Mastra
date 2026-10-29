@@ -63,7 +63,9 @@ export class InMemoryChannelInventoryRepository implements ChannelInventoryRepos
     const rows: SlackChannelMembership[] = [];
     for (const byUser of this.members.values()) {
       const hit = byUser.get(slackUserId);
-      if (hit) rows.push(hit);
+      if (hit) {
+        rows.push(hit);
+      }
     }
     return rows.sort((a, b) => compareBinary(a.channelId, b.channelId));
   }
@@ -75,6 +77,8 @@ export class InMemoryChannelInventoryRepository implements ChannelInventoryRepos
 }
 
 function compareBinary(a: string, b: string): number {
-  if (a < b) return -1;
+  if (a < b) {
+    return -1;
+  }
   return a > b ? 1 : 0;
 }

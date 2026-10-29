@@ -17,7 +17,9 @@ export function makeRunGuard(now: () => number = Date.now): RunGuard {
 
   const evictExpired = (at: number): void => {
     for (const [key, entry] of entries) {
-      if (entry.expiresAt <= at) entries.delete(key);
+      if (entry.expiresAt <= at) {
+        entries.delete(key);
+      }
     }
   };
 
@@ -25,7 +27,9 @@ export function makeRunGuard(now: () => number = Date.now): RunGuard {
     get<T>(key: string): T | undefined {
       const at = now();
       const entry = entries.get(key);
-      if (!entry) return undefined;
+      if (!entry) {
+        return undefined;
+      }
       if (entry.expiresAt <= at) {
         entries.delete(key);
         return undefined;
@@ -38,7 +42,9 @@ export function makeRunGuard(now: () => number = Date.now): RunGuard {
       evictExpired(at);
       while (entries.size >= RUN_GUARD_MAX_ENTRIES) {
         const oldest = entries.keys().next();
-        if (oldest.done) break;
+        if (oldest.done) {
+          break;
+        }
         entries.delete(oldest.value);
       }
       entries.set(key, { value, expiresAt: at + RUN_GUARD_TTL_MS });
@@ -60,6 +66,8 @@ export function buildRunKey(
   toolId: string,
   parts: ReadonlyArray<string | null | undefined>,
 ): string | undefined {
-  if (!eventTs) return undefined;
+  if (!eventTs) {
+    return undefined;
+  }
   return [eventTs, toolId, ...parts.map((p) => p ?? '')].join('\u0000');
 }

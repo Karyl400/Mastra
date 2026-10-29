@@ -22,15 +22,21 @@ export function constantTimeEquals(a: string, b: string): boolean {
 }
 
 function normalizeToken(raw: string | null | undefined): string {
-  if (typeof raw !== 'string') return '';
+  if (typeof raw !== 'string') {
+    return '';
+  }
   return raw.replace(/^Bearer\s+/i, '').trim();
 }
 
 export function readConfiguredApiToken(env: NodeJS.ProcessEnv = process.env): string | null {
   const value = env[API_TOKEN_ENV_VAR];
-  if (typeof value !== 'string') return null;
+  if (typeof value !== 'string') {
+    return null;
+  }
   const trimmed = value.trim();
-  if (trimmed.length < MIN_API_TOKEN_LENGTH) return null;
+  if (trimmed.length < MIN_API_TOKEN_LENGTH) {
+    return null;
+  }
   return trimmed;
 }
 
@@ -64,7 +70,9 @@ export function createApiAuthConfig(
 
   let warned = false;
   const warnOnce = () => {
-    if (warned) return;
+    if (warned) {
+      return;
+    }
     warned = true;
     onMisconfigured?.(
       `${API_TOKEN_ENV_VAR} absent ou trop court (< ${MIN_API_TOKEN_LENGTH} caractères) : ` +

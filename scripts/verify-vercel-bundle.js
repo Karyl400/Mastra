@@ -55,7 +55,9 @@ const { scanned, missing, missingOptional, unsatisfied } = auditBundle({ bundleD
 
 if (missing.length > 0) {
   failed = true;
-  console.error(`❌ ${missing.length} dépendance(s) obligatoire(s) irrésolvable(s) dans le bundle :`);
+  console.error(
+    `❌ ${missing.length} dépendance(s) obligatoire(s) irrésolvable(s) dans le bundle :`,
+  );
   for (const entry of missing) {
     console.error(`   - ${entry.name} requis par ${entry.requiredBy} (${entry.at})`);
   }
@@ -64,7 +66,7 @@ if (missing.length > 0) {
 if (missingOptional.length > 0) {
   const names = [...new Set(missingOptional.map((e) => e.name))].sort();
   console.log(
-    `ℹ️  ${missingOptional.length} dépendance(s) optionnelle(s)/peer absente(s), non bloquant : ${names.join(', ')}`
+    `ℹ️  ${missingOptional.length} dépendance(s) optionnelle(s)/peer absente(s), non bloquant : ${names.join(', ')}`,
   );
 }
 
@@ -98,7 +100,7 @@ if (unsatisfied.length > 0) {
     ...new Set(unsatisfied.map((e) => `${e.name}@${e.resolvedVersion} vs ${e.range}`)),
   ].sort();
   console.log(
-    `ℹ️  ${unsatisfied.length} résolution(s) hors intervalle déclaré, non bloquant : ${names.join(', ')}`
+    `ℹ️  ${unsatisfied.length} résolution(s) hors intervalle déclaré, non bloquant : ${names.join(', ')}`,
   );
 }
 
@@ -112,11 +114,13 @@ for (const [consumer, dependency] of [
   ['pdfkit', 'png-js'],
 ]) {
   const consumerDir = join(bundleNodeModules, consumer);
-  if (!existsSync(consumerDir)) continue;
+  if (!existsSync(consumerDir)) {
+    continue;
+  }
   const resolved = resolveFrom(consumerDir, dependency, bundleDir);
   if (resolved) {
     console.log(
-      `✅ Chaîne PDF : ${consumer} → ${dependency}@${readPackageJson(resolved)?.version} résolu.`
+      `✅ Chaîne PDF : ${consumer} → ${dependency}@${readPackageJson(resolved)?.version} résolu.`,
     );
   } else {
     console.error(`❌ Chaîne PDF : ${consumer} → ${dependency} IRRÉSOLU.`);
@@ -148,12 +152,12 @@ if (!failed) {
       throw new Error(`sortie inattendue (${buffer?.length ?? 0} octets)`);
     }
     console.log(
-      `✅ Smoke test PDF depuis le bundle : ${buffer.length} octets générés (en-tête %PDF- valide).`
+      `✅ Smoke test PDF depuis le bundle : ${buffer.length} octets générés (en-tête %PDF- valide).`,
     );
   } catch (error) {
     console.error(`❌ Smoke test PDF depuis le bundle en échec : ${error?.message ?? error}`);
     console.error(
-      '   C\'est le crash de documentGenerationWorkflow en production. Ne pas déployer ce bundle.'
+      "   C'est le crash de documentGenerationWorkflow en production. Ne pas déployer ce bundle.",
     );
     failed = true;
   }
@@ -169,17 +173,19 @@ if (!failed) {
       pathToFileURL(join(bundleNodeModules, 'docx', 'dist', 'index.mjs')).href
     );
     const buffer = await Packer.toBuffer(
-      new Document({ sections: [{ children: [new Paragraph('bundle smoke test')] }] })
+      new Document({ sections: [{ children: [new Paragraph('bundle smoke test')] }] }),
     );
     if (!buffer?.length || buffer.subarray(0, 2).toString() !== 'PK') {
       throw new Error(`sortie inattendue (${buffer?.length ?? 0} octets)`);
     }
     console.log(
-      `✅ Smoke test DOCX depuis le bundle : ${buffer.length} octets générés (en-tête PK valide).`
+      `✅ Smoke test DOCX depuis le bundle : ${buffer.length} octets générés (en-tête PK valide).`,
     );
   } catch (error) {
     console.error(`❌ Smoke test DOCX depuis le bundle en échec : ${error?.message ?? error}`);
-    console.error("   `generateDocument` en format docx crasherait en production. Ne pas déployer.");
+    console.error(
+      '   `generateDocument` en format docx crasherait en production. Ne pas déployer.',
+    );
     failed = true;
   }
 }
@@ -208,19 +214,22 @@ if (existsSync(join(bundleDir, 'index.mjs'))) {
   const { spawnSync } = await import('child_process');
   const probe = spawnSync(
     process.execPath,
-    ['-e', "import('./index.mjs').then(()=>process.exit(0)).catch(e=>{console.error(e.message);process.exit(3)})"],
+    [
+      '-e',
+      "import('./index.mjs').then(()=>process.exit(0)).catch(e=>{console.error(e.message);process.exit(3)})",
+    ],
     {
       cwd: bundleDir,
       encoding: 'utf8',
       timeout: 120_000,
       env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL ?? 'file:./_verify-boot.db' },
-    }
+    },
   );
 
   const output = `${probe.stdout ?? ''}${probe.stderr ?? ''}`;
   const linkFailure =
     /Named export .* not found|ERR_MODULE_NOT_FOUND|Cannot find module|ERR_REQUIRE_ESM|does not provide an export/.test(
-      output
+      output,
     );
 
   if (linkFailure) {
@@ -232,14 +241,14 @@ if (existsSync(join(bundleDir, 'index.mjs'))) {
         .filter(Boolean)
         .slice(0, 4)
         .map((line) => `   ${line}`)
-        .join('\n')
+        .join('\n'),
     );
     console.error(
-      "   Un module est présent mais à une majeure dont la forme d'export a changé. Correctif :"
+      "   Un module est présent mais à une majeure dont la forme d'export a changé. Correctif :",
     );
     console.error('   ajouter le paquet à MODULES_TO_COPY dans scripts/fix-vercel-output.js —');
     console.error(
-      "   la copie depuis la racine ÉCRASE la version périmée, ce qu'ensureTransitiveDependencies"
+      "   la copie depuis la racine ÉCRASE la version périmée, ce qu'ensureTransitiveDependencies",
     );
     console.error('   ne fait pas (elle ne comble que les modules ABSENTS). Ne pas déployer.');
   } else {

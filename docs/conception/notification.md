@@ -3042,7 +3042,7 @@ même `ts` dans le même canal : une seule clé, donc un seul traitement.
 C'est la protection de fond ; la garde `duplicate_mention` ci-dessus
 
 évite en plus d'ouvrir une entrée pour rien.
-**Avant `if (envelope.event_id) return `id:${envelope.event_id}`;`**
+**Avant `if (envelope.event_id) { return `id:${envelope.event_id}`; }`**
 
 `team_join` n'a ni canal ni `ts` : seul `event_id` le protège du rejeu.
 
@@ -3480,7 +3480,7 @@ d'un `team_join`. Sans les gardes ci-dessous, le bot ouvrirait un DM à
 chaque application installée — et la garde `empty_text` rejetterait au
 contraire 100 % des arrivées réelles.
 
-**Avant `if (user.is_ultra_restricted || user.is_stranger) return 'restricted_user';`**
+**Avant `if (user.is_ultra_restricted || user.is_stranger) { return 'restricted_user'; }`**
 
 Décision métier assumée : un invité MONO-canal (`is_ultra_restricted`) et
 
@@ -4458,7 +4458,7 @@ Rend `handled: true` quand la réponse a été servie ; sinon un `reminder` éve
 change de sujet, on lui répond, et l'email reste en attente — c'est littéralement ce qui
 était demandé.
 
-**Avant `if (!repo || !send) return { handled: false };`**
+**Avant `if (!repo || !send) { return { handled: false }; }`**
 
 Les deux ou rien : un dépôt sans expéditeur ferait exister une attente que rien ne peut
 
@@ -4850,7 +4850,7 @@ Dégradation assumée : mémoire indisponible → historique vide → abandon. C
 moins coûteux, et le seul honnête — sans mémoire, le bot n'a de toute façon aucun
 contexte à continuer. Un `app_mention` n'est jamais concerné : la mention EST le mandat.
 
-**Avant `if (botUserId && (event.text ?? '').includes(`<@${botUserId}>`)) return false;`**
+**Avant `if (botUserId && (event.text ?? '').includes(`<@${botUserId}>`)) { return false; }`**
 
 ⚠️ Le JUMEAU `message` d'une mention en canal doit rester traité.
 
@@ -4951,7 +4951,7 @@ distinctes, les deux prédicats ne peuvent pas reconnaître le même texte.
 une question posée à quelqu'un d'AUTRE, et la réponse d'un témoin s'écrirait dans le
 dossier de cette personne — la même asymétrie de sécurité que `profile-request.ts`.
 
-**Avant `if (!answersOnboardingQuestion(input)) return false;`**
+**Avant `if (!answersOnboardingQuestion(input)) { return false; }`**
 
 ⚠️ Les TROIS gardes communes aux deux machines vivent dans `answersOnboardingQuestion`
 
@@ -5226,7 +5226,7 @@ d'entretien posée à quelqu'un d'AUTRE : la réponse d'un témoin serait alors 
 la sienne. Même asymétrie que `profile-request.ts`, où la restriction au DM est de la
 SÉCURITÉ et non de l'ergonomie.
 
-**Avant `if (!answersOnboardingQuestion(input)) return false;`**
+**Avant `if (!answersOnboardingQuestion(input)) { return false; }`**
 
 Mêmes trois gardes que le pas de dossier, et pour les mêmes raisons — voir
 
@@ -5577,7 +5577,7 @@ Il est malgré tout maintenu cohérent avec le port `EmailProvider` : sans cela
 TypeScript casserait au premier ajout au port, et une éventuelle reprise du
 chemin Brevo enverrait un corps de requête silencieusement invalide.
 
-**Avant `if (attachments?.length) assertEmailAttachmentsFit(attachments);`**
+**Avant `if (attachments?.length) { assertEmailAttachmentsFit(attachments); }`**
 
 Même borne que SMTP, et pour la même raison : ici le binaire est en plus
 
@@ -6171,7 +6171,7 @@ Vérifie la connexion et l'authentification sans envoyer de message.
 Utile au diagnostic (`scripts/smoke-email.mjs`) — ne PAS appeler à chaud sur
 chaque envoi, cela double le coût d'une connexion SMTP.
 
-**Avant `if (attachments?.length) assertEmailAttachmentsFit(attachments);`**
+**Avant `if (attachments?.length) { assertEmailAttachmentsFit(attachments); }`**
 
 Vérifié AVANT d'ouvrir la connexion : sur une fonction serverless, laisser
 
@@ -7545,7 +7545,7 @@ Le tool omet alors la phrase plutôt que d'annoncer un jour qui n'arrivera pas.
 une heure — non parce qu'on le lui interdit (une consigne est PROBABLE), mais parce que la
 précision n'est plus dans sa fenêtre.
 
-**Avant `if (run.getTime() < now.getTime()) run.setTime(run.getTime() + DAY_MS);`**
+**Avant `if (run.getTime() < now.getTime()) { run.setTime(run.getTime() + DAY_MS); }`**
 
 Demandé pour aujourd'hui après la remise du matin, ou pour une heure déjà passée : la
 prochaine horloge est celle de demain. On ne peut pas remonter le temps, on le dit.
@@ -7622,11 +7622,11 @@ demande vers un agent qui, lui, ne sait pas produire de document : on échangera
 contre un autre. Le routage par capacité est correct ; c'est la RÉPONSE qui manquait d'issue.
 Hauteur d'étoile 1 : voir `mention-names.ts` — l'entrée vient d'un tiers, pas de backtracking.
 
-**Avant `if (agentHasTool(agentId, 'getChannelHistory')) return '';`**
+**Avant `if (agentHasTool(agentId, 'getChannelHistory')) { return ''; }`**
 
 Dérivé du câblage : si l'agent qui a répondu SAIT lire un canal, il n'y a rien à rediriger.
 
-**Avant `if (/demande-moi (?:seulement |simplement )?le r[ée]sum[ée]/i.test(answer)) return '';`**
+**Avant `if (/demande-moi (?:seulement |simplement )?le r[ée]sum[ée]/i.test(answer)) { return ''; }`**
 
 Il a peut-être déjà dit la bonne chose — on ne double pas une réponse juste.
 

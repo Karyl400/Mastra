@@ -28,7 +28,9 @@ export const RATE_LIMIT_REPLIES: Readonly<Record<string, string>> = {
 };
 
 export function eventIsAnsweredWithoutModel(event: SlackEvent): boolean {
-  if (isTeamJoinEvent(event)) return false;
+  if (isTeamJoinEvent(event)) {
+    return false;
+  }
 
   return isAnsweredWithoutModel({
     text: cleanText(event.text),
@@ -42,17 +44,23 @@ export async function checkRateLimit(
   event: SlackEvent,
 ): Promise<SlackEventDecision | null> {
   const limiter = self.getRateLimiter();
-  if (!limiter) return null;
+  if (!limiter) {
+    return null;
+  }
 
   const subject = isTeamJoinEvent(event) ? event.user?.id : event.user;
-  if (!subject) return null;
+  if (!subject) {
+    return null;
+  }
 
   try {
     const decision = await limiter.check(subject, new Date(), {
       answeredWithoutModel: eventIsAnsweredWithoutModel(event),
       reserveOnly: true,
     });
-    if (decision.allowed) return null;
+    if (decision.allowed) {
+      return null;
+    }
 
     if (decision.rationsModelBudget && (await settlesWithoutModel(self, event))) {
       logger.info('Rate limit waived: this message is answered without a model', {
@@ -90,9 +98,13 @@ export async function chargeModelBudget(
   self: SlackHandlerInternals,
   slackUserId: string | undefined,
 ): Promise<boolean> {
-  if (!slackUserId) return true;
+  if (!slackUserId) {
+    return true;
+  }
   const limiter = self.getRateLimiter();
-  if (!limiter) return true;
+  if (!limiter) {
+    return true;
+  }
 
   try {
     const claim = await limiter.claimModelBudget(slackUserId);
@@ -110,7 +122,9 @@ async function settlesWithoutModel(
   self: SlackHandlerInternals,
   event: SlackEvent,
 ): Promise<boolean> {
-  if (isTeamJoinEvent(event) || !event.channel) return false;
+  if (isTeamJoinEvent(event) || !event.channel) {
+    return false;
+  }
 
   const { isDirectMessage, threadTs } = resolveThreadTarget(event, event.channel);
   const conversationId = deriveConversationId({ channel: event.channel, threadTs });
@@ -124,9 +138,13 @@ async function settlesWithoutModel(
         : Promise.resolve(null),
     ]);
 
-    if (answersOnboardingQuestion({ history, isDirectMessage, text })) return true;
+    if (answersOnboardingQuestion({ history, isDirectMessage, text })) {
+      return true;
+    }
 
-    if (!pending) return false;
+    if (!pending) {
+      return false;
+    }
 
     return settlesPendingEmail(
       pendingEmailVerdict({
@@ -160,7 +178,9 @@ export async function notifyRateLimited(
 }
 
 export function scheduleRateLimitPruneIfDue(self: SlackHandlerInternals): void {
-  if (!pruneIsDue(self)) return;
+  if (!pruneIsDue(self)) {
+    return;
+  }
 
   void self.getRateLimiter()?.pruneExpired();
 }

@@ -12,13 +12,17 @@ export class InMemoryMessageArchiveRepository implements MessageArchiveRepositor
   private readonly rows = new Map<string, ArchivedMessage>();
 
   async archive(message: ArchivedMessage): Promise<boolean> {
-    if (this.rows.has(message.id)) return false;
+    if (this.rows.has(message.id)) {
+      return false;
+    }
     this.rows.set(message.id, message);
     return true;
   }
 
   async search(query: string, options: MessageSearchOptions = {}): Promise<ArchivedMessage[]> {
-    if (queryTerms(query).length === 0) return [];
+    if (queryTerms(query).length === 0) {
+      return [];
+    }
 
     return [...this.rows.values()]
       .filter((row) => !options.channelId || row.channelId === options.channelId)
@@ -33,8 +37,12 @@ export class InMemoryMessageArchiveRepository implements MessageArchiveRepositor
   async forget(scope: KnowledgeForgetScope): Promise<number> {
     let removed = 0;
     for (const [id, row] of this.rows) {
-      if (row.slackUserId !== scope.slackUserId) continue;
-      if (scope.channelId !== undefined && row.channelId !== scope.channelId) continue;
+      if (row.slackUserId !== scope.slackUserId) {
+        continue;
+      }
+      if (scope.channelId !== undefined && row.channelId !== scope.channelId) {
+        continue;
+      }
       this.rows.delete(id);
       removed += 1;
     }
@@ -68,7 +76,9 @@ export class InMemoryMessageArchiveRepository implements MessageArchiveRepositor
   async markDistilled(ids: readonly string[], at: number): Promise<number> {
     let marked = 0;
     for (const id of ids) {
-      if (!this.rows.has(id)) continue;
+      if (!this.rows.has(id)) {
+        continue;
+      }
       this.distilled.set(id, at);
       marked += 1;
     }

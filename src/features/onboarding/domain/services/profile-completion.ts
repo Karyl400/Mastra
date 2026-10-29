@@ -64,7 +64,9 @@ export function verifyProfile(
 }
 
 function introFor(snapshot: ProfileSnapshot | null, missing: readonly string[]): string {
-  if (snapshot !== null) return profileChatIntroMissing(missing);
+  if (snapshot !== null) {
+    return profileChatIntroMissing(missing);
+  }
   return missing.length === PROFILE_STEP_ORDER.length
     ? PROFILE_CHAT_INTRO_NO_RECORD
     : profileChatIntroPartial(missing);

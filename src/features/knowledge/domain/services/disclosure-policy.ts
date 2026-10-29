@@ -25,7 +25,9 @@ export interface Requester {
 const DENIED_LEVEL = 'denied';
 
 function hardDenial(requester: Requester): DisclosureVerdict | null {
-  if (!requester.subject) return null;
+  if (!requester.subject) {
+    return null;
+  }
   const decision = resolveAccess(requester.subject);
   return decision.level === DENIED_LEVEL ? { allowed: false, reason: 'requester_denied' } : null;
 }
@@ -38,10 +40,14 @@ export function authorizeMemoryRead(
   requester: Requester | null,
   targetSlackUserId: string,
 ): DisclosureVerdict {
-  if (!requester) return { allowed: false, reason: 'no_requester' };
+  if (!requester) {
+    return { allowed: false, reason: 'no_requester' };
+  }
 
   const denial = hardDenial(requester);
-  if (denial) return denial;
+  if (denial) {
+    return denial;
+  }
 
   if (isSamePerson(requester.slackUserId, targetSlackUserId)) {
     return { allowed: true, reason: 'ok_self' };
@@ -51,12 +57,18 @@ export function authorizeMemoryRead(
 }
 
 export function authorizeOtherMemoryRead(requester: Requester | null): DisclosureVerdict {
-  if (!requester) return { allowed: false, reason: 'no_requester' };
+  if (!requester) {
+    return { allowed: false, reason: 'no_requester' };
+  }
 
   const denial = hardDenial(requester);
-  if (denial) return denial;
+  if (denial) {
+    return denial;
+  }
 
-  if (!requester.subject) return { allowed: false, reason: 'insufficient_privilege' };
+  if (!requester.subject) {
+    return { allowed: false, reason: 'insufficient_privilege' };
+  }
 
   const decision = resolveAccess(requester.subject);
   return decision.level === 'full'
@@ -68,7 +80,9 @@ export function mayDiscloseBotUtterances(
   requester: Requester | null,
   targetSlackUserId: string,
 ): boolean {
-  if (!requester) return false;
+  if (!requester) {
+    return false;
+  }
   return isSamePerson(requester.slackUserId, targetSlackUserId);
 }
 
@@ -76,10 +90,14 @@ export function authorizeChannelRead(
   requester: Requester | null,
   requesterIsChannelMember: boolean,
 ): DisclosureVerdict {
-  if (!requester) return { allowed: false, reason: 'no_requester' };
+  if (!requester) {
+    return { allowed: false, reason: 'no_requester' };
+  }
 
   const denial = hardDenial(requester);
-  if (denial) return denial;
+  if (denial) {
+    return denial;
+  }
 
   return requesterIsChannelMember
     ? { allowed: true, reason: 'ok_channel_member' }

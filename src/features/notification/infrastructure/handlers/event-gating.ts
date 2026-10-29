@@ -19,13 +19,19 @@ export const SUPPORTED_EVENT_TYPES = new Set(['app_mention', 'message', 'team_jo
 export const MAX_EVENT_AGE_MS = 10 * 60 * 1000;
 
 export function isStale(envelope: SlackEventEnvelope, event: SlackEvent): boolean {
-  if (isTeamJoinEvent(event)) return false;
+  if (isTeamJoinEvent(event)) {
+    return false;
+  }
 
   const emittedAtSeconds = envelope.event_time;
-  if (!Number.isFinite(emittedAtSeconds) || (emittedAtSeconds ?? 0) <= 0) return false;
+  if (!Number.isFinite(emittedAtSeconds) || (emittedAtSeconds ?? 0) <= 0) {
+    return false;
+  }
 
   const ageMs = Date.now() - (emittedAtSeconds as number) * 1000;
-  if (ageMs < MAX_EVENT_AGE_MS) return false;
+  if (ageMs < MAX_EVENT_AGE_MS) {
+    return false;
+  }
 
   logger.warn('Dropping a stale Slack event — answering it now would land out of context', {
     ageMs,
@@ -62,7 +68,9 @@ export function checkTeamId(
 export function rejectMessage(event: SlackMessageEvent): SlackIgnoreReason | undefined {
   if (event.type === 'message' && event.channel_type !== 'im') {
     const isThreadReply = Boolean(event.thread_ts) && event.thread_ts !== event.ts;
-    if (!isThreadReply) return 'not_a_dm';
+    if (!isThreadReply) {
+      return 'not_a_dm';
+    }
   }
 
   if (event.type === 'app_mention' && event.channel?.startsWith('D')) {
@@ -87,15 +95,21 @@ export function rejectMessage(event: SlackMessageEvent): SlackIgnoreReason | und
 export function rejectTeamJoin(event: SlackTeamJoinEvent): SlackIgnoreReason | undefined {
   const user = event.user;
 
-  if (!user?.id) return 'no_user';
+  if (!user?.id) {
+    return 'no_user';
+  }
 
   if (user.is_bot || user.is_app_user || user.is_workflow_bot || user.id === SLACKBOT_USER_ID) {
     return 'bot_join';
   }
 
-  if (user.deleted) return 'deleted_user';
+  if (user.deleted) {
+    return 'deleted_user';
+  }
 
-  if (user.is_ultra_restricted || user.is_stranger) return 'restricted_user';
+  if (user.is_ultra_restricted || user.is_stranger) {
+    return 'restricted_user';
+  }
 
   return undefined;
 }

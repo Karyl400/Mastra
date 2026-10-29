@@ -28,7 +28,9 @@ export const STATUS_OBJECT_REPLACEMENT =
   "Je n'ai pas pu mener cette demande à terme. Dis-moi précisément ce que tu cherches, et je réessaie.";
 
 function isStatusObject(text: string): boolean {
-  if (!text.startsWith('{') || !text.endsWith('}')) return false;
+  if (!text.startsWith('{') || !text.endsWith('}')) {
+    return false;
+  }
   try {
     const parsed: unknown = JSON.parse(text);
     return (
@@ -45,7 +47,9 @@ function isStatusObject(text: string): boolean {
 export function sanitizeAgentOutput(raw: string | undefined | null): SanitizedAgentOutput {
   const text = (raw ?? '').trim();
 
-  if (!text) return { text: NEUTRAL_REFUSAL, redacted: [], strippedUrls: [] };
+  if (!text) {
+    return { text: NEUTRAL_REFUSAL, redacted: [], strippedUrls: [] };
+  }
 
   if (isStatusObject(text)) {
     return { text: STATUS_OBJECT_REPLACEMENT, redacted: [], strippedUrls: [] };
@@ -53,7 +57,9 @@ export function sanitizeAgentOutput(raw: string | undefined | null): SanitizedAg
 
   const redacted = containsInternalMarkers(text);
 
-  if (redacted.length > 0) return { text: NEUTRAL_REFUSAL, redacted, strippedUrls: [] };
+  if (redacted.length > 0) {
+    return { text: NEUTRAL_REFUSAL, redacted, strippedUrls: [] };
+  }
 
   const { text: withoutLinks, hostnames } = stripDisallowedLinks(text);
 
@@ -78,7 +84,9 @@ function redactAndFilter(raw: string | undefined | null): SanitizedDocumentText 
 
   for (const { label, pattern } of INTERNAL_MARKERS_GLOBAL) {
     const next = text.replace(pattern, REDACTED_MARKER_PLACEHOLDER);
-    if (next === text) continue;
+    if (next === text) {
+      continue;
+    }
     redacted.push(label);
     text = next;
   }

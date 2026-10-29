@@ -48,7 +48,9 @@ export function warnIfForeignSubject(
   subjectId: string,
   deliverTo: DeliveryIntent,
 ): void {
-  if (!requesterId || requesterId === subjectId) return;
+  if (!requesterId || requesterId === subjectId) {
+    return;
+  }
   logger.warn('Document produit pour une AUTRE personne que le demandeur', {
     subjectId,
     requesterId,

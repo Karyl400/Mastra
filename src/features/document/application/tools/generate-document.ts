@@ -51,12 +51,16 @@ export function makeGenerateDocument(deps: GenerateDocumentDeps) {
         saved: false as const,
         delivery: 'none' as DeliveryVerdict,
       });
-      if (refused) return refused;
+      if (refused) {
+        return refused;
+      }
 
       const slackCtx = readSlackContext(ctx?.requestContext);
       const employeeId = resolveSubjectId(data.employeeId, slackCtx);
 
-      if (!employeeId) return NO_SUBJECT_RESULT;
+      if (!employeeId) {
+        return NO_SUBJECT_RESULT;
+      }
 
       const { title, content } = sanitizeDocumentInput({
         title: data.title,

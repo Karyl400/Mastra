@@ -2,7 +2,9 @@ import { CODE_BLOCK_SPLIT } from './outbound-links';
 
 function convertBold(segment: string): string {
   const parts = segment.split('**');
-  if (parts.length < 3) return segment;
+  if (parts.length < 3) {
+    return segment;
+  }
 
   const balanced = parts.length % 2 === 1;
   const paired = balanced ? parts : parts.slice(0, -1);
@@ -18,7 +20,9 @@ const SLACK_SHORTCODE = /:[a-z][a-z0-9_+-]{1,30}:/g;
 
 export function stripEmojis(segment: string): string {
   const withoutEmojis = segment.replace(SLACK_SHORTCODE, '').replace(UNICODE_EMOJI, '');
-  if (withoutEmojis === segment) return segment;
+  if (withoutEmojis === segment) {
+    return segment;
+  }
 
   return withoutEmojis
     .replace(/[ \t]{2,}/g, ' ')

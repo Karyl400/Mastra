@@ -43,7 +43,9 @@ async function recordNewcomer(
   joinedAt: string,
 ): Promise<void> {
   const repo = self.getDirectoryRepo();
-  if (!repo) return;
+  if (!repo) {
+    return;
+  }
 
   const realName = [identity.firstName, identity.lastName].filter(Boolean).join(' ');
 
@@ -75,7 +77,9 @@ async function inviteToWelcomeChannels(
   self: SlackHandlerInternals,
   slackUserId: string,
 ): Promise<readonly string[]> {
-  if (!self.welcomeChannels) return [];
+  if (!self.welcomeChannels) {
+    return [];
+  }
 
   try {
     const report = await self.welcomeChannels.run(slackUserId);
@@ -97,11 +101,15 @@ async function resolveNewcomer(
     email: user.profile?.email ?? null,
   };
 
-  if (fromPayload.email || !user.id) return fromPayload;
+  if (fromPayload.email || !user.id) {
+    return fromPayload;
+  }
 
   try {
     const member = await self.workspaceProvider.findUserById(user.id);
-    if (!member) return fromPayload;
+    if (!member) {
+      return fromPayload;
+    }
     return {
       slackUserId: fromPayload.slackUserId,
       firstName: fromPayload.firstName || member.firstName,

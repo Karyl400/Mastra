@@ -39,8 +39,12 @@ function dateOf(n: Notification): string {
 }
 
 function honestStatus(status: NotificationStatus): string {
-  if (isDispatchableStatus(status)) return 'enregistré, remise automatique le matin du jour prévu';
-  if (status === NotificationStatus.Sending) return 'remise en cours';
+  if (isDispatchableStatus(status)) {
+    return 'enregistré, remise automatique le matin du jour prévu';
+  }
+  if (status === NotificationStatus.Sending) {
+    return 'remise en cours';
+  }
   return status;
 }
 

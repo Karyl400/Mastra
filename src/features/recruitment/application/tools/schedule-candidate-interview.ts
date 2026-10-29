@@ -159,7 +159,9 @@ export function makeScheduleCandidateInterview(deps: ScheduleCandidateInterviewD
         return { status: 'refused', reason: 'post_failed', hint: REFUSALS.post_failed };
       }
 
-      if (runKey) runGuard.remember(runKey, true);
+      if (runKey) {
+        runGuard.remember(runKey, true);
+      }
 
       return {
         status: 'awaiting_confirmation',
@@ -175,7 +177,9 @@ async function resolveRequesterEmail(
   deps: ScheduleCandidateInterviewDeps,
   slackUserId: string,
 ): Promise<string | undefined> {
-  if (!deps.directoryRepo) return undefined;
+  if (!deps.directoryRepo) {
+    return undefined;
+  }
   try {
     const member = await deps.directoryRepo.findBySlackUserId(slackUserId);
     return member?.email ?? undefined;

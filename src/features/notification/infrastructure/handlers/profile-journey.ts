@@ -34,10 +34,14 @@ export async function maybeRunProfileStep(
   self: SlackHandlerInternals,
   input: ProfileStepInput,
 ): Promise<boolean> {
-  if (!answersOnboardingQuestion(input)) return false;
+  if (!answersOnboardingQuestion(input)) {
+    return false;
+  }
 
   const step = pendingProfileStep(lastAssistantText(input.history));
-  if (!step) return false;
+  if (!step) {
+    return false;
+  }
 
   await runProfileStep(self, { ...input, step });
   return true;
@@ -87,7 +91,9 @@ export async function submitProfile(
         onRecordReady: async (employeeId) => {
           await linkRequesterToRecord(self, input.user, employeeId);
           const claim = await warnManagersOfTopRoleClaim(self, input.user, answers.position);
-          if (claim) await sayAndRemember(self, input, claim);
+          if (claim) {
+            await sayAndRemember(self, input, claim);
+          }
           await sayAndRemember(self, input, INTERVIEW_QUESTION_DAILY);
         },
       },
@@ -107,7 +113,9 @@ export async function linkRequesterToRecord(
   slackUserId: string | undefined,
   employeeId: string | undefined,
 ): Promise<void> {
-  if (!slackUserId || !employeeId) return;
+  if (!slackUserId || !employeeId) {
+    return;
+  }
 
   try {
     const directory = self.getDirectoryRepo();

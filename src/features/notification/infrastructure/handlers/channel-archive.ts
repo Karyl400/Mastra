@@ -12,14 +12,22 @@ export async function archiveChannelMessage(
   event: SlackEvent,
 ): Promise<void> {
   const ingestion = self.knowledgeIngestion;
-  if (!ingestion || isTeamJoinEvent(event)) return;
+  if (!ingestion || isTeamJoinEvent(event)) {
+    return;
+  }
 
   const message = event as SlackMessageEvent;
-  if (!isArchivableChannelType(message.channel_type)) return;
-  if (message.bot_id || message.subtype === 'bot_message') return;
+  if (!isArchivableChannelType(message.channel_type)) {
+    return;
+  }
+  if (message.bot_id || message.subtype === 'bot_message') {
+    return;
+  }
 
   const text = (message.text ?? '').trim();
-  if (!text || !message.channel || !message.ts) return;
+  if (!text || !message.channel || !message.ts) {
+    return;
+  }
 
   try {
     await ingestion.ingest({

@@ -28,7 +28,9 @@ export class DrizzleNotificationRepository implements NotificationRepository {
   async findById(id: string): Promise<Notification | null> {
     const db = this.resolveDb();
     const result = await db.select().from(notifications).where(eq(notifications.id, id)).get();
-    if (!result) return null;
+    if (!result) {
+      return null;
+    }
     return result as Notification;
   }
 

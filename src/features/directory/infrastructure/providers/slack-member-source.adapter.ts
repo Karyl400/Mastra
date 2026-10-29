@@ -48,7 +48,9 @@ export class SlackMemberSource implements MemberSource {
 
   async findById(slackUserId: string): Promise<DirectoryMemberFacts | null> {
     const member = await this.slack.findUserById(slackUserId);
-    if (!member || !member.id) return null;
+    if (!member || !member.id) {
+      return null;
+    }
 
     return toFacts(member);
   }

@@ -26,7 +26,9 @@ function tableBlocks(rows: string[]): DocumentBlock[] {
     .map(tableCells)
     .filter((row) => row.some((cell) => cell.length > 0));
 
-  if (cells.length === 0) return [];
+  if (cells.length === 0) {
+    return [];
+  }
 
   if (cells.every((row) => row.length === 2)) {
     return [{ kind: 'fields', rows: cells.map((row) => [row[0] ?? '', row[1] ?? ''] as const) }];
@@ -37,7 +39,9 @@ function tableBlocks(rows: string[]): DocumentBlock[] {
 
 export function splitParagraphs(content: string): string[] {
   const normalized = (content ?? '').replace(/\r\n?/g, '\n').trim();
-  if (normalized.length === 0) return [];
+  if (normalized.length === 0) {
+    return [];
+  }
 
   const separator = normalized.includes('\n\n') ? /\n{2,}/ : /\n/;
 
@@ -56,18 +60,25 @@ export function parseContentBlocks(content: string): DocumentBlock[] {
   let table: string[] = [];
 
   const flushParagraph = () => {
-    if (paragraph.length === 0) return;
-    for (const text of splitParagraphs(paragraph.join('\n')))
+    if (paragraph.length === 0) {
+      return;
+    }
+    for (const text of splitParagraphs(paragraph.join('\n'))) {
       blocks.push({ kind: 'paragraph', text });
+    }
     paragraph = [];
   };
   const flushBullets = () => {
-    if (bullets.length === 0) return;
+    if (bullets.length === 0) {
+      return;
+    }
     blocks.push({ kind: 'bullets', items: bullets });
     bullets = [];
   };
   const flushTable = () => {
-    if (table.length === 0) return;
+    if (table.length === 0) {
+      return;
+    }
     blocks.push(...tableBlocks(table));
     table = [];
   };

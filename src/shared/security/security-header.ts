@@ -11,7 +11,9 @@ export function assertSecurityHeaderIntact(header: string): void {
   const missing = SECURITY_HEADER_SENTINELS.filter((sentinel) => !header.includes(sentinel));
   const unsubstituted = /\[\[SESSION_MARKER\]\]|\{DELIMITER_PREFIX\}/.test(header);
 
-  if (missing.length === 0 && !unsubstituted) return;
+  if (missing.length === 0 && !unsubstituted) {
+    return;
+  }
 
   logger.error(
     'SECURITY HEADER MISSING OR DEGRADED — refusing to build agent instructions unarmed',

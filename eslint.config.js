@@ -26,6 +26,7 @@ export default defineConfig([
       // écriture de contexte sur un porteur qui ne la supporte pas, et confort d'affichage.
       // Ce sont des fail-open assumés, recensés dans docs/conception/shared.md.
       'no-empty': ['error', { allowEmptyCatch: true }],
+      curly: ['error', 'all'],
       ...security.configs.recommended.rules,
       ...sonarjs.configs.recommended.rules,
       '@typescript-eslint/no-explicit-any': 'warn',

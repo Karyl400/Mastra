@@ -9,7 +9,9 @@ export function isReadTool(toolName: string): boolean {
 
 export function assertNoReadTools(toolNames: readonly string[]): void {
   const offenders = toolNames.filter(isReadTool);
-  if (offenders.length === 0) return;
+  if (offenders.length === 0) {
+    return;
+  }
 
   throw new Error(
     `Agent de recrutement : outil(s) de LECTURE interdit(s) — ${offenders.join(', ')}. ` +

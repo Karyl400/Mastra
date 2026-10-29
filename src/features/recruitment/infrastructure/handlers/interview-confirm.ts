@@ -27,7 +27,9 @@ export function encodeInterviewConfirm(payload: InterviewConfirmPayload): string
 }
 
 export function decodeInterviewConfirm(raw: string | undefined): InterviewConfirmPayload | null {
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
   try {
     const parsed = JSON.parse(raw) as Partial<InterviewConfirmPayload>;
     if (
@@ -55,8 +57,12 @@ export function buildInterviewConfirmBlocks(input: {
   body: string;
 }): Block[] {
   const facts = [`*À* ${input.payload.to}`, `*Quand* ${input.humanReadableDate}`];
-  if (input.payload.position) facts.push(`*Poste* ${input.payload.position}`);
-  if (input.payload.location) facts.push(`*Lieu* ${input.payload.location}`);
+  if (input.payload.position) {
+    facts.push(`*Poste* ${input.payload.position}`);
+  }
+  if (input.payload.location) {
+    facts.push(`*Lieu* ${input.payload.location}`);
+  }
 
   return [
     {

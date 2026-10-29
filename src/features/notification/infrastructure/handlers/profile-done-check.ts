@@ -33,7 +33,9 @@ export async function maybeCheckProfileDone(
   input: ProfileDoneInput,
 ): Promise<boolean> {
   const acting = findActingReply({ text: input.text, isDirectMessage: input.isDirectMessage });
-  if (acting?.action !== 'profile_done') return false;
+  if (acting?.action !== 'profile_done') {
+    return false;
+  }
 
   await runProfileDoneCheck(self, input);
   return true;

@@ -19,7 +19,9 @@ export class BrevoAdapter implements EmailProvider {
     body: EmailBody,
     attachments?: EmailAttachment[],
   ): Promise<void> {
-    if (attachments?.length) assertEmailAttachmentsFit(attachments);
+    if (attachments?.length) {
+      assertEmailAttachmentsFit(attachments);
+    }
 
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',

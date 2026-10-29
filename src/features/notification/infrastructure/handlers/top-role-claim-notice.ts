@@ -13,11 +13,15 @@ export async function warnManagersOfTopRoleClaim(
   slackUserId: string | undefined,
   position: string,
 ): Promise<string | null> {
-  if (!slackUserId || !declaresTopRole(position)) return null;
+  if (!slackUserId || !declaresTopRole(position)) {
+    return null;
+  }
 
   try {
     const repo = self.getDirectoryRepo();
-    if (!repo) return null;
+    if (!repo) {
+      return null;
+    }
 
     const managers = (await repo.findManagers()).filter((m) => m.slackUserId !== slackUserId);
 

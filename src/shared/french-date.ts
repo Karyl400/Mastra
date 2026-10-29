@@ -1,7 +1,11 @@
 export function formatFrenchDay(value: string | null | undefined): string | null {
-  if (!value?.trim()) return null;
+  if (!value?.trim()) {
+    return null;
+  }
   const at = new Date(value);
-  if (Number.isNaN(at.getTime())) return null;
+  if (Number.isNaN(at.getTime())) {
+    return null;
+  }
 
   try {
     return new Intl.DateTimeFormat('fr-FR', {

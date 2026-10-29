@@ -35,8 +35,12 @@ export async function resolveTarget(
 ): Promise<DirectoryPerson | null | 'unparsable'> {
   const value = raw.trim();
 
-  if (SLACK_USER_ID_RE.test(value)) return directory.findBySlackUserId(value.toUpperCase());
-  if (value.includes('@')) return directory.findByEmail(value.toLowerCase());
+  if (SLACK_USER_ID_RE.test(value)) {
+    return directory.findBySlackUserId(value.toUpperCase());
+  }
+  if (value.includes('@')) {
+    return directory.findByEmail(value.toLowerCase());
+  }
 
   return 'unparsable';
 }
@@ -48,7 +52,9 @@ export function designatesRequester(
 ): boolean {
   const value = asked.trim();
 
-  if (SLACK_USER_ID_RE.test(value)) return value.toUpperCase() === requesterId.toUpperCase();
+  if (SLACK_USER_ID_RE.test(value)) {
+    return value.toUpperCase() === requesterId.toUpperCase();
+  }
 
   const ownEmail = requesterPerson?.email?.trim().toLowerCase();
   return Boolean(ownEmail) && value.toLowerCase() === ownEmail;

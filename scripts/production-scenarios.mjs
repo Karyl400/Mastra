@@ -139,7 +139,9 @@ function record(label, ok, expected, observed, note) {
   console.log(`${ok ? '✅' : '❌'} ${label}`);
   console.log(`     attendu : ${expected}`);
   console.log(`     obtenu  : ${observed}`);
-  if (note) console.log(`     note    : ${note}`);
+  if (note) {
+    console.log(`     note    : ${note}`);
+  }
 }
 
 function skip(label, reason) {
@@ -149,7 +151,9 @@ function skip(label, reason) {
 
 const trunc = (v, n = 220) => {
   const s = typeof v === 'string' ? v : JSON.stringify(v);
-  if (s === undefined) return 'undefined';
+  if (s === undefined) {
+    return 'undefined';
+  }
   return s.length > n ? `${s.slice(0, n)}…` : s;
 };
 
@@ -179,7 +183,9 @@ function dedupNote(count) {
   if (count > 1) {
     return 'Le cache de déduplication est EN MÉMOIRE, donc par instance : sur Vercel serverless deux répliques peuvent traiter le même event_id (limite documentée dans slack-events.handler.ts).';
   }
-  if (count === 0) return "Aucune réponse : le traitement de fond n'a pas abouti.";
+  if (count === 0) {
+    return "Aucune réponse : le traitement de fond n'a pas abouti.";
+  }
   return undefined;
 }
 
@@ -189,7 +195,9 @@ async function api(path, { method = 'GET', body, token = API_TOKEN, timeoutMs = 
   // `security/detect-possible-timing-attacks` se déclenche sur le nom de la variable ; écrit
   // ainsi, l'intention se lit et la règle n'a plus de prise.
   const hasToken = token !== null && token !== undefined;
-  if (hasToken) headers.authorization = `Bearer ${token}`;
+  if (hasToken) {
+    headers.authorization = `Bearer ${token}`;
+  }
   const started = Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -311,9 +319,13 @@ async function waitForBotMessages(oldest, { min = 1, timeoutMs = SLACK_REPLY_TIM
     try {
       seen = await botMessagesSince(oldest);
     } catch (err) {
-      if (VERBOSE) console.log(`     (history: ${err.message})`);
+      if (VERBOSE) {
+        console.log(`     (history: ${err.message})`);
+      }
     }
-    if (seen.length >= min) return seen;
+    if (seen.length >= min) {
+      return seen;
+    }
   }
   return seen;
 }
@@ -363,7 +375,9 @@ const state = {
  * consommer un appel LLM ni un email. Nettoyé comme le reste.
  */
 async function ensureFixtureEmployee() {
-  if (state.fixtureEmployeeId) return state.fixtureEmployeeId;
+  if (state.fixtureEmployeeId) {
+    return state.fixtureEmployeeId;
+  }
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   await db.execute({
@@ -558,7 +572,9 @@ async function groupAgents() {
 async function groupAgentTools() {
   group('agent-tools — createEmployee via LLM, vérifié EN BASE');
 
-  if (DRY) return skip('onboardingOrchestrator crée un employé', '--dry');
+  if (DRY) {
+    return skip('onboardingOrchestrator crée un employé', '--dry');
+  }
 
   const email = employeeEmail('-agent');
   const prompt =
@@ -732,7 +748,9 @@ async function groupAgentSecurity() {
 
 /** Lance UNE SEULE fois le workflow d'onboarding nominal (1 email réel). */
 async function runOnboardingOnce() {
-  if (state.onboardingRun) return state.onboardingRun;
+  if (state.onboardingRun) {
+    return state.onboardingRun;
+  }
   const email = employeeEmail('');
   const res = await startWorkflow('employeeOnboardingWorkflow', {
     firstName: 'Lina',
@@ -1038,7 +1056,9 @@ async function slackRoutingCase({ label, text, table, expectReply = true }) {
 async function groupSlackRouting() {
   group('slack-routing — contrat mot-clé → agent, prouvé par la table écrite');
 
-  if (DRY) return skip('routage Slack (3 scénarios)', '--dry (poste dans Slack + écrit en base)');
+  if (DRY) {
+    return skip('routage Slack (3 scénarios)', '--dry (poste dans Slack + écrit en base)');
+  }
 
   await ensureFixtureEmployee();
 
@@ -1070,7 +1090,9 @@ async function groupSlackRouting() {
 async function groupSlackE2e() {
   group('slack-e2e — DM, anti-boucle, déduplication');
 
-  if (DRY) return skip('bout-en-bout Slack (3 scénarios)', '--dry (poste dans Slack)');
+  if (DRY) {
+    return skip('bout-en-bout Slack (3 scénarios)', '--dry (poste dans Slack)');
+  }
 
   // ── DM (`message` + channel_type 'im') ─────────────────────────────────────
   {
@@ -1165,7 +1187,9 @@ async function groupSlackE2e() {
 async function groupEmail() {
   group('email — livraison SMTP réellement rapportée « sent »');
 
-  if (DRY) return skip('livraison email', '--dry');
+  if (DRY) {
+    return skip('livraison email', '--dry');
+  }
 
   const { email } = await runOnboardingOnce();
   const emp = await q('SELECT id FROM employees WHERE email = ?', [email]);
@@ -1215,10 +1239,11 @@ async function cleanup() {
   if (KEEP) {
     for (const t of TRACKED_TABLES) {
       const created = await newIdsIn(t);
-      if (created.length)
+      if (created.length) {
         console.log(
           `ℹ️  ${t} : ${created.length} ligne(s) CONSERVÉE(S) (--keep) → ${created.join(', ')}`,
         );
+      }
     }
     console.log('ℹ️  --keep : aucune suppression.');
     return;
@@ -1246,8 +1271,11 @@ async function cleanup() {
     console.log(
       `❌ ${total} lignes candidates (> ${MAX_CLEANUP}) — nettoyage ABANDONNÉ par sécurité.`,
     );
-    for (const [t, ids] of Object.entries(plan))
-      if (ids.length) console.log(`   ${t}: ${ids.length}`);
+    for (const [t, ids] of Object.entries(plan)) {
+      if (ids.length) {
+        console.log(`   ${t}: ${ids.length}`);
+      }
+    }
     return;
   }
 
@@ -1260,30 +1288,37 @@ async function cleanup() {
         sql: `DELETE FROM ${child} WHERE ${child === 'notifications' ? 'recipient_id' : 'employee_id'} IN (${marks})`,
         args: employeeIds,
       });
-      if (r.rowsAffected)
+      if (r.rowsAffected) {
         console.log(
           `🧹 ${child} : ${r.rowsAffected} ligne(s) supprimée(s) (enfants des employés du run)`,
         );
+      }
     }
     const steps = await db.execute({
       sql: `DELETE FROM onboarding_steps WHERE progress_id IN (SELECT id FROM onboarding_progress WHERE employee_id IN (${marks}))`,
       args: employeeIds,
     });
-    if (steps.rowsAffected)
+    if (steps.rowsAffected) {
       console.log(`🧹 onboarding_steps : ${steps.rowsAffected} ligne(s) supprimée(s)`);
+    }
     const prog = await db.execute({
       sql: `DELETE FROM onboarding_progress WHERE employee_id IN (${marks})`,
       args: employeeIds,
     });
-    if (prog.rowsAffected)
+    if (prog.rowsAffected) {
       console.log(`🧹 onboarding_progress : ${prog.rowsAffected} ligne(s) supprimée(s)`);
+    }
   }
 
   // Puis, table par table, ce qui subsiste des identifiants apparus pendant le run.
   for (const t of order) {
-    if (!TRACKED_TABLES.includes(t)) continue;
+    if (!TRACKED_TABLES.includes(t)) {
+      continue;
+    }
     const ids = await newIdsIn(t);
-    if (!ids.length) continue;
+    if (!ids.length) {
+      continue;
+    }
     const marks = ids.map(() => '?').join(',');
     let details = [];
     if (t === 'employees') {
@@ -1301,7 +1336,9 @@ async function cleanup() {
   const leftovers = [];
   for (const t of TRACKED_TABLES) {
     const ids = await newIdsIn(t);
-    if (ids.length) leftovers.push(`${t}(${ids.length})`);
+    if (ids.length) {
+      leftovers.push(`${t}(${ids.length})`);
+    }
   }
   console.log(
     leftovers.length
@@ -1329,10 +1366,18 @@ const GROUPS = [
 
 function preflight() {
   const missing = [];
-  if (!API_TOKEN) missing.push('MASTRA_API_TOKEN');
-  if (!SIGNING_SECRET) missing.push('SLACK_SIGNING_SECRET');
-  if (!SLACK_BOT_TOKEN) missing.push('SLACK_BOT_TOKEN');
-  if (!DATABASE_URL) missing.push('DATABASE_URL');
+  if (!API_TOKEN) {
+    missing.push('MASTRA_API_TOKEN');
+  }
+  if (!SIGNING_SECRET) {
+    missing.push('SLACK_SIGNING_SECRET');
+  }
+  if (!SLACK_BOT_TOKEN) {
+    missing.push('SLACK_BOT_TOKEN');
+  }
+  if (!DATABASE_URL) {
+    missing.push('DATABASE_URL');
+  }
   if (missing.length) {
     console.error(`❌ Variables manquantes : ${missing.join(', ')}`);
     console.error('   Lance avec : node --env-file=.env scripts/production-scenarios.mjs');
@@ -1375,7 +1420,9 @@ async function main() {
   // On échoue toujours, mais on NOMME la cause : sans cet instantané, `cleanup()` ne connaît
   // pas la borne de ce qu'il a le droit de supprimer, et continuer serait bien pire qu'échouer.
   try {
-    for (const t of TRACKED_TABLES) baseline[t] = await idsOf(t);
+    for (const t of TRACKED_TABLES) {
+      baseline[t] = await idsOf(t);
+    }
   } catch (err) {
     console.error(
       `\n❌ Base injoignable — instantané initial impossible : ${err?.cause?.message ?? err?.message ?? err}` +
@@ -1391,7 +1438,9 @@ async function main() {
 
   const started = Date.now();
   for (const [name, fn] of GROUPS) {
-    if (ONLY && !ONLY.includes(name)) continue;
+    if (ONLY && !ONLY.includes(name)) {
+      continue;
+    }
     try {
       await fn();
     } catch (err) {
@@ -1427,7 +1476,9 @@ async function main() {
   for (const r of ran) {
     const g = byGroup.get(r.group) ?? { ok: 0, total: 0 };
     g.total += 1;
-    if (r.ok) g.ok += 1;
+    if (r.ok) {
+      g.ok += 1;
+    }
     byGroup.set(r.group, g);
   }
   for (const [g, { ok, total }] of byGroup) {
@@ -1440,7 +1491,9 @@ async function main() {
       console.log(`  • [${f.group}] ${f.label}`);
       console.log(`      attendu : ${f.expected}`);
       console.log(`      obtenu  : ${f.observed}`);
-      if (f.note) console.log(`      note    : ${f.note}`);
+      if (f.note) {
+        console.log(`      note    : ${f.note}`);
+      }
     }
   }
 

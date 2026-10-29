@@ -80,7 +80,9 @@ export function makeSendNotification(
       const refused = noRequesterRefusal(_ctx?.requestContext, 'sendNotification', {
         sent: false as const,
       });
-      if (refused) return refused;
+      if (refused) {
+        return refused;
+      }
       if (!canPerformSideEffects(_ctx?.requestContext, data.recipientId)) {
         logger.warn('sendNotification refusé : le demandeur n’a pas le niveau requis', {
           recipientId: data.recipientId,
@@ -187,7 +189,9 @@ export function makeSendNotification(
         sentAt: sent.sentAt,
       };
 
-      if (runKey && status === NotificationStatus.Sent) runGuard.remember(runKey, result);
+      if (runKey && status === NotificationStatus.Sent) {
+        runGuard.remember(runKey, result);
+      }
 
       return result;
     },

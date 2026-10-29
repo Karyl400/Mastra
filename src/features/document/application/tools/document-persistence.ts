@@ -21,7 +21,9 @@ function fingerprint(content: string): string {
 }
 
 function byMostRecentlyUpdated(a: Document, b: Document): number {
-  if (a.updatedAt === b.updatedAt) return 0;
+  if (a.updatedAt === b.updatedAt) {
+    return 0;
+  }
   return a.updatedAt < b.updatedAt ? 1 : -1;
 }
 
@@ -31,7 +33,9 @@ export async function resolveRevisionTarget(
   employeeId: string,
   type: DocumentType,
 ): Promise<{ refused: false; target?: { id: string; createdAt: string } } | { refused: true }> {
-  if (!revises) return { refused: false };
+  if (!revises) {
+    return { refused: false };
+  }
 
   const all = await documentRepo.findByEmployee(employeeId);
   const latest = all.filter((d) => d.type === type).sort(byMostRecentlyUpdated)[0];
@@ -78,8 +82,11 @@ export async function persistDocument(
     updatedAt: now,
   };
 
-  if (revised) await documentRepo.update(generated);
-  else await documentRepo.save(generated);
+  if (revised) {
+    await documentRepo.update(generated);
+  } else {
+    await documentRepo.save(generated);
+  }
 
   logger.info(revised ? 'Document corrigé' : 'Document généré', {
     id: generated.id,
@@ -94,7 +101,9 @@ export async function markDeliveryOutcome(
   generated: Document,
   delivery: DeliveryVerdict,
 ): Promise<void> {
-  if (delivery !== 'slack' && delivery !== 'email') return;
+  if (delivery !== 'slack' && delivery !== 'email') {
+    return;
+  }
 
   try {
     await documentRepo.update({

@@ -55,7 +55,9 @@ export function reconcileProgress(progress: OnboardingProgress): OnboardingProgr
     progress.currentStep === currentStep &&
     progress.status === status;
 
-  if (coherent) return progress;
+  if (coherent) {
+    return progress;
+  }
 
   const now = new Date().toISOString();
 

@@ -24,7 +24,9 @@ export interface SlackChannelHistoryOptions {
 }
 
 function toChannelRefs(raw: unknown): ChannelRef[] {
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) {
+    return [];
+  }
 
   return raw
     .map((channel) => channel as { id?: unknown; name?: unknown })
@@ -56,10 +58,14 @@ export class SlackChannelHistoryAdapter implements ChannelHistoryPort {
         });
 
         const members = Array.isArray(response.members) ? response.members : [];
-        if (members.includes(slackUserId)) return true;
+        if (members.includes(slackUserId)) {
+          return true;
+        }
 
         cursor = response.response_metadata?.next_cursor || undefined;
-        if (!cursor) return false;
+        if (!cursor) {
+          return false;
+        }
       }
 
       logger.warn('Knowledge — canal trop grand pour vérifier l’appartenance', {
@@ -71,7 +77,9 @@ export class SlackChannelHistoryAdapter implements ChannelHistoryPort {
         `Appartenance non vérifiable sur ${channelId} (canal trop grand)`,
       );
     } catch (error) {
-      if (error instanceof ChannelUnavailableError) throw error;
+      if (error instanceof ChannelUnavailableError) {
+        throw error;
+      }
 
       logger.warn('Knowledge — conversations.members a échoué, appartenance non prouvée', {
         channelId,
@@ -178,7 +186,9 @@ export class SlackChannelHistoryAdapter implements ChannelHistoryPort {
   }
 
   private toRawMessage(message: unknown): RawChannelMessage | null {
-    if (typeof message !== 'object' || message === null) return null;
+    if (typeof message !== 'object' || message === null) {
+      return null;
+    }
 
     const record = message as {
       type?: unknown;
@@ -189,14 +199,22 @@ export class SlackChannelHistoryAdapter implements ChannelHistoryPort {
       ts?: unknown;
     };
 
-    if (record.type !== 'message') return null;
-    if (typeof record.subtype === 'string') return null;
+    if (record.type !== 'message') {
+      return null;
+    }
+    if (typeof record.subtype === 'string') {
+      return null;
+    }
 
     const text = typeof record.text === 'string' ? record.text.trim() : '';
-    if (!text) return null;
+    if (!text) {
+      return null;
+    }
 
     const ts = typeof record.ts === 'string' ? Number.parseFloat(record.ts) : Number.NaN;
-    if (!Number.isFinite(ts)) return null;
+    if (!Number.isFinite(ts)) {
+      return null;
+    }
 
     return {
       authorId: typeof record.user === 'string' ? record.user : null,
@@ -215,13 +233,17 @@ export class SlackChannelHistoryAdapter implements ChannelHistoryPort {
       for (const authorId of authorIds) {
         try {
           const name = await this.resolveDisplayName(authorId);
-          if (name) labels.set(authorId, name);
+          if (name) {
+            labels.set(authorId, name);
+          }
         } catch {}
       }
     }
 
     const labelOf = (message: RawChannelMessage): string => {
-      if (message.authorId) return labels.get(message.authorId) ?? message.authorId;
+      if (message.authorId) {
+        return labels.get(message.authorId) ?? message.authorId;
+      }
       return message.isBot ? 'Kisso' : '?';
     };
 

@@ -1,5 +1,7 @@
 export function normalizeName(raw: string | null | undefined): string {
-  if (!raw) return '';
+  if (!raw) {
+    return '';
+  }
   return raw
     .normalize('NFD')
     .replace(/\p{M}+/gu, '')
@@ -10,7 +12,9 @@ export function normalizeName(raw: string | null | undefined): string {
 
 export function nameTokens(raw: string | null | undefined): string[] {
   const normalized = normalizeName(raw);
-  if (!normalized) return [];
+  if (!normalized) {
+    return [];
+  }
   return normalized.split(/[\s-]+/).filter((token) => token.length > 0);
 }
 
@@ -19,10 +23,14 @@ export function matchesName(
   candidateFields: ReadonlyArray<string | null | undefined>,
 ): boolean {
   const queryTokens = nameTokens(query);
-  if (queryTokens.length === 0) return false;
+  if (queryTokens.length === 0) {
+    return false;
+  }
 
   const candidateTokens = candidateFields.flatMap((field) => nameTokens(field));
-  if (candidateTokens.length === 0) return false;
+  if (candidateTokens.length === 0) {
+    return false;
+  }
 
   return queryTokens.every((wanted) =>
     candidateTokens.some((candidate) => candidate.startsWith(wanted)),
@@ -44,7 +52,9 @@ export function textMentionsName(
   name: string | null | undefined,
 ): boolean {
   const wanted = nameTokens(name).filter((token) => token.length >= 3);
-  if (wanted.length === 0) return false;
+  if (wanted.length === 0) {
+    return false;
+  }
 
   const words = new Set(
     normalizeName(text)

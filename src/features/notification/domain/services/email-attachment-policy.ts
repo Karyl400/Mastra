@@ -12,7 +12,9 @@ export function totalAttachmentBytes(attachments: readonly EmailAttachment[]): n
 
 export function assertEmailAttachmentsFit(attachments: readonly EmailAttachment[]): void {
   const total = totalAttachmentBytes(attachments);
-  if (total <= MAX_EMAIL_ATTACHMENTS_BYTES) return;
+  if (total <= MAX_EMAIL_ATTACHMENTS_BYTES) {
+    return;
+  }
 
   const names = attachments.map((attachment) => attachment.filename).join(', ');
   throw new Error(

@@ -6,7 +6,9 @@ import { affectedRowsOrThrow } from '../../../../shared/rows-affected';
 
 export class DrizzlePinnedFactRepository implements PinnedFactRepository {
   async list(slackUserId: string, limit: number): Promise<PinnedFact[]> {
-    if (limit <= 0) return [];
+    if (limit <= 0) {
+      return [];
+    }
 
     const db = getDb();
     const rows = await db

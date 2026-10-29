@@ -15,8 +15,12 @@ export class InMemoryBotMemoryRepository implements BotMemoryReadPort {
     dmChannelId: string,
     options: BotMemoryReadOptions,
   ): Promise<BotMemoryTurn[]> {
-    if (options.limit <= 0) return [];
-    if (!dmChannelId.startsWith('D')) return [];
+    if (options.limit <= 0) {
+      return [];
+    }
+    if (!dmChannelId.startsWith('D')) {
+      return [];
+    }
 
     const cutoff = Date.now() - options.sinceMs;
 

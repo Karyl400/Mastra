@@ -52,8 +52,12 @@ const channel = channelArg >= 0 ? args[channelArg + 1] : DEFAULT_CHANNEL;
 
 const signingSecret = process.env.SLACK_SIGNING_SECRET;
 const botToken = process.env.SLACK_BOT_TOKEN;
-if (!signingSecret) throw new Error('SLACK_SIGNING_SECRET manquant');
-if (!botToken) throw new Error('SLACK_BOT_TOKEN manquant');
+if (!signingSecret) {
+  throw new Error('SLACK_SIGNING_SECRET manquant');
+}
+if (!botToken) {
+  throw new Error('SLACK_BOT_TOKEN manquant');
+}
 
 interface Probe {
   readonly name: string;
@@ -104,7 +108,8 @@ const PROBES: readonly Probe[] = [
  * le chemin ne répond pas.
  */
 let counter = 0;
-const uniqueTs = (): string => `${Math.floor(Date.now() / 1000)}.${String(counter++).padStart(6, '0')}`;
+const uniqueTs = (): string =>
+  `${Math.floor(Date.now() / 1000)}.${String(counter++).padStart(6, '0')}`;
 
 async function send(probe: Probe): Promise<{ status: number; ts: string; ms: number }> {
   const ts = uniqueTs();
@@ -151,7 +156,9 @@ async function botMessagesSince(oldest: number): Promise<string[]> {
     error?: string;
     messages?: Array<{ text?: string; bot_id?: string }>;
   };
-  if (!payload.ok) throw new Error(`conversations.history a échoué : ${payload.error}`);
+  if (!payload.ok) {
+    throw new Error(`conversations.history a échoué : ${payload.error}`);
+  }
   return (payload.messages ?? []).filter((m) => m.bot_id).map((m) => m.text ?? '');
 }
 

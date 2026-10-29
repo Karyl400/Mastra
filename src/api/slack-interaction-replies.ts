@@ -36,7 +36,9 @@ export function scheduleInteractionWork(label: string, work: Promise<unknown>): 
 
 export async function replyInThread(payload: SlackInteractionPayload, text: string): Promise<void> {
   const channel = payload.channel?.id;
-  if (!channel) return;
+  if (!channel) {
+    return;
+  }
   try {
     const isDirectMessage = channel.startsWith('D');
     const threadTs = isDirectMessage

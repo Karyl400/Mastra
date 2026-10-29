@@ -47,7 +47,9 @@ export interface RunOnboardingDeps {
 function isEmailAlreadyTaken(error: unknown): boolean {
   for (let current: unknown = error, depth = 0; current && depth < 8; depth += 1) {
     const node = current as { code?: unknown; statusCode?: unknown; cause?: unknown };
-    if (node.code === 'CONFLICT' || node.statusCode === 409) return true;
+    if (node.code === 'CONFLICT' || node.statusCode === 409) {
+      return true;
+    }
     current = node.cause;
   }
   return false;

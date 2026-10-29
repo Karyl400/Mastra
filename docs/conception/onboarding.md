@@ -860,7 +860,7 @@ cinquième occurrence de ce piège dans ce dépôt.
 
  Mots par lesquels s'ouvre une question portant sur quelqu'un ou quelque chose d'AUTRE.
 
-**Avant `if (INTERROGATIVE_OPENERS.test(normalized)) return true;`**
+**Avant `if (INTERROGATIVE_OPENERS.test(normalized)) { return true; }`**
 
 ⚠️ L'OUVERTURE INTERROGATIVE PRIME SUR LA PERSONNE, et l'ordre est le fond du prédicat.
 
@@ -869,7 +869,7 @@ cinquième occurrence de ce piège dans ce dépôt.
 bot : la première personne y désigne le demandeur, pas le sujet décrit. Ce cas a été
 
 trouvé en écrivant le test, pas après — c'est ce qui a imposé les deux passes.
-**Avant `if (FIRST_PERSON.test(trimmed.toLowerCase())) return false;`**
+**Avant `if (FIRST_PERSON.test(trimmed.toLowerCase())) { return false; }`**
 
 Hors ouverture interrogative, la première personne tranche : on décrit son propre métier
 
@@ -1269,7 +1269,7 @@ La réponse est-elle exploitable ? Rend la valeur retenue, ou `null` pour relanc
 « au mieux ». Ces quatre champs finissent dans un document qui porte le nom de la personne
 et dans l'adresse à laquelle on lui écrit.
 
-**Avant `if (!/\p{L}/u.test(trimmed)) return null;`**
+**Avant `if (!/\p{L}/u.test(trimmed)) { return null; }`**
 
 Un nom ou un poste doit contenir au moins une lettre — Unicode, jamais `[a-z]` : ce
 
@@ -1812,7 +1812,7 @@ précisément sur une perte silencieuse de donnée.
 
 ## `features/onboarding/infrastructure/repositories/in-memory-onboarding.repository.ts`
 
-**Avant `if (!this.progressStore.has(p.id)) return 0;`**
+**Avant `if (!this.progressStore.has(p.id)) { return 0; }`**
 
 Rend 0 quand la ligne n'existe pas — c'est ce que fait un UPDATE SQL, et c'est la
 

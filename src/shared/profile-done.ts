@@ -27,7 +27,11 @@ const NEGATION =
 
 export function claimsProfileDone(text: string | undefined | null): boolean {
   const normalized = normalize(text ?? '');
-  if (!normalized || normalized.length > MAX_CHARS) return false;
-  if (NEGATION.test(normalized)) return false;
+  if (!normalized || normalized.length > MAX_CHARS) {
+    return false;
+  }
+  if (NEGATION.test(normalized)) {
+    return false;
+  }
   return DONE_PATTERNS.some((pattern) => pattern.test(normalized));
 }

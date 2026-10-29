@@ -13,23 +13,35 @@ import {
 
 export function buildRecipientNotice(requestContext: unknown, answer: string): string {
   const recipient = readDocumentRecipient(requestContext);
-  if (!recipient || textMentionsName(answer, recipient)) return '';
+  if (!recipient || textMentionsName(answer, recipient)) {
+    return '';
+  }
   return `\n\n_(Ce document a été produit pour ${recipient}.)_`;
 }
 
 export function buildAuthorizationNotice(requestContext: unknown, answer: string): string {
   const notice = readAuthorizationNotice(requestContext);
-  if (!notice) return '';
-  if (textMentionsName(answer, escalationName())) return '';
+  if (!notice) {
+    return '';
+  }
+  if (textMentionsName(answer, escalationName())) {
+    return '';
+  }
   return `\n\n_(${notice})_`;
 }
 
 const CHANNEL_TOKEN = /<#C[^>]{1,140}>/i;
 
 export function buildChannelRedirectNotice(text: string, agentId: string, answer: string): string {
-  if (!CHANNEL_TOKEN.test(text)) return '';
-  if (agentHasTool(agentId, 'getChannelHistory')) return '';
-  if (/demande-moi (?:seulement |simplement )?le r[ée]sum[ée]/i.test(answer)) return '';
+  if (!CHANNEL_TOKEN.test(text)) {
+    return '';
+  }
+  if (agentHasTool(agentId, 'getChannelHistory')) {
+    return '';
+  }
+  if (/demande-moi (?:seulement |simplement )?le r[ée]sum[ée]/i.test(answer)) {
+    return '';
+  }
 
   return (
     '\n\n_(Pour un résumé de canal, demande-le seul — sans PDF ni email dans la même phrase. ' +
@@ -41,7 +53,9 @@ export const REMINDER_UNDO_HINT = ' Dis-moi « annule le rappel » si tu changes
 
 export function buildReminderNotice(requestContext: unknown, answer: string): string {
   const label = readReminderDelivery(requestContext);
-  if (!label) return '';
+  if (!label) {
+    return '';
+  }
 
   if (answer.includes(label) || /au matin\b/i.test(answer)) {
     return `\n\n_(${REMINDER_UNDO_HINT.trim()})_`;

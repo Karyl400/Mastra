@@ -133,9 +133,15 @@ export function findStaticReply(input: DeterministicReplyInput): DeterministicRe
 }
 
 export function replyFor(entry: DeterministicReply, input: DeterministicReplyInput): string | null {
-  if (entry.reply === null) return null;
-  if (entry.resolveReply) return entry.resolveReply(input);
-  if (!entry.variants) return entry.reply;
+  if (entry.reply === null) {
+    return null;
+  }
+  if (entry.resolveReply) {
+    return entry.resolveReply(input);
+  }
+  if (!entry.variants) {
+    return entry.reply;
+  }
   return pickVariant(entry.variants, input.messageTs);
 }
 

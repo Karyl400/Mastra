@@ -30,10 +30,14 @@ export async function maybeRunInterviewStep(
   self: SlackHandlerInternals,
   input: InterviewStepInput,
 ): Promise<boolean> {
-  if (!answersOnboardingQuestion(input)) return false;
+  if (!answersOnboardingQuestion(input)) {
+    return false;
+  }
 
   const step = pendingInterviewStep(lastAssistantText(input.history));
-  if (!step) return false;
+  if (!step) {
+    return false;
+  }
 
   await runInterviewStep(self, { ...input, step });
   return true;
@@ -88,7 +92,9 @@ async function persistInterviewAnswer(
   skipped: boolean,
 ): Promise<void> {
   const answer = skipped ? null : captureInterviewAnswer(input.text);
-  if (!answer || !self.interviewRepo || !input.user) return;
+  if (!answer || !self.interviewRepo || !input.user) {
+    return;
+  }
 
   if (!input.employeeId) {
     logger.error('Réponse d’entretien PERDUE — annuaire non relié au dossier', {

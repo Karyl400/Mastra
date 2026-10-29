@@ -18,7 +18,9 @@ function normalizeReason(raw: unknown): string {
 }
 
 export function describeModelResponse(response: unknown): ModelResponseShape {
-  if (typeof response !== 'object' || response === null) return { truncated: false, empty: true };
+  if (typeof response !== 'object' || response === null) {
+    return { truncated: false, empty: true };
+  }
 
   const candidate = response as { text?: unknown; finishReason?: unknown };
   const text = typeof candidate.text === 'string' ? candidate.text : '';

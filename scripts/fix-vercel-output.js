@@ -238,10 +238,14 @@ async function fixOutput() {
  */
 async function assertCronsAreDeployable() {
   const vercelJsonPath = join(root, 'vercel.json');
-  if (!existsSync(vercelJsonPath)) return;
+  if (!existsSync(vercelJsonPath)) {
+    return;
+  }
 
   const { crons } = JSON.parse(await readFile(vercelJsonPath, 'utf8'));
-  if (!Array.isArray(crons) || crons.length === 0) return;
+  if (!Array.isArray(crons) || crons.length === 0) {
+    return;
+  }
 
   for (const cron of crons) {
     const [minute, hour] = String(cron.schedule ?? '').split(' ');
@@ -418,10 +422,14 @@ async function publishStaticAssets() {
   console.log(`\u2705 Actifs statiques publiés : public/ \u2192 .vercel/output/static/`);
 
   const configPath = join(target, 'config.json');
-  if (!existsSync(configPath)) return;
+  if (!existsSync(configPath)) {
+    return;
+  }
   const config = JSON.parse(await readFile(configPath, 'utf8'));
   const routes = Array.isArray(config.routes) ? config.routes : [];
-  if (routes.some((route) => route && route.handle === 'filesystem')) return;
+  if (routes.some((route) => route && route.handle === 'filesystem')) {
+    return;
+  }
   config.routes = [{ handle: 'filesystem' }, ...routes];
   await writeFile(configPath, JSON.stringify(config), 'utf8');
   console.log(
@@ -484,7 +492,9 @@ async function healBundle(funcDir) {
     const nextSeeds = [
       ...new Set(missing.map((entry) => entry.at.split(`${sep}node_modules${sep}`)[0])),
     ];
-    if (nextSeeds.length === 0) break;
+    if (nextSeeds.length === 0) {
+      break;
+    }
     seeds = nextSeeds;
   }
 
@@ -552,7 +562,9 @@ const PRUNABLE_SUFFIXES = ['.map', '.md', '.markdown', '.ts', '.tsx', '.cts', '.
 
 async function pruneBundle(funcDir) {
   const modulesDir = join(funcDir, 'node_modules');
-  if (!existsSync(modulesDir)) return;
+  if (!existsSync(modulesDir)) {
+    return;
+  }
 
   let removedFiles = 0;
   let removedBytes = 0;
@@ -570,9 +582,13 @@ async function pruneBundle(funcDir) {
         await walk(full);
         continue;
       }
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) {
+        continue;
+      }
       // ⚠️ `.d.ts` tombe déjà sous `.ts` ; on ne teste QUE le suffixe, jamais le chemin.
-      if (!PRUNABLE_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))) continue;
+      if (!PRUNABLE_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))) {
+        continue;
+      }
       try {
         const info = await stat(full);
         await rm(full, { force: true });
@@ -632,7 +648,9 @@ const SPEC_PATTERN =
   /(?:\bfrom\s{0,8}|\bimport\s{0,8}\(?\s{0,8}|\brequire\s{0,8}\(\s{0,8})['"]([^'"\n]{1,512})['"]/g;
 
 function packageOfSpecifier(spec) {
-  if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:')) return null;
+  if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:')) {
+    return null;
+  }
   const parts = spec.split('/');
   return spec.startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0];
 }
@@ -670,7 +688,9 @@ function packageOfSpecifier(spec) {
  */
 async function pruneUnreachableModules(funcDir) {
   const modulesDir = join(funcDir, 'node_modules');
-  if (!existsSync(modulesDir)) return;
+  if (!existsSync(modulesDir)) {
+    return;
+  }
 
   const specsOfDirectory = async (dir) => {
     const found = new Set();
@@ -697,13 +717,17 @@ async function pruneUnreachableModules(funcDir) {
         if (entry.name === 'package.json') {
           try {
             const pkg = JSON.parse(await readFile(full, 'utf8'));
-            for (const dep of Object.keys(pkg.dependencies ?? {})) found.add(dep);
+            for (const dep of Object.keys(pkg.dependencies ?? {})) {
+              found.add(dep);
+            }
           } catch {
             // Un `package.json` illisible ne doit pas casser le build : le paquet reste, au pire.
           }
           continue;
         }
-        if (!/\.(mjs|cjs|js)$/.test(entry.name)) continue;
+        if (!/\.(mjs|cjs|js)$/.test(entry.name)) {
+          continue;
+        }
         let text;
         try {
           text = await readFile(full, 'utf8');
@@ -712,7 +736,9 @@ async function pruneUnreachableModules(funcDir) {
         }
         for (const match of text.matchAll(SPEC_PATTERN)) {
           const pkg = packageOfSpecifier(match[1]);
-          if (pkg) found.add(pkg);
+          if (pkg) {
+            found.add(pkg);
+          }
         }
       }
     }
@@ -722,11 +748,15 @@ async function pruneUnreachableModules(funcDir) {
   // Racines : les modules générés à la racine de la fonction (`index.mjs`, `mastra.mjs`, …).
   const roots = new Set(DYNAMIC_SEEDS);
   for (const entry of await readdir(funcDir, { withFileTypes: true })) {
-    if (!entry.isFile() || !/\.(mjs|cjs|js)$/.test(entry.name)) continue;
+    if (!entry.isFile() || !/\.(mjs|cjs|js)$/.test(entry.name)) {
+      continue;
+    }
     const text = await readFile(join(funcDir, entry.name), 'utf8');
     for (const match of text.matchAll(SPEC_PATTERN)) {
       const pkg = packageOfSpecifier(match[1]);
-      if (pkg) roots.add(pkg);
+      if (pkg) {
+        roots.add(pkg);
+      }
     }
   }
 
@@ -734,17 +764,25 @@ async function pruneUnreachableModules(funcDir) {
   const queue = [...roots];
   while (queue.length > 0) {
     const pkg = queue.pop();
-    if (reachable.has(pkg)) continue;
-    if (!existsSync(join(modulesDir, pkg))) continue;
+    if (reachable.has(pkg)) {
+      continue;
+    }
+    if (!existsSync(join(modulesDir, pkg))) {
+      continue;
+    }
     reachable.add(pkg);
     for (const dep of await specsOfDirectory(join(modulesDir, pkg))) {
-      if (!reachable.has(dep)) queue.push(dep);
+      if (!reachable.has(dep)) {
+        queue.push(dep);
+      }
     }
   }
 
   const installed = [];
   for (const entry of await readdir(modulesDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory()) {
+      continue;
+    }
     if (entry.name.startsWith('@')) {
       for (const scoped of await readdir(join(modulesDir, entry.name))) {
         installed.push(`${entry.name}/${scoped}`);
@@ -783,8 +821,9 @@ async function pruneUnreachableModules(funcDir) {
       }
       for (const entry of entries) {
         const full = join(current, entry.name);
-        if (entry.isDirectory()) stack.push(full);
-        else {
+        if (entry.isDirectory()) {
+          stack.push(full);
+        } else {
           removedFiles += 1;
           try {
             removedBytes += (await stat(full)).size;

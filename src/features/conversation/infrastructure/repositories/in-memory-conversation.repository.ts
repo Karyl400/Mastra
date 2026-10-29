@@ -42,7 +42,9 @@ export class InMemoryConversationRepository implements ConversationRepository {
     const before = this.turns.length;
 
     this.turns = this.turns.filter((turn) => {
-      if (turn.conversationId !== scope.conversationId) return true;
+      if (turn.conversationId !== scope.conversationId) {
+        return true;
+      }
       return scope.slackUserId ? turn.slackUserId !== scope.slackUserId : false;
     });
 

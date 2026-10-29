@@ -57,7 +57,9 @@ export async function matchEmployees(
       const daily = dailyWork.get(employee.id) ?? '';
       const matchedPosition = Boolean(employee.position) && matchesName(skill, [employee.position]);
       const matchedDaily = Boolean(daily) && matchesName(skill, [daily]);
-      if (!matchedPosition && !matchedDaily) continue;
+      if (!matchedPosition && !matchedDaily) {
+        continue;
+      }
 
       const label = matchedPosition
         ? `${safePart(name)} — ${safePart(employee.position)}`
@@ -79,7 +81,9 @@ export async function matchEmployees(
 }
 
 async function loadDailyWork(deps: FindExpertiseDeps): Promise<Map<string, string>> {
-  if (!deps.interviewRepo) return new Map();
+  if (!deps.interviewRepo) {
+    return new Map();
+  }
   try {
     const interviews = await deps.interviewRepo.findAll();
     return new Map(

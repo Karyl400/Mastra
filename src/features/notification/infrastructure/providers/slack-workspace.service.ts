@@ -47,7 +47,9 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
       pages += 1;
     } while (cursor && pages < SLACK_MAX_PAGES);
 
-    if (cursor) logTruncation('conversations.list', pages, channels.length);
+    if (cursor) {
+      logTruncation('conversations.list', pages, channels.length);
+    }
 
     logger.info('Slack channels discovered', { count: channels.length });
     return channels;
@@ -62,7 +64,9 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
       const page = await this.listMembersPage(cursor);
 
       for (const member of page.members) {
-        if (member.isDeleted) continue;
+        if (member.isDeleted) {
+          continue;
+        }
         members.push(member);
       }
 
@@ -70,7 +74,9 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
       pages += 1;
     } while (cursor && pages < SLACK_MAX_PAGES);
 
-    if (cursor) logTruncation('users.list', pages, members.length);
+    if (cursor) {
+      logTruncation('users.list', pages, members.length);
+    }
 
     logger.info('Slack members discovered', { count: members.length });
     return members;
@@ -115,7 +121,9 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
       const response = await this.client.conversations.join({ channel: channelId });
 
       const warning = String((response as { warning?: string }).warning ?? '');
-      if (warning.includes('already_in_channel')) return { status: 'already_member' };
+      if (warning.includes('already_in_channel')) {
+        return { status: 'already_member' };
+      }
 
       logger.info('Joined Slack channel', { channelId });
       return { status: 'joined' };
@@ -128,7 +136,9 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
     try {
       const response = await this.client.users.lookupByEmail({ email });
       const user = response.user;
-      if (!user) return null;
+      if (!user) {
+        return null;
+      }
 
       return toMember(user);
     } catch (err: unknown) {
@@ -144,7 +154,9 @@ export class SlackWorkspaceService implements SlackWorkspaceProvider {
     try {
       const response = await this.client.users.info({ user: userId });
       const user = response.user;
-      if (!user) return null;
+      if (!user) {
+        return null;
+      }
 
       return toMember(user);
     } catch (err: unknown) {

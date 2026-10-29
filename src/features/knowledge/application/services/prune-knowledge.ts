@@ -31,8 +31,11 @@ export async function pruneKnowledge(deps: PruneDeps): Promise<PruneReport> {
       'SANS BORNE, DM compris. Poser KNOWLEDGE_RETENTION_DAYS (minimum ' +
       `${MIN_RETENTION_DAYS}) pour y remédier.`;
 
-    if (rejectedAValue) logger.error(report, { reason: window.reason, days: window.days });
-    else logger.warn(report, { reason: window.reason });
+    if (rejectedAValue) {
+      logger.error(report, { reason: window.reason, days: window.days });
+    } else {
+      logger.warn(report, { reason: window.reason });
+    }
 
     return { enabled: false, days: window.days, messages: 0, facts: 0, reason: window.reason };
   }
@@ -41,7 +44,9 @@ export async function pruneKnowledge(deps: PruneDeps): Promise<PruneReport> {
   let messages = 0;
 
   try {
-    if (deps.facts) facts = await deps.facts.pruneOlderThan(window.before);
+    if (deps.facts) {
+      facts = await deps.facts.pruneOlderThan(window.before);
+    }
     messages = await deps.archive.pruneOlderThan(window.before);
     logger.info('Rétention appliquée', { days: window.days, messages, facts });
   } catch (error) {

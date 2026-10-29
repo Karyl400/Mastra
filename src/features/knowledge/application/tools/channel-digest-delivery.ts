@@ -14,7 +14,9 @@ export async function deliverDigest(
     lines: string;
   },
 ): Promise<DigestOutcome> {
-  if (!digests || !request.target.channel) return 'unavailable';
+  if (!digests || !request.target.channel) {
+    return 'unavailable';
+  }
 
   try {
     const verdict = await digests.deliver(

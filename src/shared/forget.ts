@@ -50,11 +50,15 @@ function isErasureVerb(word: string): boolean {
 
 export function requestsErasure(text: string | undefined | null): boolean {
   const raw = (text ?? '').trim();
-  if (raw.length === 0 || raw.length > MAX_ERASURE_LENGTH) return false;
+  if (raw.length === 0 || raw.length > MAX_ERASURE_LENGTH) {
+    return false;
+  }
 
   const normalized = normalizeIntentText(raw);
 
-  if (!MEMORY_OBJECTS.some((object) => normalized.includes(object))) return false;
+  if (!MEMORY_OBJECTS.some((object) => normalized.includes(object))) {
+    return false;
+  }
 
   const words = normalized.split(' ');
 

@@ -61,7 +61,9 @@ export class DrizzleKnowledgeFactRepository implements KnowledgeFactRepository {
 
   async search(query: string, options: KnowledgeFactSearchOptions = {}): Promise<KnowledgeFact[]> {
     const match = toMatchQuery(query);
-    if (!match) return [];
+    if (!match) {
+      return [];
+    }
 
     const limit = Math.min(options.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
     const db = getDb();

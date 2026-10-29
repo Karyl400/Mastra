@@ -15,7 +15,9 @@ function recipientName(input: DocumentRenderInput): string {
 
 function recipientBlocks(input: DocumentRenderInput): DocumentBlock[] {
   const name = recipientName(input);
-  if (name.length === 0) return [];
+  if (name.length === 0) {
+    return [];
+  }
   return [{ kind: 'paragraph', text: `Document destiné à ${name}.`, italic: true }];
 }
 
@@ -77,7 +79,9 @@ function buildCertificate(input: DocumentRenderInput): DocumentBlock[] {
 
 function interviewBlocks(input: DocumentRenderInput): DocumentBlock[] {
   const interview = input.interview;
-  if (!interview) return [];
+  if (!interview) {
+    return [];
+  }
 
   const blocks: DocumentBlock[] = [];
 

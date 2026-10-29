@@ -12,7 +12,9 @@ export function resolveRetentionWindow(
   now: Date = new Date(),
 ): RetentionWindow {
   const trimmed = raw?.trim();
-  if (!trimmed) return { enabled: false, days: null, before: null, reason: 'not_configured' };
+  if (!trimmed) {
+    return { enabled: false, days: null, before: null, reason: 'not_configured' };
+  }
 
   const days = Number(trimmed);
   if (!Number.isFinite(days) || days <= 0) {

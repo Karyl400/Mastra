@@ -123,7 +123,9 @@ class LibSqlConnectionManager implements ConnectionManager {
   }
 
   private async runMigrations(): Promise<void> {
-    if (!this.db) return;
+    if (!this.db) {
+      return;
+    }
 
     await runDatabaseMigrations(this.db, this.config.migrationsFolder);
   }

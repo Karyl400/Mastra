@@ -5,8 +5,11 @@ import { join } from 'node:path';
 function walk(d: string, o: string[] = []): string[] {
   for (const e of readdirSync(d)) {
     const f = join(d, e);
-    if (statSync(f).isDirectory()) walk(f, o);
-    else if (f.endsWith('.ts')) o.push(f);
+    if (statSync(f).isDirectory()) {
+      walk(f, o);
+    } else if (f.endsWith('.ts')) {
+      o.push(f);
+    }
   }
   return o;
 }
@@ -42,8 +45,9 @@ function complexityOf(node: ts.Node): number {
           op === ts.SyntaxKind.AmpersandAmpersandToken ||
           op === ts.SyntaxKind.BarBarToken ||
           op === ts.SyntaxKind.QuestionQuestionToken
-        )
+        ) {
           c += 1;
+        }
         break;
       }
     }
@@ -66,7 +70,9 @@ function maxDepth(node: ts.Node): number {
       ts.SyntaxKind.SwitchStatement,
     ].includes(n.kind);
     const nd = nests ? d + 1 : d;
-    if (nd > max) max = nd;
+    if (nd > max) {
+      max = nd;
+    }
     n.forEachChild((c) => visit(c, nd));
   };
   node.forEachChild((c) => visit(c, 0));
@@ -87,12 +93,14 @@ for (const file of walk('src')) {
       const end = sf.getLineAndCharacterOfPosition(n.getEnd()).line;
       const lines = end - start + 1;
       let name = '(anonyme)';
-      if ((ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n)) && n.name)
+      if ((ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n)) && n.name) {
         name = n.name.getText();
-      else if (ts.isVariableDeclaration(n.parent) && ts.isIdentifier(n.parent.name))
+      } else if (ts.isVariableDeclaration(n.parent) && ts.isIdentifier(n.parent.name)) {
         name = n.parent.name.text;
-      else if (ts.isPropertyAssignment(n.parent)) name = n.parent.name.getText();
-      if (lines >= 4)
+      } else if (ts.isPropertyAssignment(n.parent)) {
+        name = n.parent.name.getText();
+      }
+      if (lines >= 4) {
         fns.push({
           file: file,
           name,
@@ -101,6 +109,7 @@ for (const file of walk('src')) {
           depth: maxDepth(n),
           complexity: complexityOf(n),
         });
+      }
     }
     n.forEachChild(visit);
   };

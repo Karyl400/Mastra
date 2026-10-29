@@ -24,7 +24,9 @@ export class DrizzleDirectoryRepository implements DirectoryRepository {
   async findByEmail(email: string): Promise<DirectoryMember | null> {
     const db = this.resolveDb();
     const needle = email.trim();
-    if (!needle) return null;
+    if (!needle) {
+      return null;
+    }
 
     const exact = await db
       .select()
@@ -32,7 +34,9 @@ export class DrizzleDirectoryRepository implements DirectoryRepository {
       .where(eq(slackDirectory.email, needle))
       .get();
 
-    if (exact) return toDomain(exact);
+    if (exact) {
+      return toDomain(exact);
+    }
 
     const insensitive = await db
       .select()
@@ -141,14 +145,18 @@ export class DrizzleDirectoryRepository implements DirectoryRepository {
   }
 
   async findByName(query: string, limit: number): Promise<DirectoryMember[]> {
-    if (limit <= 0) return [];
+    if (limit <= 0) {
+      return [];
+    }
 
     const db = this.resolveDb();
     const rows = await db.select().from(slackDirectory).orderBy(slackDirectory.slackUserId);
 
     const matches: DirectoryMember[] = [];
     for (const row of rows) {
-      if (matches.length >= limit) break;
+      if (matches.length >= limit) {
+        break;
+      }
       if (matchesName(query, [row.firstName, row.lastName, row.displayName, row.realName])) {
         matches.push(toDomain(row));
       }

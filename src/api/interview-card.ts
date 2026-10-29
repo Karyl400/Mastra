@@ -13,15 +13,21 @@ function cardKey(payload: SlackInteractionPayload): string | null {
 
 export function claimCard(payload: SlackInteractionPayload): boolean {
   const key = cardKey(payload);
-  if (!key) return true;
-  if (settledCards.has(key)) return false;
+  if (!key) {
+    return true;
+  }
+  if (settledCards.has(key)) {
+    return false;
+  }
   settledCards.add(key);
   return true;
 }
 
 export function releaseCard(payload: SlackInteractionPayload): void {
   const key = cardKey(payload);
-  if (key) settledCards.delete(key);
+  if (key) {
+    settledCards.delete(key);
+  }
 }
 
 export function resetSettledCards(): void {
@@ -35,7 +41,9 @@ export async function settleCard(
 ): Promise<void> {
   const channel = payload.channel?.id;
   const ts = payload.message?.ts;
-  if (!channel || !ts) return;
+  if (!channel || !ts) {
+    return;
+  }
   try {
     await getSlackInteractionsAdapter().updateMessage(
       channel,

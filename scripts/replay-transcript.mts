@@ -78,7 +78,7 @@ const SERIES: Record<string, readonly Step[]> = {
     {
       id: 'B1',
       text: 'tu peux me préparer un quiz de 3 questions sur nos valeurs pour les nouveaux ?',
-      verifies: "hint « ni envoyé, ni affiché, ni remplissable » — plus de « prêt à être utilisé »",
+      verifies: 'hint « ni envoyé, ni affiché, ni remplissable » — plus de « prêt à être utilisé »',
     },
     {
       id: 'B2',
@@ -110,7 +110,8 @@ const SERIES: Record<string, readonly Step[]> = {
     {
       id: 'C6',
       text: `programme un rappel pour lundi 9h à ${AWA}`,
-      verifies: 'willBeSentAutomatically: true depuis le cron du 2026-08-21 ; le libellé ne porte AUCUNE heure',
+      verifies:
+        'willBeSentAutomatically: true depuis le cron du 2026-08-21 ; le libellé ne porte AUCUNE heure',
     },
   ],
   D: [
@@ -131,7 +132,9 @@ const flag = (name: string): string | undefined => {
 if (args.includes('--list')) {
   for (const [name, steps] of Object.entries(SERIES)) {
     console.log(`\nSérie ${name} — ${steps.length} message(s)`);
-    for (const step of steps) console.log(`  ${step.id}  ${step.text.slice(0, 68)}`);
+    for (const step of steps) {
+      console.log(`  ${step.id}  ${step.text.slice(0, 68)}`);
+    }
   }
   console.log(`\nTotal : ${Object.values(SERIES).flat().length} appels de modèle.`);
   process.exit(0);
@@ -144,14 +147,20 @@ const selected = (flag('serie') ?? 'A').split(',').map((s) => s.trim().toUpperCa
 
 const steps = selected.flatMap((name) => {
   const serie = SERIES[name];
-  if (!serie) throw new Error(`Série inconnue : ${name}. Connues : ${Object.keys(SERIES).join(', ')}`);
+  if (!serie) {
+    throw new Error(`Série inconnue : ${name}. Connues : ${Object.keys(SERIES).join(', ')}`);
+  }
   return serie;
 });
 
 const signingSecret = process.env.SLACK_SIGNING_SECRET;
 const botToken = process.env.SLACK_BOT_TOKEN;
-if (!signingSecret) throw new Error('SLACK_SIGNING_SECRET manquant');
-if (!botToken) throw new Error('SLACK_BOT_TOKEN manquant');
+if (!signingSecret) {
+  throw new Error('SLACK_SIGNING_SECRET manquant');
+}
+if (!botToken) {
+  throw new Error('SLACK_BOT_TOKEN manquant');
+}
 
 async function post(text: string, id: string): Promise<number> {
   const nowSeconds = Math.floor(Date.now() / 1000);
@@ -200,7 +209,9 @@ async function repliesSince(since: number): Promise<Reply[]> {
     error?: string;
     messages?: { text?: string; bot_id?: string; files?: { name?: string }[] }[];
   };
-  if (!payload.ok) throw new Error(`conversations.history a échoué : ${payload.error}`);
+  if (!payload.ok) {
+    throw new Error(`conversations.history a échoué : ${payload.error}`);
+  }
 
   return (payload.messages ?? [])
     .filter((m) => m.bot_id)
@@ -229,7 +240,9 @@ for (const [index, step] of steps.entries()) {
   console.log(`${replies.length} réponse(s) en ${(elapsed / 1000).toFixed(0)} s`);
   for (const reply of replies) {
     console.log(`     │ ${reply.text.replace(/\n/g, '\n     │ ').slice(0, 400)}`);
-    if (reply.files.length) console.log(`     │ [fichiers] ${reply.files.join(', ')}`);
+    if (reply.files.length) {
+      console.log(`     │ [fichiers] ${reply.files.join(', ')}`);
+    }
   }
   console.log('');
 
@@ -238,7 +251,9 @@ for (const [index, step] of steps.entries()) {
   // La règle anti-rafale (5/min) reste ACTIVE et le doit : elle contre le script en boucle,
   // et ce script en est un. L'attente ci-dessus la couvre déjà largement, mais on ne
   // s'appuie pas dessus par hasard.
-  if (index < steps.length - 1) await new Promise((r) => setTimeout(r, 3000));
+  if (index < steps.length - 1) {
+    await new Promise((r) => setTimeout(r, 3000));
+  }
 }
 
 mkdirSync('data/replays', { recursive: true });

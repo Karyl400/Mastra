@@ -21,7 +21,9 @@ export async function handleMessage(
 ): Promise<void> {
   const deadline = runDeadline(Date.now());
   const context = await buildMessageContext(self, event);
-  if (!context) return;
+  if (!context) {
+    return;
+  }
 
   const {
     user,
@@ -61,7 +63,9 @@ export async function handleMessage(
     conversationId,
     history,
   });
-  if (pendingEmail.handled) return;
+  if (pendingEmail.handled) {
+    return;
+  }
 
   const pendingStep = pendingOnboardingStep(history, isDirectMessage);
 
@@ -122,7 +126,9 @@ export async function handleMessage(
     threadTs,
     isDirectMessage,
   });
-  if (accessLevel === 'denied') return;
+  if (accessLevel === 'denied') {
+    return;
+  }
 
   if (isDirectMessage && user) {
     void self

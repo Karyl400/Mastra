@@ -22,9 +22,13 @@ export function parseInterviewSchedule(
 ): { ok: true; schedule: InterviewSchedule } | { ok: false; reason: InterviewScheduleError } {
   const at = new Date(isoDateTime);
 
-  if (Number.isNaN(at.getTime())) return { ok: false, reason: 'invalid_date' };
+  if (Number.isNaN(at.getTime())) {
+    return { ok: false, reason: 'invalid_date' };
+  }
 
-  if (at.getTime() <= now.getTime()) return { ok: false, reason: 'date_in_past' };
+  if (at.getTime() <= now.getTime()) {
+    return { ok: false, reason: 'date_in_past' };
+  }
 
   if (at.getTime() - now.getTime() > MAX_INTERVIEW_HORIZON_MS) {
     return { ok: false, reason: 'date_too_far' };

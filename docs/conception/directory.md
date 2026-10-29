@@ -535,7 +535,7 @@ employé en cours de migration, `users:read.email` momentanément absent — et 
 perdrait son pont vers le métier sans que rien ne le signale. Un rattachement qui manque se
 refait au passage suivant ; un rattachement effacé ne se voit pas.
 
-**Avant `if (facts.isBot || facts.isDeleted) return 'skipped';`**
+**Avant `if (facts.isBot || facts.isDeleted) { return 'skipped'; }`**
 
 Un bot n'a pas d'employé, un compte désactivé n'a plus à en gagner un, et sans email il
 

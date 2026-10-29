@@ -26,7 +26,9 @@ export function findOutboundTools(toolNames: readonly string[]): string[] {
 
 export function assertNoOutboundTools(toolNames: readonly string[]): void {
   const offenders = findOutboundTools(toolNames);
-  if (offenders.length === 0) return;
+  if (offenders.length === 0) {
+    return;
+  }
 
   throw new Error(
     `knowledgeAgent: outil(s) de sortie interdit(s) dans un agent de lecture agrégée — ` +

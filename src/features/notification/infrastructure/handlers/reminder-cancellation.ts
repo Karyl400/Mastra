@@ -33,7 +33,9 @@ export async function runCancelReminder(
     sayAndRemember(self, { channel, threadTs, conversationId, user, text, remember }, reply);
 
   const scope = requestsReminderCancellation(text);
-  if (!scope) return;
+  if (!scope) {
+    return;
+  }
 
   const repo = self.notificationRepo;
   if (!repo) {
@@ -68,8 +70,9 @@ export async function runCancelReminder(
   }));
 
   try {
-    if (scope === 'all')
+    if (scope === 'all') {
       return say(await cancelEveryPending(repo, candidates, employeeId, channel));
+    }
 
     const pick = pickReminderToCancel(candidates, text);
     if ('ambiguous' in pick) {

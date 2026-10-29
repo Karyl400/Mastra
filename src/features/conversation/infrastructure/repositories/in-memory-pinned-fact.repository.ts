@@ -4,7 +4,9 @@ export class InMemoryPinnedFactRepository implements PinnedFactRepository {
   private rows: PinnedFact[] = [];
 
   async list(slackUserId: string, limit: number): Promise<PinnedFact[]> {
-    if (limit <= 0) return [];
+    if (limit <= 0) {
+      return [];
+    }
 
     return this.rows
       .filter((row) => row.slackUserId === slackUserId)

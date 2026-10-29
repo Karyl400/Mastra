@@ -15,9 +15,13 @@ export function queryTerms(raw: string): string[] {
   const terms: string[] = [];
 
   for (const match of fold(raw).matchAll(TERM)) {
-    if (match[0].length < MIN_TERM_CHARS) continue;
+    if (match[0].length < MIN_TERM_CHARS) {
+      continue;
+    }
     terms.push(match[0]);
-    if (terms.length === FTS_MAX_TERMS) break;
+    if (terms.length === FTS_MAX_TERMS) {
+      break;
+    }
   }
 
   return terms;

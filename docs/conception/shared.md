@@ -3191,7 +3191,7 @@ L'ordre des deux passes compte. La forme mrkdwn est traitée EN PREMIER, sinon
 la passe « URL nue » viderait l'intérieur de `<…|…>` et laisserait derrière
 elle une balise orpheline `<[lien retiré]|texte>`.
 
-**Avant `if (!HTTP_PREFIX.test(target)) return token;`**
+**Avant `if (!HTTP_PREFIX.test(target)) { return token; }`**
 
 Mentions Slack (`<@U123>`, `<#C123>`) et autres jetons non-http :
 
@@ -5314,7 +5314,7 @@ La lecture se fait par CONTRAT STRUCTUREL (`get(key)`) et non par `instanceof
 RequestContext` : le runtime peut fournir un proxy ou une autre implémentation, et un
 `instanceof` casserait aussi si deux copies du paquet cohabitaient dans le bundle.
 
-**Avant `if (!channel) return undefined;`**
+**Avant `if (!channel) { return undefined; }`**
 
 Sans canal il n'y a rien à livrer : un contexte partiel vaut pas de contexte, plutôt
 

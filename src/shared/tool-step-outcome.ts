@@ -16,21 +16,29 @@ const REFUSING_STATUSES: ReadonlySet<string> = new Set(['refused', 'failed']);
 const SERVED: StepVerdict = { outcome: 'served' };
 
 function nonEmpty(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
+  if (typeof value !== 'string') {
+    return undefined;
+  }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
 export function classifyToolOutcome(result: unknown): StepVerdict {
-  if (typeof result !== 'object' || result === null) return SERVED;
+  if (typeof result !== 'object' || result === null) {
+    return SERVED;
+  }
 
   const record = result as Record<string, unknown>;
 
-  if (record.error === true) return { outcome: 'blocked', reason: 'invalid_call' };
+  if (record.error === true) {
+    return { outcome: 'blocked', reason: 'invalid_call' };
+  }
 
   const reason = nonEmpty(record.reason);
 
-  if (POSITIVE_FLAGS.some((flag) => record[flag] === true)) return SERVED;
+  if (POSITIVE_FLAGS.some((flag) => record[flag] === true)) {
+    return SERVED;
+  }
 
   if (POSITIVE_FLAGS.some((flag) => record[flag] === false)) {
     return { outcome: 'blocked', reason: reason ?? 'refused' };
@@ -41,7 +49,9 @@ export function classifyToolOutcome(result: unknown): StepVerdict {
     return { outcome: 'blocked', reason: reason ?? status };
   }
 
-  if (reason) return { outcome: 'blocked', reason };
+  if (reason) {
+    return { outcome: 'blocked', reason };
+  }
 
   return SERVED;
 }
@@ -50,18 +60,26 @@ type ToolLike = { execute?: unknown };
 
 function requestContextOf(args: readonly unknown[]): unknown {
   const context = args[1];
-  if (typeof context !== 'object' || context === null) return undefined;
+  if (typeof context !== 'object' || context === null) {
+    return undefined;
+  }
   return (context as { requestContext?: unknown }).requestContext;
 }
 
 function markOne(tool: unknown): void {
-  if (typeof tool !== 'object' || tool === null) return;
+  if (typeof tool !== 'object' || tool === null) {
+    return;
+  }
 
   const branded = tool as Record<symbol, unknown> & ToolLike;
-  if (branded[STEP_OUTCOME_MARKER] === true) return;
+  if (branded[STEP_OUTCOME_MARKER] === true) {
+    return;
+  }
 
   const original = branded.execute;
-  if (typeof original !== 'function') return;
+  if (typeof original !== 'function') {
+    return;
+  }
 
   const run = original as (...args: unknown[]) => unknown;
 
@@ -77,9 +95,11 @@ function markOne(tool: unknown): void {
     }
 
     const verdict = classifyToolOutcome(result);
-    if (verdict.outcome === 'blocked')
+    if (verdict.outcome === 'blocked') {
       writeStepBlocked(requestContext, verdict.reason ?? 'refused');
-    else clearStepBlocked(requestContext);
+    } else {
+      clearStepBlocked(requestContext);
+    }
 
     return result;
   };
@@ -92,6 +112,8 @@ function markOne(tool: unknown): void {
 }
 
 export function markStepOutcomes<T extends Record<string, unknown>>(tools: T): T {
-  for (const tool of Object.values(tools)) markOne(tool);
+  for (const tool of Object.values(tools)) {
+    markOne(tool);
+  }
   return tools;
 }

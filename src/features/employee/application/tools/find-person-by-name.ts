@@ -123,8 +123,11 @@ function projectMember(
 ) {
   const identified = mayHoldKeyFor(requestContext, member.employeeId);
   let hint: string | undefined;
-  if (!identified) hint = WITHHELD_HINT;
-  else if (!member.employeeId) hint = DIRECTORY_ONLY_HINT;
+  if (!identified) {
+    hint = WITHHELD_HINT;
+  } else if (!member.employeeId) {
+    hint = DIRECTORY_ONLY_HINT;
+  }
 
   return {
     found: true as const,

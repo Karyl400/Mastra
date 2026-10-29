@@ -49,7 +49,9 @@ async function deliverToSlack(params: {
     const fallback = toVerdict(
       await deliverByEmail(emailProvider, employeeEmail ?? undefined, title, rendered),
     );
-    if (fallback.delivery === 'email') return fallback;
+    if (fallback.delivery === 'email') {
+      return fallback;
+    }
     return { delivery: 'failed', reason: missingScope ? 'missing_scope' : fallback.reason };
   }
 }
@@ -80,7 +82,9 @@ export async function deliver(params: {
   const delivery: DeliveryVerdict = 'none';
   const reason: HintKey | undefined = failure;
 
-  if (!rendered || effectiveDeliverTo === 'none') return { delivery, reason };
+  if (!rendered || effectiveDeliverTo === 'none') {
+    return { delivery, reason };
+  }
 
   if (effectiveDeliverTo === 'email') {
     return toVerdict(
@@ -109,7 +113,9 @@ async function uploadToSlack(
   rendered: RenderedDocument,
   title: string,
 ): Promise<{ permalink?: string }> {
-  if (!fileUpload) throw new Error('Aucun fournisseur de fichiers câblé');
+  if (!fileUpload) {
+    throw new Error('Aucun fournisseur de fichiers câblé');
+  }
 
   return await fileUpload.uploadFile({
     channel: slackContext.channel,

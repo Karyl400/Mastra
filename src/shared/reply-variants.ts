@@ -8,8 +8,12 @@ function fnv1a(input: string): number {
 }
 
 export function pickVariant(variants: readonly string[], seed?: string): string {
-  if (variants.length === 0) throw new Error('pickVariant exige au moins une variante');
+  if (variants.length === 0) {
+    throw new Error('pickVariant exige au moins une variante');
+  }
   const first = variants[0]!;
-  if (!seed || variants.length === 1) return first;
+  if (!seed || variants.length === 1) {
+    return first;
+  }
   return variants[fnv1a(seed) % variants.length] ?? first;
 }

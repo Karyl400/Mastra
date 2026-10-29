@@ -11,7 +11,9 @@ export function remindersCancelledReply(count: number, asked: number = count): s
   const head = `C'est annulé : ${count} ${noun} en attente, plus aucun ne partira.`;
 
   const missed = asked - count;
-  if (missed <= 0) return head;
+  if (missed <= 0) {
+    return head;
+  }
 
   const tail =
     missed > 1

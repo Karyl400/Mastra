@@ -35,9 +35,13 @@ export function isStrandedClaim(
   notification: Pick<Notification, 'status' | 'updatedAt'>,
   now: Date,
 ): boolean {
-  if (notification.status !== NotificationStatus.Sending) return false;
+  if (notification.status !== NotificationStatus.Sending) {
+    return false;
+  }
   const at = Date.parse(notification.updatedAt ?? '');
-  if (Number.isNaN(at)) return false;
+  if (Number.isNaN(at)) {
+    return false;
+  }
   return now.getTime() - at >= STRANDED_CLAIM_MS;
 }
 
@@ -59,13 +63,21 @@ export function isDueForDispatch(
   now: Date,
   timeZone: string = DISPLAY_TIMEZONE,
 ): boolean {
-  if (!DISPATCHABLE.has(notification.status) && !isStrandedClaim(notification, now)) return false;
-  if (!notification.scheduledAt) return false;
+  if (!DISPATCHABLE.has(notification.status) && !isStrandedClaim(notification, now)) {
+    return false;
+  }
+  if (!notification.scheduledAt) {
+    return false;
+  }
 
   const at = Date.parse(notification.scheduledAt);
-  if (Number.isNaN(at)) return false;
+  if (Number.isNaN(at)) {
+    return false;
+  }
 
-  if (now.getTime() - at > STALE_AFTER_DAYS * DAY_MS) return false;
+  if (now.getTime() - at > STALE_AFTER_DAYS * DAY_MS) {
+    return false;
+  }
 
   return localDayKey(new Date(at), timeZone) <= localDayKey(now, timeZone);
 }
@@ -81,7 +93,9 @@ export function isStaleReminder(
     return false;
   }
   const at = notification.scheduledAt ? Date.parse(notification.scheduledAt) : Number.NaN;
-  if (Number.isNaN(at)) return false;
+  if (Number.isNaN(at)) {
+    return false;
+  }
   return now.getTime() - at > STALE_AFTER_DAYS * DAY_MS;
 }
 
@@ -106,11 +120,15 @@ export function nextDeliveryAt(
   now: Date,
   timeZone: string = DISPLAY_TIMEZONE,
 ): Date | null {
-  if (Number.isNaN(Date.parse(scheduledAt))) return null;
+  if (Number.isNaN(Date.parse(scheduledAt))) {
+    return null;
+  }
 
   const run = new Date(now);
   run.setUTCHours(REMINDER_DISPATCH_HOUR_UTC, 0, 0, 0);
-  if (run.getTime() < now.getTime()) run.setTime(run.getTime() + DAY_MS);
+  if (run.getTime() < now.getTime()) {
+    run.setTime(run.getTime() + DAY_MS);
+  }
 
   for (let day = 0; day <= STALE_AFTER_DAYS + 1; day += 1) {
     const candidate = {
@@ -118,7 +136,9 @@ export function nextDeliveryAt(
       scheduledAt,
       updatedAt: new Date(0).toISOString(),
     };
-    if (isDueForDispatch(candidate, run, timeZone)) return new Date(run);
+    if (isDueForDispatch(candidate, run, timeZone)) {
+      return new Date(run);
+    }
     run.setTime(run.getTime() + DAY_MS);
   }
 

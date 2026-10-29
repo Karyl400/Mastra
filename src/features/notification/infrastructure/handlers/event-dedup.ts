@@ -11,10 +11,14 @@ export function dedupKey(envelope: SlackEventEnvelope): string | undefined {
 
   if (event && !isTeamJoinEvent(event)) {
     const { channel, ts } = event;
-    if (channel && ts) return `ts:${channel}:${ts}`;
+    if (channel && ts) {
+      return `ts:${channel}:${ts}`;
+    }
   }
 
-  if (envelope.event_id) return `id:${envelope.event_id}`;
+  if (envelope.event_id) {
+    return `id:${envelope.event_id}`;
+  }
   return undefined;
 }
 
@@ -24,10 +28,14 @@ export async function claimEvent(
   retryNum?: string | null,
 ): Promise<boolean> {
   const local = claimLocally(self, key, retryNum);
-  if (!local) return false;
+  if (!local) {
+    return false;
+  }
 
   const repo = self.getDedupRepo();
-  if (!repo) return true;
+  if (!repo) {
+    return true;
+  }
 
   try {
     const claim = await repo.claim(key, { inFlightGraceMs: self.inFlightGraceMs });
@@ -93,11 +101,15 @@ export async function markDedupDone(
   self: SlackHandlerInternals,
   key: string | undefined,
 ): Promise<void> {
-  if (!key) return;
+  if (!key) {
+    return;
+  }
   self.seenEvents.set(key, { status: 'done', startedAt: Date.now() });
 
   const repo = self.getDedupRepo();
-  if (!repo) return;
+  if (!repo) {
+    return;
+  }
   try {
     await repo.markDone(key);
   } catch (error) {
@@ -109,11 +121,15 @@ export async function releaseDedup(
   self: SlackHandlerInternals,
   key: string | undefined,
 ): Promise<void> {
-  if (!key) return;
+  if (!key) {
+    return;
+  }
   self.seenEvents.delete(key);
 
   const repo = self.getDedupRepo();
-  if (!repo) return;
+  if (!repo) {
+    return;
+  }
   try {
     await repo.release(key);
   } catch (error) {
@@ -122,10 +138,14 @@ export async function releaseDedup(
 }
 
 export function scheduleDedupPruneIfDue(self: SlackHandlerInternals): void {
-  if (!pruneIsDue(self)) return;
+  if (!pruneIsDue(self)) {
+    return;
+  }
 
   const repo = self.getDedupRepo();
-  if (!repo) return;
+  if (!repo) {
+    return;
+  }
 
   void repo
     .pruneOlderThan(new Date(Date.now() - SLACK_EVENT_DEDUP_RETENTION_MS))

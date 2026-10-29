@@ -27,6 +27,8 @@ export function outcomeOf(failures: readonly StepFailure[]): OnboardingOutcome {
 }
 
 export function describeDegradation(failures: readonly StepFailure[]): string {
-  if (failures.length === 0) return 'aucune';
+  if (failures.length === 0) {
+    return 'aucune';
+  }
   return failures.map((failure) => `${failure.step} (${failure.reason})`).join(' ; ');
 }

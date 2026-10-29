@@ -93,7 +93,9 @@ export async function sweepLive(
         (channel) => channel.id,
       );
 
-  if (channelIds.length === 0) return [];
+  if (channelIds.length === 0) {
+    return [];
+  }
 
   const readable = only
     ? await readableChannels(channels, [only], requesterId, { isManager: false, ownDms: new Set() })

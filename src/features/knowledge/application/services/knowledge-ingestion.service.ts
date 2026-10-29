@@ -40,7 +40,9 @@ export class KnowledgeIngestionService implements KnowledgeIngestionPort {
     }
 
     const stored = await this.archive.archive(message);
-    if (!stored) return;
+    if (!stored) {
+      return;
+    }
 
     if (isDirectMessageChannel(message.channelId)) {
       await this.archive.markDistilled([message.id], Date.now()).catch(() => 0);
@@ -49,11 +51,15 @@ export class KnowledgeIngestionService implements KnowledgeIngestionPort {
 
     const classified = await this.distil(message);
 
-    if (!classified) await this.raiseCurtain();
+    if (!classified) {
+      await this.raiseCurtain();
+    }
   }
 
   private async raiseCurtain(): Promise<void> {
-    if (!this.facts || !this.summarizer) return;
+    if (!this.facts || !this.summarizer) {
+      return;
+    }
 
     try {
       await runFactCurtain({
@@ -70,10 +76,14 @@ export class KnowledgeIngestionService implements KnowledgeIngestionPort {
   }
 
   private async distil(message: ArchivedMessage): Promise<boolean> {
-    if (!this.facts) return false;
+    if (!this.facts) {
+      return false;
+    }
 
     const distilled = distillFact(message.text);
-    if (!distilled) return false;
+    if (!distilled) {
+      return false;
+    }
 
     try {
       await this.facts.record({

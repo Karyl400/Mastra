@@ -13,8 +13,12 @@ export async function consumeWorkspaceTokens(
   tokens: number | null | undefined,
   now: Date,
 ): Promise<void> {
-  if (!rule || !repository) return;
-  if (!Number.isFinite(tokens ?? NaN) || (tokens ?? 0) <= 0) return;
+  if (!rule || !repository) {
+    return;
+  }
+  if (!Number.isFinite(tokens ?? NaN) || (tokens ?? 0) <= 0) {
+    return;
+  }
 
   const key = buildCounterKey(rule, WORKSPACE_SUBJECT, now);
   const { windowStart, expiresAt } = windowBounds(rule, now);

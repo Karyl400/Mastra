@@ -97,7 +97,9 @@ export async function runPinFact(
 ): Promise<void> {
   const { text, channel, threadTs, user } = ctx;
   const factToPin = extractPinnedFact(text);
-  if (!factToPin) return;
+  if (!factToPin) {
+    return;
+  }
   const repo = user ? self.getPinnedFactRepo() : null;
 
   if (!repo) {

@@ -53,7 +53,9 @@ function flatten(raw: string): string {
 }
 
 function truncateOnBoundary(value: string, maxChars: number): string {
-  if (value.length <= maxChars) return value;
+  if (value.length <= maxChars) {
+    return value;
+  }
 
   const window = value.slice(0, maxChars);
   const lastSpace = window.lastIndexOf(' ');
@@ -65,20 +67,28 @@ function truncateOnBoundary(value: string, maxChars: number): string {
 export function classifyFact(text: string): FactKind | null {
   const folded = foldDiacritics(flatten(text));
   for (const candidate of KIND_TESTS) {
-    if (candidate.test.test(folded)) return candidate.kind;
+    if (candidate.test.test(folded)) {
+      return candidate.kind;
+    }
   }
   return null;
 }
 
 export function distillFact(text: string): DistilledFact | null {
   const raw = flatten(text);
-  if (raw.length === 0) return null;
+  if (raw.length === 0) {
+    return null;
+  }
 
   const score = signalScore(raw);
-  if (score < KNOWLEDGE_FACT_MIN_SCORE) return null;
+  if (score < KNOWLEDGE_FACT_MIN_SCORE) {
+    return null;
+  }
 
   const kind = classifyFact(raw);
-  if (!kind) return null;
+  if (!kind) {
+    return null;
+  }
 
   return { kind, summary: truncateOnBoundary(raw, FACT_SUMMARY_MAX_CHARS), score };
 }

@@ -17,9 +17,13 @@ import { ASSISTANT_NAME } from '../../../../shared/assistant-identity';
 const COMPANY = 'Kisso Industries';
 
 function isFutureDay(startDate: string | null | undefined): boolean {
-  if (!startDate) return false;
+  if (!startDate) {
+    return false;
+  }
   const parsed = new Date(startDate);
-  if (Number.isNaN(parsed.getTime())) return false;
+  if (Number.isNaN(parsed.getTime())) {
+    return false;
+  }
 
   const startOfDay = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   return startOfDay(parsed) > startOfDay(new Date());
@@ -29,7 +33,9 @@ export function buildWelcomeEmail(input: WelcomeEmailInput): WelcomeEmail {
   const firstName = input.firstName.trim();
 
   const known: string[] = [];
-  if (input.position?.trim()) known.push(`comme <strong>${esc(input.position.trim())}</strong>`);
+  if (input.position?.trim()) {
+    known.push(`comme <strong>${esc(input.position.trim())}</strong>`);
+  }
 
   const day = formatFrenchDay(input.startDate);
 

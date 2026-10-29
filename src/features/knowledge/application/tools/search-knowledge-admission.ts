@@ -56,7 +56,9 @@ export async function admit(
   const requester: Requester = { slackUserId: requesterId, subject: requesterPerson };
 
   const nominative = classifyPerson(person, requesterId, requesterPerson);
-  if (nominative.kind === 'unparsable') return { reason: 'person_not_resolved' };
+  if (nominative.kind === 'unparsable') {
+    return { reason: 'person_not_resolved' };
+  }
 
   if (nominative.kind === 'other') {
     const verdict = authorizeOtherMemoryRead(requester);
@@ -72,11 +74,15 @@ export async function admit(
 
   if (nominative.kind === 'self') {
     const verdict = authorizeMemoryRead(requester, requesterId);
-    if (!verdict.allowed) return { reason: verdict.reason };
+    if (!verdict.allowed) {
+      return { reason: verdict.reason };
+    }
   }
 
   const target = await resolveTarget(directory, nominative);
-  if (target === 'not_found') return { reason: 'person_not_found' };
+  if (target === 'not_found') {
+    return { reason: 'person_not_found' };
+  }
 
   return { requester, target };
 }
@@ -93,7 +99,9 @@ function classifyPerson(
   requesterPerson: DirectoryPerson | null,
 ): Nominative {
   const value = raw?.trim();
-  if (!value) return { kind: 'none' };
+  if (!value) {
+    return { kind: 'none' };
+  }
 
   if (SLACK_USER_ID_RE.test(value)) {
     const slackUserId = value.toUpperCase();
@@ -102,7 +110,9 @@ function classifyPerson(
       : { kind: 'other', slackUserId };
   }
 
-  if (!value.includes('@')) return { kind: 'unparsable' };
+  if (!value.includes('@')) {
+    return { kind: 'unparsable' };
+  }
 
   const email = value.toLowerCase();
   const ownEmail = requesterPerson?.email?.trim().toLowerCase();
@@ -116,10 +126,16 @@ async function resolveTarget(
   directory: PersonDirectoryPort,
   nominative: Nominative,
 ): Promise<string | null | 'not_found'> {
-  if (nominative.kind === 'none' || nominative.kind === 'unparsable') return null;
-  if (nominative.kind === 'self') return nominative.slackUserId;
+  if (nominative.kind === 'none' || nominative.kind === 'unparsable') {
+    return null;
+  }
+  if (nominative.kind === 'self') {
+    return nominative.slackUserId;
+  }
 
-  if (nominative.slackUserId) return nominative.slackUserId;
+  if (nominative.slackUserId) {
+    return nominative.slackUserId;
+  }
 
   const person = await directory.findByEmail(nominative.email!);
   return person?.slackUserId ?? 'not_found';

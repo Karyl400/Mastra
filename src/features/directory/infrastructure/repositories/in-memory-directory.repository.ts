@@ -11,15 +11,21 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
 
   async findByEmail(email: string): Promise<DirectoryMember | null> {
     const needle = email.trim();
-    if (!needle) return null;
+    if (!needle) {
+      return null;
+    }
 
     for (const member of this.rows.values()) {
-      if (member.email === needle) return member;
+      if (member.email === needle) {
+        return member;
+      }
     }
 
     const lowered = needle.toLowerCase();
     for (const member of this.rows.values()) {
-      if (member.email !== null && member.email.toLowerCase() === lowered) return member;
+      if (member.email !== null && member.email.toLowerCase() === lowered) {
+        return member;
+      }
     }
 
     return null;
@@ -54,21 +60,27 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
 
   async rememberDmChannel(slackUserId: string, dmChannelId: string): Promise<void> {
     const existing = this.rows.get(slackUserId);
-    if (!existing || existing.dmChannelId !== null) return;
+    if (!existing || existing.dmChannelId !== null) {
+      return;
+    }
 
     this.rows.set(slackUserId, { ...existing, dmChannelId });
   }
 
   async linkEmployee(slackUserId: string, employeeId: string | null): Promise<number> {
     const row = this.rows.get(slackUserId);
-    if (!row) return 0;
+    if (!row) {
+      return 0;
+    }
     this.rows.set(slackUserId, { ...row, employeeId });
     return 1;
   }
 
   async hasManager(): Promise<boolean> {
     for (const member of this.rows.values()) {
-      if (member.isManager && !member.isDeleted && !member.isBot) return true;
+      if (member.isManager && !member.isDeleted && !member.isBot) {
+        return true;
+      }
     }
     return false;
   }
@@ -81,12 +93,16 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
 
   setRole(slackUserId: string, isManager: boolean): void {
     const row = this.rows.get(slackUserId);
-    if (!row) return;
+    if (!row) {
+      return;
+    }
     this.rows.set(slackUserId, { ...row, isManager });
   }
 
   async findByName(query: string, limit: number): Promise<DirectoryMember[]> {
-    if (limit <= 0) return [];
+    if (limit <= 0) {
+      return [];
+    }
 
     return Array.from(this.rows.values())
       .sort((a, b) => compareBinary(a.slackUserId, b.slackUserId))
@@ -106,6 +122,8 @@ export class InMemoryDirectoryRepository implements DirectoryRepository {
 }
 
 function compareBinary(a: string, b: string): number {
-  if (a < b) return -1;
+  if (a < b) {
+    return -1;
+  }
   return a > b ? 1 : 0;
 }

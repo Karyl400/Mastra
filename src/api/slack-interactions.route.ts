@@ -78,8 +78,12 @@ export async function handleSlackInteractionRequest(
     return ack();
   }
 
-  if (payload.type === 'block_actions') return handleBlockActions(payload);
-  if (payload.type === 'view_submission') return handleViewSubmission(payload);
+  if (payload.type === 'block_actions') {
+    return handleBlockActions(payload);
+  }
+  if (payload.type === 'view_submission') {
+    return handleViewSubmission(payload);
+  }
 
   logger.debug('Slack interaction ignored', { type: payload.type });
   return ack();

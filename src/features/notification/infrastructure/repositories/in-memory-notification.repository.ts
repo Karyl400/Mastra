@@ -33,7 +33,9 @@ export class InMemoryNotificationRepository implements NotificationRepository {
 
   async claimForDispatch(id: string, strandedBefore?: Date): Promise<boolean> {
     const current = this.store.get(id);
-    if (!current) return false;
+    if (!current) {
+      return false;
+    }
 
     const free = isDispatchableStatus(current.status);
     const abandoned =
@@ -41,7 +43,9 @@ export class InMemoryNotificationRepository implements NotificationRepository {
       current.status === NotificationStatus.Sending &&
       current.updatedAt < strandedBefore.toISOString();
 
-    if (!free && !abandoned) return false;
+    if (!free && !abandoned) {
+      return false;
+    }
 
     this.store.set(id, {
       ...current,
@@ -53,9 +57,15 @@ export class InMemoryNotificationRepository implements NotificationRepository {
 
   async cancelIfPending(id: string, recipientId: string): Promise<boolean> {
     const current = this.store.get(id);
-    if (!current) return false;
-    if (current.recipientId !== recipientId) return false;
-    if (!isDispatchableStatus(current.status)) return false;
+    if (!current) {
+      return false;
+    }
+    if (current.recipientId !== recipientId) {
+      return false;
+    }
+    if (!isDispatchableStatus(current.status)) {
+      return false;
+    }
 
     this.store.set(id, {
       ...current,
@@ -67,7 +77,9 @@ export class InMemoryNotificationRepository implements NotificationRepository {
 
   async releaseClaim(id: string): Promise<void> {
     const current = this.store.get(id);
-    if (!current || current.status !== NotificationStatus.Sending) return;
+    if (!current || current.status !== NotificationStatus.Sending) {
+      return;
+    }
     this.store.set(id, { ...current, status: NotificationStatus.Scheduled });
   }
 }

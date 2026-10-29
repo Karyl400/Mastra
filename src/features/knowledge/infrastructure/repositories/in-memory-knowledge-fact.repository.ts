@@ -12,13 +12,17 @@ export class InMemoryKnowledgeFactRepository implements KnowledgeFactRepository 
   private readonly rows = new Map<string, KnowledgeFact>();
 
   async record(fact: KnowledgeFact): Promise<boolean> {
-    if (this.rows.has(fact.id)) return false;
+    if (this.rows.has(fact.id)) {
+      return false;
+    }
     this.rows.set(fact.id, fact);
     return true;
   }
 
   async search(query: string, options: KnowledgeFactSearchOptions = {}): Promise<KnowledgeFact[]> {
-    if (queryTerms(query).length === 0) return [];
+    if (queryTerms(query).length === 0) {
+      return [];
+    }
 
     return this.scoped(options)
       .map((row) => ({ row, matched: matchedTermCount(row.summary, query) }))
@@ -40,8 +44,12 @@ export class InMemoryKnowledgeFactRepository implements KnowledgeFactRepository 
   async forget(scope: KnowledgeForgetScope): Promise<number> {
     let removed = 0;
     for (const [id, row] of this.rows) {
-      if (row.slackUserId !== scope.slackUserId) continue;
-      if (scope.channelId !== undefined && row.channelId !== scope.channelId) continue;
+      if (row.slackUserId !== scope.slackUserId) {
+        continue;
+      }
+      if (scope.channelId !== undefined && row.channelId !== scope.channelId) {
+        continue;
+      }
       this.rows.delete(id);
       removed += 1;
     }

@@ -16,15 +16,21 @@ export function pendingOnboardingStep(
   history: readonly ConversationTurn[],
   isDirectMessage: boolean,
 ): PendingOnboardingStep | undefined {
-  if (!isDirectMessage) return undefined;
+  if (!isDirectMessage) {
+    return undefined;
+  }
 
   const last = lastAssistantText(history);
 
   const profile = pendingProfileStep(last);
-  if (profile) return { kind: 'profile', step: profile };
+  if (profile) {
+    return { kind: 'profile', step: profile };
+  }
 
   const interview = pendingInterviewStep(last);
-  if (interview) return { kind: 'interview', step: interview };
+  if (interview) {
+    return { kind: 'interview', step: interview };
+  }
 
   return undefined;
 }
@@ -34,9 +40,15 @@ export function answersOnboardingQuestion(input: {
   readonly isDirectMessage: boolean;
   readonly text: string;
 }): boolean {
-  if (!input.isDirectMessage) return false;
-  if (!hasPendingOnboardingQuestion(input.history)) return false;
-  if (findActingReply({ text: input.text, isDirectMessage: true })) return false;
+  if (!input.isDirectMessage) {
+    return false;
+  }
+  if (!hasPendingOnboardingQuestion(input.history)) {
+    return false;
+  }
+  if (findActingReply({ text: input.text, isDirectMessage: true })) {
+    return false;
+  }
   return !isQuestionToBot(input.text);
 }
 
@@ -52,17 +64,25 @@ export function hasPendingOnboardingQuestion(history: readonly ConversationTurn[
 export function lastAssistantText(history: readonly ConversationTurn[]): string | undefined {
   for (let i = history.length - 1; i >= 0; i -= 1) {
     const turn = history[i]!;
-    if (turn.role === 'assistant') return turn.content;
+    if (turn.role === 'assistant') {
+      return turn.content;
+    }
   }
   return undefined;
 }
 
 export function interviewReplyFor(step: InterviewStep, text: string, skipped: boolean): string {
-  if (skipped) return INTERVIEW_SKIPPED_REPLY;
+  if (skipped) {
+    return INTERVIEW_SKIPPED_REPLY;
+  }
 
   const answer = captureInterviewAnswer(text);
-  if (!answer) return interviewRetryReply(step);
-  if (step === 'dailyWork') return INTERVIEW_QUESTION_STYLE;
+  if (!answer) {
+    return interviewRetryReply(step);
+  }
+  if (step === 'dailyWork') {
+    return INTERVIEW_QUESTION_STYLE;
+  }
   return interviewDoneReply(answer);
 }
 

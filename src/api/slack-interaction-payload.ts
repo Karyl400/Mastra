@@ -28,7 +28,9 @@ export function decodeLegacyProfileButton(
   value: string | undefined,
   fallbackUserId = '',
 ): NewcomerIdentity {
-  if (!value) return { slackUserId: fallbackUserId };
+  if (!value) {
+    return { slackUserId: fallbackUserId };
+  }
 
   try {
     const parsed = JSON.parse(value) as {

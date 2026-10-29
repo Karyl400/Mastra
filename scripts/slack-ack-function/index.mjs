@@ -58,7 +58,9 @@ const WORK_PREFIX = '/internal';
 function safeEqual(a, b) {
   const bufA = Buffer.from(a, 'utf8');
   const bufB = Buffer.from(b, 'utf8');
-  if (bufA.length !== bufB.length) return false;
+  if (bufA.length !== bufB.length) {
+    return false;
+  }
   return timingSafeEqual(bufA, bufB);
 }
 
@@ -114,7 +116,8 @@ export default async function handler(req, res) {
     return;
   }
 
-  const expected = 'v0=' + createHmac('sha256', secret).update(`v0:${timestamp}:${rawBody}`).digest('hex');
+  const expected =
+    'v0=' + createHmac('sha256', secret).update(`v0:${timestamp}:${rawBody}`).digest('hex');
   if (!safeEqual(expected, String(signature))) {
     res.statusCode = 401;
     res.setHeader('content-type', 'application/json');
@@ -172,7 +175,7 @@ export default async function handler(req, res) {
         level: 'error',
         message: 'Slack ack gateway: forwarding failed',
         data: { target, error: String(error) },
-      })
+      }),
     );
   });
 
@@ -183,7 +186,7 @@ export default async function handler(req, res) {
         level: 'error',
         message: 'Slack ack gateway: work is detached (waitUntil unavailable)',
         data: { target },
-      })
+      }),
     );
   }
 

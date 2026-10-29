@@ -45,7 +45,9 @@ export function createAgentApiGuard(options: {
     await next();
 
     const redacted = await redactResponse(ctx.res, options.onRedacted);
-    if (redacted) ctx.res = redacted;
+    if (redacted) {
+      ctx.res = redacted;
+    }
   };
 }
 
@@ -58,7 +60,9 @@ function isAgentsPath(raw: Request): boolean {
 }
 
 async function detectInjectionInBody(raw: Request): Promise<string[]> {
-  if (raw.method === 'GET' || raw.method === 'HEAD') return [];
+  if (raw.method === 'GET' || raw.method === 'HEAD') {
+    return [];
+  }
 
   let body: unknown;
   try {
@@ -68,16 +72,25 @@ async function detectInjectionInBody(raw: Request): Promise<string[]> {
   }
 
   const messages = (body as { messages?: unknown })?.messages;
-  if (!Array.isArray(messages)) return [];
+  if (!Array.isArray(messages)) {
+    return [];
+  }
 
   const found = new Set<string>();
   for (const message of messages) {
     const content = (message as { content?: unknown })?.content;
     let text = '';
-    if (typeof message === 'string') text = message;
-    else if (typeof content === 'string') text = content;
-    if (!text) continue;
-    for (const type of detectInjectionAttempts(text)) found.add(type);
+    if (typeof message === 'string') {
+      text = message;
+    } else if (typeof content === 'string') {
+      text = content;
+    }
+    if (!text) {
+      continue;
+    }
+    for (const type of detectInjectionAttempts(text)) {
+      found.add(type);
+    }
   }
   return [...found];
 }
@@ -86,10 +99,14 @@ async function redactResponse(
   res: Response | undefined,
   onRedacted?: (what: string) => void,
 ): Promise<Response | undefined> {
-  if (!res) return undefined;
+  if (!res) {
+    return undefined;
+  }
 
   const contentType = res.headers.get('content-type') ?? '';
-  if (!contentType.includes('application/json')) return undefined;
+  if (!contentType.includes('application/json')) {
+    return undefined;
+  }
 
   let parsed: unknown;
   try {
@@ -100,16 +117,22 @@ async function redactResponse(
 
   const found: string[] = [];
   const cleaned = redactValue(parsed, 0, found);
-  if (found.length === 0) return undefined;
+  if (found.length === 0) {
+    return undefined;
+  }
 
   onRedacted?.(found.join(','));
   return new Response(JSON.stringify(cleaned), { status: res.status, headers: res.headers });
 }
 
 function redactValue(value: unknown, depth: number, found: string[]): unknown {
-  if (depth > MAX_DEPTH || value === null || typeof value !== 'object') return value;
+  if (depth > MAX_DEPTH || value === null || typeof value !== 'object') {
+    return value;
+  }
 
-  if (Array.isArray(value)) return value.map((item) => redactValue(item, depth + 1, found));
+  if (Array.isArray(value)) {
+    return value.map((item) => redactValue(item, depth + 1, found));
+  }
 
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {

@@ -83,9 +83,13 @@ export function makeFindExpertise(deps: FindExpertiseDeps) {
 function dedupe(experts: readonly Expert[]): Expert[] {
   const seen = new Map<string, Expert['source']>();
   return experts.filter((expert) => {
-    if (expert.key.length === 0) return false;
+    if (expert.key.length === 0) {
+      return false;
+    }
     const previous = seen.get(expert.key);
-    if (previous !== undefined && previous !== expert.source) return false;
+    if (previous !== undefined && previous !== expert.source) {
+      return false;
+    }
     seen.set(expert.key, expert.source);
     return true;
   });

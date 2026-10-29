@@ -53,7 +53,9 @@ export class SlackEventsHandler extends SlackHandlerCore implements SlackHandler
 
   async ingest(envelope: SlackEventEnvelope): Promise<void> {
     const event = envelope.event;
-    if (!event) return;
+    if (!event) {
+      return;
+    }
     await archiveChannelMessage(this, event);
   }
 
@@ -72,7 +74,9 @@ export class SlackEventsHandler extends SlackHandlerCore implements SlackHandler
 
   private async processEvent(envelope: SlackEventEnvelope): Promise<void> {
     const event: SlackEvent | undefined = envelope.event;
-    if (!event) return;
+    if (!event) {
+      return;
+    }
 
     if (isTeamJoinEvent(event)) {
       await this.handleTeamJoin(event);

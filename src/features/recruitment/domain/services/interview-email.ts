@@ -38,7 +38,9 @@ export function buildInterviewEmail(input: InterviewEmailInput): InterviewEmail 
   lines.push('');
 
   lines.push(`Date : ${input.schedule.humanReadable}`);
-  if (input.location?.trim()) lines.push(`Lieu : ${input.location.trim()}`);
+  if (input.location?.trim()) {
+    lines.push(`Lieu : ${input.location.trim()}`);
+  }
 
   if (input.replyTo?.trim()) {
     lines.push('');
@@ -55,10 +57,14 @@ export type LocationVerdict =
 
 export function checkInterviewLocation(location: string | undefined): LocationVerdict {
   const value = location?.trim();
-  if (!value) return { ok: true };
+  if (!value) {
+    return { ok: true };
+  }
 
   const url = extractUrl(value);
-  if (!url) return { ok: true };
+  if (!url) {
+    return { ok: true };
+  }
 
   const host = url.hostname.toLowerCase();
   const allowed = INTERVIEW_LINK_DOMAINS.some(
@@ -69,7 +75,9 @@ export function checkInterviewLocation(location: string | undefined): LocationVe
 
 function extractUrl(value: string): URL | null {
   const match = /(https?:\/\/[^\s<>"']+)/i.exec(value);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
   try {
     return new URL(match[1]!);
   } catch {

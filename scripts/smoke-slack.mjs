@@ -90,7 +90,9 @@ if (typeof args.email === 'string') {
   await step(`users.lookupByEmail (${args.email})`, async () => {
     const res = await client.users.lookupByEmail({ email: args.email });
     const u = res.user;
-    if (!u) throw new Error('user vide');
+    if (!u) {
+      throw new Error('user vide');
+    }
     return `id=${u.id} name=${u.name} real=${u.real_name}`;
   });
 } else {
@@ -104,7 +106,9 @@ if (args.invite === true) {
     await step(`conversations.invite (${args.email} → ${args.channel})`, async () => {
       const lookup = await client.users.lookupByEmail({ email: args.email });
       const userId = lookup.user?.id;
-      if (!userId) throw new Error('utilisateur introuvable');
+      if (!userId) {
+        throw new Error('utilisateur introuvable');
+      }
       try {
         await client.conversations.invite({ channel: args.channel, users: userId });
         return `invité ${userId} dans ${args.channel}`;
@@ -133,7 +137,9 @@ console.log('\n─────────────────────�
 console.log(`Résultat: ${results.length - failed.length}/${results.length} OK`);
 if (failed.length) {
   console.log('\nÉchecs → scopes / membership bot à vérifier:');
-  for (const f of failed) console.log(`  • ${f.label}: ${f.detail}`);
+  for (const f of failed) {
+    console.log(`  • ${f.label}: ${f.detail}`);
+  }
   process.exit(1);
 }
 console.log('\n✅ Slack Kisso Ind prêt pour l’onboarding.\n');

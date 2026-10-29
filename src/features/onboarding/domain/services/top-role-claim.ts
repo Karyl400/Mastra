@@ -14,10 +14,14 @@ const TOP_ROLE_PHRASES: readonly string[] = [
 
 export function declaresTopRole(position: string | null | undefined): boolean {
   const normalized = normalizeIntentText(position ?? '');
-  if (normalized.length === 0) return false;
+  if (normalized.length === 0) {
+    return false;
+  }
 
   const words = normalized.split(WORD_SEPARATOR).filter(Boolean);
-  if (words.length === 0) return false;
+  if (words.length === 0) {
+    return false;
+  }
 
   const haystack = ` ${words.join(' ')} `;
   return TOP_ROLE_PHRASES.some((phrase) => haystack.includes(` ${phrase} `));

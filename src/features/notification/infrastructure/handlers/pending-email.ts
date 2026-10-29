@@ -14,8 +14,12 @@ import { sayAndRemember } from './conversation-memory';
 import { hasPendingOnboardingQuestion } from './onboarding-turn-state';
 
 export function cancellationReply(cleared: number): string {
-  if (cleared > 0) return CANCELLED_REPLY;
-  if (cleared === 0) return ALREADY_SETTLED_REPLY;
+  if (cleared > 0) {
+    return CANCELLED_REPLY;
+  }
+  if (cleared === 0) {
+    return ALREADY_SETTLED_REPLY;
+  }
   return 'Je n’ai pas réussi à annuler cet email — rien n’est parti pour autant. Redis-moi « non » dans un instant.';
 }
 
@@ -32,7 +36,9 @@ export async function resolvePendingEmail(
 ): Promise<{ handled: boolean; reminder?: string }> {
   const repo = self.pendingEmailRepo;
   const send = self.sendEmail;
-  if (!repo || !send) return { handled: false };
+  if (!repo || !send) {
+    return { handled: false };
+  }
 
   let pending: PendingInterviewEmail | null;
   try {
@@ -41,7 +47,9 @@ export async function resolvePendingEmail(
     logger.error('Email d’entretien en attente illisible', { error: String(error) });
     return { handled: false };
   }
-  if (!pending) return { handled: false };
+  if (!pending) {
+    return { handled: false };
+  }
 
   const verdict = pendingEmailVerdict({
     pending,

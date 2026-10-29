@@ -197,7 +197,9 @@ async function main(): Promise<void> {
           .join(', ')}`,
       );
     }
-    if (report.archivedSkipped > 0) console.log(`  archivés ignorés: ${report.archivedSkipped}`);
+    if (report.archivedSkipped > 0) {
+      console.log(`  archivés ignorés: ${report.archivedSkipped}`);
+    }
     if (report.missingScope) {
       console.log(
         '  ⚠️ SCOPE `channels:join` MANQUANT — ajouter le scope dans OAuth & Permissions,\n' +

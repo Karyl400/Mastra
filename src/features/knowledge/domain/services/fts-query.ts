@@ -9,9 +9,13 @@ export function toMatchQuery(raw: string): string | null {
 
   for (const match of raw.matchAll(TERM)) {
     const term = match[0];
-    if (term.length < MIN_TERM_CHARS) continue;
+    if (term.length < MIN_TERM_CHARS) {
+      continue;
+    }
     terms.push(`"${term.replaceAll('"', '""')}"`);
-    if (terms.length === FTS_MAX_TERMS) break;
+    if (terms.length === FTS_MAX_TERMS) {
+      break;
+    }
   }
 
   return terms.length === 0 ? null : terms.join(' OR ');

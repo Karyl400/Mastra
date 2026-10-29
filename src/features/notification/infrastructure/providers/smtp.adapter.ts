@@ -23,9 +23,15 @@ export class SmtpAdapter implements EmailProvider {
   constructor(config: SmtpAdapterConfig) {
     const { host, port, user, pass, from, fromName, secure, transporter } = config;
 
-    if (!host) throw new Error('SmtpAdapter: SMTP_HOST is required');
-    if (!user) throw new Error('SmtpAdapter: SMTP_USER is required');
-    if (!pass) throw new Error('SmtpAdapter: SMTP_PASS is required');
+    if (!host) {
+      throw new Error('SmtpAdapter: SMTP_HOST is required');
+    }
+    if (!user) {
+      throw new Error('SmtpAdapter: SMTP_USER is required');
+    }
+    if (!pass) {
+      throw new Error('SmtpAdapter: SMTP_PASS is required');
+    }
 
     const address = from || user;
     this.from = fromName ? `"${fromName}" <${address}>` : address;
@@ -54,7 +60,9 @@ export class SmtpAdapter implements EmailProvider {
     body: EmailBody,
     attachments?: EmailAttachment[],
   ): Promise<void> {
-    if (attachments?.length) assertEmailAttachmentsFit(attachments);
+    if (attachments?.length) {
+      assertEmailAttachmentsFit(attachments);
+    }
 
     try {
       await this.transporter.sendMail({

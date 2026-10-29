@@ -61,7 +61,9 @@ export function describeCoverage(
   all: readonly ConversationExcerpt[],
   shown: number,
 ): string | undefined {
-  if (all.length === 0 || shown >= all.length) return undefined;
+  if (all.length === 0 || shown >= all.length) {
+    return undefined;
+  }
 
   const stamps = all.map((excerpt) => excerpt.at.getTime()).sort((a, b) => a - b);
   const from = new Date(stamps[0]!).toISOString().slice(0, 10);
@@ -75,7 +77,9 @@ export function describeCoverageForHuman(
   all: readonly ConversationExcerpt[],
   shown: number,
 ): string | undefined {
-  if (all.length === 0 || shown >= all.length) return undefined;
+  if (all.length === 0 || shown >= all.length) {
+    return undefined;
+  }
 
   const stamps = all.map((excerpt) => excerpt.at.getTime()).sort((a, b) => a - b);
   const span = frenchDaySpan(new Date(stamps[0]!), new Date(stamps[stamps.length - 1]!));

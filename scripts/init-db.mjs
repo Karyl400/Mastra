@@ -14,7 +14,7 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = OFF'); // OFF pendant migrations pour éviter les FK circulaires
 
 const existingTables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
-console.log('Tables existantes:', existingTables.map(t => t.name).join(', ') || '(aucune)');
+console.log('Tables existantes:', existingTables.map((t) => t.name).join(', ') || '(aucune)');
 
 const migrations = [
   resolve(root, 'drizzle', '0000_petite_fantastic_four.sql'),
@@ -28,10 +28,12 @@ for (const file of migrations) {
     continue;
   }
   const sql = readFileSync(file, 'utf8');
-  const statements = sql.split('--> statement-breakpoint').filter(s => s.trim());
+  const statements = sql.split('--> statement-breakpoint').filter((s) => s.trim());
   for (const stmt of statements) {
     const clean = stmt.trim();
-    if (!clean) continue;
+    if (!clean) {
+      continue;
+    }
     try {
       db.exec(clean);
       applied++;
@@ -45,7 +47,9 @@ for (const file of migrations) {
 db.pragma('foreign_keys = ON');
 db.close();
 
-const tables = new Database(dbPath).prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+const tables = new Database(dbPath)
+  .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+  .all();
 console.log(`\nRésultat : ${applied} statements, ${tables.length} tables créées`);
-console.log('Tables:', tables.map(t => t.name).join(', '));
+console.log('Tables:', tables.map((t) => t.name).join(', '));
 console.log('DB prête :', dbPath);

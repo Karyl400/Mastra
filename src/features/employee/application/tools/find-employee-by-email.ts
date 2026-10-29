@@ -34,13 +34,19 @@ const PLACEHOLDER_LOCAL_PARTS = new Set([
 
 function isPlaceholderEmail(email: string): boolean {
   const separator = email.lastIndexOf('@');
-  if (separator === -1) return false;
+  if (separator === -1) {
+    return false;
+  }
 
   const localPart = email.slice(0, separator);
   const domain = email.slice(separator + 1);
 
-  if (RESERVED_DOMAINS.includes(domain)) return true;
-  if (RESERVED_TLDS.some((tld) => domain.endsWith(tld))) return true;
+  if (RESERVED_DOMAINS.includes(domain)) {
+    return true;
+  }
+  if (RESERVED_TLDS.some((tld) => domain.endsWith(tld))) {
+    return true;
+  }
 
   return PLACEHOLDER_LOCAL_PARTS.has(localPart.replace(/[._-]/g, ''));
 }
@@ -76,7 +82,9 @@ export function makeFindEmployeeByEmail(repo: EmployeeRepository, directory?: Di
 
       const employee = await repo.findByEmail(normalizedEmail);
       let memberEarly: Awaited<ReturnType<NonNullable<typeof directory>['findByEmail']>> = null;
-      if (!employee && directory) memberEarly = await directory.findByEmail(normalizedEmail);
+      if (!employee && directory) {
+        memberEarly = await directory.findByEmail(normalizedEmail);
+      }
 
       const resolvedId = employee?.id ?? memberEarly?.employeeId ?? null;
       if (!mayHoldKeyFor(ctx?.requestContext, resolvedId)) {

@@ -58,7 +58,9 @@ export class DrizzleOnboardingRepository implements OnboardingRepository {
       .from(onboardingProgress)
       .where(eq(onboardingProgress.employeeId, employeeId))
       .get();
-    if (!result) return null;
+    if (!result) {
+      return null;
+    }
     return result as unknown as OnboardingProgress;
   }
 }

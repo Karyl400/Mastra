@@ -91,8 +91,12 @@ if (!args.includes('--yes')) {
 
 const signingSecret = process.env.SLACK_SIGNING_SECRET;
 const botToken = process.env.SLACK_BOT_TOKEN;
-if (!signingSecret) throw new Error('SLACK_SIGNING_SECRET manquant');
-if (!botToken) throw new Error('SLACK_BOT_TOKEN manquant');
+if (!signingSecret) {
+  throw new Error('SLACK_SIGNING_SECRET manquant');
+}
+if (!botToken) {
+  throw new Error('SLACK_BOT_TOKEN manquant');
+}
 
 const db = createClient({
   url: process.env.DATABASE_URL!,
@@ -105,8 +109,12 @@ const asTarget = asIndex >= 0 ? args[asIndex + 1] : undefined;
 const ARRIVAL_USER = await resolveArrivalUser();
 
 async function resolveArrivalUser(): Promise<string> {
-  if (!asTarget) return DEFAULT_ARRIVAL_USER;
-  if (/^U[A-Z0-9]{6,}$/.test(asTarget)) return asTarget;
+  if (!asTarget) {
+    return DEFAULT_ARRIVAL_USER;
+  }
+  if (/^U[A-Z0-9]{6,}$/.test(asTarget)) {
+    return asTarget;
+  }
 
   const found = await db.execute({
     sql: 'SELECT slack_user_id, display_name FROM slack_directory WHERE lower(email) = lower(?) AND is_deleted = 0 AND is_bot = 0',
@@ -190,8 +198,12 @@ async function waitForRecord(email: string, timeoutMs = 120_000): Promise<string
       sql: 'SELECT id FROM employees WHERE email = ? AND deleted_at IS NULL',
       args: [email],
     });
-    if (rows.rows.length === 1) return String(rows.rows[0]!.id);
-    if (Date.now() > deadline) return undefined;
+    if (rows.rows.length === 1) {
+      return String(rows.rows[0]!.id);
+    }
+    if (Date.now() > deadline) {
+      return undefined;
+    }
     console.log('  ⏳ le dossier n’est pas encore écrit — le workflow tourne');
     await wait(5_000);
   }
@@ -207,7 +219,9 @@ async function slack<T>(method: string, body: Record<string, unknown>): Promise<
     body: JSON.stringify(body),
   });
   const payload = (await res.json()) as { ok: boolean; error?: string } & T;
-  if (!payload.ok) throw new Error(`${method} : ${payload.error}`);
+  if (!payload.ok) {
+    throw new Error(`${method} : ${payload.error}`);
+  }
   return payload;
 }
 
@@ -250,7 +264,9 @@ async function botRepliesSince(channel: string, since: number): Promise<string> 
     error?: string;
     messages?: { text?: string; bot_id?: string }[];
   };
-  if (!payload.ok) throw new Error(`conversations.history : ${payload.error}`);
+  if (!payload.ok) {
+    throw new Error(`conversations.history : ${payload.error}`);
+  }
   return (payload.messages ?? [])
     .filter((m) => m.bot_id)
     .reverse()
@@ -320,7 +336,9 @@ const before = await dbExec({
   args: [ARRIVAL_USER],
 });
 const directoryRow = before.rows[0];
-if (!directoryRow) throw new Error(`Aucune ligne d'annuaire pour ${ARRIVAL_USER}`);
+if (!directoryRow) {
+  throw new Error(`Aucune ligne d'annuaire pour ${ARRIVAL_USER}`);
+}
 
 const existingEmployeeId = directoryRow.employee_id as string | null;
 const realIdentity = {
@@ -389,7 +407,9 @@ async function runJourney(): Promise<void> {
   let reply = await say(channel, 'je veux compléter mon profil', '① demande du formulaire');
   for (let guard = 0; guard < 6; guard += 1) {
     const step = pendingProfileStep(reply);
-    if (!step) break;
+    if (!step) {
+      break;
+    }
     // Le poste n'est pas dans l'annuaire : c'est la seule question qui reste ici.
     reply = await say(channel, REPLAY[step], `→ ${step}`);
   }
@@ -474,7 +494,9 @@ async function runJourney(): Promise<void> {
   let tldRetryDone = false;
   for (let guard = 0; guard < 10; guard += 1) {
     const step = pendingProfileStep(reply);
-    if (!step) break;
+    if (!step) {
+      break;
+    }
     asked.push(step);
 
     // ⚠️ Cas limite — une adresse mal formée doit être REDEMANDÉE avec de quoi la corriger,
@@ -585,7 +607,9 @@ async function runJourney(): Promise<void> {
 
   for (let guard = 0; guard < 4; guard += 1) {
     const step = pendingInterviewStep(reply);
-    if (!step) break;
+    if (!step) {
+      break;
+    }
     reply = await say(channel, INTERVIEW[step], `→ entretien : ${step}`);
   }
 
@@ -675,7 +699,9 @@ async function runJourney(): Promise<void> {
   reply = await say(channel, 'je veux compléter mon profil', '① demande du formulaire');
   for (let guard = 0; guard < 6; guard += 1) {
     const step = pendingProfileStep(reply);
-    if (!step) break;
+    if (!step) {
+      break;
+    }
     const overrides: Partial<Record<ProfileStep, string>> = {
       position: TOP_ROLE_POSITION,
       email: TOP_ROLE_EMAIL,
@@ -793,7 +819,9 @@ function finalVerdict(): string {
   if (interrupted) {
     return '❌ Rejeu INTERROMPU — les contrôles verts ci-dessus ne couvrent qu’une partie du parcours.';
   }
-  if (failures === 0 && restored) return '✅ Parcours d’arrivée conforme.';
+  if (failures === 0 && restored) {
+    return '✅ Parcours d’arrivée conforme.';
+  }
   return `❌ ${failures} contrôle(s) en défaut.`;
 }
 
@@ -806,7 +834,9 @@ try {
 }
 
 console.log(`\n${'═'.repeat(78)}\nVÉRIFICATION\n${'═'.repeat(78)}\n`);
-for (const [label, ok, detail] of checks) console.log(`${ok ? '✅' : '❌'} ${label} — ${detail}`);
+for (const [label, ok, detail] of checks) {
+  console.log(`${ok ? '✅' : '❌'} ${label} — ${detail}`);
+}
 
 // ── 8. Nettoyage ────────────────────────────────────────────────────────────
 console.log(`\n${'═'.repeat(78)}\nNETTOYAGE\n${'═'.repeat(78)}`);
@@ -849,7 +879,9 @@ await dbExec({
     ARRIVAL_USER,
   ],
 });
-if (existingEmployeeId) console.log(`Dossier réel ${existingEmployeeId} restauré et relié.`);
+if (existingEmployeeId) {
+  console.log(`Dossier réel ${existingEmployeeId} restauré et relié.`);
+}
 
 for (const probeId of probeIds) {
   for (const [table, column] of [
@@ -890,7 +922,9 @@ for (const table of ['knowledge_facts', 'channel_messages'] as const) {
   })
     .then((r) => r.rowsAffected)
     .catch(() => -1);
-  if (removed > 0) console.log(`Archive nettoyée : ${removed} ligne(s) de ${table}.`);
+  if (removed > 0) {
+    console.log(`Archive nettoyée : ${removed} ligne(s) de ${table}.`);
+  }
 }
 
 // ⚠️ On RELIT après restauration. Écrire puis supposer est exactement ce que `role:set` refuse
@@ -935,4 +969,6 @@ console.log(
 );
 
 console.log(`\n${finalVerdict()}`);
-if (failures > 0 || !restored) process.exitCode = 1;
+if (failures > 0 || !restored) {
+  process.exitCode = 1;
+}

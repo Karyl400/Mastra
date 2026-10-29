@@ -52,8 +52,12 @@ const LINES_BY_COUNTRY: Readonly<Record<EmergencyCountry, EmergencyLines>> = {
 
 export function resolveEmergencyLines(env: NodeJS.ProcessEnv = process.env): EmergencyLines {
   const raw = env.EMERGENCY_COUNTRY?.trim().toUpperCase();
-  if (raw === 'NG') return NIGERIA;
-  if (raw === 'BJ') return BENIN;
+  if (raw === 'NG') {
+    return NIGERIA;
+  }
+  if (raw === 'BJ') {
+    return BENIN;
+  }
   return BENIN;
 }
 

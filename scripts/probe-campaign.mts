@@ -83,8 +83,12 @@ const TODAY_YEAR = datePart(/(\d{4})\s*$/.exec(TODAY_LABEL)?.[1] ?? '');
 
 const signingSecret = process.env.SLACK_SIGNING_SECRET;
 const botToken = process.env.SLACK_BOT_TOKEN;
-if (!signingSecret) throw new Error('SLACK_SIGNING_SECRET manquant');
-if (!botToken) throw new Error('SLACK_BOT_TOKEN manquant');
+if (!signingSecret) {
+  throw new Error('SLACK_SIGNING_SECRET manquant');
+}
+if (!botToken) {
+  throw new Error('SLACK_BOT_TOKEN manquant');
+}
 
 interface Scenario {
   readonly tag: string;
@@ -571,7 +575,9 @@ async function botRepliesSince(since: number): Promise<string[]> {
     error?: string;
     messages?: { text?: string; bot_id?: string; files?: { name?: string }[] }[];
   };
-  if (!payload.ok) throw new Error(`conversations.history : ${payload.error}`);
+  if (!payload.ok) {
+    throw new Error(`conversations.history : ${payload.error}`);
+  }
 
   return (payload.messages ?? [])
     .filter((m) => m.bot_id)
@@ -655,8 +661,12 @@ try {
     console.log('─'.repeat(78));
 
     const problems: string[] = [];
-    if (!reply) problems.push('aucune réponse postée');
-    if (scenario.must) problems.push(...check(reply, scenario.must).map((m) => `manque : ${m}`));
+    if (!reply) {
+      problems.push('aucune réponse postée');
+    }
+    if (scenario.must) {
+      problems.push(...check(reply, scenario.must).map((m) => `manque : ${m}`));
+    }
     if (scenario.mustNot) {
       problems.push(...checkAbsent(reply, scenario.mustNot).map((m) => `INTERDIT présent : ${m}`));
     }
@@ -665,7 +675,9 @@ try {
       console.log('✅ conforme\n');
     } else {
       failures += 1;
-      for (const problem of problems) console.log(`❌ ${problem}`);
+      for (const problem of problems) {
+        console.log(`❌ ${problem}`);
+      }
       console.log();
     }
 

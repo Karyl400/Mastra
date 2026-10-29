@@ -13,7 +13,9 @@ function splitSentences(normalized: string): Array<{ text: string; delimiter: st
 
   for (let i = 0; i < parts.length; i += 2) {
     const text = parts[i];
-    if (text) sentences.push({ text, delimiter: parts[i + 1] ?? '' });
+    if (text) {
+      sentences.push({ text, delimiter: parts[i + 1] ?? '' });
+    }
   }
 
   return sentences;
@@ -108,7 +110,9 @@ export function detectUnsupportedCompletionClaim(text: string): string | null {
 
 export function readToolCallNames(response: unknown): string[] | null {
   const calls = (response as { toolCalls?: unknown } | undefined)?.toolCalls;
-  if (!Array.isArray(calls)) return null;
+  if (!Array.isArray(calls)) {
+    return null;
+  }
 
   return calls.map((call) => {
     const chunk = call as { payload?: { toolName?: unknown }; toolName?: unknown; name?: unknown };
@@ -173,7 +177,9 @@ export const PROMISED_DELIVERY_NOTICE =
 
 export function detectUnsupportedDeliveryPromise(text: string): string | null {
   const normalized = normalizeForClaims(text);
-  if (HUMAN_GATED_PATTERN.test(normalized)) return null;
+  if (HUMAN_GATED_PATTERN.test(normalized)) {
+    return null;
+  }
 
   const promissory = splitSentences(normalized)
     .filter((sentence) => !negatesDelivery(sentence.text))

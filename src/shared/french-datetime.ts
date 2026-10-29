@@ -59,7 +59,9 @@ export function frenchDaySpan(from: Date, to: Date, timeZone: string = DISPLAY_T
   const full: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'long', year: 'numeric' };
   const start = frenchDate(from, timeZone, full);
   const end = frenchDate(to, timeZone, full);
-  if (start === end) return `le ${start}`;
+  if (start === end) {
+    return `le ${start}`;
+  }
 
   const month: Intl.DateTimeFormatOptions = { month: 'long', year: 'numeric' };
   if (frenchDate(from, timeZone, month) === frenchDate(to, timeZone, month)) {

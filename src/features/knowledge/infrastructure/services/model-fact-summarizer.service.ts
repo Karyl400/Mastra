@@ -26,13 +26,17 @@ Le résumé reprend ce qui a été dit, en une phrase, sans rien ajouter. Aucun 
 
 function parseLine(line: string): SummarizedFact | null {
   const parts = line.replace(/^\s*[-•*]\s*/, '').split('|');
-  if (parts.length < 3) return null;
+  if (parts.length < 3) {
+    return null;
+  }
 
   const index = Number.parseInt(parts[0]!.replace(/\D/g, ''), 10);
   const kind = parts[1]!.trim().toLowerCase();
   const summary = parts.slice(2).join('|').trim();
 
-  if (!Number.isFinite(index) || index <= 0 || !kind || !summary) return null;
+  if (!Number.isFinite(index) || index <= 0 || !kind || !summary) {
+    return null;
+  }
   return { index, kind: kind as FactKind, summary };
 }
 
@@ -56,7 +60,9 @@ export class ModelFactSummarizer implements FactSummarizerPort {
   }
 
   async summarize(messages: readonly SummarizableMessage[]): Promise<readonly SummarizedFact[]> {
-    if (messages.length === 0) return [];
+    if (messages.length === 0) {
+      return [];
+    }
 
     const body = messages.map((message, i) => `${i + 1}. ${message.text}`).join('\n');
 

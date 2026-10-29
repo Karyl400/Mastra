@@ -65,11 +65,17 @@ function shouldAbandonThreadReply(
   history: readonly ConversationTurn[],
   botUserId: string | undefined,
 ): boolean {
-  if (event.type !== 'message' || isDirectMessage) return false;
+  if (event.type !== 'message' || isDirectMessage) {
+    return false;
+  }
 
-  if (botUserId && (event.text ?? '').includes(`<@${botUserId}>`)) return false;
+  if (botUserId && (event.text ?? '').includes(`<@${botUserId}>`)) {
+    return false;
+  }
 
-  if (!history.some((turn) => turn.role === 'assistant')) return true;
+  if (!history.some((turn) => turn.role === 'assistant')) {
+    return true;
+  }
 
   return !history.some((turn) => turn.role === 'user' && turn.slackUserId === event.user);
 }

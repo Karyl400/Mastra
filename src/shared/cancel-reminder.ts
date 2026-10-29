@@ -49,18 +49,24 @@ export function requestsReminderCancellation(
   text: string | undefined | null,
 ): CancelReminderScope | null {
   const raw = (text ?? '').trim();
-  if (raw.length === 0 || raw.length > MAX_CANCEL_LENGTH) return null;
+  if (raw.length === 0 || raw.length > MAX_CANCEL_LENGTH) {
+    return null;
+  }
 
   const words = normalizeIntentText(raw).split(' ');
 
   const objects = words.filter((word) => REMINDER_WORDS.has(word));
-  if (objects.length === 0) return null;
+  if (objects.length === 0) {
+    return null;
+  }
 
   const ordered = words.some(
     (word, index) =>
       isCancelVerb(word) && isAnOrder(words, index) && !isNegatedNear(words, index, NEGATIONS),
   );
-  if (!ordered) return null;
+  if (!ordered) {
+    return null;
+  }
 
   const every =
     objects.some((word) => PLURAL_WORDS.has(word)) || words.some((word) => EVERY_WORDS.has(word));
@@ -100,8 +106,12 @@ const MIN_DESIGNATION_LENGTH = 3;
 const DIGITS = /^\d+$/;
 
 function isDistinctive(word: string): boolean {
-  if (REMINDER_WORDS.has(word) || isCancelVerb(word)) return false;
-  if (DIGITS.test(word)) return true;
+  if (REMINDER_WORDS.has(word) || isCancelVerb(word)) {
+    return false;
+  }
+  if (DIGITS.test(word)) {
+    return true;
+  }
   return word.length >= MIN_DESIGNATION_LENGTH && !DESIGNATION_STOPWORDS.has(word);
 }
 
@@ -122,23 +132,33 @@ export function pickReminderToCancel<T extends CancellableReminder>(
   candidates: readonly T[],
   text: string,
 ): ReminderPick<T> {
-  if (candidates.length === 1) return { chosen: candidates[0]! };
-  if (candidates.length === 0) return { ambiguous: [] };
+  if (candidates.length === 1) {
+    return { chosen: candidates[0]! };
+  }
+  if (candidates.length === 0) {
+    return { ambiguous: [] };
+  }
 
   const wanted = designationWords(text);
-  if (wanted.length === 0) return { ambiguous: candidates };
+  if (wanted.length === 0) {
+    return { ambiguous: candidates };
+  }
 
   const haystacks = candidates.map(haystackOf);
   const scores = haystacks.map((haystack) => wanted.filter((word) => haystack.has(word)).length);
 
   const best = Math.max(...scores);
-  if (best === 0) return { ambiguous: candidates };
+  if (best === 0) {
+    return { ambiguous: candidates };
+  }
 
   const winners = scores.reduce<number[]>(
     (kept, score, index) => (score === best ? [...kept, index] : kept),
     [],
   );
-  if (winners.length !== 1) return { ambiguous: candidates };
+  if (winners.length !== 1) {
+    return { ambiguous: candidates };
+  }
 
   return { chosen: candidates[winners[0]!]! };
 }

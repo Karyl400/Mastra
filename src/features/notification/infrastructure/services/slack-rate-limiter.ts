@@ -53,7 +53,9 @@ export class SlackRateLimiter implements RateLimitCounters {
       : this.rules;
 
     const local = this.checkLocalCounters(applicable, subjectId, now, options);
-    if (local.refusal) return local.refusal;
+    if (local.refusal) {
+      return local.refusal;
+    }
     const pending = local.pending;
 
     const workspaceRule = this.workspaceRule;
@@ -69,10 +71,14 @@ export class SlackRateLimiter implements RateLimitCounters {
       });
     }
 
-    if (pending.length === 0) return ALLOWED;
+    if (pending.length === 0) {
+      return ALLOWED;
+    }
 
     const repository = this.repository;
-    if (!repository) return { ...ALLOWED, degraded: true };
+    if (!repository) {
+      return { ...ALLOWED, degraded: true };
+    }
 
     const outcomes = await Promise.all(
       pending.map(async ({ rule, key, by, projected }) => {
@@ -104,7 +110,9 @@ export class SlackRateLimiter implements RateLimitCounters {
       const reserve = options.reserveOnly === true && rule.rationsModelBudget === true;
 
       const localCount = (this.local.get(key) ?? 0) + 1;
-      if (!reserve) this.local.set(key, localCount, { ttl: rule.windowMs });
+      if (!reserve) {
+        this.local.set(key, localCount, { ttl: rule.windowMs });
+      }
 
       const localVerdict = evaluateCount(rule, localCount);
       if (!localVerdict.allowed) {
@@ -168,7 +176,9 @@ export class SlackRateLimiter implements RateLimitCounters {
   }
 
   private claimNotification(key: string): boolean {
-    if (this.notifiedWindows.has(key)) return false;
+    if (this.notifiedWindows.has(key)) {
+      return false;
+    }
     this.notifiedWindows.set(key, true);
     return true;
   }
@@ -183,11 +193,15 @@ export class SlackRateLimiter implements RateLimitCounters {
   }
 
   async pruneExpired(now: Date = new Date()): Promise<void> {
-    if (!this.repository) return;
+    if (!this.repository) {
+      return;
+    }
 
     try {
       const removed = await this.repository.pruneExpired(now);
-      if (removed > 0) logger.info('Pruned expired rate limit windows', { removed });
+      if (removed > 0) {
+        logger.info('Pruned expired rate limit windows', { removed });
+      }
     } catch (error) {
       logger.warn('Rate limit pruning failed', { error });
     }

@@ -79,10 +79,14 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
 
       const resolved = asked ? await resolveTarget(deps.directory, asked) : requesterPerson;
 
-      if (resolved === 'unparsable') return refuse('person_not_resolved');
+      if (resolved === 'unparsable') {
+        return refuse('person_not_resolved');
+      }
 
       const targetId = resolved?.slackUserId ?? (targetsRequester ? requesterId : null);
-      if (!targetId) return refuse('person_not_found');
+      if (!targetId) {
+        return refuse('person_not_found');
+      }
 
       const isSelf = targetId === requesterId;
       const dmChannelId =
@@ -113,7 +117,9 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
 
       const withheld = turns.length - disclosable.length;
 
-      if (disclosable.length === 0) return refuse('no_recorded_conversation');
+      if (disclosable.length === 0) {
+        return refuse('no_recorded_conversation');
+      }
 
       const speaker = resolved?.displayName || targetId;
       const excerpts: ConversationExcerpt[] = disclosable.map((turn) => ({
@@ -167,5 +173,7 @@ function noteCoverageForHuman(
   shown: number,
 ): void {
   const coverage = describeCoverageForHuman(excerpts, shown);
-  if (coverage) writeExcerptCoverage(requestContext, coverage);
+  if (coverage) {
+    writeExcerptCoverage(requestContext, coverage);
+  }
 }

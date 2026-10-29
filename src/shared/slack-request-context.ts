@@ -49,31 +49,47 @@ export function buildSlackRequestContext(context: SlackToolContext): RequestCont
   const entries: Array<readonly [string, unknown]> = [];
 
   const channel = nonEmptyString(context.channel);
-  if (channel) entries.push([SLACK_CHANNEL_KEY, channel]);
+  if (channel) {
+    entries.push([SLACK_CHANNEL_KEY, channel]);
+  }
 
   const threadTs = nonEmptyString(context.threadTs);
-  if (threadTs) entries.push([SLACK_THREAD_TS_KEY, threadTs]);
+  if (threadTs) {
+    entries.push([SLACK_THREAD_TS_KEY, threadTs]);
+  }
 
   const eventTs = nonEmptyString(context.eventTs);
-  if (eventTs) entries.push([SLACK_EVENT_TS_KEY, eventTs]);
+  if (eventTs) {
+    entries.push([SLACK_EVENT_TS_KEY, eventTs]);
+  }
 
   const slackUserId = nonEmptyString(context.slackUserId);
-  if (slackUserId) entries.push([SLACK_USER_ID_KEY, slackUserId]);
+  if (slackUserId) {
+    entries.push([SLACK_USER_ID_KEY, slackUserId]);
+  }
 
   const employeeId = nonEmptyString(context.employeeId);
-  if (employeeId) entries.push([SLACK_EMPLOYEE_ID_KEY, employeeId]);
+  if (employeeId) {
+    entries.push([SLACK_EMPLOYEE_ID_KEY, employeeId]);
+  }
 
-  if (context.accessLevel) entries.push([SLACK_ACCESS_LEVEL_KEY, context.accessLevel]);
+  if (context.accessLevel) {
+    entries.push([SLACK_ACCESS_LEVEL_KEY, context.accessLevel]);
+  }
 
   return new RequestContext(entries);
 }
 
 function mayTouchRecord(requestContext: unknown, targetEmployeeId: string | undefined | null) {
   const context = readSlackContext(requestContext);
-  if (!context) return true;
+  if (!context) {
+    return true;
+  }
 
   const target = nonEmptyString(targetEmployeeId);
-  if (target && context.employeeId && context.employeeId === target) return true;
+  if (target && context.employeeId && context.employeeId === target) {
+    return true;
+  }
 
   return context.accessLevel === 'full';
 }
@@ -86,7 +102,9 @@ export function noRequesterRefusal<T extends object>(
   toolName: string,
   shape: T,
 ): (T & { readonly reason: 'no_requester'; readonly hint: string }) | null {
-  if (hasIdentifiedRequester(requestContext)) return null;
+  if (hasIdentifiedRequester(requestContext)) {
+    return null;
+  }
   logger.warn(`${toolName} refusé — aucun demandeur identifié`);
   return { ...shape, reason: 'no_requester' as const, hint: NO_REQUESTER_HINT };
 }
@@ -121,31 +139,45 @@ export function canReadPersonRecord(
 }
 
 export function readSlackContext(requestContext: unknown): SlackToolContext | undefined {
-  if (typeof requestContext !== 'object' || requestContext === null) return undefined;
+  if (typeof requestContext !== 'object' || requestContext === null) {
+    return undefined;
+  }
 
   const get = (requestContext as { get?: unknown }).get;
-  if (typeof get !== 'function') return undefined;
+  if (typeof get !== 'function') {
+    return undefined;
+  }
 
   try {
     const read = (key: string): unknown =>
       (get as (this: unknown, key: string) => unknown).call(requestContext, key);
 
     const channel = nonEmptyString(read(SLACK_CHANNEL_KEY));
-    if (!channel) return undefined;
+    if (!channel) {
+      return undefined;
+    }
 
     const context: SlackToolContext = { channel };
 
     const threadTs = nonEmptyString(read(SLACK_THREAD_TS_KEY));
-    if (threadTs) context.threadTs = threadTs;
+    if (threadTs) {
+      context.threadTs = threadTs;
+    }
 
     const eventTs = nonEmptyString(read(SLACK_EVENT_TS_KEY));
-    if (eventTs) context.eventTs = eventTs;
+    if (eventTs) {
+      context.eventTs = eventTs;
+    }
 
     const slackUserId = nonEmptyString(read(SLACK_USER_ID_KEY));
-    if (slackUserId) context.slackUserId = slackUserId;
+    if (slackUserId) {
+      context.slackUserId = slackUserId;
+    }
 
     const employeeId = nonEmptyString(read(SLACK_EMPLOYEE_ID_KEY));
-    if (employeeId) context.employeeId = employeeId;
+    if (employeeId) {
+      context.employeeId = employeeId;
+    }
 
     const accessLevel = nonEmptyString(read(SLACK_ACCESS_LEVEL_KEY));
     if (accessLevel && ACCESS_LEVELS.has(accessLevel)) {

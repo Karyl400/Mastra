@@ -171,10 +171,14 @@ export function routeToAgent(text: string, stickyAgentId?: string): string {
   const matchesAny = (keywords: readonly string[]): boolean =>
     keywords.some((keyword) => matchesKeyword(lowerText, keyword));
 
-  if (asksForAScheduledReminder(lowerText)) return 'notificationAgent';
+  if (asksForAScheduledReminder(lowerText)) {
+    return 'notificationAgent';
+  }
 
   for (const [agentId, keywords] of ESCAPE_INTENTS) {
-    if (matchesAny(keywords)) return agentId;
+    if (matchesAny(keywords)) {
+      return agentId;
+    }
   }
 
   const structural = CHANNEL_TOKEN_PATTERN.test(lowerText)
@@ -192,10 +196,14 @@ export function routeToAgent(text: string, stickyAgentId?: string): string {
       topic !== undefined &&
       topic.overridesSticky &&
       !agentHasTool(stickyAgentId, topic.requiredTool);
-    if (!stickyCannotServe) return stickyAgentId;
+    if (!stickyCannotServe) {
+      return stickyAgentId;
+    }
   }
 
-  if (topic) return topic.agentId;
+  if (topic) {
+    return topic.agentId;
+  }
 
   return DEFAULT_AGENT_ID;
 }

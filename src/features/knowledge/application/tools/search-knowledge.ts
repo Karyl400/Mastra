@@ -67,7 +67,9 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
 
       const requesterId = slack.slackUserId;
       const admission = await admit(deps.directory, requesterId, data.person);
-      if ('reason' in admission) return refuse(admission.reason);
+      if ('reason' in admission) {
+        return refuse(admission.reason);
+      }
 
       const { requester, target } = admission;
 
@@ -110,7 +112,9 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
       if (lines.length === 0) {
         lines = await sweepLive(deps.channels, data.query, requesterId, scope.channelId);
         tier = 'live';
-        if (lines.length === 0) return refuse('nothing_known');
+        if (lines.length === 0) {
+          return refuse('nothing_known');
+        }
       }
 
       const allowed = await readableChannels(
@@ -124,7 +128,9 @@ export function makeSearchKnowledge(deps: SearchKnowledgeDeps) {
       );
 
       const visible = lines.filter((line) => allowed.has(line.channelId));
-      if (visible.length === 0) return refuse('no_readable_channel');
+      if (visible.length === 0) {
+        return refuse('no_readable_channel');
+      }
 
       const shown = visible.slice(0, MAX_RESULTS);
       const speakers = await resolveSpeakers(deps.directory, shown);

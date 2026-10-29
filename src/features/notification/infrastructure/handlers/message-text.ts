@@ -1,7 +1,9 @@
 export function unwrapSanitizedInput(wrapped: string, fallback: string): string {
   const firstNewline = wrapped.indexOf('\n');
   const lastNewline = wrapped.lastIndexOf('\n');
-  if (firstNewline < 0 || lastNewline <= firstNewline) return fallback;
+  if (firstNewline < 0 || lastNewline <= firstNewline) {
+    return fallback;
+  }
   return wrapped.slice(firstNewline + 1, lastNewline);
 }
 

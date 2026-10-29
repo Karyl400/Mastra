@@ -41,16 +41,24 @@ const RECENCY_WEIGHT = 4;
 
 export function signalScore(text: string): number {
   const raw = foldDiacritics(text).trim();
-  if (raw.length === 0) return 0;
+  if (raw.length === 0) {
+    return 0;
+  }
 
   let score = 0;
   for (const signal of SIGNALS) {
-    if (signal.test.test(raw)) score += signal.weight;
+    if (signal.test.test(raw)) {
+      score += signal.weight;
+    }
   }
   score = Math.min(score, MAX_SIGNAL_SCORE);
 
-  if (ACKNOWLEDGEMENT.test(raw)) score -= ACKNOWLEDGEMENT_PENALTY;
-  if (raw.length < SHORT_MESSAGE_CHARS) score -= SHORT_MESSAGE_PENALTY;
+  if (ACKNOWLEDGEMENT.test(raw)) {
+    score -= ACKNOWLEDGEMENT_PENALTY;
+  }
+  if (raw.length < SHORT_MESSAGE_CHARS) {
+    score -= SHORT_MESSAGE_PENALTY;
+  }
 
   return score;
 }
@@ -64,7 +72,9 @@ export function selectSalientExcerpts(
   all: readonly ConversationExcerpt[],
   max: number,
 ): ConversationExcerpt[] {
-  if (all.length === 0) return [];
+  if (all.length === 0) {
+    return [];
+  }
 
   const chronological = [...all].sort((a, b) => {
     const byDate = a.at.getTime() - b.at.getTime();
@@ -79,7 +89,9 @@ export function selectSalientExcerpts(
 
   const best = [...scored].sort((a, b) => {
     const byScore = b.score - a.score;
-    if (byScore !== 0) return byScore;
+    if (byScore !== 0) {
+      return byScore;
+    }
     return b.rank - a.rank;
   });
 

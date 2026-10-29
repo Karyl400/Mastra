@@ -32,9 +32,13 @@ const MAX_ANSWER_CHARS: Readonly<Record<ProfileStep, number>> = {
 };
 
 function looksLikeEmail(value: string): boolean {
-  if (/\s/u.test(value)) return false;
+  if (/\s/u.test(value)) {
+    return false;
+  }
   const at = value.indexOf('@');
-  if (at <= 0 || at !== value.lastIndexOf('@')) return false;
+  if (at <= 0 || at !== value.lastIndexOf('@')) {
+    return false;
+  }
   const domain = value.slice(at + 1);
   const dot = domain.lastIndexOf('.');
   return dot > 0 && domain.length - dot > 2;
@@ -52,21 +56,35 @@ function isRefusal(value: string): boolean {
 
 export function pendingProfileStep(lastAssistantText: string | undefined): ProfileStep | null {
   const text = (lastAssistantText ?? '').trim();
-  if (!text) return null;
+  if (!text) {
+    return null;
+  }
   for (const step of [...PROFILE_STEP_ORDER].reverse()) {
-    if (text.includes(PROFILE_QUESTIONS[step])) return step;
+    if (text.includes(PROFILE_QUESTIONS[step])) {
+      return step;
+    }
   }
   return null;
 }
 
 export function captureProfileAnswer(step: ProfileStep, text: string | undefined): string | null {
   const trimmed = unwrapSlackLinks(text).trim().replace(/\s+/g, ' ');
-  if (!trimmed || isRefusal(trimmed)) return null;
-  if (trimmed.length > MAX_ANSWER_CHARS[step]) return null;
+  if (!trimmed || isRefusal(trimmed)) {
+    return null;
+  }
+  if (trimmed.length > MAX_ANSWER_CHARS[step]) {
+    return null;
+  }
 
-  if (step === 'email') return looksLikeEmail(trimmed) ? trimmed.toLowerCase() : null;
-  if (!/\p{L}/u.test(trimmed)) return null;
-  if (trimmed.length < 2) return null;
+  if (step === 'email') {
+    return looksLikeEmail(trimmed) ? trimmed.toLowerCase() : null;
+  }
+  if (!/\p{L}/u.test(trimmed)) {
+    return null;
+  }
+  if (trimmed.length < 2) {
+    return null;
+  }
   return trimmed;
 }
 
@@ -79,9 +97,13 @@ export function collectProfileAnswers(turns: readonly ProfileTurn[]): ProfileAns
       awaiting = pendingProfileStep(turn.content);
       continue;
     }
-    if (turn.role !== 'user' || !awaiting) continue;
+    if (turn.role !== 'user' || !awaiting) {
+      continue;
+    }
     const value = captureProfileAnswer(awaiting, turn.content);
-    if (value) answers[awaiting] = value;
+    if (value) {
+      answers[awaiting] = value;
+    }
     awaiting = null;
   }
 
@@ -92,10 +114,14 @@ export function answersFromRecord(
   record: Partial<Record<ProfileStep, string | null | undefined>> | null,
 ): ProfileAnswers {
   const answers: ProfileAnswers = {};
-  if (!record) return answers;
+  if (!record) {
+    return answers;
+  }
   for (const step of PROFILE_STEP_ORDER) {
     const value = record[step];
-    if (typeof value === 'string' && value.trim()) answers[step] = value.trim();
+    if (typeof value === 'string' && value.trim()) {
+      answers[step] = value.trim();
+    }
   }
   return answers;
 }
@@ -152,15 +178,23 @@ export function answersFromDirectory(
   identity: DirectoryIdentity | null | undefined,
 ): ProfileAnswers {
   const answers: ProfileAnswers = {};
-  if (!identity) return answers;
+  if (!identity) {
+    return answers;
+  }
 
   const firstName = captureProfileAnswer('firstName', identity.firstName ?? undefined);
   const lastName = captureProfileAnswer('lastName', identity.lastName ?? undefined);
   const email = captureProfileAnswer('email', identity.email ?? undefined);
 
-  if (firstName) answers.firstName = firstName;
-  if (lastName) answers.lastName = lastName;
-  if (email) answers.email = email;
+  if (firstName) {
+    answers.firstName = firstName;
+  }
+  if (lastName) {
+    answers.lastName = lastName;
+  }
+  if (email) {
+    answers.email = email;
+  }
 
   return answers;
 }

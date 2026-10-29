@@ -42,7 +42,9 @@ export function makeScheduleReminder(
       const refused = noRequesterRefusal(_ctx?.requestContext, 'scheduleReminder', {
         stored: false as const,
       });
-      if (refused) return refused;
+      if (refused) {
+        return refused;
+      }
       if (!canPerformSideEffects(_ctx?.requestContext, data.recipientId)) {
         logger.warn('scheduleReminder refusé : le demandeur n’a pas le niveau requis', {
           recipientId: data.recipientId,
@@ -131,7 +133,9 @@ export function makeScheduleReminder(
       logger.info('Rappel enregistré', { id: scheduled.id, scheduledAt: scheduled.scheduledAt });
 
       const delivery = deliveryLabel(scheduled.scheduledAt, new Date());
-      if (delivery) writeReminderDelivery(_ctx?.requestContext, delivery);
+      if (delivery) {
+        writeReminderDelivery(_ctx?.requestContext, delivery);
+      }
 
       const result = {
         id: scheduled.id,
@@ -142,7 +146,9 @@ export function makeScheduleReminder(
         willBeSentAutomatically: true,
       };
 
-      if (runKey) runGuard.remember(runKey, result);
+      if (runKey) {
+        runGuard.remember(runKey, result);
+      }
 
       return result;
     },

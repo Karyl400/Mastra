@@ -5,7 +5,9 @@ import type { MetricReading, MetricSpec, ResolvedMetric } from '../value-objects
 const NO_DATA_YET: MetricReading = { available: false, gap: 'no_data_yet' };
 
 function ratio(numerator: number, denominator: number, detail?: string): MetricReading {
-  if (denominator <= 0) return NO_DATA_YET;
+  if (denominator <= 0) {
+    return NO_DATA_YET;
+  }
 
   const suffix =
     numerator > denominator
@@ -24,24 +26,32 @@ function count(value: number, detail?: string): MetricReading {
 }
 
 function median(values: readonly number[]): number | null {
-  if (values.length === 0) return null;
+  if (values.length === 0) {
+    return null;
+  }
   const sorted = [...values].sort((a, b) => a - b);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
 }
 
 function mean(values: readonly number[]): number | null {
-  if (values.length === 0) return null;
+  if (values.length === 0) {
+    return null;
+  }
   return values.reduce((sum, v) => sum + v, 0) / values.length;
 }
 
 function minutes(ms: number | null, sampleCount: number): MetricReading {
-  if (ms === null) return NO_DATA_YET;
+  if (ms === null) {
+    return NO_DATA_YET;
+  }
   return { available: true, value: Math.round(ms / 60_000), detail: `${sampleCount} mesures` };
 }
 
 function readingFor(spec: MetricSpec, f: DashboardFacts): MetricReading {
-  if (!spec.source.derived) return { available: false, gap: spec.source.gap };
+  if (!spec.source.derived) {
+    return { available: false, gap: spec.source.gap };
+  }
 
   const unreadable = new Set(f.unreadableTables);
   if (spec.source.from.some((label) => unreadable.has(tableOf(label)))) {
@@ -112,8 +122,12 @@ function readingFor(spec: MetricSpec, f: DashboardFacts): MetricReading {
       );
 
     case 'ai.zeroTokenShare': {
-      if (f.userTurns <= 0) return NO_DATA_YET;
-      if (f.modelHandledMessages > f.userTurns) return { available: false, gap: 'not_comparable' };
+      if (f.userTurns <= 0) {
+        return NO_DATA_YET;
+      }
+      if (f.modelHandledMessages > f.userTurns) {
+        return { available: false, gap: 'not_comparable' };
+      }
       const withoutModel = f.userTurns - f.modelHandledMessages;
       return {
         available: true,

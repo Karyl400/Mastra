@@ -144,7 +144,9 @@ if (found.length === 0) {
 // forme la plus discrète du mauvais destinataire.
 if (found.length > 1) {
   console.error(`\n❌ ${found.length} lignes portent cette adresse. Désigner par identifiant :`);
-  for (const row of found) console.error(`     --slack-user-id ${String(row.slack_user_id)}`);
+  for (const row of found) {
+    console.error(`     --slack-user-id ${String(row.slack_user_id)}`);
+  }
   process.exit(1);
 }
 
@@ -156,7 +158,9 @@ if (target.is_bot) {
 }
 
 if (target.is_deleted) {
-  console.error('\n❌ Ce compte Slack est désactivé. La politique le REFUSE quel que soit son rôle.');
+  console.error(
+    '\n❌ Ce compte Slack est désactivé. La politique le REFUSE quel que soit son rôle.',
+  );
   process.exit(1);
 }
 

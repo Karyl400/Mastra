@@ -30,7 +30,9 @@ export function createRequestContextGuard(options: { onReject?: (keys: string[])
 }
 
 async function readForgedKeys(raw: Request | undefined): Promise<string[]> {
-  if (!raw || raw.method === 'GET' || raw.method === 'HEAD') return [];
+  if (!raw || raw.method === 'GET' || raw.method === 'HEAD') {
+    return [];
+  }
 
   let body: unknown;
   try {
@@ -40,7 +42,9 @@ async function readForgedKeys(raw: Request | undefined): Promise<string[]> {
   }
 
   const context = (body as { requestContext?: unknown } | null)?.requestContext;
-  if (!context || typeof context !== 'object' || Array.isArray(context)) return [];
+  if (!context || typeof context !== 'object' || Array.isArray(context)) {
+    return [];
+  }
 
   return Object.keys(context).filter((key) =>
     key.toLowerCase().startsWith(FORGEABLE_CONTEXT_PREFIX),

@@ -61,14 +61,20 @@ const apply = args.has('--apply');
  * d'être vérifiable sans toucher ni Slack ni la base.
  */
 export function needsProfileForm(member: DirectoryMember): boolean {
-  if (member.isBot || member.isDeleted) return false;
+  if (member.isBot || member.isDeleted) {
+    return false;
+  }
   // ⚠️ Slackbot n'est déclaré NI `is_bot` NI `deleted` par `users.list` — vérifié sur la
   // production, sa ligne porte `is_bot=0, is_deleted=0`. Les deux filtres ci-dessus le
   // laissent donc passer, et le dry-run du 2026-08-14 le listait bel et bien parmi les
   // personnes à relancer.
-  if (member.slackUserId === SLACKBOT_USER_ID) return false;
+  if (member.slackUserId === SLACKBOT_USER_ID) {
+    return false;
+  }
   // Déjà rattaché à une fiche `employees` : le dossier existe, rien à demander.
-  if (member.employeeId) return false;
+  if (member.employeeId) {
+    return false;
+  }
   return true;
 }
 
@@ -83,7 +89,9 @@ function displayOf(member: DirectoryMember): string {
 
 async function main(): Promise<void> {
   const token = process.env.SLACK_BOT_TOKEN;
-  if (!token) throw new Error('SLACK_BOT_TOKEN est requis.');
+  if (!token) {
+    throw new Error('SLACK_BOT_TOKEN est requis.');
+  }
 
   const directory = new DrizzleDirectoryRepository();
   const slack = new SlackAdapter(token);

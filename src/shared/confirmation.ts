@@ -2,7 +2,9 @@ const MAX_CHARS = 32;
 
 function stripTrailingPunctuation(value: string): string {
   let end = value.length;
-  while (end > 0 && (value[end - 1] === '.' || value[end - 1] === '!')) end -= 1;
+  while (end > 0 && (value[end - 1] === '.' || value[end - 1] === '!')) {
+    end -= 1;
+  }
   return value.slice(0, end);
 }
 
@@ -41,17 +43,27 @@ const NO = [
 
 export function readsAsNo(text: string | undefined | null): boolean {
   const raw = text ?? '';
-  if (tooLongToBeAnAnswer(raw)) return false;
+  if (tooLongToBeAnAnswer(raw)) {
+    return false;
+  }
   const value = normalize(raw);
-  if (value.length === 0) return false;
+  if (value.length === 0) {
+    return false;
+  }
   return NO.some((pattern) => pattern.test(value));
 }
 
 export function readsAsYes(text: string | undefined | null): boolean {
   const raw = text ?? '';
-  if (tooLongToBeAnAnswer(raw)) return false;
+  if (tooLongToBeAnAnswer(raw)) {
+    return false;
+  }
   const value = normalize(raw);
-  if (value.length === 0) return false;
-  if (readsAsNo(value)) return false;
+  if (value.length === 0) {
+    return false;
+  }
+  if (readsAsNo(value)) {
+    return false;
+  }
   return YES.some((pattern) => pattern.test(value));
 }

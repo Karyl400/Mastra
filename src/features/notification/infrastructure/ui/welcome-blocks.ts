@@ -18,7 +18,9 @@ export function greet(firstName: string): string {
 }
 
 export function channelsLine(joinedNames: readonly string[]): string {
-  if (joinedNames.length === 0) return '';
+  if (joinedNames.length === 0) {
+    return '';
+  }
   const list = joinedNames.map((name) => `#${name}`).join(', ');
   return `\n\nJe t'ai ajouté à ${list} — tu y trouveras l'équipe.`;
 }

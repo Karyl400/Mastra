@@ -99,7 +99,9 @@ export function makeWelcomeChannels(deps: WelcomeChannelsDeps): WelcomeChannelsS
           continue;
         }
 
-        if (outcome.status === 'missing_scope') missingScope = true;
+        if (outcome.status === 'missing_scope') {
+          missingScope = true;
+        }
         failures.push({ name, status: outcome.status, error: outcome.error });
       }
 
@@ -121,7 +123,9 @@ async function inviteOnce(
   slackUserId: string,
 ): Promise<ChannelInviteResult> {
   const first = await safely(() => source.invite(channel.id, slackUserId));
-  if (first.status !== 'bot_not_in_channel') return first;
+  if (first.status !== 'bot_not_in_channel') {
+    return first;
+  }
 
   const joined = await safely(() => source.join(channel.id));
   if (joined.status !== 'invited' && joined.status !== 'already_in_channel') {

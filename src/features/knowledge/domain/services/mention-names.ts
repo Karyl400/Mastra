@@ -19,7 +19,9 @@ export function resolveMentions(text: string, lookup: NameLookup): string {
       return name ? `@${name}` : whole;
     }
 
-    if (sigil === '#' && CHANNEL_ID.test(id) && label) return `#${label}`;
+    if (sigil === '#' && CHANNEL_ID.test(id) && label) {
+      return `#${label}`;
+    }
 
     return whole;
   });
@@ -29,9 +31,13 @@ export function mentionedUserIds(texts: readonly string[]): string[] {
   const ids = new Set<string>();
   for (const text of texts) {
     for (const match of text.matchAll(SLACK_TOKEN)) {
-      if (match[1] !== '@') continue;
+      if (match[1] !== '@') {
+        continue;
+      }
       const { id } = splitToken(match[2]!);
-      if (USER_ID.test(id)) ids.add(id.toUpperCase());
+      if (USER_ID.test(id)) {
+        ids.add(id.toUpperCase());
+      }
     }
   }
   return [...ids];

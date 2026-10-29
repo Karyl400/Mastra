@@ -1,7 +1,9 @@
 import { PII_KEYS, PII_VALUE_PATTERNS } from './log-pii-keys';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null) return false;
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
   const proto = Object.getPrototypeOf(value);
   return proto === null || proto === Object.prototype;
 }
@@ -56,8 +58,12 @@ function maskSpecialType(
 ): unknown {
   const { depth, maxDepth, seen, keyPath } = ctx;
 
-  if (obj instanceof Date) return obj.toISOString();
-  if (obj instanceof RegExp) return obj.toString();
+  if (obj instanceof Date) {
+    return obj.toISOString();
+  }
+  if (obj instanceof RegExp) {
+    return obj.toString();
+  }
   if (obj instanceof Error) {
     return {
       name: obj.name,
@@ -68,10 +74,18 @@ function maskSpecialType(
         : undefined,
     };
   }
-  if (Buffer.isBuffer(obj)) return '[BUFFER:' + obj.length + 'bytes]';
-  if (obj instanceof Map) return '[MAP:' + obj.size + 'entries]';
-  if (obj instanceof Set) return '[SET:' + obj.size + 'entries]';
-  if (typeof obj === 'function') return '[FUNCTION:' + (obj.name || 'anonymous') + ']';
+  if (Buffer.isBuffer(obj)) {
+    return '[BUFFER:' + obj.length + 'bytes]';
+  }
+  if (obj instanceof Map) {
+    return '[MAP:' + obj.size + 'entries]';
+  }
+  if (obj instanceof Set) {
+    return '[SET:' + obj.size + 'entries]';
+  }
+  if (typeof obj === 'function') {
+    return '[FUNCTION:' + (obj.name || 'anonymous') + ']';
+  }
 
   return NOT_SPECIAL;
 }
@@ -100,7 +114,9 @@ export function maskPii(
   }
 
   const special = maskSpecialType(obj, { depth, maxDepth, seen, keyPath });
-  if (special !== NOT_SPECIAL) return special;
+  if (special !== NOT_SPECIAL) {
+    return special;
+  }
 
   if (Array.isArray(obj)) {
     seen.add(obj as object);
@@ -136,11 +152,21 @@ export function isPiiKey(key: string): boolean {
 
 function getPiiCategory(key: string): string {
   const normalized = key.toLowerCase().replace(/[_-]/g, '');
-  if (['email', 'mail', 'e-mail'].includes(normalized)) return 'EMAIL';
-  if (['password', 'passwd', 'pwd', 'secret'].includes(normalized)) return 'CREDENTIAL';
-  if (['token', 'accesstoken', 'refreshtoken'].includes(normalized)) return 'TOKEN';
-  if (['creditcard', 'cardnumber', 'cvv', 'iban'].includes(normalized)) return 'PCI';
-  if (['ssn', 'socialsecurity', 'passport'].includes(normalized)) return 'PII';
+  if (['email', 'mail', 'e-mail'].includes(normalized)) {
+    return 'EMAIL';
+  }
+  if (['password', 'passwd', 'pwd', 'secret'].includes(normalized)) {
+    return 'CREDENTIAL';
+  }
+  if (['token', 'accesstoken', 'refreshtoken'].includes(normalized)) {
+    return 'TOKEN';
+  }
+  if (['creditcard', 'cardnumber', 'cvv', 'iban'].includes(normalized)) {
+    return 'PCI';
+  }
+  if (['ssn', 'socialsecurity', 'passport'].includes(normalized)) {
+    return 'PII';
+  }
   return 'SENSITIVE';
 }
 

@@ -55,7 +55,9 @@ async function step(label, fn) {
 
 /** Ne jamais afficher un secret : uniquement sa présence et sa longueur. */
 function maskSecret(value) {
-  if (!value) return 'absent';
+  if (!value) {
+    return 'absent';
+  }
   return `présent (${value.length} caractères)`;
 }
 
@@ -163,7 +165,9 @@ const verified = await step('transporter.verify() (connexion + authentification)
     return `${host}:${port} joignable, identifiants acceptés`;
   } catch (err) {
     const hint = explain(err);
-    if (hint) console.error(`   ↳ ${hint}`);
+    if (hint) {
+      console.error(`   ↳ ${hint}`);
+    }
     throw err;
   }
 });
@@ -197,11 +201,15 @@ if (dryRun) {
 
       const accepted = (info.accepted ?? []).join(', ') || '(aucun)';
       const rejected = (info.rejected ?? []).join(', ');
-      if (rejected) console.warn(`   ⚠️  Rejetés par le serveur : ${rejected}`);
+      if (rejected) {
+        console.warn(`   ⚠️  Rejetés par le serveur : ${rejected}`);
+      }
       return `messageId=${info.messageId} accepté=${accepted} réponse="${info.response ?? ''}"`;
     } catch (err) {
       const hint = explain(err);
-      if (hint) console.error(`   ↳ ${hint}`);
+      if (hint) {
+        console.error(`   ↳ ${hint}`);
+      }
       throw err;
     }
   });
@@ -215,7 +223,9 @@ console.log(`Résultat: ${results.length - failed.length}/${results.length} OK`)
 
 if (failed.length) {
   console.log('\nÉchecs :');
-  for (const f of failed) console.log(`  • ${f.label}: ${f.detail}`);
+  for (const f of failed) {
+    console.log(`  • ${f.label}: ${f.detail}`);
+  }
   process.exit(1);
 }
 

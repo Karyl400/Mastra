@@ -20,7 +20,9 @@ export async function loadHistory(
   conversationId: string,
 ): Promise<ConversationTurn[]> {
   const repo = self.getConversationRepo();
-  if (!repo) return [];
+  if (!repo) {
+    return [];
+  }
 
   try {
     return await repo.findRecentTurns(conversationId, {
@@ -40,10 +42,14 @@ export async function loadPinnedFacts(
   self: SlackHandlerInternals,
   slackUserId: string | undefined,
 ): Promise<readonly string[]> {
-  if (!slackUserId) return [];
+  if (!slackUserId) {
+    return [];
+  }
 
   const repo = self.getPinnedFactRepo();
-  if (!repo) return [];
+  if (!repo) {
+    return [];
+  }
 
   try {
     const facts = await repo.list(slackUserId, MAX_PINNED_FACTS);
@@ -65,7 +71,9 @@ export async function rememberTurn(
   },
 ): Promise<void> {
   const repo = self.getConversationRepo();
-  if (!repo) return;
+  if (!repo) {
+    return;
+  }
 
   try {
     await repo.append(turn);
@@ -100,7 +108,9 @@ export async function sayAndRemember(
     ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
   });
 
-  if (input.remember === false) return;
+  if (input.remember === false) {
+    return;
+  }
 
   if (input.text !== undefined) {
     await rememberTurn(self, {
@@ -165,17 +175,25 @@ export function buildMessages(
 }
 
 export function pruneIsDue(self: SlackHandlerInternals): boolean {
-  if (self.pruneProbability <= 0) return false;
-  if (self.pruneProbability >= 1) return true;
+  if (self.pruneProbability <= 0) {
+    return false;
+  }
+  if (self.pruneProbability >= 1) {
+    return true;
+  }
   // eslint-disable-next-line sonarjs/pseudo-random
   return Math.random() < self.pruneProbability;
 }
 
 export function schedulePruneIfDue(self: SlackHandlerInternals): void {
-  if (!pruneIsDue(self)) return;
+  if (!pruneIsDue(self)) {
+    return;
+  }
 
   const repo = self.getConversationRepo();
-  if (!repo) return;
+  if (!repo) {
+    return;
+  }
 
   void repo
     .pruneOlderThan(new Date(Date.now() - self.conversationTtlMs))

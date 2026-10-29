@@ -14,7 +14,9 @@ const TRAILING_PUNCTUATION = new Set(['.', ',', ';', ':', '!', '?', ')', ']', '}
 
 function trimTrailingPunctuation(url: string): string {
   let end = url.length;
-  while (end > 0 && TRAILING_PUNCTUATION.has(url[end - 1] as string)) end -= 1;
+  while (end > 0 && TRAILING_PUNCTUATION.has(url[end - 1] as string)) {
+    end -= 1;
+  }
   return url.slice(0, end);
 }
 
@@ -37,18 +39,28 @@ export function filterLinks(segment: string, seen: Set<string>): string {
       const pipe = inner.indexOf('|');
       const target = pipe === -1 ? inner : inner.slice(0, pipe);
 
-      if (!HTTP_PREFIX.test(target)) return token;
+      if (!HTTP_PREFIX.test(target)) {
+        return token;
+      }
 
       const host = hostnameOf(target);
-      if (isAllowedHost(host)) return token;
-      if (host) seen.add(host);
+      if (isAllowedHost(host)) {
+        return token;
+      }
+      if (host) {
+        seen.add(host);
+      }
       return STRIPPED_LINK_PLACEHOLDER;
     })
     .replace(BARE_URL, (match) => {
       const trimmed = trimTrailingPunctuation(match);
       const host = hostnameOf(trimmed);
-      if (isAllowedHost(host)) return match;
-      if (host) seen.add(host);
+      if (isAllowedHost(host)) {
+        return match;
+      }
+      if (host) {
+        seen.add(host);
+      }
       return STRIPPED_LINK_PLACEHOLDER + match.slice(trimmed.length);
     });
 }

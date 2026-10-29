@@ -33,7 +33,9 @@ export class DrizzleConversationRepository implements ConversationRepository {
     conversationId: string,
     options: RecentTurnsOptions,
   ): Promise<ConversationTurn[]> {
-    if (options.limit <= 0) return [];
+    if (options.limit <= 0) {
+      return [];
+    }
 
     const db = getDb();
     const cutoff = new Date(Date.now() - options.ttlMs);

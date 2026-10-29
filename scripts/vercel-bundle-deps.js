@@ -38,7 +38,7 @@ try {
   ({ default: semver } = await import('semver'));
 } catch {
   console.log(
-    "ℹ️  `semver` indisponible : vérification des intervalles de versions désactivée (la copie des dépendances manquantes reste active)."
+    'ℹ️  `semver` indisponible : vérification des intervalles de versions désactivée (la copie des dépendances manquantes reste active).',
   );
 }
 
@@ -48,7 +48,9 @@ const MAX_NESTING_DEPTH = 6;
 /** Lit un package.json, ou `null` si absent/illisible. */
 export function readPackageJson(packageDir) {
   const manifest = join(packageDir, 'package.json');
-  if (!existsSync(manifest)) return null;
+  if (!existsSync(manifest)) {
+    return null;
+  }
   try {
     return JSON.parse(readFileSync(manifest, 'utf8'));
   } catch {
@@ -70,9 +72,13 @@ export function declaredDependencies(pkg) {
   const optional = new Set(Object.keys(pkg?.optionalDependencies ?? {}));
   const peerMeta = pkg?.peerDependenciesMeta ?? {};
   for (const name of Object.keys(pkg?.peerDependencies ?? {})) {
-    if (!peerMeta[name]?.optional) optional.add(name);
+    if (!peerMeta[name]?.optional) {
+      optional.add(name);
+    }
   }
-  for (const name of required) optional.delete(name);
+  for (const name of required) {
+    optional.delete(name);
+  }
   return { required: [...required], optional: [...optional], all: [...required, ...optional] };
 }
 
@@ -96,10 +102,14 @@ export function dependencyDeclaration(pkg, dep) {
  * URL git…) : en cas de doute on ne touche à rien, la présence du paquet suffit.
  */
 export function versionSatisfies(version, range) {
-  if (!version || !range || !semver) return true;
+  if (!version || !range || !semver) {
+    return true;
+  }
   // Alias npm : `npm:@ai-sdk/provider-utils@3.0.30` → `3.0.30`
   const normalized = range.startsWith('npm:') ? range.slice(range.lastIndexOf('@') + 1) : range;
-  if (!semver.validRange(normalized)) return true;
+  if (!semver.validRange(normalized)) {
+    return true;
+  }
   return semver.satisfies(version, normalized, { includePrerelease: true });
 }
 
@@ -118,24 +128,36 @@ export function resolveFrom(fromDir, name, boundary) {
       continue;
     }
     const candidate = join(current, 'node_modules', name);
-    if (existsSync(join(candidate, 'package.json'))) return candidate;
+    if (existsSync(join(candidate, 'package.json'))) {
+      return candidate;
+    }
     const parent = dirname(current);
-    if (current === boundary || parent === current) return null;
+    if (current === boundary || parent === current) {
+      return null;
+    }
     current = parent;
   }
 }
 
 /** Énumère les paquets présents sous un `node_modules` (gère les scopes `@x/y`). */
 export function listPackages(nodeModulesDir) {
-  if (!existsSync(nodeModulesDir)) return [];
+  if (!existsSync(nodeModulesDir)) {
+    return [];
+  }
   const found = [];
   for (const entry of readdirSync(nodeModulesDir)) {
-    if (entry.startsWith('.')) continue;
+    if (entry.startsWith('.')) {
+      continue;
+    }
     const dir = join(nodeModulesDir, entry);
-    if (!statSync(dir).isDirectory()) continue;
+    if (!statSync(dir).isDirectory()) {
+      continue;
+    }
     if (entry.startsWith('@')) {
       for (const scoped of readdirSync(dir)) {
-        if (scoped.startsWith('.')) continue;
+        if (scoped.startsWith('.')) {
+          continue;
+        }
         const scopedDir = join(dir, scoped);
         if (statSync(scopedDir).isDirectory() && existsSync(join(scopedDir, 'package.json'))) {
           found.push({ name: `${entry}/${scoped}`, dir: scopedDir });
@@ -143,7 +165,9 @@ export function listPackages(nodeModulesDir) {
       }
       continue;
     }
-    if (existsSync(join(dir, 'package.json'))) found.push({ name: entry, dir });
+    if (existsSync(join(dir, 'package.json'))) {
+      found.push({ name: entry, dir });
+    }
   }
   return found;
 }
@@ -182,18 +206,24 @@ export async function ensureTransitiveDependencies({ projectRoot, bundleDir, see
 
   for (const name of seeds) {
     const bundlePkgDir = join(bundleNodeModules, name);
-    if (!existsSync(join(bundlePkgDir, 'package.json'))) continue;
+    if (!existsSync(join(bundlePkgDir, 'package.json'))) {
+      continue;
+    }
     queue.push({ name, bundlePkgDir, sourcePkgDir: join(sourceNodeModules, name), isNew: false });
   }
 
   while (cursor < queue.length) {
     const item = queue[cursor++];
-    if (visited.has(item.bundlePkgDir)) continue;
+    if (visited.has(item.bundlePkgDir)) {
+      continue;
+    }
     visited.add(item.bundlePkgDir);
 
     // On lit le manifeste tel qu'il sera chargé au runtime : celui du bundle.
     const pkg = readPackageJson(item.bundlePkgDir);
-    if (!pkg) continue;
+    if (!pkg) {
+      continue;
+    }
     const { required, all } = declaredDependencies(pkg);
     const isRequired = new Set(required);
 
@@ -242,7 +272,7 @@ export async function ensureTransitiveDependencies({ projectRoot, bundleDir, see
           emit(
             `✅ Patch appliqué : module ${dep}@${sourceVersion} copié manuellement en entier ` +
               `(imbriqué sous ${item.name} ; la racine du bundle expose ${bundleVersion}, ` +
-              `hors de l'intervalle ${range}).`
+              `hors de l'intervalle ${range}).`,
           );
           queue.push({ name: dep, bundlePkgDir: nested, sourcePkgDir: source, isNew: true });
           continue;
@@ -290,7 +320,7 @@ export async function ensureTransitiveDependencies({ projectRoot, bundleDir, see
       });
       emit(
         `✅ Patch appliqué : module ${dep}@${version} copié manuellement en entier ` +
-          `(dépendance transitive de ${item.name}, absente du bundle).`
+          `(dépendance transitive de ${item.name}, absente du bundle).`,
       );
       queue.push({ name: dep, bundlePkgDir: destination, sourcePkgDir: source, isNew: true });
     }
@@ -313,18 +343,24 @@ export function collectDependents({ bundleDir }) {
 
   const walk = (nodeModulesDir) => {
     for (const { name, dir } of listPackages(nodeModulesDir)) {
-      if (seen.has(dir)) continue;
+      if (seen.has(dir)) {
+        continue;
+      }
       seen.add(dir);
       const pkg = readPackageJson(dir);
       if (pkg) {
         for (const dep of declaredDependencies(pkg).all) {
           const { range, peerOnly } = dependencyDeclaration(pkg, dep);
-          if (!dependents.has(dep)) dependents.set(dep, []);
+          if (!dependents.has(dep)) {
+            dependents.set(dep, []);
+          }
           dependents.get(dep).push({ name, version: pkg.version ?? '?', range, peerOnly });
         }
       }
       const nested = join(dir, 'node_modules');
-      if (existsSync(nested)) walk(nested);
+      if (existsSync(nested)) {
+        walk(nested);
+      }
     }
   };
 
@@ -381,18 +417,26 @@ export async function realignSeedDependencies({ projectRoot, bundleDir, seeds, l
   for (const seed of seeds) {
     const seedDir = join(bundleNodeModules, seed);
     const pkg = readPackageJson(seedDir);
-    if (!pkg) continue;
+    if (!pkg) {
+      continue;
+    }
 
     for (const dep of declaredDependencies(pkg).all) {
       const { range, peerOnly } = dependencyDeclaration(pkg, dep);
-      if (peerOnly) continue;
+      if (peerOnly) {
+        continue;
+      }
 
       // Absente du bundle : ce n'est pas notre cas, `ensureTransitiveDependencies` la copiera.
       const resolved = resolveFrom(seedDir, dep, bundleDir);
-      if (!resolved) continue;
+      if (!resolved) {
+        continue;
+      }
 
       const bundleVersion = readPackageJson(resolved)?.version;
-      if (versionSatisfies(bundleVersion, range)) continue;
+      if (versionSatisfies(bundleVersion, range)) {
+        continue;
+      }
 
       const source = rootSource(sourceNodeModules, dep);
       const sourceVersion = source ? readPackageJson(source)?.version : undefined;
@@ -422,7 +466,7 @@ export async function realignSeedDependencies({ projectRoot, bundleDir, seeds, l
       });
       emit(
         `✅ Réalignement : ${dep} ${bundleVersion} → ${sourceVersion} ` +
-          `(exigé en ${range} par ${seed}, recopié en entier ; seul consommateur du bundle).`
+          `(exigé en ${range} par ${seed}, recopié en entier ; seul consommateur du bundle).`,
       );
     }
   }
@@ -449,7 +493,9 @@ export function auditBundle({ bundleDir }) {
 
   const walk = (nodeModulesDir) => {
     for (const { name, dir } of listPackages(nodeModulesDir)) {
-      if (seen.has(dir)) continue;
+      if (seen.has(dir)) {
+        continue;
+      }
       seen.add(dir);
       scanned += 1;
       const pkg = readPackageJson(dir);
@@ -480,7 +526,9 @@ export function auditBundle({ bundleDir }) {
         }
       }
       const nested = join(dir, 'node_modules');
-      if (existsSync(nested)) walk(nested);
+      if (existsSync(nested)) {
+        walk(nested);
+      }
     }
   };
 

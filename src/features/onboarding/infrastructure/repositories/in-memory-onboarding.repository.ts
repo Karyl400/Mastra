@@ -6,7 +6,9 @@ export class InMemoryOnboardingRepository implements OnboardingRepository {
 
   async findByEmployee(employeeId: string): Promise<OnboardingProgress | null> {
     for (const p of this.progressStore.values()) {
-      if (p.employeeId === employeeId) return p;
+      if (p.employeeId === employeeId) {
+        return p;
+      }
     }
     return null;
   }
@@ -16,7 +18,9 @@ export class InMemoryOnboardingRepository implements OnboardingRepository {
   }
 
   async update(p: OnboardingProgress): Promise<number> {
-    if (!this.progressStore.has(p.id)) return 0;
+    if (!this.progressStore.has(p.id)) {
+      return 0;
+    }
     this.progressStore.set(p.id, p);
     return 1;
   }

@@ -72,7 +72,9 @@ export class DrizzleMessageArchiveRepository implements MessageArchiveRepository
 
   async search(query: string, options: MessageSearchOptions = {}): Promise<ArchivedMessage[]> {
     const match = toMatchQuery(query);
-    if (!match) return [];
+    if (!match) {
+      return [];
+    }
 
     const limit = Math.min(options.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
     const db = this.resolveDb();
@@ -136,7 +138,9 @@ export class DrizzleMessageArchiveRepository implements MessageArchiveRepository
   }
 
   async markDistilled(ids: readonly string[], at: number): Promise<number> {
-    if (ids.length === 0) return 0;
+    if (ids.length === 0) {
+      return 0;
+    }
 
     const db = this.resolveDb();
     const result = await db

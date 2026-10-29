@@ -35,7 +35,9 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
       const refused = noRequesterRefusal(_ctx?.requestContext, 'updateOnboardingStatus', {
         updated: false as const,
       });
-      if (refused) return refused;
+      if (refused) {
+        return refused;
+      }
       if (!canPerformSideEffects(_ctx?.requestContext, data.employeeId)) {
         logger.warn('updateOnboardingStatus refusé : le demandeur n’a pas le niveau requis', {
           employeeId: data.employeeId,
@@ -110,7 +112,9 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
         totalSteps: updated.totalSteps,
       };
 
-      if (runKey) runGuard.remember(runKey, result);
+      if (runKey) {
+        runGuard.remember(runKey, result);
+      }
 
       return result;
     },

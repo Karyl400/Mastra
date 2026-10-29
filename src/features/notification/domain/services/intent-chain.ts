@@ -86,17 +86,23 @@ export function splitIntents(text: string): string[] {
 
 export function planIntentChain(text: string, stickyAgentId?: string): IntentChainPlan | null {
   const raw = (text ?? '').trim();
-  if (!raw) return null;
+  if (!raw) {
+    return null;
+  }
 
   const fragments = splitIntents(raw);
-  if (fragments.length < 2) return null;
+  if (fragments.length < 2) {
+    return null;
+  }
 
   const steps = fragments.map((fragment) => ({
     text: fragment,
     agentId: routeToAgent(fragment, stickyAgentId),
   }));
 
-  if (new Set(steps.map((step) => step.agentId)).size < 2) return null;
+  if (new Set(steps.map((step) => step.agentId)).size < 2) {
+    return null;
+  }
 
   if (steps.length > MAX_CHAIN_LENGTH) {
     return { steps: [], refused: 'too_many_intents' };

@@ -4,7 +4,9 @@ import { errorMessage } from '../../../../shared/errors';
 import { slackErrorMentions } from '../../../../shared/slack/slack-error';
 
 export function mapJoinFailure(err: unknown, channelId: string): SlackJoinOutcome {
-  if (slackErrorMentions(err, 'already_in_channel')) return { status: 'already_member' };
+  if (slackErrorMentions(err, 'already_in_channel')) {
+    return { status: 'already_member' };
+  }
   if (slackErrorMentions(err, 'method_not_supported_for_channel_type')) {
     return { status: 'not_public', error: 'method_not_supported_for_channel_type' };
   }

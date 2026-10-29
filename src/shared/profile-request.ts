@@ -78,7 +78,9 @@ const MOTIVE_MARKERS: readonly string[] = ['pourquoi', 'why'];
 const MAX_REQUEST_LENGTH = 200;
 
 function isARequest(words: readonly string[], verbIndex: number): boolean {
-  if (verbIndex === 0) return true;
+  if (verbIndex === 0) {
+    return true;
+  }
 
   const before = words.slice(Math.max(0, verbIndex - REQUEST_LOOKBACK_WORDS), verbIndex).join(' ');
   return REQUEST_MARKERS.some((marker) => before.includes(marker));
@@ -90,22 +92,30 @@ function startsWithAny(word: string, stems: readonly string[]): boolean {
 
 export function requestsProfileForm(text: string | undefined | null): boolean {
   const raw = (text ?? '').trim();
-  if (raw.length === 0 || raw.length > MAX_REQUEST_LENGTH) return false;
+  if (raw.length === 0 || raw.length > MAX_REQUEST_LENGTH) {
+    return false;
+  }
 
   const normalized = normalizeIntentText(raw);
 
   const aboutMyProfile = PROFILE_OBJECTS.some((object) => normalized.includes(object));
   const aboutTheForm = FORM_OBJECTS.some((object) => normalized.includes(object));
-  if (!aboutMyProfile && !aboutTheForm) return false;
+  if (!aboutMyProfile && !aboutTheForm) {
+    return false;
+  }
 
-  if (MOTIVE_MARKERS.some((marker) => normalized.includes(marker))) return false;
+  if (MOTIVE_MARKERS.some((marker) => normalized.includes(marker))) {
+    return false;
+  }
 
   const words = normalized.split(' ');
 
   return words.some((word, index) => {
     const isEdit = aboutMyProfile && startsWithAny(word, EDIT_VERB_STEMS);
     const isSend = aboutTheForm && startsWithAny(word, SEND_VERB_STEMS);
-    if (!isEdit && !isSend) return false;
+    if (!isEdit && !isSend) {
+      return false;
+    }
 
     return isARequest(words, index) && !isNegatedNear(words, index, NEGATIONS);
   });

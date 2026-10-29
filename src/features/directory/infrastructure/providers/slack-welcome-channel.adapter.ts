@@ -65,11 +65,15 @@ function classify(error: unknown): ChannelInviteResult {
 
   if (code) {
     const status = STATUS_BY_SLACK_ERROR.get(code);
-    if (status) return { status, error: message };
+    if (status) {
+      return { status, error: message };
+    }
   }
 
   for (const [slackError, status] of STATUS_BY_SLACK_ERROR) {
-    if (slackErrorMentions(error, slackError)) return { status, error: message };
+    if (slackErrorMentions(error, slackError)) {
+      return { status, error: message };
+    }
   }
 
   return { status: 'failed', error: message };

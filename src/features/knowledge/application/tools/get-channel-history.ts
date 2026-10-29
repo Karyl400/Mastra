@@ -77,7 +77,9 @@ async function authorizeRead(
   }
 
   const verdict = authorizeChannelRead(requester, isMember);
-  if (verdict.allowed) return { allowed: true, reason: verdict.reason };
+  if (verdict.allowed) {
+    return { allowed: true, reason: verdict.reason };
+  }
 
   logger.warn('Knowledge — récupération refusée par la politique de divulgation', {
     scope: 'channel',
@@ -131,11 +133,15 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
       const target = data.channelId
         ? { id: data.channelId.trim().toUpperCase() }
         : await resolveNamedChannel(deps.channels, requesterId, data.channelName);
-      if ('refused' in target) return refuse(target.refused);
+      if ('refused' in target) {
+        return refuse(target.refused);
+      }
       const channelId = target.id;
 
       const verdict = await authorizeRead(deps, requesterId, channelId);
-      if (!verdict.allowed) return refuse(verdict.reason);
+      if (!verdict.allowed) {
+        return refuse(verdict.reason);
+      }
 
       let messages;
       try {
@@ -155,7 +161,9 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
         return refuse(reason);
       }
 
-      if (messages.length === 0) return refuse('no_message');
+      if (messages.length === 0) {
+        return refuse('no_message');
+      }
 
       const { lines, shown, coverage, humanCoverage } = await projectChannelHistory(
         deps.directory,
@@ -171,7 +179,9 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
         shown,
       });
 
-      if (humanCoverage) writeExcerptCoverage(ctx?.requestContext, humanCoverage);
+      if (humanCoverage) {
+        writeExcerptCoverage(ctx?.requestContext, humanCoverage);
+      }
 
       const document = data.asDocument
         ? await deliverDigest(deps.digests, {
@@ -184,7 +194,9 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
           })
         : undefined;
 
-      if (document === 'delivered') writeLoanDelivered(ctx?.requestContext, 'channelDigest');
+      if (document === 'delivered') {
+        writeLoanDelivered(ctx?.requestContext, 'channelDigest');
+      }
 
       return {
         found: true,

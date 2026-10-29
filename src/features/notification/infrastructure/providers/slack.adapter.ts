@@ -19,18 +19,26 @@ export type SlackModalView = Extract<ViewsOpenArguments['view'], { type: 'modal'
 
 function extractPermalink(response: unknown): string | undefined {
   const completions = (response as { files?: unknown } | null | undefined)?.files;
-  if (!Array.isArray(completions)) return undefined;
+  if (!Array.isArray(completions)) {
+    return undefined;
+  }
 
   for (const completion of completions) {
     const flat = (completion as { permalink?: unknown } | null | undefined)?.permalink;
-    if (typeof flat === 'string') return flat;
+    if (typeof flat === 'string') {
+      return flat;
+    }
 
     const files = (completion as { files?: unknown } | null | undefined)?.files;
-    if (!Array.isArray(files)) continue;
+    if (!Array.isArray(files)) {
+      continue;
+    }
 
     for (const file of files) {
       const permalink = (file as { permalink?: unknown } | null | undefined)?.permalink;
-      if (typeof permalink === 'string') return permalink;
+      if (typeof permalink === 'string') {
+        return permalink;
+      }
     }
   }
 

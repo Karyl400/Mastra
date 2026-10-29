@@ -12,10 +12,14 @@ export async function resolveRequesterIdentity(
   self: SlackHandlerInternals,
   slackUserId: string | undefined,
 ): Promise<RequesterIdentity> {
-  if (!slackUserId) return EMPTY_IDENTITY;
+  if (!slackUserId) {
+    return EMPTY_IDENTITY;
+  }
 
   const cached = self.requesterNames.get(slackUserId);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    return cached;
+  }
 
   let resolved: RequesterIdentity = EMPTY_IDENTITY;
 
@@ -61,7 +65,9 @@ export async function resolveRequesterIdentity(
 }
 
 function warnNoAccessGuardOnce(self: SlackHandlerInternals): void {
-  if (self.noAccessGuardLogged) return;
+  if (self.noAccessGuardLogged) {
+    return;
+  }
   self.noAccessGuardLogged = true;
   logger.error(
     'No access guard is wired (directoryRepository missing) — authorization cannot be ' +
@@ -73,7 +79,9 @@ export async function evaluateAccess(
   self: SlackHandlerInternals,
   user: string | undefined,
 ): Promise<SlackAccessLevel | undefined> {
-  if (!user) return undefined;
+  if (!user) {
+    return undefined;
+  }
 
   const guard = self.getAccessGuard();
   if (!guard) {
@@ -102,7 +110,9 @@ export async function enforceAuthorization(
   const { user, channel, threadTs, isDirectMessage } = ctx;
   const accessLevel = await evaluateAccess(self, user);
 
-  if (accessLevel !== 'denied') return accessLevel;
+  if (accessLevel !== 'denied') {
+    return accessLevel;
+  }
 
   logger.warn('Slack message refused by the authorization policy', { user, channel });
   void self.audit({

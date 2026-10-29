@@ -228,12 +228,12 @@ Parcours à rebours par UNITÉS indivisibles. Une unité vaut soit un tour `user
 qui lui répond — le bot poste parfois deux messages pour un seul message utilisateur, et
 
 les séparer recréerait exactement l'orphelin qu'on cherche à éviter.
-**Avant `if (start < 0 || turns[start].role !== 'user') break;`**
+**Avant `if (start < 0 || turns[start].role !== 'user') { break; }`**
 
 Salve d'assistants sans question en amont : le tour utilisateur est hors fenêtre
 
 (purgé par le TTL ou coupé par le `limit`). On s'arrête plutôt que de le rejouer nu.
-**Avant `if (unitCost > remaining) break;`**
+**Avant `if (unitCost > remaining) { break; }`**
 
 On s'arrête — on ne saute PAS l'unité pour tenter la suivante : sauter donnerait un
 

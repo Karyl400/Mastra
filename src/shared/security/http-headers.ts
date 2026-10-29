@@ -13,10 +13,14 @@ export function createSecurityHeadersMiddleware() {
     await next();
 
     const c = context as ResponseCarrier;
-    if (!c?.res) return;
+    if (!c?.res) {
+      return;
+    }
 
     const headers = new Headers(c.res.headers);
-    for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value);
+    for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+      headers.set(name, value);
+    }
 
     c.res = new Response(c.res.body, {
       status: c.res.status,

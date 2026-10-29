@@ -29,14 +29,18 @@ export function onboardingNudge(
   pending: PendingOnboardingStep | undefined,
   messageTs?: string,
 ): string | undefined {
-  if (!pending) return undefined;
+  if (!pending) {
+    return undefined;
+  }
 
   const label =
     pending.kind === 'profile'
       ? PROFILE_LABELS[pending.step as ProfileStep]
       : INTERVIEW_LABELS[pending.step as InterviewStep];
 
-  if (!label) return undefined;
+  if (!label) {
+    return undefined;
+  }
 
   return pickVariant(VARIANTS, messageTs).replace('%s', label);
 }

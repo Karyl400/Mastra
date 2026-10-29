@@ -24,7 +24,9 @@ const OTHERS_HIDDEN_HINT =
   "qu'il en existe.";
 
 function mayBrowsePublicChannels(person: DirectoryPerson | null): boolean {
-  if (!person) return false;
+  if (!person) {
+    return false;
+  }
   return !person.isRestricted && !person.isUltraRestricted && !person.isDeleted && !person.isBot;
 }
 

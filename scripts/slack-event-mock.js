@@ -271,14 +271,20 @@ for (const scenario of scenarios) {
   }
 
   const label = outcome.ok ? 'PASS' : 'FAIL';
-  if (!outcome.ok) failures += 1;
+  if (!outcome.ok) {
+    failures += 1;
+  }
   console.log(`${label} ${scenario.name}`);
   console.log(`     attendu : ${outcome.expected}`);
   console.log(
     `     obtenu  : ${outcome.res.status} ${outcome.res.text} (${outcome.res.elapsedMs} ms)`,
   );
-  if (outcome.extra) console.log(`     détail  : ${outcome.extra}`);
-  if (VERBOSE) console.log(`     brut    : ${outcome.res.text}`);
+  if (outcome.extra) {
+    console.log(`     détail  : ${outcome.extra}`);
+  }
+  if (VERBOSE) {
+    console.log(`     brut    : ${outcome.res.text}`);
+  }
 }
 
 console.log(`\n${scenarios.length - failures}/${scenarios.length} scénarios OK`);

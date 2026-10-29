@@ -157,7 +157,7 @@ Séparer la décision de l'exécution est d'ailleurs la doctrine déjà appliqu�
 la couche `infrastructure` du handler, et cette couche-ci ne peut pas l'importer sans
 inverser la règle de dépendance. Un booléen traverse la frontière ; un import ne le peut pas.
 
-**Avant `if (input.onboardingQuestionPending) return 'deferred';`**
+**Avant `if (input.onboardingQuestionPending) { return 'deferred'; }`**
 
 ⚠️ LA QUESTION D'ACCUEIL PRIME. Les deux erreurs ne se valent pas : capturer « oui » comme
 
@@ -302,7 +302,7 @@ doivent pas se marcher dessus. En DM `threadTs` est absent par conception, donc 
 canal EST la conversation — exactement la règle de la mémoire conversationnelle, et
 
 on la réutilise plutôt que de la redériver ici.
-**Avant `if (runKey) runGuard.remember(runKey, true);`**
+**Avant `if (runKey) { runGuard.remember(runKey, true); }`**
 
 ⚠️ Mémorisé APRÈS la publication réussie, jamais avant : un échec d'affichage ne doit
 
@@ -660,7 +660,7 @@ symétrique de celle que la borne « futur » attrape.
 d'erreur d'outil, que ce dépôt sait qu'il transforme en narration ; un verdict nommé se
 rend à l'humain tel quel.
 
-**Avant `if (at.getTime() <= now.getTime()) return { ok: false, reason: 'date_in_past' };`**
+**Avant `if (at.getTime() <= now.getTime()) { return { ok: false, reason: 'date_in_past' }; }`**
 
 Strictement dans le futur. C'est la borne qui attrape l'erreur d'ANNÉE, de loin la plus
 

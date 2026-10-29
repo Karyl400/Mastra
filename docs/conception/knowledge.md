@@ -762,7 +762,7 @@ alors de la présence de l'adresse.
 connaît pas encore n'a pas d'email connu : il ne peut se désigner que par son
 `U…` ou en ne disant rien — les deux cas fréquents, et les deux servis.
 
-**Avant `if (SLACK_USER_ID_RE.test(value)) return value.toUpperCase() === requesterId.toUpperCase();`**
+**Avant `if (SLACK_USER_ID_RE.test(value)) { return value.toUpperCase() === requesterId.toUpperCase(); }`**
 
 Casse indifférente : `resolveTarget` normalise déjà en majuscules avant de
 
@@ -1264,7 +1264,7 @@ passer par `authorizeOtherMemoryRead` D'ABORD — sinon le couple
 ⚠️ Le palier 2 se teste AVANT le palier 3 : l'inverse refuserait à un invité
 l'accès à ses propres messages.
 
-**Avant `if (!requester) return { allowed: false, reason: 'no_requester' };`**
+**Avant `if (!requester) { return { allowed: false, reason: 'no_requester' }; }`**
 
 Hors Slack (playground, route HTTP, workflow, test), `readSlackContext` rend
 
@@ -1955,7 +1955,7 @@ l'endroit : le port promet du plus ancien au plus récent.
 deux appels identiques pouvaient rendre deux ordres différents, donc deux
 tool-results différents pour la même question.
 
-**Avant `if (!dmChannelId.startsWith('D')) return [];`**
+**Avant `if (!dmChannelId.startsWith('D')) { return []; }`**
 
 Défense en profondeur : le tool vérifie déjà l'invariant, mais un port dont
 
@@ -2120,7 +2120,7 @@ Le SECOND RIDEAU. Optionnel : sans lui, le comportement est exactement celui d'a
 2026-08-21 — le code distille, ce qu'il ne classe pas reste au niveau 1, et la recherche
 dégrade vers le texte brut. Aucun appel de modèle n'a lieu.
 
-**Avant `if (!classified) await this.raiseCurtain();`**
+**Avant `if (!classified) { await this.raiseCurtain(); }`**
 
 ⚠️ Le rideau n'est consulté QUE si le code n'a rien su faire de ce message. Sur un
 workspace où les motifs mordent, il ne coûte pas un seul appel — et s'il coûtait
@@ -2573,7 +2573,7 @@ Remplace les mentions par des noms lisibles, sans jamais en inventer.
 Rend le texte inchangé si aucune mention n'y figure — le cas le plus fréquent, et il ne doit
 rien coûter.
 
-**Avant `if (sigil === '#' && CHANNEL_ID.test(id) && label) return '#${label}';`**
+**Avant `if (sigil === '#' && CHANNEL_ID.test(id) && label) { return '#${label}'; }`**
 
 Slack fournit déjà le nom du canal dans le jeton : il suffit de le préférer à l'identifiant.
 

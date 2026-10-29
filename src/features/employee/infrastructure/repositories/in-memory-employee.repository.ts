@@ -9,19 +9,25 @@ export class InMemoryEmployeeRepository implements EmployeeRepository {
   private deletedAt = new Map<string, string>();
 
   async findById(id: string): Promise<Employee | null> {
-    if (this.deletedAt.has(id)) return null;
+    if (this.deletedAt.has(id)) {
+      return null;
+    }
     return this.store.get(id) ?? null;
   }
 
   async findByEmail(email: string): Promise<Employee | null> {
     for (const e of this.store.values()) {
-      if (e.email === email && !this.deletedAt.has(e.id)) return e;
+      if (e.email === email && !this.deletedAt.has(e.id)) {
+        return e;
+      }
     }
     return null;
   }
 
   async findByName(query: string, limit: number): Promise<Employee[]> {
-    if (limit <= 0) return [];
+    if (limit <= 0) {
+      return [];
+    }
 
     return Array.from(this.store.values())
       .filter((e) => !this.deletedAt.has(e.id))
@@ -38,7 +44,9 @@ export class InMemoryEmployeeRepository implements EmployeeRepository {
 
   async save(employee: Employee): Promise<void> {
     for (const existant of this.store.values()) {
-      if (existant.email !== employee.email || existant.id === employee.id) continue;
+      if (existant.email !== employee.email || existant.id === employee.id) {
+        continue;
+      }
 
       const dateSuppression = this.deletedAt.get(existant.id);
       if (dateSuppression) {
@@ -55,7 +63,9 @@ export class InMemoryEmployeeRepository implements EmployeeRepository {
   }
 
   async delete(id: string): Promise<void> {
-    if (!this.store.has(id) || this.deletedAt.has(id)) return;
+    if (!this.store.has(id) || this.deletedAt.has(id)) {
+      return;
+    }
     this.deletedAt.set(id, new Date().toISOString());
   }
 }

@@ -123,12 +123,20 @@ export function pendingEmailVerdict(input: {
   readonly onboardingQuestionPending: boolean;
   readonly now: Date;
 }): PendingEmailVerdict {
-  if (isPendingEmailStale(input.pending, input.now)) return 'stale';
+  if (isPendingEmailStale(input.pending, input.now)) {
+    return 'stale';
+  }
 
-  if (input.onboardingQuestionPending) return 'deferred';
+  if (input.onboardingQuestionPending) {
+    return 'deferred';
+  }
 
-  if (readsAsNo(input.text)) return 'cancel';
-  if (readsAsYes(input.text)) return 'send';
+  if (readsAsNo(input.text)) {
+    return 'cancel';
+  }
+  if (readsAsYes(input.text)) {
+    return 'send';
+  }
 
   return 'unrelated';
 }
