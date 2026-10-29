@@ -18,6 +18,39 @@ import { DocumentType } from '../shared/types';
 import { logger } from '../shared/logger';
 import type { RuntimeDependencies } from './runtime-dependencies';
 
+function makeChannelDigestDelivery(
+  pdfService: RuntimeDependencies['pdfService'],
+  chatProvider: RuntimeDependencies['chatProvider'],
+): DigestDeliveryPort {
+  return {
+    async deliver(digest, target) {
+      const rendered = await pdfService.render({
+        type: DocumentType.Guide,
+        title: digest.title,
+        content: [digest.coverage, '', ...digest.lines].filter(Boolean).join('\n'),
+      });
+
+      try {
+        await chatProvider.uploadFile({
+          channel: target.channel,
+          ...(target.threadTs ? { threadTs: target.threadTs } : {}),
+          bytes: rendered.bytes,
+          filename: rendered.filename,
+          title: digest.title,
+        });
+      } catch (error) {
+        logger.error('Livraison du résumé de canal en document impossible', {
+          channelId: digest.channelId,
+          error,
+        });
+        return { delivered: false, reason: 'post_failed' };
+      }
+
+      return { delivered: true, filename: rendered.filename };
+    },
+  };
+}
+
 export function buildAgentTools(deps: RuntimeDependencies) {
   const {
     employeeRepo,
@@ -73,33 +106,7 @@ export function buildAgentTools(deps: RuntimeDependencies) {
     memory: botMemory,
   });
 
-  const channelDigestDelivery: DigestDeliveryPort = {
-    async deliver(digest, target) {
-      const rendered = await pdfService.render({
-        type: DocumentType.Guide,
-        title: digest.title,
-        content: [digest.coverage, '', ...digest.lines].filter(Boolean).join('\n'),
-      });
-
-      try {
-        await chatProvider.uploadFile({
-          channel: target.channel,
-          ...(target.threadTs ? { threadTs: target.threadTs } : {}),
-          bytes: rendered.bytes,
-          filename: rendered.filename,
-          title: digest.title,
-        });
-      } catch (error) {
-        logger.error('Livraison du résumé de canal en document impossible', {
-          channelId: digest.channelId,
-          error,
-        });
-        return { delivered: false, reason: 'post_failed' };
-      }
-
-      return { delivered: true, filename: rendered.filename };
-    },
-  };
+  const channelDigestDelivery = makeChannelDigestDelivery(pdfService, chatProvider);
 
   const getChannelHistory = makeGetChannelHistory({
     directory: directoryRepo,

@@ -48,17 +48,8 @@ function minutes(ms: number | null, sampleCount: number): MetricReading {
   return { available: true, value: Math.round(ms / 60_000), detail: `${sampleCount} mesures` };
 }
 
-function readingFor(spec: MetricSpec, f: DashboardFacts): MetricReading {
-  if (!spec.source.derived) {
-    return { available: false, gap: spec.source.gap };
-  }
-
-  const unreadable = new Set(f.unreadableTables);
-  if (spec.source.from.some((label) => unreadable.has(tableOf(label)))) {
-    return { available: false, gap: 'read_failed' };
-  }
-
-  switch (spec.key) {
+function onboardingReading(key: MetricSpec['key'], f: DashboardFacts): MetricReading {
+  switch (key) {
     case 'onboarding.people':
       return count(f.directoryPeople);
     case 'onboarding.linked':
@@ -96,6 +87,13 @@ function readingFor(spec: MetricSpec, f: DashboardFacts): MetricReading {
       );
     }
 
+    default:
+      return NO_DATA_YET;
+  }
+}
+
+function engagementReading(key: MetricSpec['key'], f: DashboardFacts): MetricReading {
+  switch (key) {
     case 'engagement.messages':
       return count(f.userTurns);
     case 'engagement.perUser':
@@ -121,6 +119,13 @@ function readingFor(spec: MetricSpec, f: DashboardFacts): MetricReading {
         `${f.employeeRecords} / ${f.directoryPeople}`,
       );
 
+    default:
+      return NO_DATA_YET;
+  }
+}
+
+function aiReading(key: MetricSpec['key'], f: DashboardFacts): MetricReading {
+  switch (key) {
     case 'ai.zeroTokenShare': {
       if (f.userTurns <= 0) {
         return NO_DATA_YET;
@@ -159,6 +164,13 @@ function readingFor(spec: MetricSpec, f: DashboardFacts): MetricReading {
             detail: `${f.latenciesMs.length} runs`,
           };
 
+    default:
+      return NO_DATA_YET;
+  }
+}
+
+function healthReading(key: MetricSpec['key'], f: DashboardFacts): MetricReading {
+  switch (key) {
     case 'health.notificationFailure':
       return ratio(
         f.notificationsFailed,
@@ -183,6 +195,31 @@ function readingFor(spec: MetricSpec, f: DashboardFacts): MetricReading {
     case 'live.feed':
       return count(f.feed.length);
 
+    default:
+      return NO_DATA_YET;
+  }
+}
+
+function readingFor(spec: MetricSpec, f: DashboardFacts): MetricReading {
+  if (!spec.source.derived) {
+    return { available: false, gap: spec.source.gap };
+  }
+
+  const unreadable = new Set(f.unreadableTables);
+  if (spec.source.from.some((label) => unreadable.has(tableOf(label)))) {
+    return { available: false, gap: 'read_failed' };
+  }
+
+  switch (spec.key.split('.')[0]) {
+    case 'onboarding':
+      return onboardingReading(spec.key, f);
+    case 'engagement':
+      return engagementReading(spec.key, f);
+    case 'ai':
+      return aiReading(spec.key, f);
+    case 'health':
+    case 'live':
+      return healthReading(spec.key, f);
     default:
       return NO_DATA_YET;
   }

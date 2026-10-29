@@ -15,20 +15,17 @@ export async function readDashboardRows(
   liveSince: number,
   unreadable: string[],
 ) {
-  const [
-    people,
-    records,
-    progress,
-    durations,
-    interviews,
-    turns,
-    pairs,
-    audit,
-    runs,
-    notif,
-    docs,
-    feed,
-  ] = await Promise.all([
+  const [onboarding, activity, operations] = await Promise.all([
+    readOnboardingRows(db, unreadable),
+    readActivityRows(db, since, liveSince, unreadable),
+    readOperationRows(db, unreadable),
+  ]);
+
+  return { ...onboarding, ...activity, ...operations };
+}
+
+async function readOnboardingRows(db: DatabaseInstance, unreadable: string[]) {
+  const [people, records, progress, durations, interviews] = await Promise.all([
     readOrMark(['slack_directory'], unreadable, () =>
       db.all<{ total: number; linked: number }>(sql`
             SELECT COUNT(*) AS total,
@@ -59,6 +56,18 @@ export async function readDashboardRows(
     readOrMark(['onboarding_interview'], unreadable, () =>
       db.all<{ total: number }>(sql`SELECT COUNT(*) AS total FROM onboarding_interview`),
     ),
+  ]);
+
+  return { people, records, progress, durations, interviews };
+}
+
+async function readActivityRows(
+  db: DatabaseInstance,
+  since: number,
+  liveSince: number,
+  unreadable: string[],
+) {
+  const [turns, pairs, feed] = await Promise.all([
     readOrMark(['conversation_turns'], unreadable, () =>
       db.all<{
         user_turns: number;
@@ -95,6 +104,29 @@ export async function readDashboardRows(
             LIMIT ${SAMPLE_CAP}
           `),
     ),
+    readOrMark(['conversation_turns'], unreadable, () =>
+      db.all<{
+        at: number;
+        role: string;
+        agent_id: string;
+        conversation_id: string;
+        len: number;
+      }>(
+        sql`
+              SELECT created_at AS at, role, agent_id, conversation_id, LENGTH(content) AS len
+              FROM conversation_turns
+              ORDER BY created_at DESC
+              LIMIT ${FEED_SIZE}
+            `,
+      ),
+    ),
+  ]);
+
+  return { turns, pairs, feed };
+}
+
+async function readOperationRows(db: DatabaseInstance, unreadable: string[]) {
+  const [audit, runs, notif, docs] = await Promise.all([
     readOrMark(['audit_logs'], unreadable, () =>
       db.all<{ model_handled: number; failures: number; rate_limited: number }>(sql`
             SELECT
@@ -129,36 +161,7 @@ export async function readDashboardRows(
             WHERE deleted_at IS NULL
           `),
     ),
-    readOrMark(['conversation_turns'], unreadable, () =>
-      db.all<{
-        at: number;
-        role: string;
-        agent_id: string;
-        conversation_id: string;
-        len: number;
-      }>(
-        sql`
-              SELECT created_at AS at, role, agent_id, conversation_id, LENGTH(content) AS len
-              FROM conversation_turns
-              ORDER BY created_at DESC
-              LIMIT ${FEED_SIZE}
-            `,
-      ),
-    ),
   ]);
 
-  return {
-    people,
-    records,
-    progress,
-    durations,
-    interviews,
-    turns,
-    pairs,
-    audit,
-    runs,
-    notif,
-    docs,
-    feed,
-  };
+  return { audit, runs, notif, docs };
 }
