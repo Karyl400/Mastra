@@ -36,7 +36,8 @@ export function makeGetEmployeeProfile(
 ) {
   return createTool({
     id: 'getEmployeeProfile',
-    description: "Récupère le profil d un employé et l'avancement de son intégration",
+    description:
+      "Récupère le profil d un employé et l'avancement de son intégration. Sans email ni identifiant : le profil du demandeur lui-même.",
     inputSchema: z.object({
       employeeId: uuidSchema.optional().describe('ID de l employé'),
       email: emailSchema

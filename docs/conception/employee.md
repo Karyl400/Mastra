@@ -43,6 +43,7 @@ fixtures exportées depuis le code de production qu'aucun test n'utilisait, déc
 que rien ne vérifiait. C'est la forme la plus trompeuse du code mort : elle ressemble à une
 garantie.
 
+
 ## `features/employee/application/tools/find-employee-by-email.ts`
 
 **Avant `const RESERVED_DOMAINS = ['example.com', 'example.org', 'example.net', 'example.edu', 'localhost`**
@@ -225,7 +226,6 @@ que `canReadPersonRecord` l'autorise déjà à lire (« son propre dossier toujo
 et il vient du contexte serveur — jamais d'une valeur écrite par un attaquant.
 
 Payé uniquement dans cette branche, comme les autres `hint` du dépôt.
-
 ## `features/employee/application/tools/find-person-by-name.ts`
 
 **Avant `export const MAX_NAME_CANDIDATES = 5;`**
@@ -234,7 +234,7 @@ Résout une personne par son NOM.
 
 Le défaut, mesuré sur la Turso de production le 2026-08-13
 
-employee_id=d20df236…(Karyl) type=welcome_letter title="Bienvenue Awa" status=sent
+  employee_id=d20df236…(Karyl)  type=welcome_letter  title="Bienvenue Awa"  status=sent
 
 Les DIX documents de la base portent l'UUID de Karyl — y compris celui intitulé
 « Bienvenue Awa », dont l'email est donc parti à l'adresse de Karyl. Awa a pourtant sa
@@ -536,39 +536,39 @@ Le relevé qui les a fait tomber, rendu tel quel à la personne concernée :
 
     Intégration : en cours, étape 1 sur 1.
 
-• `id` — un UUID ne dit RIEN à un humain, et il a fait douter du reste : « je ne sais
+ • `id` — un UUID ne dit RIEN à un humain, et il a fait douter du reste : « je ne sais
 
-pas d'où il vient, s'il existe réellement ou pas ». Le retirer de la SORTIE plutôt que
+   pas d'où il vient, s'il existe réellement ou pas ». Le retirer de la SORTIE plutôt que
 
-de demander au modèle de ne pas l'écrire : une consigne est probable, l'absence est
+   de demander au modèle de ne pas l'écrire : une consigne est probable, l'absence est
 
-garantie. Les flux qui ont besoin d'un identifiant l'obtiennent ailleurs —
+   garantie. Les flux qui ont besoin d'un identifiant l'obtiennent ailleurs —
 
-`generateDocument` prend celui du DEMANDEUR dans le `requestContext`, et
+   `generateDocument` prend celui du DEMANDEUR dans le `requestContext`, et
 
-`findPersonByName` rend celui d'un tiers.
+   `findPersonByName` rend celui d'un tiers.
 
-• `department` — retiré du produit entier ce jour-là, à la demande du propriétaire.
+ • `department` — retiré du produit entier ce jour-là, à la demande du propriétaire.
 
-• `startDate` — « 1 septembre 2026 » pour quelqu'un qui travaille déjà là. La valeur
+ • `startDate` — « 1 septembre 2026 » pour quelqu'un qui travaille déjà là. La valeur
 
-n'a qu'une source fiable (le jour d'arrivée sur Slack) et les lignes antérieures ne
+   n'a qu'une source fiable (le jour d'arrivée sur Slack) et les lignes antérieures ne
 
-l'ont pas ; l'affirmer dans une réponse, c'est affirmer ce qu'on ne sait pas.
+   l'ont pas ; l'affirmer dans une réponse, c'est affirmer ce qu'on ne sait pas.
 
-• `status` — `employees.status` a **zéro écrivain** dans tout `src/` après la création :
+ • `status` — `employees.status` a **zéro écrivain** dans tout `src/` après la création :
 
-il vaut `pending` pour toujours. Annoncer « pending » à quelqu'un dont l'accueil est
+   il vaut `pending` pour toujours. Annoncer « pending » à quelqu'un dont l'accueil est
 
-terminé, c'est le défaut nommé par ce dépôt — un suivi qui ne bouge jamais est un
+   terminé, c'est le défaut nommé par ce dépôt — un suivi qui ne bouge jamais est un
 
-suivi qui ment. Le SEUL suivi réellement observé est `progress`, juste en dessous.
+   suivi qui ment. Le SEUL suivi réellement observé est `progress`, juste en dessous.
 
-• `managerId` — toujours `null`, et la notion de manager a déménagé vers
+ • `managerId` — toujours `null`, et la notion de manager a déménagé vers
 
-`slack_directory.role` le même jour. Un champ vide qui porte le nom d'une frontière
+   `slack_directory.role` le même jour. Un champ vide qui porte le nom d'une frontière
 
-d'autorisation finit par être lu comme s'il en disait quelque chose.
+   d'autorisation finit par être lu comme s'il en disait quelque chose.
 
 ⚠️ RÉCONCILIÉ, et par la MÊME fonction que le workflow — `reconcileProgress`. Cette
 
@@ -593,7 +593,6 @@ Le POSTE est le seul attribut de métier rendu, et c'est ce qui a été demandé
 2026-08-20. Ce qui l'entourait a disparu, champ par champ, pour une raison propre à
 
 chacun — voir l'encadré au-dessus de cette fonction.
-
 ## `features/employee/domain/entities/employee.ts`
 
 **Avant `readonly department: string | null;`**
@@ -653,7 +652,7 @@ l'ajouter ici, ce qui force à l'ajouter dans `EMPLOYEE_COLUMNS` : la chaîne ti
 
 **Avant `function toDomain(row: EmployeeRow): Employee {`**
 
-Seul point où `status` redevient l'énumération du domaine : la colonne est un `text` libre.
+ Seul point où `status` redevient l'énumération du domaine : la colonne est un `text` libre.
 
 **Avant `constructor(private readonly resolveDb: () => DatabaseInstance = getDb) {}`**
 
@@ -742,7 +741,7 @@ fiche sans toucher à sa suppression, donc aucune résurrection accidentelle.
 
 **Avant `async findByName(query: string, limit: number): Promise<Employee[]> {`**
 
-Même rapprochement que la production — le module partagé est le seul juge.
+ Même rapprochement que la production — le module partagé est le seul juge.
 
 **Avant `for (const existant of this.store.values()) {`**
 
@@ -753,7 +752,7 @@ supprimée OCCUPE toujours son adresse. Sans cela, la doublure accepterait une c
 la production refuse — l'écart le plus coûteux qu'une doublure puisse porter.
 **Avant `async delete(id: string): Promise<void> {`**
 
-Idempotent, comme le `WHERE deleted_at IS NULL` du SQL : la date d'origine ne bouge pas.
+ Idempotent, comme le `WHERE deleted_at IS NULL` du SQL : la date d'origine ne bouge pas.
 
 ---
 
@@ -847,4 +846,5 @@ personne n'a pas de dossier » n'est pas « tu n'as pas à tenir son identifiant
 désigner le dossier, et a répondu par un objet JSON imitant un résultat d'outil. Sans
 identifiant, l'outil lit désormais le dossier du demandeur (`slackEmployeeId`, posé par le
 serveur) ; la frontière `canReadPersonRecord` s'applique comme avant. Un demandeur sans dossier
-relié reçoit toujours `missing_identifier`.
+relié reçoit toujours `missing_identifier`. La description de l'outil le DIT au modèle : sans
+elle il n'appelle pas l'outil faute d'identifiant.

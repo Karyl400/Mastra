@@ -36,3 +36,10 @@ describe('getEmployeeProfile — sans identifiant, le dossier du demandeur', () 
     expect(findById).not.toHaveBeenCalled();
   });
 });
+
+describe('getEmployeeProfile — le modèle sait qu’il peut l’appeler sans identifiant', () => {
+  it('la description le dit', () => {
+    const { tool } = build();
+    expect(tool.description).toMatch(/sans (?:email|identifiant)[^.]*demandeur/i);
+  });
+});
