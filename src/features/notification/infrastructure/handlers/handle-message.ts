@@ -15,6 +15,69 @@ import { chargeModelBudget, notifyRateLimited } from './rate-limit-gate';
 import { runIntentChain } from './intent-chain-runner';
 import { runDeadline } from '../../../../shared/llm/run-deadline';
 
+type MessageContext = NonNullable<Awaited<ReturnType<typeof buildMessageContext>>>;
+type ActingReply = NonNullable<ReturnType<typeof findActingReply>>;
+
+async function runActingShortcut(
+  self: SlackHandlerInternals,
+  acting: ActingReply,
+  context: MessageContext,
+  history: MessageContext['history'],
+): Promise<void> {
+  const { user, channel, text, threadTs, isDirectMessage, conversationId, requesterIdentity } =
+    context;
+
+  switch (acting.action) {
+    case 'erasure':
+      return runErasure(self, { text, channel, threadTs, user, conversationId, isDirectMessage });
+    case 'pin_fact':
+      return runPinFact(self, { text, channel, threadTs, user });
+    case 'profile_form':
+      return runProfileForm(self, { channel, threadTs, isDirectMessage, conversationId, user });
+    case 'cancel_reminder':
+      return runCancelReminder(self, {
+        text,
+        channel,
+        threadTs,
+        conversationId,
+        user,
+        employeeId: (await requesterIdentity).employeeId,
+        remember: shouldRememberTurn(history),
+      });
+  }
+}
+
+function recordAndAudit(
+  self: SlackHandlerInternals,
+  input: {
+    user: string | undefined;
+    channel: string;
+    text: string;
+    isDirectMessage: boolean;
+    accessLevel: string | undefined;
+  },
+): void {
+  const { user, channel, text, isDirectMessage, accessLevel } = input;
+
+  if (isDirectMessage && user) {
+    void self
+      .getDirectoryRepo()
+      ?.rememberDmChannel(user, channel)
+      .catch((error) => logger.debug('Could not record the DM channel', { user, error }));
+  }
+
+  logger.info('Processing Slack message', { user, channel, textLength: text.length });
+
+  void self.audit({
+    action: AUDIT_ACTIONS.slackMessage,
+    actorId: user ?? 'unknown',
+    status: 'accepted',
+    resourceType: 'SlackChannel',
+    resourceId: channel,
+    details: { accessLevel: accessLevel ?? 'not_evaluated', isDirectMessage },
+  });
+}
+
 export async function handleMessage(
   self: SlackHandlerInternals,
   event: SlackMessageEvent,
@@ -87,37 +150,7 @@ export async function handleMessage(
   const acting = findActingReply(shortCircuitInput);
 
   if (acting) {
-    switch (acting.action) {
-      case 'erasure':
-        return runErasure(self, {
-          text,
-          channel,
-          threadTs,
-          user,
-          conversationId,
-          isDirectMessage,
-        });
-      case 'pin_fact':
-        return runPinFact(self, { text, channel, threadTs, user });
-      case 'profile_form':
-        return runProfileForm(self, {
-          channel,
-          threadTs,
-          isDirectMessage,
-          conversationId,
-          user,
-        });
-      case 'cancel_reminder':
-        return runCancelReminder(self, {
-          text,
-          channel,
-          threadTs,
-          conversationId,
-          user,
-          employeeId: (await requesterIdentity).employeeId,
-          remember: shouldRememberTurn(history),
-        });
-    }
+    return runActingShortcut(self, acting, context, history);
   }
 
   const accessLevel = await enforceAuthorization(self, {
@@ -130,23 +163,7 @@ export async function handleMessage(
     return;
   }
 
-  if (isDirectMessage && user) {
-    void self
-      .getDirectoryRepo()
-      ?.rememberDmChannel(user, channel)
-      .catch((error) => logger.debug('Could not record the DM channel', { user, error }));
-  }
-
-  logger.info('Processing Slack message', { user, channel, textLength: text.length });
-
-  void self.audit({
-    action: AUDIT_ACTIONS.slackMessage,
-    actorId: user ?? 'unknown',
-    status: 'accepted',
-    resourceType: 'SlackChannel',
-    resourceId: channel,
-    details: { accessLevel: accessLevel ?? 'not_evaluated', isDirectMessage },
-  });
+  recordAndAudit(self, { user, channel, text, isDirectMessage, accessLevel });
 
   if (!(await chargeModelBudget(self, user))) {
     await notifyRateLimited(self, channel, 'daily');
