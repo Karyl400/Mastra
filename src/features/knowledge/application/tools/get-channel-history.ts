@@ -90,34 +90,63 @@ async function authorizeRead(
   return { allowed: false, reason: verdict.reason };
 }
 
+const channelHistoryInput = z
+  .object({
+    channelId: z
+      .string()
+      .trim()
+      .regex(CHANNEL_ID_RE, 'Identifiant de canal Slack attendu (C…, G… ou D…)')
+      .optional()
+      .describe('Identifiant du canal, quand la personne a écrit un jeton <#C…>.'),
+    channelName: z
+      .string()
+      .trim()
+      .min(2)
+      .max(80)
+      .optional()
+      .describe('Nom du canal tel que la personne l’écrit (ex. engineer-karyl).'),
+    asDocument: z
+      .boolean()
+      .optional()
+      .describe('true pour joindre aussi un PDF du résumé dans ce fil.'),
+  })
+  .refine((input) => Boolean(input.channelId ?? input.channelName), {
+    message: 'Donne le nom du canal, ou son identifiant si tu en as un.',
+  });
+
+async function fetchRecentOrReason(
+  deps: GetChannelHistoryDeps,
+  requesterId: string,
+  channelId: string,
+): Promise<
+  | { messages: Awaited<ReturnType<GetChannelHistoryDeps['channels']['fetchRecent']>> }
+  | { reason: ChannelUnavailableReason }
+> {
+  try {
+    const messages = await deps.channels.fetchRecent(channelId, {
+      sinceMs: KNOWLEDGE_LOOKBACK_MS,
+      limit: KNOWLEDGE_SCAN_LIMIT,
+    });
+    return { messages };
+  } catch (error) {
+    const reason: ChannelUnavailableReason =
+      error instanceof ChannelUnavailableError ? error.reason : 'unavailable';
+    logger.error("Knowledge — lecture de l'historique de canal en échec", {
+      requesterId,
+      channelId,
+      reason,
+      error,
+    });
+    return { reason };
+  }
+}
+
 export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
   return createTool({
     id: 'getChannelHistory',
     description:
       "Retrouve les derniers messages d'un canal, désigné par son nom ou son identifiant.",
-    inputSchema: z
-      .object({
-        channelId: z
-          .string()
-          .trim()
-          .regex(CHANNEL_ID_RE, 'Identifiant de canal Slack attendu (C…, G… ou D…)')
-          .optional()
-          .describe('Identifiant du canal, quand la personne a écrit un jeton <#C…>.'),
-        channelName: z
-          .string()
-          .trim()
-          .min(2)
-          .max(80)
-          .optional()
-          .describe('Nom du canal tel que la personne l’écrit (ex. engineer-karyl).'),
-        asDocument: z
-          .boolean()
-          .optional()
-          .describe('true pour joindre aussi un PDF du résumé dans ce fil.'),
-      })
-      .refine((input) => Boolean(input.channelId ?? input.channelName), {
-        message: 'Donne le nom du canal, ou son identifiant si tu en as un.',
-      }),
+    inputSchema: channelHistoryInput,
     execute: async (data, ctx) => {
       const slack = readSlackContext(ctx?.requestContext);
       if (!slack?.slackUserId) {
@@ -143,23 +172,11 @@ export function makeGetChannelHistory(deps: GetChannelHistoryDeps) {
         return refuse(verdict.reason);
       }
 
-      let messages;
-      try {
-        messages = await deps.channels.fetchRecent(channelId, {
-          sinceMs: KNOWLEDGE_LOOKBACK_MS,
-          limit: KNOWLEDGE_SCAN_LIMIT,
-        });
-      } catch (error) {
-        const reason: ChannelUnavailableReason =
-          error instanceof ChannelUnavailableError ? error.reason : 'unavailable';
-        logger.error("Knowledge — lecture de l'historique de canal en échec", {
-          requesterId,
-          channelId,
-          reason,
-          error,
-        });
-        return refuse(reason);
+      const fetched = await fetchRecentOrReason(deps, requesterId, channelId);
+      if (!('messages' in fetched)) {
+        return refuse(fetched.reason);
       }
+      const messages = fetched.messages;
 
       if (messages.length === 0) {
         return refuse('no_message');

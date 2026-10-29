@@ -834,7 +834,7 @@ Seul un tour `assistant` peut porter ce contenu : les tool-results ne
 sont jamais persistés, un tour `user` est ce que la personne a tapé
 
 elle-même. On coupe donc l'amplification, pas l'accès.
-**Avant `speaker: turn.role === 'assistant' ? 'Kisso' : speaker,`**
+**Avant `speaker: turn.role === 'assistant' ? 'Kisso' : input.speaker,`**
 
 « Kisso » et non l'identifiant de l'agent : le nom de l'agent est un
 
@@ -843,12 +843,12 @@ détail d'implémentation, et les tours viennent parfois d'agents
 différents — le distinguer ici ferait payer une information qui
 
 n'éclaire pas la question posée.
-**Avant `const hint = [`**
+**Avant `function buildHint(withheld: number, coverage: string | undefined): string {`**
 
 Deux phrases, un seul champ. `withheld` explique pourquoi des tours MANQUENT (la
 
 politique de divulgation) ; `coverage` dit que ce qui reste est un ÉCHANTILLON.
-**Avant `noteCoverageForHuman(ctx?.requestContext, excerpts, shown);`**
+**Avant `noteCoverageForHuman(requestContext, excerpts, shown);`**
 
 ── LA COUVERTURE, DITE À L'HUMAIN — quatrième forme, 2026-08-18 ──────
 
@@ -873,7 +873,7 @@ Le contenu ne sort JAMAIS de ce bloc : c'est la seule chose qui
 distingue « une donnée qu'on te montre » de « une instruction qu'on te
 
 donne ». Voir `services/untrusted-excerpt.service.ts`.
-**Avant `scanned: disclosable.length,`**
+**Avant `scanned: input.disclosable.length,`**
 
 Ce qui a été RETENU ne compte pas comme parcouru : le nombre de tours
 

@@ -31,19 +31,103 @@ export interface GetUserConversationsDeps {
   readonly memory: BotMemoryReadPort;
 }
 
+const userConversationsInput = z.object({
+  person: z
+    .string()
+    .trim()
+    .min(1)
+    .max(254)
+    .optional()
+    .describe('Email ou identifiant Slack. Vide = la personne qui te parle.'),
+});
+
+type DirectTurns = Awaited<ReturnType<BotMemoryReadPort['findRecentDirectTurns']>>;
+
+async function readTurnsOrFail(
+  deps: GetUserConversationsDeps,
+  dmChannelId: string,
+  requesterId: string,
+  targetId: string,
+): Promise<DirectTurns | null> {
+  try {
+    const turns = await deps.memory.findRecentDirectTurns(dmChannelId, {
+      sinceMs: KNOWLEDGE_LOOKBACK_MS,
+      limit: KNOWLEDGE_SCAN_LIMIT,
+    });
+    return turns;
+  } catch (error) {
+    logger.error('Knowledge — lecture de la mémoire du bot en échec', {
+      requesterId,
+      targetId,
+      error,
+    });
+    return null;
+  }
+}
+
+function buildHint(withheld: number, coverage: string | undefined): string {
+  return [
+    withheld > 0
+      ? "Tu ne vois que SES messages, pas tes réponses : c'est la règle, pas un vide."
+      : undefined,
+    coverage,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+async function presentConversation(
+  deps: GetUserConversationsDeps,
+  requestContext: unknown,
+  input: {
+    disclosable: DirectTurns;
+    speaker: string;
+    log: {
+      requesterId: string;
+      targetId: string;
+      reason: string;
+      scanned: number;
+      withheld: number;
+    };
+  },
+) {
+  const excerpts: ConversationExcerpt[] = input.disclosable.map((turn) => ({
+    source: 'bot_memory',
+    speaker: turn.role === 'assistant' ? 'Kisso' : input.speaker,
+    text: turn.text,
+    at: turn.at,
+  }));
+
+  const nameLookup = await buildNameLookup(
+    deps.directory,
+    excerpts.map((excerpt) => excerpt.text),
+  );
+  const { lines, shown, coverage } = projectExcerpts(excerpts, nameLookup);
+
+  const hint = buildHint(input.log.withheld, coverage);
+
+  noteCoverageForHuman(requestContext, excerpts, shown);
+
+  logger.info('Knowledge — récupération de conversations directes', {
+    scope: 'bot_memory',
+    ...input.log,
+    shown,
+  });
+
+  return {
+    found: true,
+    conversation: wrapRetrievedContent(lines, coverage),
+    shown,
+    scanned: input.disclosable.length,
+    ...(hint ? { hint } : {}),
+  };
+}
+
 export function makeGetUserConversations(deps: GetUserConversationsDeps) {
   return createTool({
     id: 'getUserConversations',
     description: 'Retrouve les échanges directs entre cette personne et toi.',
-    inputSchema: z.object({
-      person: z
-        .string()
-        .trim()
-        .min(1)
-        .max(254)
-        .optional()
-        .describe('Email ou identifiant Slack. Vide = la personne qui te parle.'),
-    }),
+    inputSchema: userConversationsInput,
     execute: async (data, ctx) => {
       const slack = readSlackContext(ctx?.requestContext);
       if (!slack?.slackUserId) {
@@ -96,18 +180,8 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
         return refuse('no_recorded_conversation');
       }
 
-      let turns;
-      try {
-        turns = await deps.memory.findRecentDirectTurns(dmChannelId, {
-          sinceMs: KNOWLEDGE_LOOKBACK_MS,
-          limit: KNOWLEDGE_SCAN_LIMIT,
-        });
-      } catch (error) {
-        logger.error('Knowledge — lecture de la mémoire du bot en échec', {
-          requesterId,
-          targetId,
-          error,
-        });
+      const turns = await readTurnsOrFail(deps, dmChannelId, requesterId, targetId);
+      if (!turns) {
         return refuse('memory_unavailable');
       }
 
@@ -121,48 +195,17 @@ export function makeGetUserConversations(deps: GetUserConversationsDeps) {
         return refuse('no_recorded_conversation');
       }
 
-      const speaker = resolved?.displayName || targetId;
-      const excerpts: ConversationExcerpt[] = disclosable.map((turn) => ({
-        source: 'bot_memory',
-        speaker: turn.role === 'assistant' ? 'Kisso' : speaker,
-        text: turn.text,
-        at: turn.at,
-      }));
-
-      const nameLookup = await buildNameLookup(
-        deps.directory,
-        excerpts.map((excerpt) => excerpt.text),
-      );
-      const { lines, shown, coverage } = projectExcerpts(excerpts, nameLookup);
-
-      const hint = [
-        withheld > 0
-          ? "Tu ne vois que SES messages, pas tes réponses : c'est la règle, pas un vide."
-          : undefined,
-        coverage,
-      ]
-        .filter(Boolean)
-        .join(' ');
-
-      noteCoverageForHuman(ctx?.requestContext, excerpts, shown);
-
-      logger.info('Knowledge — récupération de conversations directes', {
-        scope: 'bot_memory',
-        requesterId,
-        targetId,
-        reason: verdict.reason,
-        scanned: turns.length,
-        withheld,
-        shown,
+      return presentConversation(deps, ctx?.requestContext, {
+        disclosable,
+        speaker: resolved?.displayName || targetId,
+        log: {
+          requesterId,
+          targetId,
+          reason: verdict.reason,
+          scanned: turns.length,
+          withheld,
+        },
       });
-
-      return {
-        found: true,
-        conversation: wrapRetrievedContent(lines, coverage),
-        shown,
-        scanned: disclosable.length,
-        ...(hint ? { hint } : {}),
-      };
     },
   });
 }
