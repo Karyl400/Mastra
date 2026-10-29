@@ -79,8 +79,8 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
     vi.stubEnv('GROQ_API_KEY', 'test-groq-key');
     vi.stubEnv('MISTRAL_API_KEY', 'test-mistral-key');
     calls.length = 0;
-    geminiFailTimes = Infinity;
-    groqFailTimes = 0;
+    geminiFailTimes = 0;
+    groqFailTimes = Infinity;
     mistralFailTimes = 0;
   });
 
@@ -93,7 +93,7 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
     const { logger } = await import('../../../src/shared/logger');
     const errorSpy = vi.spyOn(logger, 'error');
 
-    const { makeModelChain, PRIMARY_MODEL_ID, GEMINI_MODEL_ID, GROQ_MODEL_ID } =
+    const { makeModelChain, GROQ_CHAIN_ID, GEMINI_MODEL_ID, GROQ_MODEL_ID } =
       await import('../../../src/shared/llm/model-fallback');
 
     const agent = new Agent({
@@ -108,16 +108,16 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
     // Les identifiants viennent des CONSTANTES, jamais de littéraux recopiés : c'est
     // exactement la duplication qui a laissé `llama-3.3-70b-versatile` survivre ici après son
     // retrait du compte Groq.
-    expect(calls).toEqual([GEMINI_MODEL_ID, GROQ_MODEL_ID]);
-    expect(result.text).toBe(`ok:${GROQ_MODEL_ID}`);
+    expect(calls).toEqual([GROQ_MODEL_ID, GEMINI_MODEL_ID]);
+    expect(result.text).toBe(`ok:${GEMINI_MODEL_ID}`);
 
-    // La panne Gemini doit être journalisée avec l'identifiant du maillon qui a
+    // La panne Groq doit être journalisée avec l'identifiant du maillon qui a
     // réellement échoué — pas celui d'un autre maillon de la chaîne.
     expect(errorSpy).toHaveBeenCalled();
     const loggedPrimaryFailure = errorSpy.mock.calls.find(
       (call) =>
-        JSON.stringify(call).includes(PRIMARY_MODEL_ID) &&
-        JSON.stringify(call).includes(GEMINI_MODEL_ID),
+        JSON.stringify(call).includes(GROQ_CHAIN_ID) &&
+        JSON.stringify(call).includes(GROQ_MODEL_ID),
     );
     expect(loggedPrimaryFailure).toBeDefined();
   });
@@ -130,7 +130,7 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
     const { logger } = await import('../../../src/shared/logger');
     const errorSpy = vi.spyOn(logger, 'error');
 
-    const { makeModelChain, LAST_RESORT_MODEL_ID, MISTRAL_MODEL_ID } =
+    const { makeModelChain, MISTRAL_CHAIN_ID, MISTRAL_MODEL_ID } =
       await import('../../../src/shared/llm/model-fallback');
 
     const agent = new Agent({
@@ -144,19 +144,20 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
 
     const loggedMistralFailure = errorSpy.mock.calls.find(
       (call) =>
-        JSON.stringify(call).includes(LAST_RESORT_MODEL_ID) &&
+        JSON.stringify(call).includes(MISTRAL_CHAIN_ID) &&
         JSON.stringify(call).includes(MISTRAL_MODEL_ID),
     );
     expect(loggedMistralFailure).toBeDefined();
   });
 
   it("n'appelle pas le logger d'échec quand le premier maillon réussit du premier coup", async () => {
+    groqFailTimes = 0;
     geminiFailTimes = 0;
 
     const { logger } = await import('../../../src/shared/logger');
     const errorSpy = vi.spyOn(logger, 'error');
 
-    const { makeModelChain, GEMINI_MODEL_ID } =
+    const { makeModelChain, GROQ_MODEL_ID } =
       await import('../../../src/shared/llm/model-fallback');
 
     const agent = new Agent({
@@ -168,7 +169,7 @@ describe('makeModelChain — journalisation de la chaîne complète des échecs'
 
     const result = await agent.generate('bonjour');
 
-    expect(result.text).toBe(`ok:${GEMINI_MODEL_ID}`);
+    expect(result.text).toBe(`ok:${GROQ_MODEL_ID}`);
     expect(errorSpy).not.toHaveBeenCalled();
   });
 });

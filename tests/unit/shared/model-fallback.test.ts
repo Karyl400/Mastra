@@ -3,9 +3,9 @@ import { Agent } from '@mastra/core/agent';
 import { APICallError } from 'ai';
 import {
   makeModelChain,
-  PRIMARY_MODEL_ID,
-  FALLBACK_MODEL_ID,
-  LAST_RESORT_MODEL_ID,
+  GOOGLE_CHAIN_ID,
+  GROQ_CHAIN_ID,
+  MISTRAL_CHAIN_ID,
   GEMINI_MODEL_ID,
   GROQ_MODEL_ID,
   MISTRAL_MODEL_ID,
@@ -71,7 +71,7 @@ describe('makeModelChain — configuration de la chaîne de repli', () => {
     vi.unstubAllEnvs();
   });
 
-  it('expose Gemini, puis Groq, puis Mistral — dans cet ordre', () => {
+  it('expose Groq, puis Gemini, puis Mistral — dans cet ordre', () => {
     // ⚠️ L'ORDRE EST LE CONTRAT. Gemini est passé primaire le 2026-08-20 : son quota est
     // sans commune mesure avec les 100 000 tokens/JOUR de Groq, qui bornaient tout ce
     // dépôt à ≈ 19 messages quotidiens. Groq devient le repli, Mistral — plafonné en
@@ -79,9 +79,9 @@ describe('makeModelChain — configuration de la chaîne de repli', () => {
     const chain = makeModelChain({ geminiApiKey: 'k', groqApiKey: 'g', mistralApiKey: 'm' });
 
     expect(chain).toHaveLength(3);
-    expect(chain[0]?.id).toBe(PRIMARY_MODEL_ID);
-    expect(chain[1]?.id).toBe(FALLBACK_MODEL_ID);
-    expect(chain[2]?.id).toBe(LAST_RESORT_MODEL_ID);
+    expect(chain[0]?.id).toBe(GROQ_CHAIN_ID);
+    expect(chain[1]?.id).toBe(GOOGLE_CHAIN_ID);
+    expect(chain[2]?.id).toBe(MISTRAL_CHAIN_ID);
   });
 
   it('donne des identifiants stables et déterministes (pas de randomUUID)', () => {
@@ -111,7 +111,7 @@ describe('makeModelChain — configuration de la chaîne de repli', () => {
     // Un maillon sans identifiants masquerait l'erreur réelle du primaire,
     // puisque c'est l'erreur du DERNIER modèle qui est renvoyée au client.
     expect(chain).toHaveLength(1);
-    expect(chain[0]?.id).toBe(PRIMARY_MODEL_ID);
+    expect(chain[0]?.id).toBe(GOOGLE_CHAIN_ID);
     expect(chain[0]?.maxRetries).toBe(LAST_RESORT_MAX_RETRIES);
   });
 
@@ -129,7 +129,7 @@ describe('makeModelChain — configuration de la chaîne de repli', () => {
     const chain = makeModelChain({});
 
     expect(chain).toHaveLength(1);
-    expect(chain[0]?.id).toBe(PRIMARY_MODEL_ID);
+    expect(chain[0]?.id).toBe(GOOGLE_CHAIN_ID);
     expect(errorSpy.mock.calls.some((c) => String(c[0]).includes('Aucun fournisseur LLM'))).toBe(
       true,
     );
@@ -158,13 +158,13 @@ describe('makeModelChain — configuration de la chaîne de repli', () => {
     const list = await agent.getModelList();
 
     expect(list?.map((entry) => entry.id)).toEqual([
-      PRIMARY_MODEL_ID,
-      FALLBACK_MODEL_ID,
-      LAST_RESORT_MODEL_ID,
+      GROQ_CHAIN_ID,
+      GOOGLE_CHAIN_ID,
+      MISTRAL_CHAIN_ID,
     ]);
     expect(list?.map((entry) => entry.model.modelId)).toEqual([
-      GEMINI_MODEL_ID,
       GROQ_MODEL_ID,
+      GEMINI_MODEL_ID,
       MISTRAL_MODEL_ID,
     ]);
     expect(list?.map((entry) => entry.maxRetries)).toEqual([0, 0, LAST_RESORT_MAX_RETRIES]);

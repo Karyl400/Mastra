@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { makeOnboardingOrchestrator } from '../../../src/features/onboarding/application/agents/onboarding-orchestrator';
 import {
-  PRIMARY_MODEL_ID,
-  FALLBACK_MODEL_ID,
-  LAST_RESORT_MODEL_ID,
+  GOOGLE_CHAIN_ID,
+  GROQ_CHAIN_ID,
+  MISTRAL_CHAIN_ID,
   GEMINI_MODEL_ID,
   GROQ_MODEL_ID,
   MISTRAL_MODEL_ID,
@@ -37,7 +37,7 @@ describe('OnboardingOrchestrator Agent', () => {
     expect(agent.name).toBe('Onboarding Orchestrator');
   });
 
-  describe('chaîne de modèles Gemini → Groq → Mistral', () => {
+  describe('chaîne de modèles Groq → Gemini → Mistral', () => {
     beforeEach(() => {
       vi.stubEnv('GROQ_API_KEY', 'test-groq-key');
       vi.stubEnv('MISTRAL_API_KEY', 'test-mistral-key');
@@ -47,17 +47,17 @@ describe('OnboardingOrchestrator Agent', () => {
       vi.unstubAllEnvs();
     });
 
-    it('déclare Gemini, Groq puis Mistral, avec reprise bornée sur le dernier maillon', async () => {
+    it('déclare Groq, Gemini puis Mistral, avec reprise bornée sur le dernier maillon', async () => {
       const list = await makeOnboardingOrchestrator({}).getModelList();
 
       expect(list?.map((entry) => entry.id)).toEqual([
-        PRIMARY_MODEL_ID,
-        FALLBACK_MODEL_ID,
-        LAST_RESORT_MODEL_ID,
+        GROQ_CHAIN_ID,
+        GOOGLE_CHAIN_ID,
+        MISTRAL_CHAIN_ID,
       ]);
       expect(list?.map((entry) => entry.model.modelId)).toEqual([
-        GEMINI_MODEL_ID,
         GROQ_MODEL_ID,
+        GEMINI_MODEL_ID,
         MISTRAL_MODEL_ID,
       ]);
       expect(list?.map((entry) => entry.maxRetries)).toEqual([0, 0, LAST_RESORT_MAX_RETRIES]);

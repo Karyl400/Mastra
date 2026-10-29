@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
  * 1. Les identifiants sont lus depuis `GROQ_MODEL_ID` / `MISTRAL_MODEL_ID`, littéral actuel
  *    en défaut. Un modèle mort se remplace désormais par une variable d'environnement.
  *
- * 2. `PRIMARY_MODEL_ID` / `FALLBACK_MODEL_ID` et le modèle RÉELLEMENT demandé sortent d'une
+ * 2. `GOOGLE_CHAIN_ID` / `GROQ_CHAIN_ID` et le modèle RÉELLEMENT demandé sortent d'une
  *    SEULE résolution. C'est exactement ce qui avait laissé un modèle mort survivre : la
  *    doctrine du dépôt veut qu'une étiquette et la valeur qu'elle nomme ne soient jamais
  *    deux littéraux séparés. Un test qui vérifierait seulement le défaut laisserait
@@ -63,7 +63,7 @@ describe('identifiants de modèle', () => {
       const m = await load();
       expect(m.GEMINI_MODEL_ID).toBe('gemini-3.5-flash');
       expect(m.GROQ_MODEL_ID).toBe('openai/gpt-oss-120b');
-      expect(m.MISTRAL_MODEL_ID).toBe('mistral-large-latest');
+      expect(m.MISTRAL_MODEL_ID).toBe('mistral-medium-latest');
     });
 
     it('ignore une variable vide ou faite d’espaces', async () => {
@@ -73,7 +73,7 @@ describe('identifiants de modèle', () => {
       const m = await load();
       expect(m.GEMINI_MODEL_ID).toBe('gemini-3.5-flash');
       expect(m.GROQ_MODEL_ID).toBe('openai/gpt-oss-120b');
-      expect(m.MISTRAL_MODEL_ID).toBe('mistral-large-latest');
+      expect(m.MISTRAL_MODEL_ID).toBe('mistral-medium-latest');
     });
   });
 
@@ -98,9 +98,9 @@ describe('identifiants de modèle', () => {
   describe('dérivation — étiquette et modèle demandé sortent d’une seule résolution', () => {
     it('dérive les trois étiquettes sur le défaut', async () => {
       const m = await load();
-      expect(m.PRIMARY_MODEL_ID).toBe(`google/${m.GEMINI_MODEL_ID}`);
-      expect(m.FALLBACK_MODEL_ID).toBe(`groq/${m.GROQ_MODEL_ID}`);
-      expect(m.LAST_RESORT_MODEL_ID).toBe(`mistral/${m.MISTRAL_MODEL_ID}`);
+      expect(m.GOOGLE_CHAIN_ID).toBe(`google/${m.GEMINI_MODEL_ID}`);
+      expect(m.GROQ_CHAIN_ID).toBe(`groq/${m.GROQ_MODEL_ID}`);
+      expect(m.MISTRAL_CHAIN_ID).toBe(`mistral/${m.MISTRAL_MODEL_ID}`);
     });
 
     it('dérive les trois étiquettes sur une valeur surchargée', async () => {
@@ -108,9 +108,9 @@ describe('identifiants de modèle', () => {
       process.env.GROQ_MODEL_ID = 'openai/gpt-oss-20b';
       process.env.MISTRAL_MODEL_ID = 'mistral-small-latest';
       const m = await load();
-      expect(m.PRIMARY_MODEL_ID).toBe('google/gemini-3.6-flash');
-      expect(m.FALLBACK_MODEL_ID).toBe('groq/openai/gpt-oss-20b');
-      expect(m.LAST_RESORT_MODEL_ID).toBe('mistral/mistral-small-latest');
+      expect(m.GOOGLE_CHAIN_ID).toBe('google/gemini-3.6-flash');
+      expect(m.GROQ_CHAIN_ID).toBe('groq/openai/gpt-oss-20b');
+      expect(m.MISTRAL_CHAIN_ID).toBe('mistral/mistral-small-latest');
     });
 
     it('fait porter à la chaîne le modèle configuré, étiquette COMPRISE', async () => {
@@ -122,13 +122,13 @@ describe('identifiants de modèle', () => {
       const chain = makeModelChain({ geminiApiKey: 'k', groqApiKey: 'g', mistralApiKey: 'm' });
 
       expect(chain.map((e: { id: string }) => e.id)).toEqual([
-        'google/gemini-3.6-flash',
         'groq/openai/gpt-oss-20b',
+        'google/gemini-3.6-flash',
         'mistral/mistral-small-latest',
       ]);
       expect(chain.map((e: { model: { modelId: string } }) => e.model.modelId)).toEqual([
-        'gemini-3.6-flash',
         'openai/gpt-oss-20b',
+        'gemini-3.6-flash',
         'mistral-small-latest',
       ]);
     });
@@ -147,8 +147,8 @@ describe('identifiants de modèle', () => {
       process.env.GEMINI_MODEL_ID = 'gemini-3.6-flash';
       const chain = makeModelChain({ geminiApiKey: 'k', groqApiKey: 'g', mistralApiKey: 'm' });
 
-      expect(chain[0].id).toBe('google/gemini-3.6-flash');
-      expect(chain[0].model.modelId).toBe('gemini-3.6-flash');
+      expect(chain[1].id).toBe('google/gemini-3.6-flash');
+      expect(chain[1].model.modelId).toBe('gemini-3.6-flash');
     });
   });
 });

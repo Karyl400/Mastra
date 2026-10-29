@@ -6517,3 +6517,13 @@ Mesuré en production : l'orchestrateur a répondu `{"status":"refused","reason"
 personne. Aucun code n'écrit cette forme ; le modèle imite les résultats d'outils. Une réponse
 qui EST un objet JSON portant `status` ou `reason` est remplacée par `STATUS_OBJECT_REPLACEMENT`.
 Une phrase qui contient des accolades n'est pas touchée.
+
+## Ordre de la chaîne LLM : Groq, Gemini, Mistral (2026-10-29)
+
+Mesuré le 2026-10-29 sur un appel minimal : Gemini 7,5 s, Groq 1,1 s. Groq passe en tête, Gemini
+devient le premier repli. `mistral-large-latest` répondait 403 (« not available in your
+subscription tier ») : le défaut est `mistral-medium-latest`. Les étiquettes `PRIMARY_MODEL_ID`,
+`FALLBACK_MODEL_ID` et `LAST_RESORT_MODEL_ID` portaient un rang et mentaient dès que l'ordre
+changeait : elles s'appellent `GOOGLE_CHAIN_ID`, `GROQ_CHAIN_ID` et `MISTRAL_CHAIN_ID`. Le quota
+journalier de Groq, raison du passage à Gemini en tête le 2026-08-20, redevient la limite à
+surveiller.

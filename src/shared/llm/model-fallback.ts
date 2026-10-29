@@ -9,15 +9,15 @@ export const DEFAULT_GEMINI_MODEL_ID = 'gemini-3.5-flash';
 
 export const DEFAULT_GROQ_MODEL_ID = 'openai/gpt-oss-120b';
 
-export const DEFAULT_MISTRAL_MODEL_ID = 'mistral-large-latest';
+export const DEFAULT_MISTRAL_MODEL_ID = 'mistral-medium-latest';
 
 export interface ResolvedModelIds {
   readonly gemini: string;
   readonly groq: string;
   readonly mistral: string;
-  readonly primary: string;
-  readonly fallback: string;
-  readonly lastResort: string;
+  readonly googleChainId: string;
+  readonly groqChainId: string;
+  readonly mistralChainId: string;
 }
 
 export function resolveModelIds(env: NodeJS.ProcessEnv = process.env): ResolvedModelIds {
@@ -29,9 +29,9 @@ export function resolveModelIds(env: NodeJS.ProcessEnv = process.env): ResolvedM
     gemini,
     groq,
     mistral,
-    primary: `google/${gemini}`,
-    fallback: `groq/${groq}`,
-    lastResort: `mistral/${mistral}`,
+    googleChainId: `google/${gemini}`,
+    groqChainId: `groq/${groq}`,
+    mistralChainId: `mistral/${mistral}`,
   };
 }
 
@@ -39,9 +39,9 @@ export const {
   gemini: GEMINI_MODEL_ID,
   groq: GROQ_MODEL_ID,
   mistral: MISTRAL_MODEL_ID,
-  primary: PRIMARY_MODEL_ID,
-  fallback: FALLBACK_MODEL_ID,
-  lastResort: LAST_RESORT_MODEL_ID,
+  googleChainId: GOOGLE_CHAIN_ID,
+  groqChainId: GROQ_CHAIN_ID,
+  mistralChainId: MISTRAL_CHAIN_ID,
 } = resolveModelIds();
 
 export const LAST_RESORT_MAX_RETRIES = 1;
@@ -90,32 +90,32 @@ export function makeModelChain(deps: ModelChainDeps = {}): ModelWithRetries[] {
 
   const chain: Omit<ModelWithRetries, 'maxRetries'>[] = [];
 
-  if (geminiApiKey) {
-    chain.push({
-      id: ids.primary,
-      model: withChainFailureLogging(
-        createGoogleGenerativeAI({ apiKey: geminiApiKey })(ids.gemini),
-        { chainId: ids.primary, provider: 'google', modelId: ids.gemini },
-      ),
-    });
-  }
-
   if (groqApiKey) {
     chain.push({
-      id: ids.fallback,
+      id: ids.groqChainId,
       model: withChainFailureLogging(createGroq({ apiKey: groqApiKey })(ids.groq), {
-        chainId: ids.fallback,
+        chainId: ids.groqChainId,
         provider: 'groq',
         modelId: ids.groq,
       }),
     });
   }
 
+  if (geminiApiKey) {
+    chain.push({
+      id: ids.googleChainId,
+      model: withChainFailureLogging(
+        createGoogleGenerativeAI({ apiKey: geminiApiKey })(ids.gemini),
+        { chainId: ids.googleChainId, provider: 'google', modelId: ids.gemini },
+      ),
+    });
+  }
+
   if (mistralApiKey) {
     chain.push({
-      id: ids.lastResort,
+      id: ids.mistralChainId,
       model: withChainFailureLogging(createMistral({ apiKey: mistralApiKey })(ids.mistral), {
-        chainId: ids.lastResort,
+        chainId: ids.mistralChainId,
         provider: 'mistral',
         modelId: ids.mistral,
       }),
@@ -130,9 +130,9 @@ export function makeModelChain(deps: ModelChainDeps = {}): ModelWithRetries[] {
     );
 
     chain.push({
-      id: ids.primary,
+      id: ids.googleChainId,
       model: withChainFailureLogging(createGoogleGenerativeAI({ apiKey: '' })(ids.gemini), {
-        chainId: ids.primary,
+        chainId: ids.googleChainId,
         provider: 'google',
         modelId: ids.gemini,
       }),

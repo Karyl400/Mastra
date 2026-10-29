@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path';
  *
  * `CLAUDE.md` tient une liste de variables d'environnement déclarées mortes et « à purger ».
  * Le 2026-08-21, un audit y a trouvé **`GOOGLE_GEMINI_API_KEY`** — c'est-à-dire la clé du
- * modèle PRIMAIRE (`PRIMARY_MODEL_ID` vaut `google/gemini-3.5-flash` depuis le 2026-08-20).
+ * modèle PRIMAIRE (`GOOGLE_CHAIN_ID` vaut `google/gemini-3.5-flash` depuis le 2026-08-20).
  *
  * Ce qui rend ce défaut coûteux n'est pas l'erreur, c'est sa FORME :
  *
@@ -103,7 +103,7 @@ describe('la clé du modèle primaire', () => {
     const chain = readFileSync(join(ROOT, 'src/shared/llm/model-fallback.ts'), 'utf-8');
     expect(chain).toContain('GOOGLE_GEMINI_API_KEY');
 
-    const { PRIMARY_MODEL_ID } = await import('../../../src/shared/llm/model-fallback');
-    expect(PRIMARY_MODEL_ID.startsWith('google/')).toBe(true);
+    const { GOOGLE_CHAIN_ID } = await import('../../../src/shared/llm/model-fallback');
+    expect(GOOGLE_CHAIN_ID.startsWith('google/')).toBe(true);
   });
 });
