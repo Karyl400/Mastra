@@ -569,3 +569,17 @@ describe('sanitizeAgentOutput — pas de faux refus sur un mot contenant « kiss
     expect(result.redacted).toContain('delimiter');
   });
 });
+
+describe('sanitizeAgentOutput — une réponse en JSON de statut', () => {
+  it('remplace un objet status/reason par une phrase', () => {
+    const raw = JSON.stringify({ status: 'refused', reason: 'x', hint: 'y' }, null, 2);
+    const out = sanitizeAgentOutput(raw);
+    expect(out.text).not.toMatch(/[{}]/);
+    expect(out.text.length).toBeGreaterThan(20);
+  });
+
+  it('laisse intacte une phrase qui contient des accolades', () => {
+    const raw = 'Voici la forme : {a} et {b}.';
+    expect(sanitizeAgentOutput(raw).text).toContain('{a}');
+  });
+});

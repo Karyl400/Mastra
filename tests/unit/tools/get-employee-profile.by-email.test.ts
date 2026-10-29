@@ -93,7 +93,7 @@ describe('getEmployeeProfile — résolution par email (une étape en moins)', (
   it('INSTRUIT au lieu de lever quand aucun des deux champs n’est fourni', async () => {
     const { tool: t, findById, findByEmail } = tool();
 
-    const result = (await t.execute!(slackCaller(), slackCaller())) as {
+    const result = (await t.execute!({} as never, slackCaller({ employeeId: '' }))) as {
       found: boolean;
       reason: string;
       hint: string;

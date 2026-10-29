@@ -24,10 +24,32 @@ export interface SanitizedAgentOutput {
   strippedUrls: string[];
 }
 
+export const STATUS_OBJECT_REPLACEMENT =
+  "Je n'ai pas pu mener cette demande à terme. Dis-moi précisément ce que tu cherches, et je réessaie.";
+
+function isStatusObject(text: string): boolean {
+  if (!text.startsWith('{') || !text.endsWith('}')) return false;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      ('status' in parsed || 'reason' in parsed)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function sanitizeAgentOutput(raw: string | undefined | null): SanitizedAgentOutput {
   const text = (raw ?? '').trim();
 
   if (!text) return { text: NEUTRAL_REFUSAL, redacted: [], strippedUrls: [] };
+
+  if (isStatusObject(text)) {
+    return { text: STATUS_OBJECT_REPLACEMENT, redacted: [], strippedUrls: [] };
+  }
 
   const redacted = containsInternalMarkers(text);
 

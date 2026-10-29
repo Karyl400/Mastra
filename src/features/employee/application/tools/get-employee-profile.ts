@@ -9,6 +9,7 @@ import { logger } from '../../../../shared/logger';
 import {
   canReadPersonRecord,
   hasIdentifiedRequester,
+  readSlackContext,
   NO_REQUESTER_HINT,
 } from '../../../../shared/slack-request-context';
 import { reconcileProgress } from '../../../onboarding/domain/services/onboarding-plan';
@@ -54,7 +55,9 @@ export function makeGetEmployeeProfile(
 
       const email = data.email ? String(data.email).trim().toLowerCase() : undefined;
 
-      if (!data.employeeId && !email) {
+      const ownRecordId = readSlackContext(_ctx?.requestContext)?.employeeId || undefined;
+
+      if (!data.employeeId && !email && !ownRecordId) {
         return {
           found: false as const,
           reason: 'missing_identifier' as const,
@@ -86,7 +89,7 @@ export function makeGetEmployeeProfile(
         return project(resolved, await onboardingRepo.findByEmployee(resolved.id));
       }
 
-      const employeeId = data.employeeId as string;
+      const employeeId = (data.employeeId ?? ownRecordId) as string;
 
       if (!canReadPersonRecord(_ctx?.requestContext, employeeId)) {
         logger.warn('Lecture de profil refusée — demandeur non autorisé', { employeeId });
