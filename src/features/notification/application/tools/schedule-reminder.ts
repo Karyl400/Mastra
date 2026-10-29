@@ -20,6 +20,66 @@ import { deliveryLabel } from '../../domain/services/reminder-dispatch';
 const TRANSPORTED_CHANNELS = ['email', 'slack'] as const;
 const RECIPIENT_TYPES = ['employee', 'manager', 'hr', 'admin'] as const;
 
+function assertFutureDate(scheduledAt: string): void {
+  const when = Date.parse(scheduledAt);
+  if (Number.isNaN(when)) {
+    throw new ValidationError(
+      `Date de rappel illisible (ISO 8601 attendu, dans le futur) : ${scheduledAt}`,
+    );
+  }
+  if (when <= Date.now()) {
+    throw new ValidationError(
+      `Date de rappel déjà passée — elle doit être dans le futur : ${scheduledAt}`,
+    );
+  }
+}
+
+async function assertRecipientKnown(
+  employeeRepo: EmployeeRepository | undefined,
+  recipientId: string,
+): Promise<void> {
+  if (!employeeRepo) {
+    logger.warn(
+      "Annuaire non câblé : rappel enregistré sans vérifier l'existence du destinataire",
+      { recipientId },
+    );
+    return;
+  }
+
+  const recipient = await employeeRepo.findById(recipientId);
+  if (!recipient) {
+    logger.error("Destinataire du rappel introuvable dans l'annuaire — refusé", { recipientId });
+    throw new NotFoundError('Destinataire introuvable', recipientId);
+  }
+}
+
+function buildScheduledReminder(
+  data: { recipientId: string; subject: string; body: string; scheduledAt: string },
+  channel: string,
+  recipientType: RecipientType,
+) {
+  const safe = safeOutboundText(
+    { subject: data.subject, body: data.body },
+    { recipientId: data.recipientId, channel, tool: 'scheduleReminder' },
+  );
+
+  const notif = createNotification({
+    id: crypto.randomUUID(),
+    recipientId: data.recipientId,
+    recipientType,
+    channel: channel as NotificationChannel,
+    subject: safe.subject,
+    body: safe.body,
+  });
+
+  return {
+    ...notif,
+    status: NotificationStatus.Scheduled,
+    scheduledAt: data.scheduledAt,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export function makeScheduleReminder(
   repo: NotificationRepository,
   employeeRepo?: EmployeeRepository,
@@ -83,52 +143,10 @@ export function makeScheduleReminder(
         scheduledAt: data.scheduledAt,
       });
 
-      const when = Date.parse(data.scheduledAt);
-      if (Number.isNaN(when)) {
-        throw new ValidationError(
-          `Date de rappel illisible (ISO 8601 attendu, dans le futur) : ${data.scheduledAt}`,
-        );
-      }
-      if (when <= Date.now()) {
-        throw new ValidationError(
-          `Date de rappel déjà passée — elle doit être dans le futur : ${data.scheduledAt}`,
-        );
-      }
+      assertFutureDate(data.scheduledAt);
+      await assertRecipientKnown(employeeRepo, data.recipientId);
 
-      if (employeeRepo) {
-        const recipient = await employeeRepo.findById(data.recipientId);
-        if (!recipient) {
-          logger.error("Destinataire du rappel introuvable dans l'annuaire — refusé", {
-            recipientId: data.recipientId,
-          });
-          throw new NotFoundError('Destinataire introuvable', data.recipientId);
-        }
-      } else {
-        logger.warn(
-          "Annuaire non câblé : rappel enregistré sans vérifier l'existence du destinataire",
-          { recipientId: data.recipientId },
-        );
-      }
-
-      const safe = safeOutboundText(
-        { subject: data.subject, body: data.body },
-        { recipientId: data.recipientId, channel, tool: 'scheduleReminder' },
-      );
-
-      const notif = createNotification({
-        id: crypto.randomUUID(),
-        recipientId: data.recipientId,
-        recipientType,
-        channel: channel as NotificationChannel,
-        subject: safe.subject,
-        body: safe.body,
-      });
-      const scheduled = {
-        ...notif,
-        status: NotificationStatus.Scheduled,
-        scheduledAt: data.scheduledAt,
-        updatedAt: new Date().toISOString(),
-      };
+      const scheduled = buildScheduledReminder(data, channel, recipientType);
       await repo.save(scheduled);
       logger.info('Rappel enregistré', { id: scheduled.id, scheduledAt: scheduled.scheduledAt });
 

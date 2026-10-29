@@ -535,7 +535,7 @@ Un LLM peut émettre des champs hors schéma lors d'un appel direct (hors valida
 Mastra). On ne les utilise pas, mais on les journalise : une adresse proposée par le
 
 modèle est un signal de tentative d'injection.
-**Avant `const recipient = await employeeRepo.findById(data.recipientId);`**
+**Avant `const recipient = await employeeRepo.findById(recipientId);`**
 
 Phase 1 — Résolution (échoue bruyamment)
 
@@ -561,7 +561,7 @@ Le compte Slack se déduit de l'email d'annuaire : le LLM ne choisit ni le canal
 ni l'utilisateur. `chat.postMessage` accepte un identifiant utilisateur et ouvre
 
 la conversation directe correspondante.
-**Avant `let status: NotificationStatus;`**
+**Avant `const status = await deliver(`**
 
 Phase 2 — Envoi (un échec de transport est enregistré, pas propagé)
 

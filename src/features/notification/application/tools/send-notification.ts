@@ -55,6 +55,108 @@ async function resolveDestination(
   return member.id;
 }
 
+function warnIfDestinationSupplied(data: { recipientId: string }, channel: string): void {
+  const supplied = data as Record<string, unknown>;
+  if (supplied.recipientEmail !== undefined || supplied.recipientSlackId !== undefined) {
+    logger.warn(
+      'Destination fournie par le modèle ignorée — la résolution se fait depuis la base',
+      { recipientId: data.recipientId, channel },
+    );
+  }
+}
+
+async function deliver(
+  providers: { emailProvider: EmailProvider; chatProvider: ChatProvider },
+  route: { channel: string; destination: string },
+  safe: { subject: string; body: string },
+  recipientId: string,
+): Promise<NotificationStatus> {
+  try {
+    if (route.channel === 'email') {
+      await providers.emailProvider.sendEmail(
+        route.destination,
+        safe.subject,
+        textEmailBody(safe.body),
+      );
+    } else {
+      await providers.chatProvider.sendMessage(
+        route.destination,
+        `*${safe.subject}*\n\n${safe.body}`,
+      );
+    }
+    return NotificationStatus.Sent;
+  } catch (e: unknown) {
+    logger.error("Erreur lors de l'envoi de la notification", {
+      error: errorMessage(e),
+      recipientId,
+      channel: route.channel,
+    });
+    return NotificationStatus.Failed;
+  }
+}
+
+function buildSentNotification(
+  recipientId: string,
+  recipientType: RecipientType,
+  channel: string,
+  safe: { subject: string; body: string },
+  status: NotificationStatus,
+) {
+  const notif = createNotification({
+    id: crypto.randomUUID(),
+    recipientId,
+    recipientType,
+    channel: channel as NotificationChannel,
+    subject: safe.subject,
+    body: safe.body,
+  });
+
+  return {
+    ...notif,
+    status,
+    sentAt: status === NotificationStatus.Sent ? new Date().toISOString() : null,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function requireRecipient(
+  employeeRepo: EmployeeRepository,
+  recipientId: string,
+  recipientType: RecipientType,
+  channel: string,
+) {
+  const recipient = await employeeRepo.findById(recipientId);
+  if (!recipient) {
+    logger.error("Destinataire introuvable dans l'annuaire — envoi refusé", {
+      recipientId,
+      recipientType,
+      channel,
+    });
+    throw new NotFoundError('Destinataire introuvable', recipientId);
+  }
+  return recipient;
+}
+
+const sendNotificationInput = z.object({
+  recipientId: uuidSchema.describe('UUID annuaire ; adresse résolue côté serveur.'),
+  subject: z.string().min(1).max(200).describe('rédige-le, ne le demande pas'),
+  body: z.string().min(1).max(5000).describe('rédige-le, ne le demande pas'),
+  channel: z.enum(TRANSPORTED_CHANNELS).default('email'),
+  recipientType: z.enum(RECIPIENT_TYPES).default('employee'),
+});
+
+function refuseIfNotAllowed(requestContext: unknown, recipientId: string) {
+  if (canPerformSideEffects(requestContext, recipientId)) {
+    return null;
+  }
+  logger.warn('sendNotification refusé : le demandeur n’a pas le niveau requis', { recipientId });
+  return {
+    sent: false,
+    reason: 'not_authorized',
+    hint: 'Tu ne peux agir que sur ton propre dossier — celui de quelqu’un d’autre est réservé au manager. Dis-le simplement, ne réessaie pas.',
+  };
+}
+
 export function makeSendNotification(
   repo: NotificationRepository,
   employeeRepo: EmployeeRepository,
@@ -69,13 +171,7 @@ export function makeSendNotification(
     description:
       'Envoie un message à un employé enregistré, désigné par son recipientId — ' +
       'jamais par une adresse.',
-    inputSchema: z.object({
-      recipientId: uuidSchema.describe('UUID annuaire ; adresse résolue côté serveur.'),
-      subject: z.string().min(1).max(200).describe('rédige-le, ne le demande pas'),
-      body: z.string().min(1).max(5000).describe('rédige-le, ne le demande pas'),
-      channel: z.enum(TRANSPORTED_CHANNELS).default('email'),
-      recipientType: z.enum(RECIPIENT_TYPES).default('employee'),
-    }),
+    inputSchema: sendNotificationInput,
     execute: async (data, _ctx) => {
       const refused = noRequesterRefusal(_ctx?.requestContext, 'sendNotification', {
         sent: false as const,
@@ -83,15 +179,9 @@ export function makeSendNotification(
       if (refused) {
         return refused;
       }
-      if (!canPerformSideEffects(_ctx?.requestContext, data.recipientId)) {
-        logger.warn('sendNotification refusé : le demandeur n’a pas le niveau requis', {
-          recipientId: data.recipientId,
-        });
-        return {
-          sent: false,
-          reason: 'not_authorized',
-          hint: 'Tu ne peux agir que sur ton propre dossier — celui de quelqu’un d’autre est réservé au manager. Dis-le simplement, ne réessaie pas.',
-        };
+      const notAuthorized = refuseIfNotAllowed(_ctx?.requestContext, data.recipientId);
+      if (notAuthorized) {
+        return notAuthorized;
       }
 
       const channel = data.channel ?? 'email';
@@ -114,23 +204,14 @@ export function makeSendNotification(
         subject: data.subject,
       });
 
-      const supplied = data as Record<string, unknown>;
-      if (supplied.recipientEmail !== undefined || supplied.recipientSlackId !== undefined) {
-        logger.warn(
-          'Destination fournie par le modèle ignorée — la résolution se fait depuis la base',
-          { recipientId: data.recipientId, channel },
-        );
-      }
+      warnIfDestinationSupplied(data, channel);
 
-      const recipient = await employeeRepo.findById(data.recipientId);
-      if (!recipient) {
-        logger.error("Destinataire introuvable dans l'annuaire — envoi refusé", {
-          recipientId: data.recipientId,
-          recipientType,
-          channel,
-        });
-        throw new NotFoundError('Destinataire introuvable', data.recipientId);
-      }
+      const recipient = await requireRecipient(
+        employeeRepo,
+        data.recipientId,
+        recipientType,
+        channel,
+      );
 
       const destination = await resolveDestination(slackWorkspace, {
         recipientId: data.recipientId,
@@ -138,45 +219,18 @@ export function makeSendNotification(
         channel,
       });
 
-      let status: NotificationStatus;
-
       const safe = safeOutboundText(
         { subject: data.subject, body: data.body },
         { recipientId: data.recipientId, channel, tool: 'sendNotification' },
       );
 
-      try {
-        if (channel === 'email') {
-          await emailProvider.sendEmail(destination, safe.subject, textEmailBody(safe.body));
-        } else {
-          await chatProvider.sendMessage(destination, `*${safe.subject}*\n\n${safe.body}`);
-        }
-        status = NotificationStatus.Sent;
-      } catch (e: unknown) {
-        const message = errorMessage(e);
-        logger.error("Erreur lors de l'envoi de la notification", {
-          error: message,
-          recipientId: data.recipientId,
-          channel,
-        });
-        status = NotificationStatus.Failed;
-      }
-
-      const notif = createNotification({
-        id: crypto.randomUUID(),
-        recipientId: data.recipientId,
-        recipientType,
-        channel: channel as NotificationChannel,
-        subject: safe.subject,
-        body: safe.body,
-      });
-
-      const sent = {
-        ...notif,
-        status,
-        sentAt: status === NotificationStatus.Sent ? new Date().toISOString() : null,
-        updatedAt: new Date().toISOString(),
-      };
+      const status = await deliver(
+        { emailProvider, chatProvider },
+        { channel, destination },
+        safe,
+        data.recipientId,
+      );
+      const sent = buildSentNotification(data.recipientId, recipientType, channel, safe, status);
 
       await repo.save(sent);
       logger.info('Notification enregistrée', { id: sent.id, status });
