@@ -78,6 +78,61 @@ function recordAndAudit(
   });
 }
 
+type ShortCircuitInput = Parameters<typeof findActingReply>[0];
+
+async function settleEarly(
+  self: SlackHandlerInternals,
+  context: MessageContext,
+  shortCircuitInput: ShortCircuitInput,
+) {
+  const { user, channel, text, threadTs, isDirectMessage, conversationId, requesterIdentity } =
+    context;
+  const { history } = context;
+
+  if (
+    await runStaticReply(self, {
+      input: shortCircuitInput,
+      history,
+      channel,
+      threadTs,
+      conversationId,
+      user,
+    })
+  ) {
+    return { settled: true as const };
+  }
+
+  const pendingEmail = await resolvePendingEmail(self, {
+    text,
+    channel,
+    threadTs,
+    user,
+    conversationId,
+    history,
+  });
+  if (pendingEmail.handled) {
+    return { settled: true as const };
+  }
+
+  const pendingStep = pendingOnboardingStep(history, isDirectMessage);
+
+  const advanced = await self.maybeAdvanceOnboarding({
+    history,
+    isDirectMessage,
+    text,
+    channel,
+    threadTs,
+    conversationId,
+    user,
+    employeeId: (await requesterIdentity).employeeId,
+  });
+  if (advanced) {
+    return { settled: true as const };
+  }
+
+  return { settled: false as const, pendingEmail, pendingStep };
+}
+
 export async function handleMessage(
   self: SlackHandlerInternals,
   event: SlackMessageEvent,
@@ -105,47 +160,11 @@ export async function handleMessage(
     isDirectMessage,
     messageTs: event.ts,
   };
-  if (
-    await runStaticReply(self, {
-      input: shortCircuitInput,
-      history,
-      channel,
-      threadTs,
-      conversationId,
-      user,
-    })
-  ) {
+  const early = await settleEarly(self, context, shortCircuitInput);
+  if (early.settled) {
     return;
   }
-
-  const pendingEmail = await resolvePendingEmail(self, {
-    text,
-    channel,
-    threadTs,
-    user,
-    conversationId,
-    history,
-  });
-  if (pendingEmail.handled) {
-    return;
-  }
-
-  const pendingStep = pendingOnboardingStep(history, isDirectMessage);
-
-  if (
-    await self.maybeAdvanceOnboarding({
-      history,
-      isDirectMessage,
-      text,
-      channel,
-      threadTs,
-      conversationId,
-      user,
-      employeeId: (await requesterIdentity).employeeId,
-    })
-  ) {
-    return;
-  }
+  const { pendingEmail, pendingStep } = early;
 
   const acting = findActingReply(shortCircuitInput);
 

@@ -41,25 +41,12 @@ function tryGetAgent(self: SlackHandlerInternals, agentId: string) {
   }
 }
 
-export async function runAgentTurn(
+async function routeAndResolve(
   self: SlackHandlerInternals,
   ctx: AgentPipelineContext,
   state: AgentTurnState,
-): Promise<StepOutcome> {
-  const {
-    event,
-    text,
-    channel,
-    threadTs,
-    user,
-    conversationId,
-    history,
-    requesterIdentity,
-    accessLevel,
-    progress,
-    pendingEmailReminder,
-    onboardingReminder,
-  } = ctx;
+) {
+  const { text, user, history, progress } = ctx;
 
   const stickyAgentId = history.at(-1)?.agentId;
   const agentId = self.routeToAgent(text, stickyAgentId);
@@ -73,61 +60,49 @@ export async function runAgentTurn(
 
   state.phase = 'resolve-agent';
   const agent = tryGetAgent(self, agentId);
-  if (!agent) {
-    await progress.resolve(
-      "Je n'arrive pas à traiter ta demande — c'est un problème de mon côté. Réessaie, et " +
-        'si ça recommence, remonte-le.',
-    );
-    logger.error('Agent introuvable dans le registre Mastra', { agentId });
-    auditAgentRun(self, {
-      user,
-      agentId,
-      status: 'failure',
-      errorMessage: 'agent_unresolved',
-      details: { phase: state.phase, durationMs: Date.now() - state.startedAt },
-    });
-    return 'blocked';
+  if (agent) {
+    return { agentId, agent };
   }
 
-  state.phase = 'wrap';
-  const safeInput = wrapAgentInput(text);
-
-  const remember = turnRecorder(history);
-
-  await remember(self, {
-    conversationId,
-    role: 'user',
-    content: unwrapSanitizedInput(safeInput, text),
-    agentId,
-    slackUserId: user ?? null,
-  });
-
-  state.phase = 'generate';
-  const identity = await requesterIdentity;
-
-  const pinnedFacts = await loadPinnedFacts(self, user);
-
-  const requestContext = buildSlackRequestContext({
-    channel,
-    threadTs,
-    eventTs: event.ts,
-    slackUserId: user,
-    employeeId: identity.employeeId ?? undefined,
-    accessLevel,
-  });
-
-  const response = await agent.generate(
-    buildMessages(self, history, safeInput, {
-      agentId,
-      slackUserId: user,
-      identity,
-      pinnedFacts,
-    }),
-    {
-      requestContext,
-      ...agentCallBounds(ctx.deadline, Date.now()),
-    },
+  await progress.resolve(
+    "Je n'arrive pas à traiter ta demande — c'est un problème de mon côté. Réessaie, et " +
+      'si ça recommence, remonte-le.',
   );
+  logger.error('Agent introuvable dans le registre Mastra', { agentId });
+  auditAgentRun(self, {
+    user,
+    agentId,
+    status: 'failure',
+    errorMessage: 'agent_unresolved',
+    details: { phase: state.phase, durationMs: Date.now() - state.startedAt },
+  });
+  return null;
+}
+
+type Remember = ReturnType<typeof turnRecorder>;
+type ResolvedAgent = NonNullable<Awaited<ReturnType<typeof routeAndResolve>>>;
+
+async function publishAnswer(
+  self: SlackHandlerInternals,
+  ctx: AgentPipelineContext,
+  state: AgentTurnState,
+  run: {
+    agentId: string;
+    response: Awaited<ReturnType<ResolvedAgent['agent']['generate']>>;
+    requestContext: ReturnType<typeof buildSlackRequestContext>;
+    remember: Remember;
+  },
+): Promise<StepOutcome> {
+  const {
+    text,
+    channel,
+    user,
+    conversationId,
+    progress,
+    pendingEmailReminder,
+    onboardingReminder,
+  } = ctx;
+  const { agentId, response, requestContext, remember } = run;
   const durationMs = Date.now() - state.startedAt;
 
   state.phase = 'sanitize';
@@ -145,8 +120,7 @@ export async function runAgentTurn(
   });
 
   const toolCalls = readToolCallNames(response);
-  const loanDelivered = readLoanDelivered(requestContext);
-  const acted = loanDelivered !== undefined;
+  const acted = readLoanDelivered(requestContext) !== undefined;
   const { unsupportedClaim, deliveryPromise } = requalifyClaims(
     { toolCalls, acted, answer: safeOutput.text },
     { agentId, channel, conversationId },
@@ -196,4 +170,60 @@ export async function runAgentTurn(
   });
 
   return readStepBlocked(requestContext) ? 'blocked' : 'served';
+}
+
+export async function runAgentTurn(
+  self: SlackHandlerInternals,
+  ctx: AgentPipelineContext,
+  state: AgentTurnState,
+): Promise<StepOutcome> {
+  const { event, text, channel, threadTs, user, conversationId, history, requesterIdentity } = ctx;
+
+  const resolved = await routeAndResolve(self, ctx, state);
+  if (!resolved) {
+    return 'blocked';
+  }
+  const { agentId, agent } = resolved;
+
+  state.phase = 'wrap';
+  const safeInput = wrapAgentInput(text);
+
+  const remember = turnRecorder(history);
+
+  await remember(self, {
+    conversationId,
+    role: 'user',
+    content: unwrapSanitizedInput(safeInput, text),
+    agentId,
+    slackUserId: user ?? null,
+  });
+
+  state.phase = 'generate';
+  const identity = await requesterIdentity;
+
+  const pinnedFacts = await loadPinnedFacts(self, user);
+
+  const requestContext = buildSlackRequestContext({
+    channel,
+    threadTs,
+    eventTs: event.ts,
+    slackUserId: user,
+    employeeId: identity.employeeId ?? undefined,
+    accessLevel: ctx.accessLevel,
+  });
+
+  const response = await agent.generate(
+    buildMessages(self, history, safeInput, {
+      agentId,
+      slackUserId: user,
+      identity,
+      pinnedFacts,
+    }),
+    {
+      requestContext,
+      ...agentCallBounds(ctx.deadline, Date.now()),
+    },
+  );
+
+  return publishAnswer(self, ctx, state, { agentId, response, requestContext, remember });
 }
