@@ -56,6 +56,10 @@ function toSummary(n: Notification): NotificationSummary {
   return { channel: n.channel, status: honestStatus(n.status), subject, at: dateOf(n) };
 }
 
+function emptyHistory<R extends string>(reason: R, hint: string) {
+  return { notifications: [], total: 0, shown: 0, reason, hint };
+}
+
 export function makeGetNotificationHistory(
   repo: NotificationRepository,
   employeeRepo?: { findByEmail(email: string): Promise<{ id: string } | null> },
@@ -83,49 +87,34 @@ export function makeGetNotificationHistory(
       const email = data.email ? String(data.email).trim().toLowerCase() : undefined;
 
       if (!data.recipientId && !email) {
-        return {
-          notifications: [],
-          total: 0,
-          shown: 0,
-          reason: 'missing_identifier' as const,
-          hint: "Précise QUI : l'email ou l'identifiant du destinataire.",
-        };
+        return emptyHistory(
+          'missing_identifier',
+          "Précise QUI : l'email ou l'identifiant du destinataire.",
+        );
       }
 
       let recipientId = data.recipientId;
 
       if (!recipientId && email) {
         if (!employeeRepo) {
-          return {
-            notifications: [],
-            total: 0,
-            shown: 0,
-            reason: 'missing_identifier' as const,
-            hint: "Donne l'identifiant du destinataire : la recherche par email n'est pas disponible ici.",
-          };
+          return emptyHistory(
+            'missing_identifier',
+            "Donne l'identifiant du destinataire : la recherche par email n'est pas disponible ici.",
+          );
         }
 
         const resolved = await employeeRepo.findByEmail(email);
 
         if (!canReadPersonRecord(_ctx?.requestContext, resolved?.id ?? null)) {
           logger.warn('Lecture d’historique refusée — demandeur non autorisé (par email)');
-          return {
-            notifications: [],
-            total: 0,
-            shown: 0,
-            reason: 'not_authorized' as const,
-            hint: NOT_AUTHORIZED_HINT,
-          };
+          return emptyHistory('not_authorized', NOT_AUTHORIZED_HINT);
         }
 
         if (!resolved) {
-          return {
-            notifications: [],
-            total: 0,
-            shown: 0,
-            reason: 'recipient_not_found' as const,
-            hint: "Aucun employé ne porte cette adresse. Ne l'invente pas : demande-la.",
-          };
+          return emptyHistory(
+            'recipient_not_found',
+            "Aucun employé ne porte cette adresse. Ne l'invente pas : demande-la.",
+          );
         }
 
         recipientId = resolved.id;
@@ -135,13 +124,7 @@ export function makeGetNotificationHistory(
         logger.warn('Lecture d’historique refusée — demandeur non autorisé', {
           recipientId,
         });
-        return {
-          notifications: [],
-          total: 0,
-          shown: 0,
-          reason: 'not_authorized' as const,
-          hint: NOT_AUTHORIZED_HINT,
-        };
+        return emptyHistory('not_authorized', NOT_AUTHORIZED_HINT);
       }
 
       logger.info('Récupération historique notifications', { recipientId });

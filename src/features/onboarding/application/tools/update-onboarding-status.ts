@@ -63,60 +63,70 @@ export function makeUpdateOnboardingStatus(repo: OnboardingRepository) {
         return already;
       }
 
-      logger.info('Mise à jour statut onboarding', {
-        employeeId: data.employeeId,
-        status: data.status,
-      });
+      const result = await persistStatus(repo, data);
 
-      const progress = await repo.findByEmployee(data.employeeId);
-
-      if (!progress) {
-        logger.warn("Aucun suivi d'intégration pour cet employé — mise à jour impossible", {
-          employeeId: data.employeeId,
-        });
-
-        return {
-          updated: false as const,
-          reason: 'no_onboarding_progress' as const,
-          hint: NO_PROGRESS_HINT,
-        };
-      }
-
-      const now = new Date().toISOString();
-      const updated = {
-        ...progress,
-        ...clampToPlan(data.currentStep ?? progress.currentStep),
-        status: data.status,
-        updatedAt: now,
-        startedAt: progress.startedAt ?? (data.status === OnboardingStatus.InProgress ? now : null),
-        completedAt: data.status === OnboardingStatus.Completed ? now : null,
-      };
-
-      const affected = await repo.update(updated);
-
-      if (affected === 0) {
-        logger.warn('Mise à jour du statut sans effet — aucune ligne affectée', {
-          employeeId: data.employeeId,
-        });
-        return {
-          updated: false as const,
-          reason: 'not_persisted' as const,
-          hint: "La mise à jour n'a pas été enregistrée. Ne dis pas qu'elle est faite ; propose de réessayer.",
-        };
-      }
-
-      const result = {
-        updated: true as const,
-        status: updated.status,
-        currentStep: updated.currentStep,
-        totalSteps: updated.totalSteps,
-      };
-
-      if (runKey) {
+      if (result.updated && runKey) {
         runGuard.remember(runKey, result);
       }
 
       return result;
     },
   });
+}
+
+interface StatusUpdateInput {
+  employeeId: string;
+  status: OnboardingStatus;
+  currentStep?: number;
+}
+
+async function persistStatus(repo: OnboardingRepository, data: StatusUpdateInput) {
+  logger.info('Mise à jour statut onboarding', {
+    employeeId: data.employeeId,
+    status: data.status,
+  });
+
+  const progress = await repo.findByEmployee(data.employeeId);
+
+  if (!progress) {
+    logger.warn("Aucun suivi d'intégration pour cet employé — mise à jour impossible", {
+      employeeId: data.employeeId,
+    });
+
+    return {
+      updated: false as const,
+      reason: 'no_onboarding_progress' as const,
+      hint: NO_PROGRESS_HINT,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const updated = {
+    ...progress,
+    ...clampToPlan(data.currentStep ?? progress.currentStep),
+    status: data.status,
+    updatedAt: now,
+    startedAt: progress.startedAt ?? (data.status === OnboardingStatus.InProgress ? now : null),
+    completedAt: data.status === OnboardingStatus.Completed ? now : null,
+  };
+
+  const affected = await repo.update(updated);
+
+  if (affected === 0) {
+    logger.warn('Mise à jour du statut sans effet — aucune ligne affectée', {
+      employeeId: data.employeeId,
+    });
+    return {
+      updated: false as const,
+      reason: 'not_persisted' as const,
+      hint: "La mise à jour n'a pas été enregistrée. Ne dis pas qu'elle est faite ; propose de réessayer.",
+    };
+  }
+
+  return {
+    updated: true as const,
+    status: updated.status,
+    currentStep: updated.currentStep,
+    totalSteps: updated.totalSteps,
+  };
 }
